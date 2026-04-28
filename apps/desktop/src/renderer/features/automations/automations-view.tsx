@@ -16,6 +16,7 @@ import { Plus, AlignJustify } from "lucide-react"
 import { useIsMobile } from "../../lib/hooks/use-mobile"
 import { remoteTrpc } from "../../lib/remote-trpc"
 import { useQuery } from "@tanstack/react-query"
+import { AgentsHeaderControls } from "../agents/ui/agents-header-controls"
 
 import {
   AutomationCard,
@@ -126,6 +127,20 @@ export function AutomationsView() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden" data-automations-page>
+      {/* Drag region for window — interactive children opt out via
+          WebkitAppRegion: "no-drag". Mirrors the new-workspace top bar. */}
+      <div
+        className="flex-shrink-0 flex items-center p-1.5"
+        style={{
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "drag",
+        }}
+      >
+        <AgentsHeaderControls
+          isSidebarOpen={sidebarOpen}
+          onToggleSidebar={handleSidebarToggle}
+        />
+      </div>
       <div className="flex-1 overflow-y-auto px-4 md:px-2 py-4">
         <div className={isMobile ? "max-w-full" : "max-w-2xl mx-auto"}>
           {/* Header */}

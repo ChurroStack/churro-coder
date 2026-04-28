@@ -406,8 +406,15 @@ export function AutomationsDetailView() {
 
   return (
     <div className="flex flex-col h-full" data-automations-page>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3">
+      {/* Header — drag region for window; interactive children opt out
+          via WebkitAppRegion: "no-drag". */}
+      <div
+        className="flex items-center justify-between px-4 py-3"
+        style={{
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "drag",
+        }}
+      >
         <button
           onClick={handleBack}
           className="h-7 w-7 p-0 flex items-center justify-center hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md text-muted-foreground hover:text-foreground"

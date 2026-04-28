@@ -1,9 +1,11 @@
-import { useAtomValue, useSetAtom } from "jotai"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { useEffect } from "react"
 import {
   agentsSettingsDialogActiveTabAtom,
+  agentsSidebarOpenAtom,
   devToolsUnlockedAtom,
 } from "../../lib/atoms"
+import { AgentsHeaderControls } from "../agents/ui/agents-header-controls"
 import { desktopViewAtom } from "../agents/atoms"
 import { AgentsAppearanceTab } from "../../components/dialogs/settings-tabs/agents-appearance-tab"
 import { AgentsBetaTab } from "../../components/dialogs/settings-tabs/agents-beta-tab"
@@ -26,6 +28,7 @@ export function SettingsContent() {
   const devToolsUnlocked = useAtomValue(devToolsUnlockedAtom)
   const showDebugTab = isDevelopment || devToolsUnlocked
   const setDesktopView = useSetAtom(desktopViewAtom)
+  const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
 
   // Escape key closes settings
   useEffect(() => {
@@ -73,18 +76,44 @@ export function SettingsContent() {
   // Two-panel tabs need full width and height, no scroll wrapper
   const isTwoPanelTab = activeTab === "mcp" || activeTab === "skills" || activeTab === "agents" || activeTab === "projects" || activeTab === "keyboard" || activeTab === "plugins"
 
+  // Drag region for window — child buttons opt out via
+  // WebkitAppRegion: "no-drag" so clicks still register. min-h matches
+  // the sidebar's "Back" button row (px-2 pt-3 pb-2 + h-7 = 48px) so
+  // both halves of the settings view share a visually-aligned top bar
+  // even when AgentsHeaderControls renders nothing (sidebar open).
+  const dragBar = (
+    <div
+      className="flex-shrink-0 flex items-center px-2 pt-3 pb-2 min-h-12"
+      style={{
+        // @ts-expect-error - WebKit-specific property
+        WebkitAppRegion: "drag",
+      }}
+    >
+      <AgentsHeaderControls
+        isSidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+      />
+    </div>
+  )
+
   if (isTwoPanelTab) {
     return (
-      <div className="h-full overflow-hidden">
-        {renderTabContent()}
+      <div className="h-full flex flex-col overflow-hidden">
+        {dragBar}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {renderTabContent()}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-5xl mx-auto">
-        {renderTabContent()}
+    <div className="h-full flex flex-col overflow-hidden">
+      {dragBar}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-5xl mx-auto">
+          {renderTabContent()}
+        </div>
       </div>
     </div>
   )

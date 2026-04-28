@@ -537,9 +537,16 @@ export function InboxView() {
       <div className="flex h-full flex-col bg-background" data-mobile-view data-inbox-page>
         {mobileViewMode === "list" ? (
           <>
-            {/* Mobile Header */}
+            {/* Mobile Header — drag region for window; interactive
+                children opt out via WebkitAppRegion: "no-drag". */}
             <div className="flex-shrink-0 border-b bg-background">
-              <div className="h-14 flex items-center justify-between px-4">
+              <div
+                className="h-14 flex items-center justify-between px-4"
+                style={{
+                  // @ts-expect-error - WebKit-specific property
+                  WebkitAppRegion: "drag",
+                }}
+              >
                 <div
                   className="flex items-center gap-2"
                   style={{

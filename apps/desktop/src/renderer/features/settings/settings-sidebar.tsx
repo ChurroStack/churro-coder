@@ -189,11 +189,22 @@ export function SettingsSidebar() {
 
   return (
     <div className="flex flex-col h-full bg-tl-background" data-sidebar-content>
-      {/* Back button */}
-      <div className="px-2 pt-3 pb-2">
+      {/* Back button — drag region for window; the button itself opts
+          out via WebkitAppRegion: "no-drag". */}
+      <div
+        className="px-2 pt-3 pb-2"
+        style={{
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "drag",
+        }}
+      >
         <button
           onClick={handleBack}
           className="inline-flex items-center gap-2 w-full text-left px-3 py-1.5 text-sm h-7 rounded-md text-muted-foreground hover:text-foreground font-medium transition-colors cursor-pointer"
+          style={{
+            // @ts-expect-error - WebKit-specific property
+            WebkitAppRegion: "no-drag",
+          }}
         >
           <ChevronLeft className="h-4 w-4" />
           <span>Back</span>

@@ -71,8 +71,15 @@ export function UsageContent() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Header bar — mirrors kanban layout */}
-      <div className="flex-shrink-0 flex items-center p-1.5">
+      {/* Header bar — mirrors kanban layout. Drag region for window;
+          interactive children opt out via WebkitAppRegion: "no-drag". */}
+      <div
+        className="flex-shrink-0 flex items-center p-1.5"
+        style={{
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "drag",
+        }}
+      >
         {isMobile ? (
           <Button
             variant="ghost"
@@ -80,6 +87,10 @@ export function UsageContent() {
             onClick={() => setDesktopView(null)}
             className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground flex-shrink-0 rounded-md"
             aria-label="Back"
+            style={{
+              // @ts-expect-error - WebKit-specific property
+              WebkitAppRegion: "no-drag",
+            }}
           >
             <AlignJustify className="h-4 w-4" />
           </Button>

@@ -409,8 +409,15 @@ export function KanbanView() {
 
   return (
     <div className="flex flex-col h-full w-full bg-background">
-      {/* Header with sidebar toggle */}
-      <div className="flex-shrink-0 flex items-center p-1.5">
+      {/* Header with sidebar toggle. Drag region for window;
+          interactive children opt out via WebkitAppRegion: "no-drag". */}
+      <div
+        className="flex-shrink-0 flex items-center p-1.5"
+        style={{
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "drag",
+        }}
+      >
         <AgentsHeaderControls
           isSidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
