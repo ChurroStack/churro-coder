@@ -394,6 +394,11 @@ async function main() {
     process.exit(1)
   }
 
+  fs.writeFileSync(
+    path.join(BIN_DIR, "CODEX_VERSION"),
+    `${version}\n${new Date().toISOString()}\n`,
+  )
+
   console.log("\n✓ All downloads completed successfully!")
 }
 

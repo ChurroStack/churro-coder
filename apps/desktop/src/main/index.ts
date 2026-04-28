@@ -299,27 +299,31 @@ if (gotTheLock) {
     // This helps diagnose first-install issues where the protocol isn't recognized yet
     verifyProtocolRegistration()
 
-    // Get Claude Code version for About panel
-    let claudeCodeVersion = "unknown"
-    try {
-      const isDev = !app.isPackaged
-      const versionPath = isDev
-        ? join(app.getAppPath(), "resources/bin/VERSION")
-        : join(process.resourcesPath, "bin/VERSION")
+    // Get bundled CLI versions for About panel
+    const isDev = !app.isPackaged
+    const binDir = isDev
+      ? join(app.getAppPath(), "resources/bin")
+      : join(process.resourcesPath, "bin")
 
-      if (existsSync(versionPath)) {
-        const versionContent = readFileSync(versionPath, "utf-8")
-        claudeCodeVersion = versionContent.split("\n")[0]?.trim() || "unknown"
+    const readBundledVersion = (fileName: string, label: string): string => {
+      try {
+        const versionPath = join(binDir, fileName)
+        if (existsSync(versionPath)) {
+          const versionContent = readFileSync(versionPath, "utf-8")
+          return versionContent.split("\n")[0]?.trim() || "unknown"
+        }
+      } catch (error) {
+        console.warn(`[App] Failed to read ${label} version:`, error)
       }
-    } catch (error) {
-      console.warn("[App] Failed to read Claude Code version:", error)
+      return "unknown"
     }
 
-    // Set About panel options with Claude Code version
+    const claudeCodeVersion = readBundledVersion("VERSION", "Claude Code")
+    const codexVersion = readBundledVersion("CODEX_VERSION", "Codex")
+
     app.setAboutPanelOptions({
       applicationName: "CS Coder",
-      applicationVersion: app.getVersion(),
-      version: `Claude Code ${claudeCodeVersion}`,
+      applicationVersion: `${app.getVersion()}\nClaude Code ${claudeCodeVersion} · Codex ${codexVersion}`,
       copyright: "Copyright © 2026 ChurroStack",
     })
 

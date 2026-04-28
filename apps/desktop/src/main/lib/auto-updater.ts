@@ -1,6 +1,5 @@
 import { BrowserWindow, ipcMain, app } from "electron"
 import log from "electron-log"
-import { autoUpdater, type UpdateInfo, type ProgressInfo } from "electron-updater"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { join } from "path"
 

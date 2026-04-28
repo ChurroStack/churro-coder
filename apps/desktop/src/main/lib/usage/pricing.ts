@@ -50,8 +50,10 @@ const PRICING_TABLE: ReadonlyArray<readonly [string, PricingEntry]> = [
   ["claude-3-haiku",    { displayName: "Haiku 3",    provider: "claude", rates: { input: 0.25, output: 1.25, cacheWrite: 0.3, cacheRead: 0.03 } }],
 
   // Codex / OpenAI — Codex CLI reports `cached_input_tokens` (no cache-write distinction)
+  ["gpt-5.5",       { displayName: "GPT-5.5",      provider: "codex", rates: { input: 5,    output: 30,   cacheRead: 0.5 } }],
   ["gpt-5.4-mini",  { displayName: "GPT-5.4 mini", provider: "codex", rates: { input: 0.75, output: 4.5,  cacheRead: 0.075 } }],
   ["gpt-5.4",       { displayName: "GPT-5.4",      provider: "codex", rates: { input: 2.5,  output: 15,   cacheRead: 0.25 } }],
+  ["gpt-5.3-codex-spark", { displayName: "GPT-5.3 Codex Spark", provider: "codex", rates: { input: 1.75, output: 14, cacheRead: 0.175 } }],
   ["gpt-5.3-codex", { displayName: "GPT-5.3 Codex",provider: "codex", rates: { input: 1.75, output: 14,   cacheRead: 0.175 } }],
   ["gpt-5.2-codex", { displayName: "GPT-5.2 Codex",provider: "codex", rates: { input: 1.75, output: 14,   cacheRead: 0.175 } }],
   ["gpt-5-codex",   { displayName: "GPT-5 Codex",  provider: "codex", rates: { input: 1.25, output: 10 } }],
