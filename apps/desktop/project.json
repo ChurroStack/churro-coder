@@ -1,0 +1,53 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "desktop",
+  "projectType": "application",
+  "sourceRoot": "apps/desktop/src",
+  "tags": ["scope:desktop", "stack:electron"],
+  "targets": {
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/desktop",
+        "command": "bun run dev"
+      },
+      "continuous": true
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["production", "^production"],
+      "outputs": ["{projectRoot}/out"],
+      "options": {
+        "cwd": "apps/desktop",
+        "command": "bun run build"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "cwd": "apps/desktop",
+        "command": "bun run typecheck"
+      }
+    },
+    "package": {
+      "executor": "nx:run-commands",
+      "outputs": ["{projectRoot}/release"],
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "apps/desktop",
+        "command": "bun run package"
+      }
+    },
+    "dist": {
+      "executor": "nx:run-commands",
+      "outputs": ["{projectRoot}/release"],
+      "dependsOn": ["build"],
+      "options": {
+        "cwd": "apps/desktop",
+        "command": "bun run dist"
+      }
+    }
+  }
+}

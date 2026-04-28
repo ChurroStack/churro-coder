@@ -1,0 +1,16 @@
+{
+  "search.exclude": {
+    "**/.claude/worktrees/**": true,
+    "**/node_modules/**": true,
+    "**/out/**": true,
+    "**/dist/**": true,
+    "**/release/**": true
+  },
+  "files.watcherExclude": {
+    "**/.claude/worktrees/**": true,
+    "**/node_modules/**": true,
+    "**/out/**": true,
+    "**/dist/**": true,
+    "**/release/**": true
+  }
+}

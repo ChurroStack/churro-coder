@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "daemon",
+  "projectType": "application",
+  "sourceRoot": "apps/daemon",
+  "tags": ["scope:daemon", "stack:go"]
+}

@@ -1,0 +1,3 @@
+# Nx + plugin packages live at root; apps/desktop is bun-managed independently.
+# Add packages here if/when libs/<name> needs to be a pnpm workspace.
+packages: []

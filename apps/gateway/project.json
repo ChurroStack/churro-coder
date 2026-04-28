@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "gateway",
+  "projectType": "application",
+  "sourceRoot": "apps/gateway",
+  "tags": ["scope:gateway", "stack:dotnet"]
+}
