@@ -1245,16 +1245,16 @@ const SidebarHeader = memo(function SidebarHeader({
               <DropdownMenuTrigger asChild>
                 <ButtonCustom
                   variant="ghost"
-                  className="h-6 px-1.5 justify-start hover:bg-foreground/10 rounded-md group/team-button max-w-full"
+                  className="h-6 px-1.5 justify-start hover:bg-foreground/10 rounded-md group/team-button max-w-full w-full text-left"
                   suppressHydrationWarning
                 >
-                  <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+                  <div className="flex items-center gap-2 min-w-0 max-w-full w-full">
                     <div className="flex items-center justify-center flex-shrink-0">
-                      <Logo className="w-3.5 h-3.5" />
+                      <Logo className="w-6 h-6" />
                     </div>
                     <div className="min-w-0 flex-1 overflow-hidden">
-                      <div className="text-sm font-medium text-foreground truncate">
-                        CS Coder
+                      <div className="text-sm font-semibold text-foreground truncate">
+                        Coder
                       </div>
                     </div>
                       <ChevronDown
