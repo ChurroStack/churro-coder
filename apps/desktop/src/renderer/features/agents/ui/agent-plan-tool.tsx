@@ -122,14 +122,15 @@ export const AgentPlanTool = memo(function AgentPlanTool({
   const action = part.input?.action || "create"
 
   useEffect(() => {
-    if (!subChatId || !plan) return
-    if (plan.status === "awaiting_approval") {
+    if (!subChatId) return
+    if (plan?.status === "awaiting_approval") {
       useChatAttentionStore.getState().setAttention(subChatId, "plan-approval")
-      return () => {
-        useChatAttentionStore.getState().clearAttention(subChatId, "plan-approval")
-      }
+    } else {
+      useChatAttentionStore.getState().clearAttention(subChatId, "plan-approval")
     }
-    useChatAttentionStore.getState().clearAttention(subChatId, "plan-approval")
+    return () => {
+      useChatAttentionStore.getState().clearAttention(subChatId, "plan-approval")
+    }
   }, [subChatId, plan?.status])
 
   if (!plan) {
