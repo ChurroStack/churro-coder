@@ -31,6 +31,7 @@ import {
   AgentMessageUsage,
   type AgentMessageMetadata,
 } from "../ui/agent-message-usage"
+import { AgentTurnRecap } from "../ui/agent-turn-recap"
 import { AgentPlanTool } from "../ui/agent-plan-tool"
 import { AgentTaskTool } from "../ui/agent-task-tool"
 import { AgentThinkingTool } from "../ui/agent-thinking-tool"
@@ -964,6 +965,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
         )}
 
       </div>
+
+      <AgentTurnRecap metadata={msgMetadata} isStreaming={isStreaming} />
 
       {hasTextContent && (!isStreaming || !isLastMessage) && (
         <div className="flex justify-between items-center h-6 px-2 mt-1">
