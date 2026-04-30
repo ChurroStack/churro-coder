@@ -138,7 +138,7 @@ const AUTH_HINTS = [
   "401",
   "403",
 ]
-const DEFAULT_CODEX_MODEL = "gpt-5.4"
+const DEFAULT_CODEX_MODEL = "gpt-5.4/high"
 const CODEX_MCP_TOOLS_FETCH_TIMEOUT_MS = 40_000
 const CODEX_USAGE_POLL_ATTEMPTS = 3
 const CODEX_USAGE_POLL_INTERVAL_MS = 200
@@ -1637,7 +1637,7 @@ export const codexRouter = router({
               modelId: requestedModelId,
               authConfig: input.authConfig,
             })
-            const metadataModel = selectedModelId.split("/")[0]!
+            const metadataModel = selectedModelId
 
             const lastMessage = existingMessages[existingMessages.length - 1]
             const isDuplicatePrompt =
@@ -1774,12 +1774,8 @@ export const codexRouter = router({
               ? `${catchup}\n\n${input.prompt}`
               : input.prompt
 
-            // The codex-acp binary uses plain model slugs (e.g. "gpt-5.4");
-            // reasoning_effort is a separate field. Strip any "/thinking" suffix
-            // that was appended by the client-side model selector.
-            const baseModelId = selectedModelId.split("/")[0]!
             const result = streamText({
-              model: provider.languageModel(baseModelId),
+              model: provider.languageModel(selectedModelId),
               messages: [
                 {
                   role: "user",
