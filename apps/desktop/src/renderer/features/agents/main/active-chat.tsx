@@ -3715,8 +3715,19 @@ export const ChatViewInner = memo(function ChatViewInner({
       !hasTriggeredAutoGenerateRef.current
     ) {
       hasTriggeredAutoGenerateRef.current = true
-      // Trigger rename for pre-populated initial message (from createAgentChat)
-      if (!hasTriggeredRenameRef.current && isFirstSubChat) {
+      // Trigger rename for pre-populated initial message (from createAgentChat).
+      // Also gate on the persisted sub-chat name so a recovered/reloaded chat
+      // never gets its real title clobbered by this initial-message path.
+      const persistedName = useAgentSubChatStore
+        .getState()
+        .allSubChats.find((sc) => sc.id === subChatId)?.name
+      const hasPersistedName =
+        Boolean(persistedName) && persistedName !== "New Chat"
+      if (
+        !hasTriggeredRenameRef.current &&
+        isFirstSubChat &&
+        !hasPersistedName
+      ) {
         const firstMsg = messages[0]
         if (firstMsg?.role === "user") {
           const textPart = firstMsg.parts?.find((p: any) => p.type === "text")
@@ -4021,8 +4032,20 @@ export const ChatViewInner = memo(function ChatViewInner({
       mode: subChatModeRef.current,
     })
 
-    // Trigger auto-rename on first message in a new sub-chat
-    if (messagesLengthRef.current === 0 && !hasTriggeredRenameRef.current) {
+    // Trigger auto-rename on first message in a new sub-chat.
+    // Also gate on the persisted sub-chat name: if the chat already has a real
+    // name, never overwrite it. Defends against transient empty-message states
+    // (e.g. after a backend error wipes the AI SDK Chat's in-memory buffer)
+    // where messagesLengthRef can briefly be 0 even though the DB has history.
+    const persistedName = useAgentSubChatStore
+      .getState()
+      .allSubChats.find((sc) => sc.id === subChatId)?.name
+    const hasPersistedName = Boolean(persistedName) && persistedName !== "New Chat"
+    if (
+      messagesLengthRef.current === 0 &&
+      !hasTriggeredRenameRef.current &&
+      !hasPersistedName
+    ) {
       hasTriggeredRenameRef.current = true
       onAutoRename(finalText || "Image message", subChatId)
     }
