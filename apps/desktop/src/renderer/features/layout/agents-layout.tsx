@@ -75,7 +75,7 @@ import { QueueProcessor } from "../agents/components/queue-processor"
 // Constants
 // ============================================================================
 
-const SIDEBAR_MIN_WIDTH = 160
+const SIDEBAR_MIN_WIDTH = 230
 const SIDEBAR_MAX_WIDTH = 600
 const SIDEBAR_DEFAULT_WIDTH = 240
 const DETAILS_RAIL_MIN_WIDTH = 310
