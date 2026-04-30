@@ -37,6 +37,14 @@ function getWindowFromEvent(
   return win && !win.isDestroyed() ? win : null
 }
 
+// macOS traffic-light position. Computed to vertically center the lights
+// with the dockview tab pills; same value on x so the top-left corner gap
+// is symmetric. Used at window creation AND re-applied by the
+// `window:reset-traffic-light-position` IPC handler — Electron loses the
+// custom position after some renderer-side layout transitions (e.g. system
+// views like Settings unmounting), and the renderer pings us to fix it.
+const MAC_TRAFFIC_LIGHT_POSITION = { x: 21, y: 21 } as const
+
 // Register IPC handlers for window operations (only once)
 let ipcHandlersRegistered = false
 
@@ -192,6 +200,18 @@ function registerIpcHandlers(): void {
       }
     },
   )
+
+  // Re-apply the custom traffic-light position. macOS / Electron sometimes
+  // resets the lights to their default position after certain renderer
+  // layout transitions (notably mounting/unmounting overlay system views
+  // like Settings). The renderer calls this when leaving such views to
+  // restore the symmetric inset.
+  ipcMain.handle("window:reset-traffic-light-position", (event) => {
+    const win = getWindowFromEvent(event)
+    if (win && process.platform === "darwin" && !win.isFullScreen()) {
+      win.setWindowButtonPosition(MAC_TRAFFIC_LIGHT_POSITION)
+    }
+  })
 
   // Zoom controls
   ipcMain.handle("window:zoom-in", (event) => {
@@ -479,7 +499,7 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
     // hiddenInset hides the native title bar but keeps traffic lights visible
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition:
-      process.platform === "darwin" ? { x: 15, y: 12 } : undefined,
+      process.platform === "darwin" ? MAC_TRAFFIC_LIGHT_POSITION : undefined,
     // Windows: Use native frame or frameless based on user preference
     ...(process.platform === "win32" && {
       frame: useNativeFrame,

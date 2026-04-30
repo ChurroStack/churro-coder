@@ -134,16 +134,31 @@ function LeftRailPanel(_props: IGridviewPanelProps) {
 
   return (
     <div
-      className="h-full w-full overflow-hidden bg-background border-r"
-      style={{ borderRightWidth: "0px" }}
+      className="h-full w-full"
+      // Inner edge sits next to the gridview sash (4px). To get a visible gap
+      // equal to --shell-gap on either side of the sash, each cell contributes
+      // (gap - 4px) / 2 of padding on its inner-facing edge.
+      style={{ paddingRight: "calc((var(--shell-gap)) / 2)" }}
     >
-      {isSettingsView ? (
-        <SettingsSidebar />
-      ) : (
-        <AgentsSidebar
-          onToggleSidebar={onToggleSidebar}
-        />
-      )}
+      <div
+        className="h-full w-full overflow-hidden bg-tl-background border border-border/50"
+        style={{
+          // Match the dockview groupview corner radius so rails + panel cards
+          // read as a single coherent shell. var(--dv-border-radius) = 6px.
+          borderRadius: "var(--dv-border-radius)",
+          // Cell content is fully interactive — opt out of the outer drag region.
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "no-drag",
+        }}
+      >
+        {isSettingsView ? (
+          <SettingsSidebar />
+        ) : (
+          <AgentsSidebar
+            onToggleSidebar={onToggleSidebar}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -197,42 +212,66 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
   const mountedWorkspaceIds = useAtomValue(mountedWorkspaceIdsAtom)
 
   return (
-    <div className="relative h-full w-full overflow-hidden flex flex-col min-w-0">
-      {/* One DockShell per workspace the user has visited this session,
-          stacked absolutely. The active one is fully visible /
-          interactive; the rest are invisible / non-interactive but stay
-          mounted so terminal PTYs, chat streams, xterm scrollback, scroll
-          positions and form drafts all survive a workspace switch. */}
-      {mountedWorkspaceIds.map((id) => (
-        <WorkspaceDockShell
-          key={id}
-          workspaceId={id}
-          active={id === selectedChatId}
-          onDockApiReady={registerWorkspaceDockApi}
-          onDockApiDisposed={unregisterWorkspaceDockApi}
-        />
-      ))}
-      {/* System-wide views overlay the dockview surface — they don't
-          belong to any workspace, so they shouldn't render inside a tab. */}
-      {systemView !== null && (
-        <div className="absolute inset-0 z-10 bg-background overflow-hidden">
-          {systemView === "settings" && <SettingsContent />}
-          {systemView === "usage" && <UsageContent />}
-          {systemView === "kanban" && <KanbanView />}
-          {systemView === "new-workspace" && (
-            <div className="h-full flex flex-col relative overflow-hidden">
-              <NewChatForm />
-            </div>
-          )}
-          {betaAutomationsEnabled && systemView === "automations" && (
-            <AutomationsView />
-          )}
-          {betaAutomationsEnabled && systemView === "automations-detail" && (
-            <AutomationsDetailView />
-          )}
-          {betaAutomationsEnabled && systemView === "inbox" && <InboxView />}
-        </div>
-      )}
+    <div
+      className="h-full w-full"
+      // (gap - sash) / 2 on each inner edge, so left+sash+right == --shell-gap.
+      style={{
+        paddingLeft: "calc((var(--shell-gap)) / 2)",
+        paddingRight: "calc((var(--shell-gap)) / 2)",
+      }}
+    >
+      <div
+        className="relative h-full w-full overflow-hidden bg-background flex flex-col min-w-0"
+        style={{
+          // Dockview's tab strip drags via its own rule on .dv-tabs-and-actions-
+          // container; everything else inside the card is interactive content,
+          // so opt out of the outer drag region by default.
+          //
+          // No border/rounded chrome here on purpose — every dockview groupview
+          // styles itself as a card (see .dv-groupview rule in globals.css) so
+          // splits read as multiple floating cards rather than panes inside
+          // one big card. The outer rails (left/right) keep their wrappers.
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "no-drag",
+        }}
+      >
+        {/* One DockShell per workspace the user has visited this session,
+            stacked absolutely. The active one is fully visible /
+            interactive; the rest are invisible / non-interactive but stay
+            mounted so terminal PTYs, chat streams, xterm scrollback, scroll
+            positions and form drafts all survive a workspace switch. */}
+        {mountedWorkspaceIds.map((id) => (
+          <WorkspaceDockShell
+            key={id}
+            workspaceId={id}
+            active={id === selectedChatId}
+            onDockApiReady={registerWorkspaceDockApi}
+            onDockApiDisposed={unregisterWorkspaceDockApi}
+          />
+        ))}
+        {/* System-wide views overlay the dockview surface — they don't
+            belong to any workspace, so they shouldn't render inside a tab.
+            Inheriting the parent's rounded clip keeps the chrome consistent. */}
+        {systemView !== null && (
+          <div className="absolute inset-0 z-10 bg-background overflow-hidden">
+            {systemView === "settings" && <SettingsContent />}
+            {systemView === "usage" && <UsageContent />}
+            {systemView === "kanban" && <KanbanView />}
+            {systemView === "new-workspace" && (
+              <div className="h-full flex flex-col relative overflow-hidden">
+                <NewChatForm />
+              </div>
+            )}
+            {betaAutomationsEnabled && systemView === "automations" && (
+              <AutomationsView />
+            )}
+            {betaAutomationsEnabled && systemView === "automations-detail" && (
+              <AutomationsDetailView />
+            )}
+            {betaAutomationsEnabled && systemView === "inbox" && <InboxView />}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -477,6 +516,23 @@ export function AgentsLayout() {
     }
   }, [dockviewThemeClass])
 
+  // macOS: re-apply the custom traffic-light position whenever a system
+  // view is unmounted (e.g. user navigates back from Settings). Mounting
+  // / unmounting the absolute overlay can prompt Electron to reset the
+  // lights to their default location; clicking the window content
+  // recomputes them but until then they're misplaced. Pinging main on
+  // every transition fixes it without waiting for a click.
+  useEffect(() => {
+    const api = window.desktopApi
+    if (!api?.resetTrafficLightPosition) return
+    // requestAnimationFrame so the browser settles the layout reflow from
+    // the overlay mount/unmount before we ask Electron to re-pin.
+    const handle = requestAnimationFrame(() => {
+      api.resetTrafficLightPosition().catch(() => {})
+    })
+    return () => cancelAnimationFrame(handle)
+  }, [layoutSystemView])
+
   // Layout persistence:
   // - Shell snapshot (the outer 3-column gridview) is global, loaded once.
   // - Dock snapshot is per-workspace and owned by each WorkspaceDockShell.
@@ -705,14 +761,36 @@ export function AgentsLayout() {
                 On macOS we let the native chrome show traffic lights over the
                 content; per-section drag strips provide the rest of the drag area. */}
             <WindowsTitleBar />
-            <div className="flex-1 min-h-0">
-              <GridviewReact
-                orientation={Orientation.HORIZONTAL}
-                components={GRID_COMPONENTS}
-                onReady={handleGridReady}
-                proportionalLayout={false}
+            <div
+              className="flex-1 min-h-0"
+              style={{
+                // Full --shell-gap on all four window edges. Inter-cell gaps
+                // are equalised inside each rail's renderer (see CenterRail/
+                // LeftRail/DetailsRail), which insets cells by (gap - sash) / 2
+                // so the visible spacing matches the window-edge gap exactly.
+                padding: "var(--shell-gap)",
+                // Outer gutter is draggable so users can move the window from
+                // the strip around the rails. The inner div below opts back
+                // out so the gridview sash + cell contents stay interactive.
+                // @ts-expect-error - WebKit-specific property
+                WebkitAppRegion: "drag",
+              }}
+            >
+              <div
                 className="h-full w-full"
-              />
+                style={{
+                  // @ts-expect-error - WebKit-specific property
+                  WebkitAppRegion: "no-drag",
+                }}
+              >
+                <GridviewReact
+                  orientation={Orientation.HORIZONTAL}
+                  components={GRID_COMPONENTS}
+                  onReady={handleGridReady}
+                  proportionalLayout={false}
+                  className="h-full w-full"
+                />
+              </div>
             </div>
             {/* UPDATES-DISABLED: re-enable to restore update banner */}
             {/* <UpdateBanner /> */}

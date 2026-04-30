@@ -1799,7 +1799,7 @@ export function NewChatForm({
               >
                 <PromptInput
                   className={cn(
-                    "border bg-input-background relative z-10 p-2 rounded-xl transition-[border-color,box-shadow] duration-150",
+                    "border bg-input-background relative z-10 p-2 rounded-md transition-[border-color,box-shadow] duration-150",
                     isDragOver && "ring-2 ring-primary/50 border-primary/50",
                     isFocused && !isDragOver && "ring-2 ring-primary/50",
                   )}

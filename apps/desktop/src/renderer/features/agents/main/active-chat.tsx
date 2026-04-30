@@ -7901,7 +7901,7 @@ Make sure to preserve all functionality from both branches when resolving confli
                 <div className="w-full max-w-5xl mx-auto">
                   <div className="relative w-full">
                     <PromptInput
-                      className="border bg-input-background relative z-10 p-2 rounded-xl opacity-50 pointer-events-none"
+                      className="border bg-input-background relative z-10 p-2 rounded-md opacity-50 pointer-events-none"
                       maxHeight={200}
                     >
                       <div className="p-1 text-muted-foreground text-sm">

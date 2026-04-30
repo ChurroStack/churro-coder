@@ -2858,7 +2858,7 @@ export function AgentsSidebar({
                 }
               }}
               className={cn(
-                "w-full rounded-lg text-sm bg-muted border border-input placeholder:text-muted-foreground/40",
+                "w-full rounded-md text-sm bg-muted border border-input placeholder:text-muted-foreground/40",
                 isMobileFullscreen ? "h-10" : "h-7",
               )}
             />
@@ -2871,7 +2871,7 @@ export function AgentsSidebar({
                 variant="outline"
                 size="sm"
                 className={cn(
-                  "px-2 w-full hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground rounded-lg gap-1.5",
+                  "px-2 w-full hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground rounded-md gap-1.5",
                   isMobileFullscreen ? "h-10" : "h-7",
                 )}
               >

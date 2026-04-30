@@ -135,37 +135,61 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   // Without a chat there's nothing to render.
   if (!chatId) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-background border-l text-xs text-muted-foreground"
-        style={{ borderLeftWidth: "0.5px" }}>
-        Select a chat to see details
+      <div
+        className="h-full w-full"
+        style={{ paddingLeft: "calc((var(--shell-gap)) / 2)" }}
+      >
+        <div
+          className="h-full w-full flex items-center justify-center bg-tl-background border border-border/50 overflow-hidden text-xs text-muted-foreground"
+          style={{
+            borderRadius: "var(--dv-border-radius)",
+            // @ts-expect-error - WebKit-specific property
+            WebkitAppRegion: "no-drag",
+          }}
+        >
+          Select a chat to see details
+        </div>
       </div>
     )
   }
 
   return (
-    <DetailsSidebar
-      chatId={chatId}
-      worktreePath={worktreePath}
-      planPath={planPath}
-      mode={currentMode}
-      planRefetchTrigger={planRefetchTrigger}
-      activeSubChatId={activeSubChatId}
-      canOpenDiff={canOpenDiff}
-      setIsDiffSidebarOpen={() => {
-        // Replaced by widget mutex; stubbed.
-      }}
-      diffStats={diffCache.diffStats}
-      parsedFileDiffs={diffCache.parsedFileDiffs}
-      onCommit={worktreePath ? handleCommit : undefined}
-      onCommitAndPush={worktreePath ? handleCommitAndPush : undefined}
-      isCommitting={isCommitting}
-      gitStatus={gitStatus ?? null}
-      isGitStatusLoading={isGitStatusLoading}
-      currentBranch={branchData?.current}
-      onFileSelect={handleFileSelect}
-      onOpenFile={handleOpenFile}
-      remoteInfo={remoteInfo}
-      isRemoteChat={!!remoteInfo}
-    />
+    <div
+      className="h-full w-full"
+      style={{ paddingLeft: "calc((var(--shell-gap)) / 2)" }}
+    >
+      <div
+        className="h-full w-full"
+        style={{
+          // @ts-expect-error - WebKit-specific property
+          WebkitAppRegion: "no-drag",
+        }}
+      >
+        <DetailsSidebar
+          chatId={chatId}
+          worktreePath={worktreePath}
+          planPath={planPath}
+          mode={currentMode}
+          planRefetchTrigger={planRefetchTrigger}
+          activeSubChatId={activeSubChatId}
+          canOpenDiff={canOpenDiff}
+          setIsDiffSidebarOpen={() => {
+            // Replaced by widget mutex; stubbed.
+          }}
+          diffStats={diffCache.diffStats}
+          parsedFileDiffs={diffCache.parsedFileDiffs}
+          onCommit={worktreePath ? handleCommit : undefined}
+          onCommitAndPush={worktreePath ? handleCommitAndPush : undefined}
+          isCommitting={isCommitting}
+          gitStatus={gitStatus ?? null}
+          isGitStatusLoading={isGitStatusLoading}
+          currentBranch={branchData?.current}
+          onFileSelect={handleFileSelect}
+          onOpenFile={handleOpenFile}
+          remoteInfo={remoteInfo}
+          isRemoteChat={!!remoteInfo}
+        />
+      </div>
+    </div>
   )
 }

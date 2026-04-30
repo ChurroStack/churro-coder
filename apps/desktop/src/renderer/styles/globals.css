@@ -32,7 +32,11 @@
     /* Same as primary - blue focus ring */
     --selection: 228 100% 50% / 0.25;
     /* Text selection background - primary at 25% */
-    --radius: 0.5rem;
+    --radius: 0.6rem;
+    /* Visible gap between the outer shell and the rounded rail/dock cards.
+     * Split as gap/2 on outer wrapper + gap/2 on each cell's inner edge so
+     * window-edge gaps and inter-cell gaps stay equal. */
+    --shell-gap: 6px;
     /* Plan Mode Colors */
     --plan-mode: 33 83% 67%;
     --plan-mode-foreground: 0 0% 8%;
@@ -351,26 +355,49 @@
   --dv-tabs-and-actions-container-height: 40px;
   --dv-tabs-and-actions-container-font-size: 12px;
   --dv-tab-font-size: 12px;
-  --dv-border-radius: 4px;
+  /* Inner dockview corners (tabs / panels) sit under the outer 8px card radius
+   * (var(--radius)) — keep 2px less so the nesting reads cleanly. */
+  --dv-border-radius: 10px;
 
   --dv-group-view-background-color: hsl(var(--background));
   --dv-tabs-and-actions-container-background-color: hsl(var(--background));
 
-  --dv-activegroup-visiblepanel-tab-background-color: hsl(var(--background));
-  --dv-activegroup-hiddenpanel-tab-background-color: hsl(var(--muted) / 0.5);
-  --dv-inactivegroup-visiblepanel-tab-background-color: hsl(var(--background));
-  --dv-inactivegroup-hiddenpanel-tab-background-color: hsl(var(--muted) / 0.5);
+  /* Pill-style tabs: only the active tab fills with a muted background; the
+   * rest sit transparent on the strip and pick up a subtle hover bg below. */
+  --dv-activegroup-visiblepanel-tab-background-color: hsl(var(--muted));
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-background-color: hsl(var(--muted) / 0.6);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
 
   --dv-activegroup-visiblepanel-tab-color: hsl(var(--foreground));
   --dv-activegroup-hiddenpanel-tab-color: hsl(var(--muted-foreground));
   --dv-inactivegroup-visiblepanel-tab-color: hsl(var(--foreground) / 0.7);
   --dv-inactivegroup-hiddenpanel-tab-color: hsl(var(--muted-foreground) / 0.7);
 
-  --dv-tab-divider-color: hsl(var(--border));
-  --dv-separator-border: hsl(var(--border));
+  /* No vertical divider between pills — gaps come from --dv-tab-margin below. */
+  --dv-tab-divider-color: transparent;
+  /* Symmetric 4px inset on every side of every tab. Dockview's own rule is
+   * `.dv-tab { margin: var(--dv-tab-margin) }` (default 0), so setting this
+   * is the supported way to give the first pill 4px of left gap from the
+   * strip edge — equal to its top/bottom inset. */
+  --dv-tab-margin: 4px;
+  /* Sash separator between gridview cells — kept transparent so the rounded
+   * shell cards float in the window background without a hairline running
+   * through the gap. The sash hit-target still works for resizing. */
+  --dv-separator-border: transparent;
   --dv-icon-hover-background-color: hsl(var(--accent));
 
-  --dv-drag-over-background-color: hsl(var(--accent) / 0.4);
+  /* Drag-over highlight: tinted primary fill + 2px primary outline + rounded
+   * corners that match the groupview card radius. Dockview reads
+   * `border: var(--dv-drag-over-border)` as a full shorthand on
+   * .dv-drop-target-anchor / .dv-drop-target-selection, so setting only
+   * --dv-drag-over-border-color leaves the border invisible. The -color
+   * token is also kept because dockview uses it for the thin
+   * top/bottom/left/right small-edge indicators. The rounded corners are
+   * applied via the rule below since dockview doesn't expose a token for
+   * drop-target border-radius. */
+  --dv-drag-over-background-color: hsl(var(--primary) / 0.12);
+  --dv-drag-over-border: 2px solid hsl(var(--primary));
   --dv-drag-over-border-color: hsl(var(--primary));
 
   --dv-paneview-header-border-color: hsl(var(--border));
@@ -379,19 +406,37 @@
   --dv-tabs-container-scrollbar-color: hsl(var(--muted-foreground) / 0.5);
 }
 
-/* The active tab gets a subtle bottom highlight in our chrome — ties the
- * dockview tab visually to the panel below it. */
-.dockview-theme-light .dv-active-tab,
-.dockview-theme-dark .dv-active-tab {
-  position: relative;
+/* Pill-style tabs: inset each tab from the strip with rounded corners so the
+ * filled active tab reads as a button rather than a full-bleed segment. The
+ * background colors come from the --dv-*-tab-background-color tokens above;
+ * here we only own geometry + hover affordance. */
+.dockview-theme-light .dv-tab,
+.dockview-theme-dark .dv-tab {
+  /* Margin is set via --dv-tab-margin in the token block above (4px on every
+   * side). Here we own the rest of the pill geometry. */
+  padding: 0 8px;
+  height: calc(var(--dv-tabs-and-actions-container-height) - 8px);
+  border-radius: 6px;
+  transition: background-color 120ms ease-out;
 }
-.dockview-theme-light .dv-active-tab::after,
-.dockview-theme-dark .dv-active-tab::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 2px;
-  background: hsl(var(--primary));
+
+.dockview-theme-light .dv-tab:not(.dv-active-tab):hover,
+.dockview-theme-dark .dv-tab:not(.dv-active-tab):hover {
+  background-color: hsl(var(--accent) / 0.5);
+}
+
+/* Match the tabs' 4px outer inset on the trailing action containers
+ * (in-tab [+], right-side header buttons). These sit AFTER the tabs in the
+ * strip layout, so padding here mirrors the pills' 4px top inset on the
+ * right edge. The pre-actions container is intentionally excluded — it sits
+ * before the tabs and conditionally renders a hamburger that brings its own
+ * padding (see dock-header-left-actions.tsx). Adding padding there would
+ * make the first tab's left gap depend on whether the sidebar is open. */
+.dockview-theme-light .dv-left-actions-container,
+.dockview-theme-dark .dv-left-actions-container,
+.dockview-theme-light .dv-right-actions-container,
+.dockview-theme-dark .dv-right-actions-container {
+  padding: 0 4px;
 }
 
 /* The dockview tab strip lives where the original 32px drag region used to
@@ -414,4 +459,45 @@
 .dockview-theme-light .dv-void-container,
 .dockview-theme-dark .dv-void-container {
   -webkit-app-region: no-drag;
+}
+
+/* Each groupview is its own card. The center cell intentionally drops its
+ * outer border/rounded wrapper (see CenterRailPanel in agents-layout.tsx) so
+ * single panels look like one floating card and splits look like multiple
+ * floating cards — no nested chrome. */
+.dockview-theme-light .dv-groupview,
+.dockview-theme-dark .dv-groupview {
+  border: 1px solid hsl(var(--border) / 0.5);
+  border-radius: var(--dv-border-radius);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Round the drag-over highlight so the blue tinted overlay matches the
+ * groupview card radius. .dv-drop-target-anchor is the floating "moves
+ * around" anchor; .dv-drop-target-selection is the overlay shown when
+ * dropping into an existing group region. */
+.dv-drop-target-container .dv-drop-target-anchor,
+.dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection {
+  border-radius: var(--dv-border-radius);
+}
+
+/* Inner-edge gap between adjacent groups in a split. Padding is applied only
+ * on the side that faces a sibling — outer edges of the outermost views stay
+ * flush with the cell boundary. Scoped to `.dv-dockview` so the OUTER
+ * gridview (which uses `.dv-split-view-container` too) is not affected; that
+ * gridview's inter-cell gaps are owned by --shell-gap + each rail's padding.
+ * Total gap between two siblings inside the dock = 4 (this view's pad) + 4
+ * (sash) + 4 (next view's pad) = 12px. */
+.dv-dockview .dv-split-view-container.dv-horizontal:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:first-child) {
+  padding-left: 4px;
+}
+.dv-dockview .dv-split-view-container.dv-horizontal:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:last-child) {
+  padding-right: 4px;
+}
+.dv-dockview .dv-split-view-container.dv-vertical:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:first-child) {
+  padding-top: 4px;
+}
+.dv-dockview .dv-split-view-container.dv-vertical:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:last-child) {
+  padding-bottom: 4px;
 }
