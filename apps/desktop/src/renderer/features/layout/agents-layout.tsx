@@ -499,20 +499,22 @@ export function AgentsLayout() {
   const gridApiRef = useRef<GridviewApi | null>(null)
   const { resolvedTheme } = useTheme()
   const dockviewThemeClass =
-    resolvedTheme === "dark" ? "dockview-theme-dark" : "dockview-theme-light"
+    resolvedTheme === "dark" ? "cs-theme-dark" : "cs-theme-light"
 
-  // Apply the dockview theme class to <html> so the cascade reaches every
-  // dockview element regardless of which DOM subtree (or React portal target)
-  // it renders into. Putting it on a wrapper div was unreliable: dockview's
-  // group/panel containers sometimes sit outside the wrapper depending on how
-  // gridview's portals resolve, so the cascade missed them and the chat panel
-  // kept inheriting dockview's #1e1e1e default.
+  // Apply our custom dockview theme class to <html> so the --dv-* tokens
+  // defined in globals.css cascade everywhere — including dockview portals
+  // (floating groups, drop-target overlays) that mount outside the dock tree
+  // into document.body. The matching class is also passed to DockviewReact
+  // via the `theme` prop (see dock-shell.tsx), so dockview applies it to its
+  // own .dv-dockview root too. Owning the class name (rather than reusing
+  // vendor's `dockview-theme-light/-dark`) is what makes our token overrides
+  // stick — see the comment block in dock-shell.tsx for the full reasoning.
   useEffect(() => {
     const html = document.documentElement
-    html.classList.remove("dockview-theme-light", "dockview-theme-dark")
+    html.classList.remove("cs-theme-light", "cs-theme-dark")
     html.classList.add(dockviewThemeClass)
     return () => {
-      html.classList.remove("dockview-theme-light", "dockview-theme-dark")
+      html.classList.remove("cs-theme-light", "cs-theme-dark")
     }
   }, [dockviewThemeClass])
 

@@ -347,9 +347,25 @@
  * HSL tokens so tabs/groups blend with the rest of the chrome regardless
  * of light/dark mode. Same selectors work for both themes because the
  * tokens themselves switch via .dark.
- * ───────────────────────────────────────────────────────────────────────── */
-.dockview-theme-light,
-.dockview-theme-dark {
+ *
+ * The `cs-theme-light` / `cs-theme-dark` class names are OURS, not
+ * dockview's. dock-shell.tsx passes a custom DockviewTheme object whose
+ * className is one of these (per dockview's documented theming API at
+ * https://dockview.dev/docs/core/theming/), and agents-layout.tsx mirrors
+ * the same class onto <html> so the tokens cascade to portal targets too.
+ *
+ * Why a custom class name instead of just overriding `.dockview-theme-light`:
+ * dockview-react / dockview / dockview-core each call `style-inject` at
+ * module load and dump their CSS strings into <head> as runtime <style>
+ * tags, AFTER our static stylesheet. dockview-core ALSO re-applies the
+ * theme className to its own .dv-dockview root via setClassNames. So
+ * vendor's `.dockview-theme-light { --dv-border-radius: 0px; ... }` rule
+ * fires both at <html> AND again at the inner .dv-dockview, and at the
+ * inner re-declaration any same-specificity override of ours loses to the
+ * runtime injection. Owning the class name sidesteps the war: vendor has
+ * no rule for `.cs-theme-light`, so our values apply uncontested. */
+.cs-theme-light,
+.cs-theme-dark {
   /* Match the sidebar headers' h-10 (40px) so the tab strip sits on the same
    * row as the left/right sidebar headers — visually one continuous top row. */
   --dv-tabs-and-actions-container-height: 40px;
@@ -413,8 +429,8 @@
  * filled active tab reads as a button rather than a full-bleed segment. The
  * background colors come from the --dv-*-tab-background-color tokens above;
  * here we only own geometry + hover affordance. */
-.dockview-theme-light .dv-tab,
-.dockview-theme-dark .dv-tab {
+.cs-theme-light .dv-tab,
+.cs-theme-dark .dv-tab {
   /* Margin is set via --dv-tab-margin in the token block above (4px on every
    * side). Here we own the rest of the pill geometry. */
   padding: 0 8px;
@@ -423,8 +439,8 @@
   transition: background-color 120ms ease-out;
 }
 
-.dockview-theme-light .dv-tab:not(.dv-active-tab):hover,
-.dockview-theme-dark .dv-tab:not(.dv-active-tab):hover {
+.cs-theme-light .dv-tab:not(.dv-active-tab):hover,
+.cs-theme-dark .dv-tab:not(.dv-active-tab):hover {
   background-color: hsl(var(--accent) / 0.5);
 }
 
@@ -435,10 +451,10 @@
  * before the tabs and conditionally renders a hamburger that brings its own
  * padding (see dock-header-left-actions.tsx). Adding padding there would
  * make the first tab's left gap depend on whether the sidebar is open. */
-.dockview-theme-light .dv-left-actions-container,
-.dockview-theme-dark .dv-left-actions-container,
-.dockview-theme-light .dv-right-actions-container,
-.dockview-theme-dark .dv-right-actions-container {
+.cs-theme-light .dv-left-actions-container,
+.cs-theme-dark .dv-left-actions-container,
+.cs-theme-light .dv-right-actions-container,
+.cs-theme-dark .dv-right-actions-container {
   padding: 0 4px;
 }
 
@@ -447,20 +463,20 @@
  * the gap between tabs and the right-side actions. The actions container
  * itself opts out via inline `WebkitAppRegion: no-drag` (see dock-header-
  * actions.tsx) so its buttons stay clickable. */
-.dockview-theme-light .dv-tabs-and-actions-container,
-.dockview-theme-dark .dv-tabs-and-actions-container {
+.cs-theme-light .dv-tabs-and-actions-container,
+.cs-theme-dark .dv-tabs-and-actions-container {
   -webkit-app-region: drag;
 }
-.dockview-theme-light .dv-tab,
-.dockview-theme-dark .dv-tab,
-.dockview-theme-light .dv-pre-actions-container,
-.dockview-theme-dark .dv-pre-actions-container,
-.dockview-theme-light .dv-left-actions-container,
-.dockview-theme-dark .dv-left-actions-container,
-.dockview-theme-light .dv-right-actions-container,
-.dockview-theme-dark .dv-right-actions-container,
-.dockview-theme-light .dv-void-container,
-.dockview-theme-dark .dv-void-container {
+.cs-theme-light .dv-tab,
+.cs-theme-dark .dv-tab,
+.cs-theme-light .dv-pre-actions-container,
+.cs-theme-dark .dv-pre-actions-container,
+.cs-theme-light .dv-left-actions-container,
+.cs-theme-dark .dv-left-actions-container,
+.cs-theme-light .dv-right-actions-container,
+.cs-theme-dark .dv-right-actions-container,
+.cs-theme-light .dv-void-container,
+.cs-theme-dark .dv-void-container {
   -webkit-app-region: no-drag;
 }
 
@@ -468,8 +484,8 @@
  * outer border/rounded wrapper (see CenterRailPanel in agents-layout.tsx) so
  * single panels look like one floating card and splits look like multiple
  * floating cards — no nested chrome. */
-.dockview-theme-light .dv-groupview,
-.dockview-theme-dark .dv-groupview {
+.cs-theme-light .dv-groupview,
+.cs-theme-dark .dv-groupview {
   border: 1px solid hsl(var(--border) / 0.5);
   border-radius: var(--dv-border-radius);
   overflow: hidden;
