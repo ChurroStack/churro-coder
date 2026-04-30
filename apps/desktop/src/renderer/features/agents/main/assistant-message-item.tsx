@@ -780,7 +780,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
     if (part.type === "tool-Write") return <AgentEditTool key={idx} part={part} messageId={message.id} partIndex={idx} chatStatus={status} />
     if (part.type === "tool-WebSearch") return <AgentWebSearchCollapsible key={idx} part={part} chatStatus={status} />
     if (part.type === "tool-WebFetch") return <AgentWebFetchTool key={idx} part={part} chatStatus={status} />
-    if (part.type === "tool-PlanWrite") return <AgentPlanTool key={idx} part={part} chatStatus={status} />
+    if (part.type === "tool-PlanWrite") return <AgentPlanTool key={idx} part={part} chatStatus={status} subChatId={subChatId} />
 
     // ExitPlanMode tool is hidden - plan is shown in sidebar instead
     if (part.type === "tool-ExitPlanMode") {

@@ -1,6 +1,7 @@
 "use client"
 
-import { memo, useState } from "react"
+import { memo, useState, useEffect } from "react"
+import { useChatAttentionStore } from "../stores/chat-attention-store"
 import { TextShimmer } from "../../../components/ui/text-shimmer"
 import {
   IconSpinner,
@@ -45,6 +46,7 @@ interface AgentPlanToolProps {
     }
   }
   chatStatus?: string
+  subChatId?: string
 }
 
 const StepStatusIcon = ({ status, isPending }: { status: PlanStep["status"]; isPending?: boolean }) => {
@@ -111,13 +113,26 @@ const ComplexityBadge = ({ complexity }: { complexity?: "low" | "medium" | "high
 export const AgentPlanTool = memo(function AgentPlanTool({
   part,
   chatStatus,
+  subChatId,
 }: AgentPlanToolProps) {
   const [isExpanded, setIsExpanded] = useState(false) // Collapsed by default
   const { isPending } = getToolStatus(part, chatStatus)
 
   const plan = part.input?.plan
   const action = part.input?.action || "create"
-  
+
+  useEffect(() => {
+    if (!subChatId) return
+    if (plan?.status === "awaiting_approval") {
+      useChatAttentionStore.getState().setAttention(subChatId, "plan-approval")
+    } else {
+      useChatAttentionStore.getState().clearAttention(subChatId, "plan-approval")
+    }
+    return () => {
+      useChatAttentionStore.getState().clearAttention(subChatId, "plan-approval")
+    }
+  }, [subChatId, plan?.status])
+
   if (!plan) {
     return null
   }
