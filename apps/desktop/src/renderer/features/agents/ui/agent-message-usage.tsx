@@ -7,6 +7,7 @@ import {
   HoverCardTrigger,
 } from "../../../components/ui/hover-card"
 import { cn } from "../../../lib/utils"
+import { formatDuration, formatTokens } from "./agent-format-utils"
 
 export interface AgentMessageMetadata {
   model?: string
@@ -14,6 +15,8 @@ export interface AgentMessageMetadata {
   totalCostUsd?: number
   inputTokens?: number
   outputTokens?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
   totalTokens?: number
   finalTextId?: string
   durationMs?: number
@@ -24,26 +27,6 @@ interface AgentMessageUsageProps {
   metadata?: AgentMessageMetadata
   isStreaming?: boolean
   isMobile?: boolean
-}
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`
-  }
-  return tokens.toString()
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`
-  }
-  const seconds = ms / 1000
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)}s`
-  }
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = Math.round(seconds % 60)
-  return `${minutes}m ${remainingSeconds}s`
 }
 
 export const AgentMessageUsage = memo(function AgentMessageUsage({

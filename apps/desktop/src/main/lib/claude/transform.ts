@@ -10,11 +10,18 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
   // Track streaming tool calls
   let currentToolCallId: string | null = null
   let currentToolName: string | null = null
+  let currentToolOriginalId: string | null = null
   let accumulatedToolInput = ""
 
   // Track already emitted tool IDs to avoid duplicates
   // (tools can come via streaming AND in the final assistant message)
   const emittedToolIds = new Set<string>()
+
+  // Tools whose streamed input failed to parse as JSON. The assistant message
+  // arrives later with the complete block.input — we use this set to allow
+  // re-emission so the renderer can replace the broken {_raw, _parseError}
+  // payload with the correct fields.
+  const parseErroredOriginalIds = new Set<string>()
 
   // Track the last text block ID for final response marking
   // This is used to identify when there's a "final text" response after tools
@@ -76,9 +83,16 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
           parsedInput = JSON.parse(accumulatedToolInput)
         } catch (e) {
           // Stream may have been interrupted mid-JSON (e.g. network error, abort)
-          // resulting in incomplete JSON like '{"prompt":"write co'
+          // or the assistant message arrived before all input_json_delta events,
+          // resulting in incomplete JSON like '{"prompt":"write co'.
+          // We still emit something so the UI shows a tool placeholder, then flag
+          // the original ID so the assistant message handler can re-emit with
+          // the full block.input once it arrives.
           console.error("[transform] Failed to parse tool input JSON:", (e as Error).message, "partial:", accumulatedToolInput.slice(0, 120))
           parsedInput = { _raw: accumulatedToolInput, _parseError: true }
+          if (currentToolOriginalId) {
+            parseErroredOriginalIds.add(currentToolOriginalId)
+          }
         }
       }
 
@@ -92,6 +106,7 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
       }
       currentToolCallId = null
       currentToolName = null
+      currentToolOriginalId = null
       accumulatedToolInput = ""
     }
   }
@@ -162,6 +177,7 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
         const originalId = event.content_block.id || genId()
         currentToolCallId = makeCompositeId(originalId, currentParentToolUseId)
         currentToolName = event.content_block.name || "unknown"
+        currentToolOriginalId = originalId
         accumulatedToolInput = ""
 
         // Store mapping for tool-result lookup
@@ -303,14 +319,19 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
           yield* endTextBlock()
           yield* endToolInput()
 
-          // Skip if already emitted via streaming
-          if (emittedToolIds.has(block.id)) {
+          const compositeId = makeCompositeId(block.id, currentParentToolUseId)
+
+          // If we already emitted via streaming AND that emission parsed cleanly,
+          // skip the duplicate. But if streaming failed to parse the tool input
+          // JSON, fall through and re-emit so the renderer replaces the broken
+          // {_raw, _parseError} payload with the complete block.input.
+          const hadParseError = parseErroredOriginalIds.has(block.id)
+          if (emittedToolIds.has(block.id) && !hadParseError) {
             continue
           }
+          parseErroredOriginalIds.delete(block.id)
 
           emittedToolIds.add(block.id)
-
-          const compositeId = makeCompositeId(block.id, currentParentToolUseId)
 
           // Store mapping for tool-result lookup
           toolIdMapping.set(block.id, compositeId)
