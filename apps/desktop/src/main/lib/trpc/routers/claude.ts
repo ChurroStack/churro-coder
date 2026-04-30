@@ -32,6 +32,7 @@ import {
 } from "../../claude-config"
 import { anthropicAccounts, anthropicSettings, chats, claudeCodeCredentials, getDatabase, projects as projectsTable, subChats } from "../../db"
 import { computeFileStatsFromMessages } from "../../file-stats"
+import { computeCatchupBlock } from "../../multi-provider/catchup"
 import { createRollbackStash } from "../../git/stash"
 import {
   ensureMcpTokensFresh,
@@ -1056,6 +1057,7 @@ export const claudeRouter = router({
                 id: crypto.randomUUID(),
                 role: "user",
                 parts,
+                metadata: { model: input.model ?? "sonnet" },
               }
               messagesToSave = [...existingMessages, userMessage]
 
@@ -1538,36 +1540,41 @@ export const claudeRouter = router({
             // Get bundled Claude binary path
             const claudeBinaryPath = getBundledClaudeBinaryPath()
 
-            const resumeSessionId =
+            let resumeSessionId =
               input.sessionId || existingSessionId || undefined
 
-            // DEBUG: Session resume path tracing
+            // Proactively validate the session JSONL file exists before trying to
+            // resume. If the file is missing (deleted, expired, or wrong cwd), clear
+            // resumeSessionId now so we start fresh and avoid the SESSION_EXPIRED
+            // round-trip error. The catch-up block below will provide context.
             const expectedSanitizedCwd = input.cwd.replace(/[/.]/g, "-")
-            const expectedSessionPath = path.join(
-              isolatedConfigDir,
-              "projects",
-              expectedSanitizedCwd,
-              `${resumeSessionId}.jsonl`,
-            )
-            console.log(`[claude] ========== SESSION DEBUG ==========`)
-            console.log(`[claude] subChatId: ${input.subChatId}`)
-            console.log(`[claude] cwd: ${input.cwd}`)
+            const expectedSessionPath = resumeSessionId
+              ? path.join(
+                  isolatedConfigDir,
+                  "projects",
+                  expectedSanitizedCwd,
+                  `${resumeSessionId}.jsonl`,
+                )
+              : null
+            if (resumeSessionId && expectedSessionPath && !existsSync(expectedSessionPath)) {
+              console.log(
+                `[claude] Session file missing at ${expectedSessionPath} - starting fresh session`,
+              )
+              db.update(subChats)
+                .set({ sessionId: null })
+                .where(eq(subChats.id, input.subChatId))
+                .run()
+              resumeSessionId = undefined
+            }
+
+            // When there is no session to resume but prior messages exist, the session
+            // context is lost (fresh chat on this provider, or session expired/deleted).
+            // The catch-up block will supply full history so the provider has context.
+            const isSessionFresh = !resumeSessionId && existingMessages.length > 0
+
             console.log(
-              `[claude] sanitized cwd (expected): ${expectedSanitizedCwd}`,
+              `[claude] Session: id=${resumeSessionId ?? "none"} fresh=${isSessionFresh} resumeAt=${resumeAtUuid ?? "none"} fork=${shouldForkResume}`,
             )
-            console.log(`[claude] CLAUDE_CONFIG_DIR: ${isolatedConfigDir}`)
-            console.log(
-              `[claude] Expected session path: ${expectedSessionPath}`,
-            )
-            console.log(`[claude] Session ID to resume: ${resumeSessionId}`)
-            console.log(
-              `[claude] Existing sessionId from DB: ${existingSessionId}`,
-            )
-            console.log(`[claude] Resume at UUID: ${resumeAtUuid}`)
-            console.log(
-              `[claude] Fork resume: ${shouldForkResume}, fork UUID: ${forkResumeAtUuid}`,
-            )
-            console.log(`[claude] ========== END SESSION DEBUG ==========`)
 
             console.log(
               `[SD] Query options - cwd: ${input.cwd}, projectPath: ${input.projectPath || "(not set)"}, mcpServers: ${mcpServersForSdk ? Object.keys(mcpServersForSdk).join(", ") : "(none)"}`,
@@ -1855,6 +1862,18 @@ ${prompt}
 [/CURRENT REQUEST]`
               finalQueryPrompt = ollamaContext
               console.log("[Ollama] Context prefix added to prompt")
+            }
+
+            // Soft multi-provider handoff: prepend a catch-up block when the active
+            // provider differs from the one that handled recent turns. Skipped for
+            // Ollama (it already embeds full history in the prompt above).
+            if (!isUsingOllama && typeof finalQueryPrompt === "string") {
+              const catchup = computeCatchupBlock(messagesToSave, "claude-code", {
+                forceFullHistory: isSessionFresh,
+              })
+              if (catchup) {
+                finalQueryPrompt = `${catchup}\n\n${finalQueryPrompt}`
+              }
             }
 
             // System prompt config - use preset for both Claude and Ollama

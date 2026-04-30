@@ -13,20 +13,9 @@ import {
   subChatModelIdAtomFamily,
   subChatProviderOverrideAtomFamily,
 } from "../atoms"
-import { CLAUDE_MODELS, CODEX_MODELS } from "./models"
-
 export type ModeContext = AgentMode | "review"
-export type Provider = "claude-code" | "codex"
-
-const CLAUDE_MODEL_IDS = new Set(CLAUDE_MODELS.map((m) => m.id))
-const CODEX_MODEL_IDS = new Set(CODEX_MODELS.map((m) => m.id))
-
-export function getProviderForModelId(modelId: string): Provider {
-  if (CODEX_MODEL_IDS.has(modelId)) return "codex"
-  if (CLAUDE_MODEL_IDS.has(modelId)) return "claude-code"
-  // Unknown id — fall back to Claude (matches historical behavior).
-  return "claude-code"
-}
+export type { Provider } from "../../../../shared/provider-from-model"
+export { getProviderForModelId } from "../../../../shared/provider-from-model"
 
 export function getDefaultModelForMode(mode: ModeContext): string {
   switch (mode) {

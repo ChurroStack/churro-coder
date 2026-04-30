@@ -6981,29 +6981,6 @@ Make sure to preserve all functionality from both branches when resolving confli
 
   const handleProviderChange = useCallback(
     (subChatId: string, nextProvider: "claude-code" | "codex") => {
-      // Provider switch is only allowed for brand new sub-chats.
-      const activeChat = agentChatStore.get(subChatId) as any
-      let messageCount = Array.isArray(activeChat?.messages)
-        ? activeChat.messages.length
-        : 0
-
-      if (messageCount === 0) {
-        const subChat = agentSubChats.find((sc) => sc.id === subChatId)
-        const rawMessages = subChat?.messages
-        if (Array.isArray(rawMessages)) {
-          messageCount = rawMessages.length
-        } else if (typeof rawMessages === "string") {
-          try {
-            const parsed = JSON.parse(rawMessages)
-            messageCount = Array.isArray(parsed) ? parsed.length : 0
-          } catch {
-            messageCount = 0
-          }
-        }
-      }
-
-      if (messageCount > 0) return
-
       setSubChatProviderOverrides((prev) => ({
         ...prev,
         [subChatId]: nextProvider,
@@ -7013,7 +6990,7 @@ Make sure to preserve all functionality from both branches when resolving confli
       agentChatStore.delete(subChatId)
       forceUpdate({})
     },
-    [agentSubChats],
+    [],
   )
 
   // Handle creating a new sub-chat
