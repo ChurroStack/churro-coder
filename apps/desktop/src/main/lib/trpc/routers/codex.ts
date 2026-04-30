@@ -1752,7 +1752,7 @@ export const codexRouter = router({
               existingSessionId:
                 input.forceNewSession
                   ? undefined
-                  : input.sessionId ?? getLastSessionId(existingMessages),
+                  : getLastSessionId(existingMessages),
               authConfig: input.authConfig,
             })
 
