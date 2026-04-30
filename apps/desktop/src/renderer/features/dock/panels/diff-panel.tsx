@@ -35,6 +35,7 @@ import type {
   ChangedFile,
 } from "../../../../shared/changes-types"
 import type { DiffPanelEntity } from "../atoms"
+import { useDockApi } from "../dock-context"
 
 /**
  * DiffPanel — full-pane Changes view, mounted as a dockview tab.
@@ -62,6 +63,7 @@ import type { DiffPanelEntity } from "../atoms"
  */
 export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   const { chatId } = params
+  const dockApi = useDockApi()
   const cache = useAtomValue(workspaceDiffCacheAtomFamily(chatId))
   const changesPanelWidth = useAtomValue(agentsChangesPanelWidthAtom)
   const [activeTab, setActiveTab] = useAtom(diffActiveTabAtom)
@@ -262,6 +264,8 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
         scopedFiles.length > 0 ? scopedFiles : undefined,
       )
       setPendingReviewMessage({ message, subChatId: activeSubChatId })
+      const chatPanel = dockApi?.getPanel(`chat:${activeSubChatId}`)
+      if (chatPanel && !chatPanel.api.isActive) chatPanel.api.setActive()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start review", {
         position: "top-center",
@@ -269,7 +273,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
     } finally {
       setIsReviewing(false)
     }
-  }, [chatId, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles])
+  }, [chatId, dockApi, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles])
 
   // Create PR — direct mutation (opens GitHub's PR-create page).
   const handleCreatePrDirect = useCallback(async () => {
@@ -308,6 +312,8 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       }
       const message = generatePrMessage(context)
       setPendingPrMessage({ message, subChatId: activeSubChatId })
+      const chatPanel = dockApi?.getPanel(`chat:${activeSubChatId}`)
+      if (chatPanel && !chatPanel.api.isActive) chatPanel.api.setActive()
       // isCreatingPr is reset by ChatViewInner once the message is sent.
     } catch (err) {
       toast.error(
@@ -316,7 +322,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       )
       setIsCreatingPr(false)
     }
-  }, [chatId, setPendingPrMessage, setIsCreatingPr])
+  }, [chatId, dockApi, setPendingPrMessage, setIsCreatingPr])
 
   const handleMergePr = useCallback(() => {
     mergePrMutation.mutate({ chatId, method: "squash" })
@@ -334,7 +340,9 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
 
 Make sure to preserve all functionality from both branches when resolving conflicts.`
     setPendingConflictResolutionMessage({ message, subChatId: activeSubChatId })
-  }, [setPendingConflictResolutionMessage])
+    const chatPanel = dockApi?.getPanel(`chat:${activeSubChatId}`)
+    if (chatPanel && !chatPanel.api.isActive) chatPanel.api.setActive()
+  }, [dockApi, setPendingConflictResolutionMessage])
 
   const handleExpandAll = useCallback(() => {
     diffViewRef.current?.expandAll()
