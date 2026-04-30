@@ -58,6 +58,14 @@ export function computeCatchupBlock(
   const turns = history.slice(boundaryIdx + 1)
   if (turns.length === 0) return null
 
+  // Neutralize any literal CATCHUP fence markers embedded in user/assistant text
+  // so a prior turn cannot escape the block by including "[CATCHUP-END]" (or a
+  // similar fence-shaped string) in its content. We insert a zero-width space
+  // (U+200B) after "[" so the visible content is unchanged for human readers but
+  // no string match against the fence tokens can succeed.
+  const sanitizeFenceTokens = (text: string): string =>
+    text.replace(/\[CATCHUP/gi, "[\u200BCATCHUP")
+
   // Pair consecutive user → assistant turns; skip orphans defensively.
   const pairs: Array<{ userText: string; assistantModel: string; assistantText: string }> = []
   for (let i = 0; i < turns.length; i++) {
@@ -74,9 +82,11 @@ export function computeCatchupBlock(
     if (!userText || !assistantText) { i++; continue }
 
     pairs.push({
-      userText,
-      assistantModel: (a.metadata?.model as string | undefined) ?? "assistant",
-      assistantText,
+      userText: sanitizeFenceTokens(userText),
+      assistantModel: sanitizeFenceTokens(
+        (a.metadata?.model as string | undefined) ?? "assistant",
+      ),
+      assistantText: sanitizeFenceTokens(assistantText),
     })
     i++ // consumed the assistant message
   }
