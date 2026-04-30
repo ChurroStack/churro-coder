@@ -10,7 +10,8 @@ import {
 } from "../../../components/ui/collapsible"
 import { Badge } from "../../../components/ui/badge"
 import { cn } from "../../../lib/utils"
-import { formatCost, formatDuration, formatTokens } from "./agent-format-utils"
+import { formatCost, formatDuration, formatTokens, humanizeStopReason, isNormalStop } from "./agent-format-utils"
+import { formatModelLabel } from "../lib/models"
 import type { AgentMessageMetadata } from "./agent-message-usage"
 
 interface AgentTurnRecapProps {
@@ -34,6 +35,7 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({
   if (!metadata.resultSubtype) return null
 
   const {
+    model,
     inputTokens = 0,
     outputTokens = 0,
     cacheReadInputTokens,
@@ -42,6 +44,7 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({
     totalCostUsd,
     durationMs,
     sessionId,
+    stopReason,
   } = metadata
 
   const hasUsage = inputTokens > 0 || outputTokens > 0 || totalTokens > 0
@@ -102,6 +105,11 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({
                 {formatCost(totalCostUsd!)}
               </span>
             )}
+            {stopReason && !isNormalStop(stopReason) && (
+              <span className="text-[10px] text-muted-foreground/70">
+                · {humanizeStopReason(stopReason)}
+              </span>
+            )}
             <span className="ml-auto text-[10px] text-muted-foreground/70">
               {open ? "Hide details" : "Recap"}
             </span>
@@ -130,6 +138,9 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({
             )}
             {durationMs !== undefined && durationMs > 0 && (
               <Row label="Duration" value={formatDuration(durationMs)} />
+            )}
+            {model && (
+              <Row label="Model" value={formatModelLabel(model)} />
             )}
             {sessionId && (
               <Row

@@ -78,7 +78,7 @@ import { QueueProcessor } from "../agents/components/queue-processor"
 const SIDEBAR_MIN_WIDTH = 160
 const SIDEBAR_MAX_WIDTH = 600
 const SIDEBAR_DEFAULT_WIDTH = 240
-const DETAILS_RAIL_MIN_WIDTH = 280
+const DETAILS_RAIL_MIN_WIDTH = 310
 const DETAILS_RAIL_MAX_WIDTH = 700
 const DETAILS_RAIL_DEFAULT_WIDTH = 460
 
@@ -608,6 +608,23 @@ export function AgentsLayout() {
 
       const restored = tryRestoreShell(api, shellSnapshot)
 
+      // Re-apply size constraints on every init — restoration from snapshot
+      // does not carry minimumWidth/maximumWidth so the user could drag below
+      // the floor if we skip this.
+      const leftPanel = api.getPanel("left-rail")
+      if (leftPanel) {
+        leftPanel.api.setConstraints({ minimumWidth: SIDEBAR_MIN_WIDTH, maximumWidth: SIDEBAR_MAX_WIDTH })
+      }
+      const rightPanel = api.getPanel("right-rail")
+      if (rightPanel) {
+        rightPanel.api.setConstraints({ minimumWidth: DETAILS_RAIL_MIN_WIDTH, maximumWidth: DETAILS_RAIL_MAX_WIDTH })
+        // Clamp the restored size to the new floor in case the snapshot has a smaller value.
+        const currentWidth = rightPanel.api.width
+        if (currentWidth && currentWidth < DETAILS_RAIL_MIN_WIDTH) {
+          rightPanel.api.setSize({ width: DETAILS_RAIL_MIN_WIDTH })
+        }
+      }
+
       if (!restored) {
         // First-run / unrestorable: build the default 3-cell layout.
         const initialLeftWidth = Math.min(
@@ -666,7 +683,8 @@ export function AgentsLayout() {
         const right = api.getPanel("right-rail")
         if (right?.api.isVisible) {
           const w = right.api.width
-          if (w && w !== detailsWidth) setDetailsWidth(w)
+          const clampedW = w ? Math.max(w, DETAILS_RAIL_MIN_WIDTH) : w
+          if (clampedW && clampedW !== detailsWidth) setDetailsWidth(clampedW)
         }
         scheduleShellSave()
       })

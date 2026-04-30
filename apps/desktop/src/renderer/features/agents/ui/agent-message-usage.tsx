@@ -9,6 +9,14 @@ import {
 import { cn } from "../../../lib/utils"
 import { formatDuration, formatTokens } from "./agent-format-utils"
 
+export type AgentSubagentInfo = {
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
+}
+
 export interface AgentMessageMetadata {
   model?: string
   sessionId?: string
@@ -21,6 +29,8 @@ export interface AgentMessageMetadata {
   finalTextId?: string
   durationMs?: number
   resultSubtype?: string
+  stopReason?: string
+  subagentInfo?: Record<string, AgentSubagentInfo>
 }
 
 interface AgentMessageUsageProps {

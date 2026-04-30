@@ -27,3 +27,23 @@ export function formatCost(usd: number): string {
   }
   return `$${usd.toFixed(2)}`
 }
+
+export function isNormalStop(stopReason: string): boolean {
+  return stopReason === "end_turn" || stopReason === "stop"
+}
+
+export function humanizeStopReason(stopReason: string): string {
+  switch (stopReason) {
+    case "max_tokens":
+    case "length":
+      return "hit max tokens"
+    case "tool_calls":
+      return "stopped at tool boundary"
+    case "content_filter":
+      return "content filtered"
+    case "error":
+      return "error"
+    default:
+      return stopReason
+  }
+}

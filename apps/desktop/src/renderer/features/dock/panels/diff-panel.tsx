@@ -20,6 +20,7 @@ import {
   pendingConflictResolutionMessageAtom,
   subChatFilesAtom,
   filteredSubChatIdAtom,
+  selectedDiffFilePathAtom,
   type SelectedCommit,
 } from "../../agents/atoms"
 import { useAgentSubChatStore } from "../../agents/stores/sub-chat-store"
@@ -151,13 +152,20 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   // this will match the panel's chatId when the user is viewing it.
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId)
 
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
+  const atomSelectedFilePath = useAtomValue(selectedDiffFilePathAtom)
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(atomSelectedFilePath)
   const handleFileSelect = useCallback(
     (file: ChangedFile, _category: ChangeCategory) => {
       setSelectedFilePath(file.path)
     },
     [],
   )
+
+  // Sync atom → local state so clicking a file in the Changes widget
+  // navigates an already-open diff panel to that file.
+  useEffect(() => {
+    if (atomSelectedFilePath) setSelectedFilePath(atomSelectedFilePath)
+  }, [atomSelectedFilePath])
 
   // History tab — clicking a commit row selects it, clicking a file
   // inside that commit picks the file path. Both feed back into atoms

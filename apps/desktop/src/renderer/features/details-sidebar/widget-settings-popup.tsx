@@ -2,13 +2,18 @@
 
 import { useCallback, useMemo, useState } from "react"
 import { useAtom } from "jotai"
-import { GripVertical, Box, TerminalSquare, ListTodo } from "lucide-react"
+import { GripVertical, Box, MoreVertical, TerminalSquare, ListTodo } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Checkbox } from "@/components/ui/checkbox"
 import { PlanIcon, DiffIcon, OriginalMCPIcon } from "@/components/ui/icons"
 import { cn } from "@/lib/utils"
@@ -155,15 +160,21 @@ export function WidgetSettingsPopup({ workspaceId, isRemoteChat = false }: Widge
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors rounded-md"
-        >
-          Edit widgets
-        </Button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-muted-foreground hover:text-foreground rounded-md"
+              aria-label="Edit widgets"
+            >
+              <MoreVertical className="h-3.5 w-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Edit widgets</TooltipContent>
+      </Tooltip>
       <PopoverContent
         align="end"
         className="w-56 p-2"

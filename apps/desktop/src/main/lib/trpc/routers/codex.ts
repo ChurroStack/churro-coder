@@ -1795,6 +1795,7 @@ export const codexRouter = router({
                     sessionId,
                     durationMs: Date.now() - startedAt,
                     resultSubtype: part.finishReason === "error" ? "error" : "success",
+                    stopReason: part.finishReason ?? undefined,
                   }
                 }
 

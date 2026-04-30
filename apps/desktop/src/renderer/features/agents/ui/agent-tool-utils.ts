@@ -134,11 +134,14 @@ export function areToolPropsEqual(
  * Compare function for AgentTaskTool which has additional nestedTools prop.
  */
 export function areTaskToolPropsEqual(
-  prevProps: { part: any; nestedTools: any[]; chatStatus?: string },
-  nextProps: { part: any; nestedTools: any[]; chatStatus?: string },
+  prevProps: { part: any; nestedTools: any[]; chatStatus?: string; subagentInfo?: Record<string, unknown> },
+  nextProps: { part: any; nestedTools: any[]; chatStatus?: string; subagentInfo?: Record<string, unknown> },
 ): boolean {
   // Compare main part first
   if (!arePartsEqual(prevProps.part, nextProps.part)) return false
+
+  // Compare subagentInfo (reference equality is fine — object is stable once set)
+  if (prevProps.subagentInfo !== nextProps.subagentInfo) return false
 
   // Compare nestedTools array
   const prevNested = prevProps.nestedTools || []

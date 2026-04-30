@@ -1,4 +1,4 @@
-import type { MCPServer, MCPServerStatus, MessageMetadata, UIMessageChunk } from "./types";
+import type { MCPServer, MCPServerStatus, MessageMetadata, SubagentInfo, UIMessageChunk } from "./types";
 
 export function createTransformer(options?: { isUsingOllama?: boolean }) {
   const isUsingOllama = options?.isUsingOllama === true
@@ -54,6 +54,12 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
   let accumulatedThinking = ""
   let inThinkingBlock = false // Track if we're currently in a thinking block
   let thinkingJsonStarted = false // Track if we've sent the JSON prefix for thinking deltas
+
+  // Per-subagent usage/model keyed by composite toolCallId
+  const subagentInfo: Record<string, SubagentInfo> = {}
+
+  // Model from the last main (non-subagent) assistant message
+  let lastMainAssistantModel: string | undefined
 
   // Track usage from the last main assistant message (exclude sidechain/subagents).
   // This is used for accurate context window display in final metadata.
@@ -272,12 +278,32 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
 
     // Track per-turn usage from main assistant messages only.
     // Sidechain/subagent assistant messages have parent_tool_use_id set.
-    if (msg.type === "assistant" && msg.message?.usage && msg.parent_tool_use_id == null) {
-      lastMainAssistantUsage = {
-        input_tokens: msg.message.usage.input_tokens ?? 0,
-        cache_read_input_tokens: msg.message.usage.cache_read_input_tokens ?? 0,
-        cache_creation_input_tokens: msg.message.usage.cache_creation_input_tokens ?? 0,
-        output_tokens: msg.message.usage.output_tokens ?? 0,
+    if (msg.type === "assistant" && msg.parent_tool_use_id == null) {
+      if (msg.message?.model) lastMainAssistantModel = msg.message.model
+      if (msg.message?.usage) {
+        lastMainAssistantUsage = {
+          input_tokens: msg.message.usage.input_tokens ?? 0,
+          cache_read_input_tokens: msg.message.usage.cache_read_input_tokens ?? 0,
+          cache_creation_input_tokens: msg.message.usage.cache_creation_input_tokens ?? 0,
+          output_tokens: msg.message.usage.output_tokens ?? 0,
+        }
+      }
+    }
+
+    // Accumulate per-subagent model/usage for display in Task blocks
+    if (msg.type === "assistant" && msg.parent_tool_use_id != null) {
+      const taskCompositeId =
+        toolIdMapping.get(msg.parent_tool_use_id) ?? msg.parent_tool_use_id
+      const prev = subagentInfo[taskCompositeId] ?? {}
+      const u = msg.message?.usage
+      subagentInfo[taskCompositeId] = {
+        model: msg.message?.model ?? prev.model,
+        inputTokens: (prev.inputTokens ?? 0) + (u?.input_tokens ?? 0),
+        outputTokens: (prev.outputTokens ?? 0) + (u?.output_tokens ?? 0),
+        cacheReadInputTokens:
+          (prev.cacheReadInputTokens ?? 0) + (u?.cache_read_input_tokens ?? 0),
+        cacheCreationInputTokens:
+          (prev.cacheCreationInputTokens ?? 0) + (u?.cache_creation_input_tokens ?? 0),
       }
     }
 
@@ -480,6 +506,7 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
       const resolvedOutputTokens = resultOutputTokens ?? usage.output_tokens
       const metadata: MessageMetadata = {
         sessionId: msg.session_id,
+        model: lastMainAssistantModel,
         inputTokens: resolvedInputTokens,
         cacheReadInputTokens: usage.cache_read_input_tokens,
         cacheCreationInputTokens: usage.cache_creation_input_tokens,
@@ -491,8 +518,9 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
         totalCostUsd: msg.total_cost_usd,
         durationMs: startTime ? Date.now() - startTime : undefined,
         resultSubtype: msg.subtype || "success",
-        // Include finalTextId for collapsing tools when there's a final response
         finalTextId: lastTextId || undefined,
+        stopReason: (msg as any).stop_reason ?? (msg as any).message?.stop_reason ?? undefined,
+        ...(Object.keys(subagentInfo).length > 0 ? { subagentInfo } : {}),
       }
       yield { type: "message-metadata", messageMetadata: metadata }
       yield { type: "finish-step" }
