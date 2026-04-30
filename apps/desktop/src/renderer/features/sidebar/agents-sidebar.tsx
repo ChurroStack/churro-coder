@@ -1195,6 +1195,78 @@ const SidebarHeader = memo(function SidebarHeader({
         className="absolute left-[15px] top-[12px] z-20"
       />
 
+      <div
+        className={cn(
+          "absolute top-2 z-20",
+          isDesktop && isFullscreen !== true ? "left-[82px]" : "left-2",
+          isMobileFullscreen ? "right-2" : "right-10",
+        )}
+        style={{
+          WebkitAppRegion: "no-drag",
+        }}
+      >
+        <div className="min-w-0">
+          <DropdownMenu
+            open={isDropdownOpen}
+            onOpenChange={setIsDropdownOpen}
+          >
+            <DropdownMenuTrigger asChild>
+              <ButtonCustom
+                variant="ghost"
+                className="h-6 px-1.5 justify-start hover:bg-foreground/10 rounded-md group/team-button max-w-full w-full text-left"
+                suppressHydrationWarning
+              >
+                <div className="flex items-center gap-2 min-w-0 max-w-full w-full">
+                  <div className="flex items-center justify-center flex-shrink-0">
+                    <Logo className="w-6 h-6" />
+                  </div>
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <div className="text-sm font-semibold text-foreground truncate">
+                      Coder
+                    </div>
+                  </div>
+                  <ChevronDown
+                    className={cn(
+                      "h-3 text-muted-foreground flex-shrink-0 overflow-hidden",
+                      isDropdownOpen
+                        ? "opacity-100 w-3"
+                        : "opacity-0 w-0 group-hover/team-button:opacity-100 group-hover/team-button:w-3",
+                    )}
+                  />
+                </div>
+              </ButtonCustom>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52" sideOffset={8}>
+              <DropdownMenuItem
+                className="gap-2"
+                onSelect={() => {
+                  setIsDropdownOpen(false)
+                  setSettingsActiveTab("preferences")
+                  setSettingsDialogOpen(true)
+                }}
+              >
+                <SettingsIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                Settings
+              </DropdownMenuItem>
+
+              {!isMobileFullscreen && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setIsDropdownOpen(false)
+                    setSettingsActiveTab("keyboard")
+                    setSettingsDialogOpen(true)
+                  }}
+                  className="gap-2"
+                >
+                  <KeyboardIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="flex-1">Shortcuts</span>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
       {/* Close button - positioned at top right */}
       {!isMobileFullscreen && (
         <div
@@ -1231,76 +1303,6 @@ const SidebarHeader = memo(function SidebarHeader({
 
       {/* Spacer for macOS traffic lights */}
       <TrafficLightSpacer isFullscreen={isFullscreen} isDesktop={isDesktop} />
-
-      {/* Team dropdown - below traffic lights */}
-      <div className="px-2 pt-2 pb-2">
-        <div className="flex items-center gap-1">
-          <div className="flex-1 min-w-0">
-            <DropdownMenu
-              open={isDropdownOpen}
-              onOpenChange={setIsDropdownOpen}
-            >
-              <DropdownMenuTrigger asChild>
-                <ButtonCustom
-                  variant="ghost"
-                  className="h-6 px-1.5 justify-start hover:bg-foreground/10 rounded-md group/team-button max-w-full w-full text-left"
-                  suppressHydrationWarning
-                >
-                  <div className="flex items-center gap-2 min-w-0 max-w-full w-full">
-                    <div className="flex items-center justify-center flex-shrink-0">
-                      <Logo className="w-6 h-6" />
-                    </div>
-                    <div className="min-w-0 flex-1 overflow-hidden">
-                      <div className="text-sm font-semibold text-foreground truncate">
-                        Coder
-                      </div>
-                    </div>
-                      <ChevronDown
-                      className={cn(
-                        "h-3 text-muted-foreground flex-shrink-0 overflow-hidden",
-                        isDropdownOpen
-                          ? "opacity-100 w-3"
-                          : "opacity-0 w-0 group-hover/team-button:opacity-100 group-hover/team-button:w-3",
-                      )}
-                    />
-                  </div>
-                </ButtonCustom>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="w-52"
-                sideOffset={8}
-              >
-                <DropdownMenuItem
-                  className="gap-2"
-                  onSelect={() => {
-                    setIsDropdownOpen(false)
-                    setSettingsActiveTab("preferences")
-                    setSettingsDialogOpen(true)
-                  }}
-                >
-                  <SettingsIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                  Settings
-                </DropdownMenuItem>
-
-                {!isMobileFullscreen && (
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      setIsDropdownOpen(false)
-                      setSettingsActiveTab("keyboard")
-                      setSettingsDialogOpen(true)
-                    }}
-                    className="gap-2"
-                  >
-                    <KeyboardIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="flex-1">Shortcuts</span>
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </div>
     </div>
   )
 })
@@ -2802,7 +2804,7 @@ export function AgentsSidebar({
       />
 
       {/* Search and New Workspace */}
-      <div className="px-2 pb-3 flex-shrink-0">
+      <div className="px-2 pt-2 pb-3 flex-shrink-0">
         <div className="space-y-2">
           {/* Search Input */}
           <div className="relative">
