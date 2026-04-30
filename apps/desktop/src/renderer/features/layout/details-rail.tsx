@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react"
-import { useAtomValue } from "jotai"
+import { useAtomValue, useSetAtom } from "jotai"
 import type { IGridviewPanelProps } from "dockview-react"
 import { trpc } from "../../lib/trpc"
 import {
@@ -8,6 +8,7 @@ import {
   workspaceDiffCacheAtomFamily,
   planEditRefetchTriggerAtomFamily,
   subChatModeAtomFamily,
+  selectedDiffFilePathAtom,
 } from "../agents/atoms"
 import { defaultAgentModeAtom } from "../../lib/atoms"
 import { useAgentSubChatStore } from "../agents/stores/sub-chat-store"
@@ -106,6 +107,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
 
   const isCommitting = isCommittingChanges || isPushing
   const canOpenDiff = !!worktreePath
+  const setSelectedDiffFilePath = useSetAtom(selectedDiffFilePathAtom)
 
   const remoteInfo = useMemo(() => {
     if (worktreePath || !sandboxId) return null
@@ -118,10 +120,11 @@ export function DetailsRail(_props: IGridviewPanelProps) {
 
   const handleFileSelect = useCallback(
     (filePath: string) => {
-      if (!dockApi) return
-      addOrFocus(dockApi, { kind: "file", data: { absolutePath: filePath } })
+      if (!dockApi || !chatId) return
+      setSelectedDiffFilePath(filePath)
+      addOrFocus(dockApi, { kind: "diff", data: { chatId } })
     },
-    [dockApi],
+    [dockApi, chatId, setSelectedDiffFilePath],
   )
 
   const handleOpenFile = useCallback(

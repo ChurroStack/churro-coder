@@ -68,9 +68,18 @@ export type MCPServer = {
   error?: string
 }
 
+export type SubagentInfo = {
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadInputTokens?: number
+  cacheCreationInputTokens?: number
+}
+
 export type MessageMetadata = {
   sessionId?: string
   sdkMessageUuid?: string // SDK's message UUID for resumeSessionAt (rollback support)
+  model?: string
   inputTokens?: number
   cacheReadInputTokens?: number
   cacheCreationInputTokens?: number
@@ -80,4 +89,6 @@ export type MessageMetadata = {
   durationMs?: number
   resultSubtype?: string
   finalTextId?: string
+  stopReason?: string
+  subagentInfo?: Record<string, SubagentInfo>
 }

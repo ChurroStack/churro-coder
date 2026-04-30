@@ -366,6 +366,20 @@ export function normalizeCodexToolPart(
   if (normalizedOutput !== undefined) normalizedPart.output = normalizedOutput
   if (normalizedResult !== undefined) normalizedPart.result = normalizedResult
 
+  // Stash the human-readable detail string (e.g. "src/foo.ts", "./build.sh") so
+  // the renderer can surface it for tools whose detail isn't mapped into a typed
+  // input field (Edit, Write, Search, Patch, etc.)
+  if (descriptor?.detail && descriptor.detail.length > 0) {
+    const existing = isRecord(normalizedPart.callProviderMetadata)
+      ? normalizedPart.callProviderMetadata
+      : {}
+    const existingCustom = isRecord(existing.custom) ? existing.custom : {}
+    normalizedPart.callProviderMetadata = {
+      ...existing,
+      custom: { ...existingCustom, codexDetail: descriptor.detail },
+    }
+  }
+
   return normalizedPart
 }
 
