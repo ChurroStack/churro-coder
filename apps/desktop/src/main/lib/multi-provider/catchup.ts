@@ -25,19 +25,26 @@ export function computeCatchupBlock(
 ): string | null {
   if (messages.length === 0) return null
 
-  // Walk backward to find the boundary: the most recent user message whose turn
-  // was handled by currentProvider. Everything strictly after that boundary is
-  // new context the current provider has not seen.
+  // Drop the trailing user message first — it's the message being sent right
+  // now, not a completed turn. It must be excluded from both the boundary search
+  // and the catch-up window (the provider will respond to it, not summarise it).
+  const trailing = messages[messages.length - 1]
+  const history = trailing?.role === "user" ? messages.slice(0, -1) : messages
+  if (history.length === 0) return null
+
+  // Walk backward through completed turns to find the boundary: the most recent
+  // user message whose turn was handled by currentProvider. Everything strictly
+  // after that boundary is new context the current provider has not seen.
   let boundaryIdx = -1
   if (!options?.forceFullHistory) {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
+    for (let i = history.length - 1; i >= 0; i--) {
+      const m = history[i]
       if (m.role !== "user") continue
 
       // Classify this user turn by its own metadata.model, falling back to the
       // immediately-following assistant message's metadata.model.
       const userModel = m.metadata?.model as string | undefined
-      const nextAssistant = messages.slice(i + 1).find((x) => x.role === "assistant")
+      const nextAssistant = history.slice(i + 1).find((x) => x.role === "assistant")
       const turnModel = userModel ?? (nextAssistant?.metadata?.model as string | undefined)
 
       if (turnModel && getProviderForModelId(turnModel) === currentProvider) {
@@ -47,14 +54,8 @@ export function computeCatchupBlock(
     }
   }
 
-  // Messages after the boundary are new to this provider.
-  const window = messages.slice(boundaryIdx + 1)
-  if (window.length === 0) return null
-
-  // Drop the trailing user message — it's the one being sent now; the provider
-  // responds to it rather than having it summarised.
-  const trailing = window[window.length - 1]
-  const turns = trailing?.role === "user" ? window.slice(0, -1) : window
+  // Turns after the boundary are new to this provider.
+  const turns = history.slice(boundaryIdx + 1)
   if (turns.length === 0) return null
 
   // Pair consecutive user → assistant turns; skip orphans defensively.
