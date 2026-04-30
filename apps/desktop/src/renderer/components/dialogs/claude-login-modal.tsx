@@ -62,6 +62,11 @@ export function ClaudeLoginModal({
   const [userClickedConnect, setUserClickedConnect] = useState(false)
   const [urlOpened, setUrlOpened] = useState(false)
   const [savedOauthUrl, setSavedOauthUrl] = useState<string | null>(null)
+  const [ignoredExistingToken, setIgnoredExistingToken] = useState(false)
+  const [isUsingExistingToken, setIsUsingExistingToken] = useState(false)
+  const [existingTokenError, setExistingTokenError] = useState<string | null>(
+    null,
+  )
   const urlOpenedRef = useRef(false)
   const didAutoStartForOpenRef = useRef(false)
 
@@ -69,7 +74,25 @@ export function ClaudeLoginModal({
   const startAuthMutation = trpc.claudeCode.startAuth.useMutation()
   const submitCodeMutation = trpc.claudeCode.submitCode.useMutation()
   const openOAuthUrlMutation = trpc.claudeCode.openOAuthUrl.useMutation()
+  const importSystemTokenMutation =
+    trpc.claudeCode.importSystemToken.useMutation()
   const trpcUtils = trpc.useUtils()
+
+  // Detect an existing Claude Code keychain token so we can offer a
+  // one-click import instead of running `claude setup-token` again. When
+  // valid creds already exist, the setup-token subprocess can hang in
+  // closed-stdin and leave the user stuck on the Connect spinner. Only
+  // query while the modal is open to avoid keychain access at app boot.
+  const existingTokenQuery = trpc.claudeCode.getSystemToken.useQuery(
+    undefined,
+    { enabled: open },
+  )
+  const existingToken = existingTokenQuery.data?.token ?? null
+  const hasExistingToken = !!existingToken
+  const checkedExistingToken =
+    !open || (!existingTokenQuery.isLoading && existingTokenQuery.isFetched)
+  const shouldOfferExistingToken =
+    open && checkedExistingToken && hasExistingToken && !ignoredExistingToken
 
   // Poll for OAuth URL
   const pollStatusQuery = trpc.claudeCode.pollStatus.useQuery(
@@ -129,6 +152,9 @@ export function ClaudeLoginModal({
       setUserClickedConnect(false)
       setUrlOpened(false)
       setSavedOauthUrl(null)
+      setIgnoredExistingToken(false)
+      setIsUsingExistingToken(false)
+      setExistingTokenError(null)
       urlOpenedRef.current = false
       didAutoStartForOpenRef.current = false
       // Clear pending retry if modal closed without success (user cancelled)
@@ -227,14 +253,48 @@ export function ClaudeLoginModal({
       !open ||
       !autoStartAuth ||
       flowState.step !== "idle" ||
-      didAutoStartForOpenRef.current
+      didAutoStartForOpenRef.current ||
+      // Wait until the keychain check resolves; if we're going to surface
+      // the existing-token prompt, don't kick off the OAuth subprocess.
+      !checkedExistingToken ||
+      shouldOfferExistingToken
     ) {
       return
     }
 
     didAutoStartForOpenRef.current = true
     void handleConnectClick()
-  }, [autoStartAuth, flowState.step, handleConnectClick, open])
+  }, [
+    autoStartAuth,
+    flowState.step,
+    handleConnectClick,
+    open,
+    checkedExistingToken,
+    shouldOfferExistingToken,
+  ])
+
+  const handleUseExistingToken = async () => {
+    if (!hasExistingToken || isUsingExistingToken) return
+
+    setIsUsingExistingToken(true)
+    setExistingTokenError(null)
+
+    try {
+      await importSystemTokenMutation.mutateAsync()
+      handleAuthSuccess()
+    } catch (err) {
+      setExistingTokenError(
+        err instanceof Error ? err.message : "Failed to use existing token",
+      )
+      setIsUsingExistingToken(false)
+    }
+  }
+
+  const handleRejectExistingToken = () => {
+    setIgnoredExistingToken(true)
+    setExistingTokenError(null)
+    void handleConnectClick()
+  }
 
   const handleSubmitCode = async () => {
     if (!authCode.trim() || flowState.step !== "has_url") return
@@ -346,20 +406,70 @@ export function ClaudeLoginModal({
 
           {/* Content */}
           <div className="space-y-6">
-            {/* Connect Button - shows loader only if user clicked AND loading */}
-            {!urlOpened && flowState.step !== "has_url" && flowState.step !== "error" && (
-              <Button
-                onClick={handleConnectClick}
-                className="w-full"
-                disabled={userClickedConnect && isLoadingAuth}
-              >
-                {userClickedConnect && isLoadingAuth ? (
-                  <IconSpinner className="h-4 w-4" />
-                ) : (
-                  "Connect"
+            {/* Existing token prompt — shown when the Claude Code CLI
+                already has valid creds in the keychain, so the user can
+                skip the OAuth subprocess. */}
+            {shouldOfferExistingToken && flowState.step === "idle" && (
+              <div className="space-y-3">
+                <div className="p-3 bg-muted/50 border border-border rounded-md">
+                  <p className="text-sm font-medium">
+                    Existing Claude Code credentials found
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Use the token already saved in your system keychain.
+                  </p>
+                </div>
+                {existingTokenError && (
+                  <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+                    <p className="text-sm text-destructive">
+                      {existingTokenError}
+                    </p>
+                  </div>
                 )}
-              </Button>
+                <div className="flex w-full gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={handleRejectExistingToken}
+                    disabled={isUsingExistingToken}
+                    className="flex-1"
+                  >
+                    Auth with Anthropic
+                  </Button>
+                  <Button
+                    onClick={handleUseExistingToken}
+                    disabled={isUsingExistingToken}
+                    className="flex-1"
+                  >
+                    {isUsingExistingToken ? (
+                      <IconSpinner className="h-4 w-4" />
+                    ) : (
+                      "Use existing token"
+                    )}
+                  </Button>
+                </div>
+              </div>
             )}
+
+            {/* Connect Button - shows loader only if user clicked AND loading.
+                Hidden until the keychain check resolves and only when not
+                offering the existing-token prompt. */}
+            {checkedExistingToken &&
+              !shouldOfferExistingToken &&
+              !urlOpened &&
+              flowState.step !== "has_url" &&
+              flowState.step !== "error" && (
+                <Button
+                  onClick={handleConnectClick}
+                  className="w-full"
+                  disabled={userClickedConnect && isLoadingAuth}
+                >
+                  {userClickedConnect && isLoadingAuth ? (
+                    <IconSpinner className="h-4 w-4" />
+                  ) : (
+                    "Connect"
+                  )}
+                </Button>
+              )}
 
             {/* Code Input - Show after URL is opened or if has_url */}
             {(urlOpened ||
