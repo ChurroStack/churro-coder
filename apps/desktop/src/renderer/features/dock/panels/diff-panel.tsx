@@ -35,6 +35,29 @@ import type {
   ChangedFile,
 } from "../../../../shared/changes-types"
 import type { DiffPanelEntity } from "../atoms"
+import type { DockviewApi } from "dockview-react"
+import { useDockApi } from "../dock-context"
+
+// Wait up to `timeoutMs` for the chat panel to exist, then activate it.
+// New sub-chats may not have their dockview panel yet at the moment a
+// Changes-window action fires — ChatPanelSync needs a render tick to add
+// it. Polling at 50ms gives that tick a chance without blocking the user.
+async function activateChatPanelWhenReady(
+  dockApi: DockviewApi | null,
+  subChatId: string,
+  timeoutMs = 1500,
+): Promise<void> {
+  if (!dockApi) return
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() <= deadline) {
+    const panel = dockApi.getPanel(`chat:${subChatId}`)
+    if (panel) {
+      if (!panel.api.isActive) panel.api.setActive()
+      return
+    }
+    await new Promise((r) => setTimeout(r, 50))
+  }
+}
 
 /**
  * DiffPanel — full-pane Changes view, mounted as a dockview tab.
@@ -62,6 +85,7 @@ import type { DiffPanelEntity } from "../atoms"
  */
 export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   const { chatId } = params
+  const dockApi = useDockApi()
   const cache = useAtomValue(workspaceDiffCacheAtomFamily(chatId))
   const changesPanelWidth = useAtomValue(agentsChangesPanelWidthAtom)
   const [activeTab, setActiveTab] = useAtom(diffActiveTabAtom)
@@ -182,6 +206,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   const diffViewRef = useRef<AgentDiffViewRef | null>(null)
   const [viewedCount, setViewedCount] = useState(0)
   const [isReviewing, setIsReviewing] = useState(false)
+  const [isFixingConflicts, setIsFixingConflicts] = useState(false)
   const [isCreatingPr, setIsCreatingPr] = useAtom(isCreatingPrAtom)
   const setPendingPrMessage = useSetAtom(pendingPrMessageAtom)
   const setPendingReviewMessage = useSetAtom(pendingReviewMessageAtom)
@@ -245,11 +270,13 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
         toast.error("Could not get git context", { position: "top-center" })
         return
       }
-      const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId
+      const subChatStore = useAgentSubChatStore.getState()
+      const activeSubChatId = subChatStore.activeSubChatId
       if (!activeSubChatId) {
         toast.error("No active chat available", { position: "top-center" })
         return
       }
+      subChatStore.addToOpenSubChats(activeSubChatId)
       applyModeDefaultModel(activeSubChatId, "review")
       // Honor the Scoped/All toggle: pass the filtered file list when set.
       const scopedFiles = filteredSubChatIdValue
@@ -262,6 +289,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
         scopedFiles.length > 0 ? scopedFiles : undefined,
       )
       setPendingReviewMessage({ message, subChatId: activeSubChatId })
+      await activateChatPanelWhenReady(dockApi, activeSubChatId)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to start review", {
         position: "top-center",
@@ -269,7 +297,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
     } finally {
       setIsReviewing(false)
     }
-  }, [chatId, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles])
+  }, [chatId, dockApi, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles])
 
   // Create PR — direct mutation (opens GitHub's PR-create page).
   const handleCreatePrDirect = useCallback(async () => {
@@ -308,6 +336,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       }
       const message = generatePrMessage(context)
       setPendingPrMessage({ message, subChatId: activeSubChatId })
+      await activateChatPanelWhenReady(dockApi, activeSubChatId)
       // isCreatingPr is reset by ChatViewInner once the message is sent.
     } catch (err) {
       toast.error(
@@ -316,16 +345,20 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       )
       setIsCreatingPr(false)
     }
-  }, [chatId, setPendingPrMessage, setIsCreatingPr])
+  }, [chatId, dockApi, setPendingPrMessage, setIsCreatingPr])
 
   const handleMergePr = useCallback(() => {
     mergePrMutation.mutate({ chatId, method: "squash" })
   }, [chatId, mergePrMutation])
 
-  const handleFixConflicts = useCallback(() => {
-    const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId
+  const handleFixConflicts = useCallback(async () => {
+    const subChatStore = useAgentSubChatStore.getState()
+    const activeSubChatId = subChatStore.activeSubChatId
     if (!activeSubChatId) return
-    const message = `This PR has merge conflicts with the main branch. Please:
+    setIsFixingConflicts(true)
+    try {
+      subChatStore.addToOpenSubChats(activeSubChatId)
+      const message = `This PR has merge conflicts with the main branch. Please:
 
 1. First, fetch and merge the latest changes from main branch using git commands
 2. If there are any merge conflicts, resolve them carefully by keeping the correct code from both branches
@@ -333,8 +366,12 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
 4. Push the changes to update the PR
 
 Make sure to preserve all functionality from both branches when resolving conflicts.`
-    setPendingConflictResolutionMessage({ message, subChatId: activeSubChatId })
-  }, [setPendingConflictResolutionMessage])
+      setPendingConflictResolutionMessage({ message, subChatId: activeSubChatId })
+      await activateChatPanelWhenReady(dockApi, activeSubChatId)
+    } finally {
+      setIsFixingConflicts(false)
+    }
+  }, [dockApi, setPendingConflictResolutionMessage])
 
   const handleExpandAll = useCallback(() => {
     diffViewRef.current?.expandAll()
@@ -392,6 +429,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         isPrOpen={isPrOpen}
         hasMergeConflicts={hasMergeConflicts}
         onFixConflicts={handleFixConflicts}
+        isFixingConflicts={isFixingConflicts}
         // No onClose — dockview tab's X handles closing.
         onRefresh={handleRefresh}
         onExpandAll={handleExpandAll}

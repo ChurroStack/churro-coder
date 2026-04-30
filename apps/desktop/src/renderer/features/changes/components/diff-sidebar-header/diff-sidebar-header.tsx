@@ -94,6 +94,8 @@ interface DiffSidebarHeaderProps {
 	hasMergeConflicts?: boolean;
 	/** Handler for fixing merge conflicts - sends prompt to AI */
 	onFixConflicts?: () => void;
+	/** Disables Fix Conflicts while the prompt is being seeded / panel activated */
+	isFixingConflicts?: boolean;
 	// Diff view controls
 	onExpandAll?: () => void;
 	onCollapseAll?: () => void;
@@ -147,6 +149,7 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 	isPrOpen = false,
 	hasMergeConflicts = false,
 	onFixConflicts,
+	isFixingConflicts = false,
 	onExpandAll,
 	onCollapseAll,
 	viewMode = "unified",
@@ -806,10 +809,11 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 								{hasPrNumber && isPrOpen && hasMergeConflicts && onFixConflicts && (
 									<DropdownMenuItem
 										onClick={onFixConflicts}
+										disabled={isFixingConflicts}
 										className="text-xs text-yellow-600 dark:text-yellow-500"
 									>
 										<GitMerge className="mr-2 size-3.5" />
-										<span>Fix Merge Conflicts</span>
+										<span>{isFixingConflicts ? "Fixing..." : "Fix Merge Conflicts"}</span>
 									</DropdownMenuItem>
 								)}
 							</DropdownMenuContent>

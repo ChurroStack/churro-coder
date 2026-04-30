@@ -147,7 +147,7 @@ export const ChatTitleEditor = memo(function ChatTitleEditor({
   return (
     <div
       ref={containerRef}
-      className={cn("max-w-2xl mx-auto px-4", heightClass)}
+      className={cn("max-w-5xl mx-auto px-2", heightClass)}
     >
       {isEditing ? (
         <input
