@@ -14,6 +14,14 @@ type StoredMessage = {
 export function computeCatchupBlock(
   messages: StoredMessage[],
   currentProvider: Provider,
+  options?: {
+    /**
+     * When true, skip the provider-boundary search and include ALL prior turns.
+     * Use this when the provider's session is known to be fresh/expired — the
+     * session has no memory of any prior turn regardless of who produced them.
+     */
+    forceFullHistory?: boolean
+  },
 ): string | null {
   if (messages.length === 0) return null
 
@@ -21,19 +29,21 @@ export function computeCatchupBlock(
   // was handled by currentProvider. Everything strictly after that boundary is
   // new context the current provider has not seen.
   let boundaryIdx = -1
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]
-    if (m.role !== "user") continue
+  if (!options?.forceFullHistory) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role !== "user") continue
 
-    // Classify this user turn by its own metadata.model, falling back to the
-    // immediately-following assistant message's metadata.model.
-    const userModel = m.metadata?.model as string | undefined
-    const nextAssistant = messages.slice(i + 1).find((x) => x.role === "assistant")
-    const turnModel = userModel ?? (nextAssistant?.metadata?.model as string | undefined)
+      // Classify this user turn by its own metadata.model, falling back to the
+      // immediately-following assistant message's metadata.model.
+      const userModel = m.metadata?.model as string | undefined
+      const nextAssistant = messages.slice(i + 1).find((x) => x.role === "assistant")
+      const turnModel = userModel ?? (nextAssistant?.metadata?.model as string | undefined)
 
-    if (turnModel && getProviderForModelId(turnModel) === currentProvider) {
-      boundaryIdx = i
-      break
+      if (turnModel && getProviderForModelId(turnModel) === currentProvider) {
+        boundaryIdx = i
+        break
+      }
     }
   }
 
