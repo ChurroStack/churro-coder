@@ -62,14 +62,19 @@ export function AnthropicOnboardingPage() {
   const submitCodeMutation = trpc.claudeCode.submitCode.useMutation()
   const openOAuthUrlMutation = trpc.claudeCode.openOAuthUrl.useMutation()
   const importSystemTokenMutation = trpc.claudeCode.importSystemToken.useMutation()
-  // Disabled: importing CLI token is broken — access tokens expire in ~8 hours
-  // and we don't store the refresh token. Always use sandbox OAuth flow instead.
-  // const existingTokenQuery = trpc.claudeCode.getSystemToken.useQuery()
-  // const existingToken = existingTokenQuery.data?.token ?? null
-  const existingToken = null
-  const hasExistingToken = false
-  const checkedExistingToken = true
-  const shouldOfferExistingToken = false
+  // If the user has already authenticated the Claude Code CLI on this
+  // machine, surface the existing keychain token as a one-click import
+  // instead of running `claude setup-token` again. The fallback flow
+  // (running setup-token in a closed-stdin subprocess) sometimes hangs
+  // when valid creds already exist, leaving users stuck on a spinner.
+  // Token freshness is not worse than the fallback path — `setup-token`
+  // produces the same ~8h access token via the same keychain entry.
+  const existingTokenQuery = trpc.claudeCode.getSystemToken.useQuery()
+  const existingToken = existingTokenQuery.data?.token ?? null
+  const hasExistingToken = !!existingToken
+  const checkedExistingToken = !existingTokenQuery.isLoading
+  const shouldOfferExistingToken =
+    checkedExistingToken && hasExistingToken && !ignoredExistingToken
 
   // Poll for OAuth URL
   const pollStatusQuery = trpc.claudeCode.pollStatus.useQuery(
