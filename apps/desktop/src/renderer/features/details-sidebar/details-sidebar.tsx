@@ -14,7 +14,6 @@ import {
   PlanIcon,
   DiffIcon,
   OriginalMCPIcon,
-  SearchIcon,
   ExpandIcon,
   CollapseIcon,
 } from "@/components/ui/icons"
@@ -316,7 +315,6 @@ export function DetailsSidebar({
 
   // Resolved hotkeys for tooltips
   const toggleDetailsHotkey = useResolvedHotkeyDisplay("toggle-details")
-  const fileSearchHotkey = useResolvedHotkeyDisplay("open-spotlight")
 
   // Check if a widget should be shown
   const isWidgetVisible = useCallback(
@@ -349,15 +347,14 @@ export function DetailsSidebar({
 
   return (
     <div
-      className="h-full w-full bg-tl-background border-l overflow-hidden"
-      style={{ borderLeftWidth: "0.5px" }}
+      className="h-full w-full bg-tl-background border border-border/50 overflow-hidden"
+      style={{ borderRadius: "var(--dv-border-radius)" }}
     >
       <div className="flex flex-col h-full min-w-0 overflow-hidden">
         {/* Header with pill tabs */}
         <div
           className="flex items-center justify-between px-2 h-10 bg-tl-background flex-shrink-0 border-b border-border/50"
           style={{
-            // @ts-expect-error - WebKit-specific property
             WebkitAppRegion: "no-drag",
           }}
         >
@@ -435,22 +432,6 @@ export function DetailsSidebar({
             <WidgetSettingsPopup workspaceId={chatId} isRemoteChat={isRemoteChat} />
           ) : activeTab === "files" ? (
             <div className="flex items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => filesTabRef.current?.openSearch()}
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                  >
-                    <SearchIcon className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  Search files
-                  {fileSearchHotkey && <Kbd>{fileSearchHotkey}</Kbd>}
-                </TooltipContent>
-              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -642,6 +623,7 @@ export function DetailsSidebar({
           onSelectFile={onOpenFile ?? noopSelectFile}
           onExpandedStateChange={setFilesAllExpanded}
           currentViewerFilePath={fileViewerPath}
+          showFilterInput
           className={cn("flex-1", activeTab !== "files" && "hidden")}
         />
         <SearchTab

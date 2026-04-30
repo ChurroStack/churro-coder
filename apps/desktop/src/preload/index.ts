@@ -93,6 +93,8 @@ contextBridge.exposeInMainWorld("desktopApi", {
   windowIsFullscreen: () => ipcRenderer.invoke("window:is-fullscreen"),
   setTrafficLightVisibility: (visible: boolean) =>
     ipcRenderer.invoke("window:set-traffic-light-visibility", visible),
+  resetTrafficLightPosition: () =>
+    ipcRenderer.invoke("window:reset-traffic-light-position"),
 
   // Windows-specific: Frame preference (native vs frameless)
   setWindowFramePreference: (useNativeFrame: boolean) =>
@@ -321,6 +323,7 @@ export interface DesktopApi {
   windowToggleFullscreen: () => Promise<void>
   windowIsFullscreen: () => Promise<boolean>
   setTrafficLightVisibility: (visible: boolean) => Promise<void>
+  resetTrafficLightPosition: () => Promise<void>
   // Windows-specific frame preference
   setWindowFramePreference: (useNativeFrame: boolean) => Promise<boolean>
   getWindowFrameState: () => Promise<boolean>

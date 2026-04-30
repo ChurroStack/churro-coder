@@ -3,5 +3,10 @@
   "name": "gateway",
   "projectType": "application",
   "sourceRoot": "apps/gateway",
-  "tags": ["scope:gateway", "stack:dotnet"]
+  "tags": ["scope:gateway", "stack:dotnet"],
+  "targets": {
+    "build": {
+      "dependsOn": ["restore"]
+    }
+  }
 }

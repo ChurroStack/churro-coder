@@ -7723,7 +7723,6 @@ Make sure to preserve all functionality from both branches when resolving confli
                               disabled={isImporting}
                               className="h-6 px-2 gap-1.5 text-xs font-medium ml-2"
                               style={{
-                                // @ts-expect-error - WebKit-specific property
                                 WebkitAppRegion: "no-drag",
                               }}
                             >
@@ -7758,7 +7757,6 @@ Make sure to preserve all functionality from both branches when resolving confli
                           className="h-6 w-6 p-0 hover:bg-foreground/10 transition-colors text-foreground flex-shrink-0 rounded-md ml-2"
                           aria-label="Open preview"
                           style={{
-                            // @ts-expect-error - WebKit-specific property
                             WebkitAppRegion: "no-drag",
                           }}
                         >
@@ -7772,7 +7770,6 @@ Make sure to preserve all functionality from both branches when resolving confli
                       <span
                         className="inline-flex ml-2"
                         style={{
-                          // @ts-expect-error - WebKit-specific property
                           WebkitAppRegion: "no-drag",
                         }}
                       >
@@ -7801,7 +7798,6 @@ Make sure to preserve all functionality from both branches when resolving confli
                         className="h-6 px-2 gap-1.5 hover:bg-foreground/10 transition-colors text-foreground flex-shrink-0 rounded-md ml-2 flex items-center"
                         aria-label="Restore workspace"
                         style={{
-                          // @ts-expect-error - WebKit-specific property
                           WebkitAppRegion: "no-drag",
                         }}
                       >
@@ -7826,7 +7822,6 @@ Make sure to preserve all functionality from both branches when resolving confli
                         className="h-6 px-2 gap-1.5 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-500 transition-colors text-foreground flex-shrink-0 rounded-md ml-1 flex items-center"
                         aria-label="Delete workspace"
                         style={{
-                          // @ts-expect-error - WebKit-specific property
                           WebkitAppRegion: "no-drag",
                         }}
                       >
@@ -7901,7 +7896,7 @@ Make sure to preserve all functionality from both branches when resolving confli
                 <div className="w-full max-w-5xl mx-auto">
                   <div className="relative w-full">
                     <PromptInput
-                      className="border bg-input-background relative z-10 p-2 rounded-xl opacity-50 pointer-events-none"
+                      className="border bg-input-background relative z-10 p-2 rounded-md opacity-50 pointer-events-none"
                       maxHeight={200}
                     >
                       <div className="p-1 text-muted-foreground text-sm">

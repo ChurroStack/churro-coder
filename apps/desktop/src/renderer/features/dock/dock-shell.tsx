@@ -1,9 +1,8 @@
 import {
   DockviewReact,
-  themeLight,
-  themeDark,
   type DockviewReadyEvent,
   type DockviewApi,
+  type DockviewTheme,
 } from "dockview-react"
 import { useCallback, useMemo, useState } from "react"
 import { useSetAtom } from "jotai"
@@ -37,14 +36,23 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
   const setActiveTerminalIds = useSetAtom(activeTerminalIdAtom)
   const killTerminal = trpc.terminal.kill.useMutation()
 
-  // Without an explicit theme prop, dockview defaults to themeAbyss — its
-  // .dockview-theme-abyss class is more specific than my html-level theme
-  // class, so abyss's #000c18 group bg won every override. Pick the matching
-  // light/dark theme up-front so dockview applies the className my CSS
-  // overrides target.
+  // Custom DockviewTheme objects so the dockview root carries OUR class name,
+  // not vendor's `dockview-theme-light/-dark`. This is per dockview's documented
+  // theming API (https://dockview.dev/docs/core/theming/) and is the only way
+  // to make our --dv-* token overrides stick: dockview-react/-core/dockview
+  // each ship their own CSS bundle and inject it at runtime via style-inject,
+  // and dockview-core re-applies the theme className to its own .dv-dockview
+  // root. With vendor's class names that meant vendor's `.dockview-theme-light
+  // { --dv-border-radius: 0px; ... }` rule re-set every token to its default
+  // on the inner .dv-dockview, shadowing any value we cascaded from <html>.
+  // By owning the class name (`cs-theme-light/-dark`) we sidestep the
+  // specificity war entirely — vendor has no rule for our class.
   const { resolvedTheme } = useTheme()
-  const dockviewTheme = useMemo(
-    () => (resolvedTheme === "dark" ? themeDark : themeLight),
+  const dockviewTheme = useMemo<DockviewTheme>(
+    () =>
+      resolvedTheme === "dark"
+        ? { name: "cs-dark", className: "cs-theme-dark" }
+        : { name: "cs-light", className: "cs-theme-light" },
     [resolvedTheme],
   )
 

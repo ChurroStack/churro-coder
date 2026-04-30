@@ -1,6 +1,13 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./src/renderer/**/*.{js,ts,jsx,tsx,html}"],
+  content: [
+    "./src/renderer/**/*.{js,ts,jsx,tsx,html}",
+    // Streamdown ships pre-bundled JS containing Tailwind class names that
+    // are used at runtime by its markdown renderer (code blocks, tables,
+    // etc.). Tailwind v3 only emits classes it sees in `content`, so we
+    // include the package's dist so its utilities aren't purged.
+    "./node_modules/streamdown/dist/*.{js,cjs,mjs}",
+  ],
   darkMode: "class",
   theme: {
     extend: {

@@ -194,7 +194,6 @@ export function SettingsSidebar() {
       <div
         className="px-2 pt-3 pb-2"
         style={{
-          // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "drag",
         }}
       >
@@ -202,7 +201,6 @@ export function SettingsSidebar() {
           onClick={handleBack}
           className="inline-flex items-center gap-2 w-full text-left px-3 py-1.5 text-sm h-7 rounded-md text-muted-foreground hover:text-foreground font-medium transition-colors cursor-pointer"
           style={{
-            // @ts-expect-error - WebKit-specific property
             WebkitAppRegion: "no-drag",
           }}
         >

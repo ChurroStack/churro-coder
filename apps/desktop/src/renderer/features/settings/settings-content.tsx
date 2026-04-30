@@ -85,7 +85,6 @@ export function SettingsContent() {
     <div
       className="flex-shrink-0 flex items-center px-2 pt-3 pb-2 min-h-12"
       style={{
-        // @ts-expect-error - WebKit-specific property
         WebkitAppRegion: "drag",
       }}
     >

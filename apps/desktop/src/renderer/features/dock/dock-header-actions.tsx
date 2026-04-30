@@ -48,7 +48,6 @@ export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
     <div
       className="flex items-center h-full px-1 gap-0.5"
       style={{
-        // @ts-expect-error - WebKit-specific property: keep buttons clickable
         WebkitAppRegion: "no-drag",
       }}
     >
