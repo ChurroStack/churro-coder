@@ -7,6 +7,9 @@ import {
   GitCompare,
   Search,
   FolderTree,
+  Loader2,
+  Hand,
+  AlertCircle,
   type LucideIcon,
 } from "lucide-react"
 import type { IDockviewPanelHeaderProps } from "dockview-react"
@@ -18,6 +21,8 @@ import { cn } from "../../lib/utils"
 import { getFileIconByExtension } from "../agents/mentions/agents-file-mention"
 import { requestArchiveChatTab } from "./chat-tab-archive"
 import { requestCloseTerminalTab } from "./terminal-tab-close"
+import { useStreamingStatusStore } from "../agents/stores/streaming-status-store"
+import { useChatAttentionStore } from "../agents/stores/chat-attention-store"
 
 /**
  * Default dockview tab component used by every panel kind. The body renders
@@ -269,6 +274,26 @@ function panelKind(panelId: string): "chat" | "terminal" | null {
   return null
 }
 
+function ChatTabIcon({ subChatId }: { subChatId: string | null }) {
+  const status = useStreamingStatusStore((s) =>
+    subChatId ? (s.statuses[subChatId] ?? "ready") : "ready"
+  )
+  const attention = useChatAttentionStore((s) =>
+    subChatId ? s.flags[subChatId] : undefined
+  )
+
+  if (status === "streaming" || status === "submitted") {
+    return <Loader2 className="h-3 w-3 flex-shrink-0 text-primary animate-spin" />
+  }
+  if (attention) {
+    return <Hand className="h-3 w-3 flex-shrink-0 text-amber-500" />
+  }
+  if (status === "error") {
+    return <AlertCircle className="h-3 w-3 flex-shrink-0 text-destructive" />
+  }
+  return <MessageSquare className="h-3 w-3 flex-shrink-0 opacity-70" />
+}
+
 /**
  * Renders the leading icon of a dockview tab. Each panel kind gets a small
  * lucide-react glyph; file panels use the same per-extension icon set the
@@ -283,8 +308,11 @@ function TabIcon({
   panelId: string
   title: string
 }) {
-  if (panelId.startsWith("chat:") || panelId === "main") {
-    return <MessageSquare className="h-3 w-3 flex-shrink-0 opacity-70" />
+  if (panelId.startsWith("chat:")) {
+    return <ChatTabIcon subChatId={panelId.slice("chat:".length)} />
+  }
+  if (panelId === "main") {
+    return <ChatTabIcon subChatId={null} />
   }
   if (panelId.startsWith("chat-new:")) {
     return <MessageSquare className="h-3 w-3 flex-shrink-0 opacity-70" />
