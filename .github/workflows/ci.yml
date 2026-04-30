@@ -1,4 +1,4 @@
-# CI for churros-coder. One required check ("CI / Build & check") that you
+# CI for churro-coder. One required check ("CI / Build & check") that you
 # can wire into branch protection / a ruleset to gate PR merges into main.
 #
 # Builds all three apps (gateway / desktop / daemon) and runs lint + test
