@@ -200,13 +200,17 @@ const projectChats = db.select().from(chats).where(eq(chats.projectId, id)).all(
 | Layer | Tech |
 |-------|------|
 | Desktop | Electron ~39.4, electron-vite, electron-builder |
-| UI | React 19, TypeScript 5.4.5, Tailwind CSS, dockview-react, Monaco editor |
+| UI | React 19, TypeScript 5.4.5, **Tailwind CSS v3** (NOT v4), dockview-react, Monaco editor |
 | Components | Radix UI, Lucide icons, Motion, Sonner |
 | State | Jotai, Zustand, React Query |
 | Backend | tRPC (`trpc-electron`), Drizzle ORM, better-sqlite3 |
 | AI | `@anthropic-ai/claude-agent-sdk`, `@zed-industries/codex-acp` (Codex), `@mcpc-tech/acp-ai-provider`, `@modelcontextprotocol/sdk` (MCP) |
 | Terminal | xterm + addons, node-pty |
 | Package Manager | bun (Nx wraps it from the monorepo root) |
+
+### Tailwind v3 (not v4)
+
+Pinned at `tailwindcss@^3.4.17`. Do **not** add Tailwind v4 syntax to CSS files or tooling — `globals.css` once contained an `@source "../../../node_modules/streamdown/dist/*.js";` directive (v4-only), and v3's PostCSS plugin passed it through to the bundled output verbatim, where the production CSS optimizer choked on the unknown `@`-rule and silently dropped or mangled the rules around it. Symptom: `bun run dev` looks fine, `bun run build` produces a CSS file that's missing dockview chrome / shell gaps / pill tabs. To include Tailwind classes from a third-party package, add the package's dist path to the `content` array in `tailwind.config.js` (already done for `streamdown`).
 
 ## File Naming
 
