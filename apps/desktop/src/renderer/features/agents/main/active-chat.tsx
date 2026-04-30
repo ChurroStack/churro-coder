@@ -8143,6 +8143,7 @@ Make sure to preserve all functionality from both branches when resolving confli
               filePath={fileViewerPath}
               projectPath={worktreePath}
               onClose={() => setFileViewerPath(null)}
+              showHeader
             />
           </ResizableSidebar>
         )}
@@ -8155,6 +8156,7 @@ Make sure to preserve all functionality from both branches when resolving confli
               filePath={fileViewerPath}
               projectPath={worktreePath}
               onClose={() => setFileViewerPath(null)}
+              showHeader
             />
           </DiffCenterPeekDialog>
         )}
@@ -8167,6 +8169,7 @@ Make sure to preserve all functionality from both branches when resolving confli
               filePath={fileViewerPath}
               projectPath={worktreePath}
               onClose={() => setFileViewerPath(null)}
+              showHeader
             />
           </DiffFullPageView>
         )}
