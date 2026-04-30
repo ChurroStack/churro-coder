@@ -23,6 +23,18 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
   // payload with the correct fields.
   const parseErroredOriginalIds = new Set<string>()
 
+  // First-emission timestamp per composite toolCallId. Re-emissions (e.g. parse
+  // error recovery from the assistant message) reuse this so the renderer's
+  // elapsed timer doesn't reset.
+  const toolStartedAt = new Map<string, number>()
+  function startedAtFor(compositeId: string): number {
+    const existing = toolStartedAt.get(compositeId)
+    if (existing !== undefined) return existing
+    const now = Date.now()
+    toolStartedAt.set(compositeId, now)
+    return now
+  }
+
   // Track the last text block ID for final response marking
   // This is used to identify when there's a "final text" response after tools
   let lastTextId: string | null = null
@@ -102,7 +114,7 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
         toolCallId: currentToolCallId,
         toolName: currentToolName || "unknown",
         input: parsedInput,
-        providerMetadata: { custom: { startedAt: Date.now() } },
+        providerMetadata: { custom: { startedAt: startedAtFor(currentToolCallId) } },
       }
       currentToolCallId = null
       currentToolName = null
@@ -341,7 +353,7 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
             toolCallId: compositeId,
             toolName: block.name,
             input: block.input,
-            providerMetadata: { custom: { startedAt: Date.now() } },
+            providerMetadata: { custom: { startedAt: startedAtFor(compositeId) } },
           }
         }
       }

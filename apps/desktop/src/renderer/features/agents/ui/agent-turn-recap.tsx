@@ -1,7 +1,8 @@
 "use client"
 
-import { memo, useState } from "react"
+import { memo, useState, type ReactNode } from "react"
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, Coins, XCircle, Zap } from "lucide-react"
+import { toast } from "sonner"
 import {
   Collapsible,
   CollapsibleContent,
@@ -138,7 +139,12 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({
                     type="button"
                     tabIndex={-1}
                     title="Click to copy"
-                    onClick={() => navigator.clipboard?.writeText(sessionId)}
+                    onClick={() => {
+                      void navigator.clipboard
+                        ?.writeText(sessionId)
+                        .then(() => toast.success("Session ID copied"))
+                        .catch(() => toast.error("Could not copy session ID"))
+                    }}
                     className="font-mono text-[10px] truncate text-foreground/80 hover:text-foreground"
                   >
                     {sessionId.slice(0, 12)}…
@@ -160,7 +166,7 @@ function Row({
   full,
 }: {
   label: string
-  value: React.ReactNode
+  value: ReactNode
   full?: boolean
 }) {
   return (
