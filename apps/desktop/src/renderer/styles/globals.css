@@ -487,22 +487,23 @@
   border-radius: var(--dv-border-radius);
 }
 
-/* Inner-edge gap between adjacent groups in a split. Padding is applied only
- * on the side that faces a sibling — outer edges of the outermost views stay
- * flush with the cell boundary. Scoped to `.dv-dockview` so the OUTER
- * gridview (which uses `.dv-split-view-container` too) is not affected; that
- * gridview's inter-cell gaps are owned by --shell-gap + each rail's padding.
- * Total gap between two siblings inside the dock = 4 (this view's pad) + 4
- * (sash) + 4 (next view's pad) = 12px. */
+/* Inner-edge gap between adjacent groups in a split. Each sibling
+ * contributes gap/2 on the side that faces its neighbour; the dockview sash
+ * is absolutely positioned over the seam (no flow width), so the two
+ * paddings sum to --shell-gap — the same gap the outer rails use against
+ * the window edge. Outer edges of the outermost views stay flush with the
+ * cell boundary. Scoped to `.dv-dockview` so the OUTER gridview (which
+ * uses `.dv-split-view-container` too) is not affected; the gridview's
+ * inter-cell gaps are owned by the rail wrapper paddings. */
 .dv-dockview .dv-split-view-container.dv-horizontal:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:first-child) {
-  padding-left: 4px;
+  padding-left: calc(var(--shell-gap) / 2);
 }
 .dv-dockview .dv-split-view-container.dv-horizontal:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:last-child) {
-  padding-right: 4px;
+  padding-right: calc(var(--shell-gap) / 2);
 }
 .dv-dockview .dv-split-view-container.dv-vertical:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:first-child) {
-  padding-top: 4px;
+  padding-top: calc(var(--shell-gap) / 2);
 }
 .dv-dockview .dv-split-view-container.dv-vertical:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:last-child) {
-  padding-bottom: 4px;
+  padding-bottom: calc(var(--shell-gap) / 2);
 }
