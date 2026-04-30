@@ -63,9 +63,11 @@ function sendWorktreeSetupFailure(
   }
 }
 
-// Fallback to user message if AI generation fails
+// Fallback to user message if AI generation fails. 255-char cap is a
+// safety floor against pathological pasted prompts bloating the row;
+// any sane title fits well within it and the UI handles overflow.
 function getFallbackName(userMessage: string): string {
-  return userMessage.trim() || "New Chat"
+  return userMessage.trim().slice(0, 255) || "New Chat"
 }
 
 /**

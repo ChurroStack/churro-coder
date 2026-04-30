@@ -4750,7 +4750,7 @@ export const ChatViewInner = memo(function ChatViewInner({
           </div>
           {/* Workspace subtitle: repo • branch */}
           {(workspaceRepoName || workspaceBranch) && (
-            <div className="max-w-5xl mx-auto px-4">
+            <div className="max-w-5xl mx-auto px-2">
               <span className="text-xs text-muted-foreground/50 truncate block">
                 {[workspaceRepoName, workspaceBranch].filter(Boolean).join(" • ")}
               </span>
