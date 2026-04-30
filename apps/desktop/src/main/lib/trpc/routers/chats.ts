@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { getProviderForModelId } from "../../../../shared/provider-from-model"
 import { BrowserWindow } from "electron"
 import * as fs from "fs/promises"
 import * as path from "path"
@@ -1784,19 +1785,34 @@ export const chatsRouter = router({
           }>
         }>
 
-        // Check if there's a completed ExitPlanMode in messages
-        const hasCompletedExitPlanMode = (): boolean => {
+        // Check if there's a completed ExitPlanMode (Claude), PlanWrite awaiting_approval (Codex widget),
+        // or any Codex text response in plan mode (Codex writes plans as text, not tool calls)
+        const hasPendingPlanApproval = (): boolean => {
           for (let i = messages.length - 1; i >= 0; i--) {
             const msg = messages[i]
             if (!msg) continue
 
-            // If assistant message with completed ExitPlanMode, we found an unapproved plan
             if (msg.role === "assistant" && msg.parts) {
               const exitPlanPart = msg.parts.find(
                 (p) => p.type === "tool-ExitPlanMode"
               )
-              // Check if ExitPlanMode is completed (has output, even if empty)
               if (exitPlanPart && exitPlanPart.output !== undefined) {
+                return true
+              }
+
+              const planWritePart = msg.parts.find(
+                (p: any) =>
+                  p.type === "tool-PlanWrite" &&
+                  p.output !== undefined &&
+                  p.input?.plan?.status === "awaiting_approval"
+              )
+              if (planWritePart) {
+                return true
+              }
+
+              // Codex writes plans as text — any Codex assistant response in plan mode is pending
+              const msgModel = (msg as any).metadata?.model
+              if (msgModel && getProviderForModelId(String(msgModel)) === "codex") {
                 return true
               }
             }
@@ -1804,7 +1820,7 @@ export const chatsRouter = router({
           return false
         }
 
-        if (hasCompletedExitPlanMode()) {
+        if (hasPendingPlanApproval()) {
           pendingApprovals.push({
             subChatId: row.subChatId,
             chatId: row.chatId,

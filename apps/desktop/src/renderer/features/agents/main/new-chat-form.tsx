@@ -122,11 +122,11 @@ import { CreateBranchDialog } from "../components/create-branch-dialog"
 import { formatTimeAgo } from "../utils/format-time-ago"
 import { handlePasteEvent } from "../utils/paste-text"
 import {
-  loadGlobalDrafts,
-  saveGlobalDrafts,
   generateDraftId,
   deleteNewChatDraft,
   markDraftVisible,
+  saveNewChatDraftWithAttachments,
+  getNewChatDraftFull,
   type DraftProject,
 } from "../lib/drafts"
 import {
@@ -585,6 +585,8 @@ export function NewChatForm({
     clearImages,
     clearFiles,
     isUploading,
+    setImagesFromDraft,
+    setFilesFromDraft,
   } = useAgentsFileUpload()
 
   // Pasted text files - use a stable temp ID for new chat
@@ -1059,6 +1061,8 @@ export function NewChatForm({
           editorRef.current.clear()
           setHasContent(false)
         }
+        clearImages()
+        clearFiles()
 
         // Fetch remote branches in background when starting new workspace
         if (validatedProject?.path) {
@@ -1068,26 +1072,33 @@ export function NewChatForm({
       return
     }
 
-    const globalDrafts = loadGlobalDrafts()
-    const draft = globalDrafts[selectedDraftId]
-    if (draft?.text) {
+    const fullDraft = getNewChatDraftFull(selectedDraftId)
+    if (fullDraft?.text) {
       currentDraftIdRef.current = selectedDraftId
-      lastSavedTextRef.current = draft.text // Initialize to prevent immediate re-save
+      lastSavedTextRef.current = fullDraft.text // Initialize to prevent immediate re-save
+
+      // Restore attachments
+      if (fullDraft.images.length > 0) {
+        setImagesFromDraft(fullDraft.images)
+      }
+      if (fullDraft.files.length > 0) {
+        setFilesFromDraft(fullDraft.files)
+      }
 
       // Try to set value immediately if editor is ready
       if (editorRef.current) {
-        editorRef.current.setValue(draft.text)
+        editorRef.current.setValue(fullDraft.text)
         setHasContent(true)
       } else {
         // Fallback: wait for editor to initialize (rare case)
         const timeoutId = setTimeout(() => {
-          editorRef.current?.setValue(draft.text)
+          editorRef.current?.setValue(fullDraft.text!)
           setHasContent(true)
         }, 50)
         return () => clearTimeout(timeoutId)
       }
     }
-  }, [selectedDraftId, validatedProject?.path])
+  }, [selectedDraftId, validatedProject?.path, setImagesFromDraft, setFilesFromDraft])
 
   // Mark draft as visible when component unmounts (user navigates away)
   // This ensures the draft only appears in the sidebar after leaving the form
@@ -1379,36 +1390,43 @@ export function NewChatForm({
       }
       lastSavedTextRef.current = text
 
-      const globalDrafts = loadGlobalDrafts()
-
       if (text.trim() && validatedProject) {
-        // If no current draft ID, create a new one
         if (!currentDraftIdRef.current) {
           currentDraftIdRef.current = generateDraftId()
         }
-
-        const key = currentDraftIdRef.current
-        globalDrafts[key] = {
-          text,
-          updatedAt: Date.now(),
-          project: {
-            id: validatedProject.id,
-            name: validatedProject.name,
-            path: validatedProject.path,
-            gitOwner: validatedProject.gitOwner,
-            gitRepo: validatedProject.gitRepo,
-            gitProvider: validatedProject.gitProvider,
-          },
+        const project: DraftProject = {
+          id: validatedProject.id,
+          name: validatedProject.name,
+          path: validatedProject.path,
+          gitOwner: validatedProject.gitOwner,
+          gitRepo: validatedProject.gitRepo,
+          gitProvider: validatedProject.gitProvider,
         }
-        saveGlobalDrafts(globalDrafts)
+        saveNewChatDraftWithAttachments(currentDraftIdRef.current, text, project, { images })
       } else if (currentDraftIdRef.current) {
-        // Text is empty - delete the current draft
         deleteNewChatDraft(currentDraftIdRef.current)
         currentDraftIdRef.current = null
       }
     },
-    [validatedProject],
+    [validatedProject, images],
   )
+
+  // Re-save draft when images change (text may not have changed)
+  useEffect(() => {
+    const draftId = currentDraftIdRef.current
+    if (!draftId || !validatedProject) return
+    const text = editorRef.current?.getValue() || ""
+    if (!text.trim()) return
+    const project: DraftProject = {
+      id: validatedProject.id,
+      name: validatedProject.name,
+      path: validatedProject.path,
+      gitOwner: validatedProject.gitOwner,
+      gitRepo: validatedProject.gitRepo,
+      gitProvider: validatedProject.gitProvider,
+    }
+    saveNewChatDraftWithAttachments(draftId, text, project, { images })
+  }, [images, validatedProject])
 
   // Clear current draft when chat is created
   const clearCurrentDraft = useCallback(() => {

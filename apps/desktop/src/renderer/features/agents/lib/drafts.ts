@@ -158,6 +158,99 @@ export function deleteNewChatDraft(draftId: string): void {
   saveGlobalDrafts(globalDrafts)
 }
 
+// Get full new-chat draft including attachments
+export function getNewChatDraftFull(draftId: string): FullDraftData | null {
+  const globalDrafts = loadGlobalDrafts()
+  const draft = globalDrafts[draftId] as NewChatDraft | undefined
+  if (!draft) return null
+  return {
+    text: draft.text || null,
+    images:
+      draft.images
+        ?.map(fromDraftImage)
+        .filter((img): img is UploadedImage => img !== null) ?? [],
+    files:
+      draft.files
+        ?.map(fromDraftFile)
+        .filter((f): f is UploadedFile => f !== null) ?? [],
+    textContexts: draft.textContexts?.map(fromDraftTextContext) ?? [],
+  }
+}
+
+// Save new-chat draft with attachments (async)
+export async function saveNewChatDraftWithAttachments(
+  draftId: string,
+  text: string,
+  project?: DraftProject,
+  options?: {
+    images?: UploadedImage[]
+    files?: UploadedFile[]
+    textContexts?: SelectedTextContext[]
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const globalDrafts = loadGlobalDrafts()
+
+  const hasContent =
+    text.trim() ||
+    (options?.images?.length ?? 0) > 0 ||
+    (options?.files?.length ?? 0) > 0 ||
+    (options?.textContexts?.length ?? 0) > 0
+
+  if (!hasContent) {
+    delete globalDrafts[draftId]
+    saveGlobalDrafts(globalDrafts)
+    return { success: true }
+  }
+
+  const draftImages =
+    options?.images
+      ?.map(toDraftImage)
+      .filter((img): img is DraftImage => img !== null) ?? []
+
+  const draftFiles = options?.files
+    ? await Promise.all(options.files.map(toDraftFile)).then((results) =>
+        results.filter((f): f is DraftFile => f !== null)
+      )
+    : []
+
+  const draftTextContexts = options?.textContexts?.map(toDraftTextContext) ?? []
+
+  const draft: NewChatDraft = {
+    id: draftId,
+    text,
+    updatedAt: Date.now(),
+    ...(project && { project }),
+    ...(draftImages.length > 0 && { images: draftImages }),
+    ...(draftFiles.length > 0 && { files: draftFiles }),
+    ...(draftTextContexts.length > 0 && { textContexts: draftTextContexts }),
+  }
+
+  if (wouldExceedStorageLimit(globalDrafts, draft)) {
+    console.warn("[drafts] Storage limit would be exceeded, skipping attachment persistence")
+    globalDrafts[draftId] = {
+      id: draftId,
+      text,
+      updatedAt: Date.now(),
+      ...(project && { project }),
+    }
+    try {
+      saveGlobalDrafts(globalDrafts)
+      return { success: true, error: "attachments_skipped" }
+    } catch {
+      return { success: false, error: "storage_full" }
+    }
+  }
+
+  globalDrafts[draftId] = draft
+  try {
+    saveGlobalDrafts(globalDrafts)
+    return { success: true }
+  } catch (err) {
+    console.error("[drafts] Failed to save new-chat draft:", err)
+    return { success: false, error: "save_failed" }
+  }
+}
+
 // Mark a draft as visible (called when user navigates away from the form)
 export function markDraftVisible(draftId: string): void {
   const globalDrafts = loadGlobalDrafts()
