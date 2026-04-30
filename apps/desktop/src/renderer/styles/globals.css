@@ -33,9 +33,11 @@
     --selection: 228 100% 50% / 0.25;
     /* Text selection background - primary at 25% */
     --radius: 0.6rem;
-    /* Visible gap between the outer shell and the rounded rail/dock cards.
-     * Split as gap/2 on outer wrapper + gap/2 on each cell's inner edge so
-     * window-edge gaps and inter-cell gaps stay equal. */
+    /* Visible gap between the rounded rail/dock cards and the window edge —
+     * also the target for the inter-cell gap (cell-edge to cell-edge across
+     * the gridview sash). Outer wrapper gets `padding: var(--shell-gap)`;
+     * each rail's inner-facing edge gets `(gap - sash) / 2` so
+     * pad + sash + pad == gap. See agents-layout.tsx for the wiring. */
     --shell-gap: 6px;
     /* Plan Mode Colors */
     --plan-mode: 33 83% 67%;
@@ -355,8 +357,11 @@
   --dv-tabs-and-actions-container-height: 40px;
   --dv-tabs-and-actions-container-font-size: 12px;
   --dv-tab-font-size: 12px;
-  /* Inner dockview corners (tabs / panels) sit under the outer 8px card radius
-   * (var(--radius)) — keep 2px less so the nesting reads cleanly. */
+  /* Corner radius for the rails, dock groupview cards, and drop-target
+   * highlight — applied via `borderRadius: var(--dv-border-radius)` on the
+   * rail wrappers and via the `.dv-groupview` rule below. Slightly larger
+   * than `--radius` (used for inner shadcn controls) so the outer shell
+   * cards read as a softer, coarser layer than the buttons inside them. */
   --dv-border-radius: 10px;
 
   --dv-group-view-background-color: hsl(var(--background));

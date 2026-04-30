@@ -43,7 +43,6 @@ export function NewWorkspaceActions({ visible }: NewWorkspaceActionsProps) {
     <div
       className="flex items-center gap-0.5"
       style={{
-        // @ts-expect-error - WebKit-specific property
         WebkitAppRegion: "no-drag",
       }}
     >

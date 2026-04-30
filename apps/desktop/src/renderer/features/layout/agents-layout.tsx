@@ -135,19 +135,19 @@ function LeftRailPanel(_props: IGridviewPanelProps) {
   return (
     <div
       className="h-full w-full"
-      // Inner edge sits next to the gridview sash (4px). To get a visible gap
-      // equal to --shell-gap on either side of the sash, each cell contributes
-      // (gap - 4px) / 2 of padding on its inner-facing edge.
-      style={{ paddingRight: "calc((var(--shell-gap)) / 2)" }}
+      // Inner edge sits next to the gridview sash (4px wide). To get a visible
+      // gap equal to --shell-gap (cell-edge to cell-edge across the sash),
+      // each cell contributes (gap - sash) / 2 of padding on its inner-facing
+      // edge: pad + sash + pad == --shell-gap, matching the window-edge gap.
+      style={{ paddingRight: "calc((var(--shell-gap) - 4px) / 2)" }}
     >
       <div
         className="h-full w-full overflow-hidden bg-tl-background border border-border/50"
         style={{
           // Match the dockview groupview corner radius so rails + panel cards
-          // read as a single coherent shell. var(--dv-border-radius) = 6px.
+          // read as a single coherent shell.
           borderRadius: "var(--dv-border-radius)",
           // Cell content is fully interactive — opt out of the outer drag region.
-          // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "no-drag",
         }}
       >
@@ -214,10 +214,10 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
   return (
     <div
       className="h-full w-full"
-      // (gap - sash) / 2 on each inner edge, so left+sash+right == --shell-gap.
+      // (gap - sash) / 2 on each inner edge, so pad + sash + pad == --shell-gap.
       style={{
-        paddingLeft: "calc((var(--shell-gap)) / 2)",
-        paddingRight: "calc((var(--shell-gap)) / 2)",
+        paddingLeft: "calc((var(--shell-gap) - 4px) / 2)",
+        paddingRight: "calc((var(--shell-gap) - 4px) / 2)",
       }}
     >
       <div
@@ -231,7 +231,6 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
           // styles itself as a card (see .dv-groupview rule in globals.css) so
           // splits read as multiple floating cards rather than panes inside
           // one big card. The outer rails (left/right) keep their wrappers.
-          // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "no-drag",
         }}
       >
@@ -772,14 +771,12 @@ export function AgentsLayout() {
                 // Outer gutter is draggable so users can move the window from
                 // the strip around the rails. The inner div below opts back
                 // out so the gridview sash + cell contents stay interactive.
-                // @ts-expect-error - WebKit-specific property
                 WebkitAppRegion: "drag",
               }}
             >
               <div
                 className="h-full w-full"
                 style={{
-                  // @ts-expect-error - WebKit-specific property
                   WebkitAppRegion: "no-drag",
                 }}
               >

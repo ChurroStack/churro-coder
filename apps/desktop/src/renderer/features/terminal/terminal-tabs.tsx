@@ -465,7 +465,6 @@ export const TerminalTabs = memo(function TerminalTabs({
           !hidePlusButton && "pr-12",
         )}
         style={{
-          // @ts-expect-error - WebKit-specific property for Electron
           WebkitAppRegion: "no-drag",
         }}
       >
@@ -519,7 +518,6 @@ export const TerminalTabs = memo(function TerminalTabs({
         <div
           className="absolute right-0 top-0 bottom-0 flex items-center z-20"
           style={{
-            // @ts-expect-error - WebKit-specific property for Electron
             WebkitAppRegion: "no-drag",
           }}
         >

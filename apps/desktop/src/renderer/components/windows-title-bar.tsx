@@ -72,7 +72,6 @@ export function WindowsTitleBar() {
     <div
       className="h-8 flex-shrink-0 flex items-center justify-between bg-background border-b border-border/50"
       style={{
-        // @ts-expect-error - WebKit-specific property for Electron window dragging
         WebkitAppRegion: "drag",
       }}
     >
@@ -85,7 +84,6 @@ export function WindowsTitleBar() {
       <div
         className="flex items-center h-full"
         style={{
-          // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "no-drag",
         }}
       >

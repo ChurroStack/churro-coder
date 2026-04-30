@@ -137,13 +137,12 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     return (
       <div
         className="h-full w-full"
-        style={{ paddingLeft: "calc((var(--shell-gap)) / 2)" }}
+        style={{ paddingLeft: "calc((var(--shell-gap) - 4px) / 2)" }}
       >
         <div
           className="h-full w-full flex items-center justify-center bg-tl-background border border-border/50 overflow-hidden text-xs text-muted-foreground"
           style={{
             borderRadius: "var(--dv-border-radius)",
-            // @ts-expect-error - WebKit-specific property
             WebkitAppRegion: "no-drag",
           }}
         >
@@ -156,12 +155,11 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   return (
     <div
       className="h-full w-full"
-      style={{ paddingLeft: "calc((var(--shell-gap)) / 2)" }}
+      style={{ paddingLeft: "calc((var(--shell-gap) - 4px) / 2)" }}
     >
       <div
         className="h-full w-full"
         style={{
-          // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "no-drag",
         }}
       >

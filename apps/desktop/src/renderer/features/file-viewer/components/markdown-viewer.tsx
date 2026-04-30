@@ -222,7 +222,6 @@ function Header({
     <div
       className={`@container flex items-center ${showHeader ? "justify-between" : "justify-end"} px-2 h-10 border-b border-border/50 bg-background flex-shrink-0`}
       style={{
-        // @ts-expect-error - WebKit-specific property
         WebkitAppRegion: "no-drag",
       }}
     >

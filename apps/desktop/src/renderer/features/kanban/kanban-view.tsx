@@ -414,7 +414,6 @@ export function KanbanView() {
       <div
         className="flex-shrink-0 flex items-center p-1.5"
         style={{
-          // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "drag",
         }}
       >

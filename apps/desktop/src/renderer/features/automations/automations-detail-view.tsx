@@ -411,7 +411,6 @@ export function AutomationsDetailView() {
       <div
         className="flex items-center justify-between px-4 py-3"
         style={{
-          // @ts-expect-error - WebKit-specific property
           WebkitAppRegion: "drag",
         }}
       >
@@ -419,7 +418,6 @@ export function AutomationsDetailView() {
           onClick={handleBack}
           className="h-7 w-7 p-0 flex items-center justify-center hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md text-muted-foreground hover:text-foreground"
           style={{
-            // @ts-expect-error - WebKit-specific property
             WebkitAppRegion: "no-drag",
           }}
         >
@@ -429,7 +427,6 @@ export function AutomationsDetailView() {
         <div
           className="flex items-center gap-2"
           style={{
-            // @ts-expect-error - WebKit-specific property
             WebkitAppRegion: "no-drag",
           }}
         >
