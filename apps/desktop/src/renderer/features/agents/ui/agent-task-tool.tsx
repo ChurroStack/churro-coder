@@ -10,12 +10,17 @@ import { AgentToolCall } from "./agent-tool-call"
 import { AgentToolInterrupted } from "./agent-tool-interrupted"
 import { areTaskToolPropsEqual } from "./agent-tool-utils"
 import { TextShimmer } from "../../../components/ui/text-shimmer"
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../../components/ui/tooltip"
 import { cn } from "../../../lib/utils"
+import { formatModelLabel } from "../lib/models"
+import { formatTokens } from "./agent-format-utils"
+import type { AgentSubagentInfo } from "./agent-message-usage"
 
 interface AgentTaskToolProps {
   part: any
   nestedTools: any[]
   chatStatus?: string
+  subagentInfo?: Record<string, AgentSubagentInfo>
 }
 
 // Constants for rendering
@@ -37,7 +42,9 @@ export const AgentTaskTool = memo(function AgentTaskTool({
   part,
   nestedTools,
   chatStatus,
+  subagentInfo,
 }: AgentTaskToolProps) {
+  const info = subagentInfo?.[part.toolCallId as string]
   const selectedProject = useAtomValue(selectedProjectAtom)
   const projectPath = selectedProject?.path
   const { isPending, isInterrupted } = getToolStatus(part, chatStatus)
@@ -131,7 +138,25 @@ export const AgentTaskTool = memo(function AgentTaskTool({
         className="group flex items-start gap-1.5 py-0.5 px-2 cursor-pointer"
       >
         <div className="flex-shrink-0 flex items-start pt-[1px]">
-          <Bot className="w-3.5 h-3.5 text-muted-foreground/70" />
+          {info?.model ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Bot className="w-3.5 h-3.5 text-muted-foreground/70" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="flex items-center gap-1">
+                <span>{formatModelLabel(info.model)}</span>
+                {info.inputTokens !== undefined && (
+                  <span className="text-muted-foreground/70 tabular-nums">
+                    · {formatTokens((info.inputTokens ?? 0) + (info.outputTokens ?? 0))} tok
+                  </span>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Bot className="w-3.5 h-3.5 text-muted-foreground/70" />
+          )}
         </div>
         <div className="flex-1 min-w-0 flex items-center gap-1">
           <div className="text-xs flex items-center gap-1.5 min-w-0">
@@ -172,66 +197,88 @@ export const AgentTaskTool = memo(function AgentTaskTool({
         </div>
       </div>
 
-      {/* Nested tools - only show when expanded */}
-      {hasNestedTools && isExpanded && (
+      {/* Nested tools + subagent reply - only show when expanded */}
+      {isExpanded && (
         <div className="relative mt-1">
-          {/* Top gradient fade when streaming and has many items */}
-          <div
-            className={cn(
-              "absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-background to-transparent z-10 pointer-events-none transition-opacity duration-200",
-              isPending && nestedTools.length > MAX_VISIBLE_TOOLS
-                ? "opacity-100"
-                : "opacity-0",
-            )}
-          />
+          {hasNestedTools && (
+            <>
+              {/* Top gradient fade when streaming and has many items */}
+              <div
+                className={cn(
+                  "absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-background to-transparent z-10 pointer-events-none transition-opacity duration-200",
+                  isPending && nestedTools.length > MAX_VISIBLE_TOOLS
+                    ? "opacity-100"
+                    : "opacity-0",
+                )}
+              />
 
-          {/* Scrollable container - auto-scrolls to bottom when streaming */}
-          <div
-            ref={scrollRef}
-            className={cn(
-              "space-y-1.5 ml-3 pl-3 border-l border-border/40",
-              isPending &&
-                nestedTools.length > MAX_VISIBLE_TOOLS &&
-                "overflow-y-auto scrollbar-hide",
-            )}
-            style={
-              isPending && nestedTools.length > MAX_VISIBLE_TOOLS
-                ? { maxHeight: `${MAX_VISIBLE_TOOLS * TOOL_HEIGHT_PX}px` }
-                : undefined
-            }
-          >
-            {nestedTools.map((nestedPart, idx) => {
-              const nestedMeta = AgentToolRegistry[nestedPart.type]
-              if (!nestedMeta) {
-                return (
-                  <div
-                    key={idx}
-                    className="text-xs text-muted-foreground py-0.5"
-                  >
-                    {nestedPart.type?.replace("tool-", "")}
-                  </div>
-                )
-              }
-              const { isPending: nestedIsPending, isError: nestedIsError } =
-                getToolStatus(nestedPart, chatStatus)
-              const handleClick = nestedPart.type === "tool-Read" && onOpenFile && nestedPart.input?.file_path
-                ? () => onOpenFile(nestedPart.input.file_path)
-                : undefined
-              return (
-                <AgentToolCall
-                  key={idx}
-                  icon={nestedMeta.icon}
-                  title={nestedMeta.title(nestedPart)}
-                  subtitle={nestedMeta.subtitle?.(nestedPart)}
-                  tooltipContent={nestedMeta.tooltipContent?.(nestedPart, projectPath)}
-                  isPending={nestedIsPending}
-                  isError={nestedIsError}
-                  isNested={true}
-                  onClick={handleClick}
-                />
-              )
-            })}
-          </div>
+              {/* Scrollable container - auto-scrolls to bottom when streaming */}
+              <div
+                ref={scrollRef}
+                className={cn(
+                  "space-y-1.5 ml-3 pl-3 border-l border-border/40",
+                  isPending &&
+                    nestedTools.length > MAX_VISIBLE_TOOLS &&
+                    "overflow-y-auto scrollbar-hide",
+                )}
+                style={
+                  isPending && nestedTools.length > MAX_VISIBLE_TOOLS
+                    ? { maxHeight: `${MAX_VISIBLE_TOOLS * TOOL_HEIGHT_PX}px` }
+                    : undefined
+                }
+              >
+                {nestedTools.map((nestedPart, idx) => {
+                  const nestedMeta = AgentToolRegistry[nestedPart.type]
+                  if (!nestedMeta) {
+                    return (
+                      <div
+                        key={idx}
+                        className="text-xs text-muted-foreground py-0.5"
+                      >
+                        {nestedPart.type?.replace("tool-", "")}
+                      </div>
+                    )
+                  }
+                  const { isPending: nestedIsPending, isError: nestedIsError } =
+                    getToolStatus(nestedPart, chatStatus)
+                  const handleClick = nestedPart.type === "tool-Read" && onOpenFile && nestedPart.input?.file_path
+                    ? () => onOpenFile(nestedPart.input.file_path)
+                    : undefined
+                  return (
+                    <AgentToolCall
+                      key={idx}
+                      icon={nestedMeta.icon}
+                      title={nestedMeta.title(nestedPart)}
+                      subtitle={nestedMeta.subtitle?.(nestedPart)}
+                      tooltipContent={nestedMeta.tooltipContent?.(nestedPart, projectPath)}
+                      isPending={nestedIsPending}
+                      isError={nestedIsError}
+                      isNested={true}
+                      onClick={handleClick}
+                    />
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Subagent reply text - show when task is complete and has output content */}
+          {!isPending && (() => {
+            const content = part.output?.content
+            const replyText = typeof content === "string"
+              ? content
+              : Array.isArray(content)
+                ? content.filter((c: any) => typeof c === "string" || c?.type === "text").map((c: any) => typeof c === "string" ? c : c.text).join("\n")
+                : null
+            if (!replyText?.trim()) return null
+            return (
+              <div className="mt-1.5 ml-3 pl-3 border-l border-border/40 max-h-64 overflow-y-auto">
+                <p className="text-xs text-muted-foreground/80 whitespace-pre-wrap break-words">
+                  {replyText}
+                </p>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

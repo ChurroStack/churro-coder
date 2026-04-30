@@ -256,8 +256,8 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     title: (part) => {
       const isInputStreaming = part.state === "input-streaming"
       if (isInputStreaming) return "Preparing edit"
-      const filePath = part.input?.file_path || ""
-      if (!filePath) return "Edit" // Show "Edit" if no file path yet during streaming
+      const filePath = part.input?.file_path || (part.callProviderMetadata?.custom?.codexDetail as string | undefined) || ""
+      if (!filePath) return "Edit"
       return filePath.split("/").pop() || "Edit"
     },
     subtitle: (part) => {
@@ -327,8 +327,8 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     subtitle: (part) => {
       // Don't show subtitle while input is still streaming
       if (part.state === "input-streaming") return ""
-      const filePath = part.input?.file_path || ""
-      if (!filePath) return "" // Don't show "file" placeholder during streaming
+      const filePath = part.input?.file_path || (part.callProviderMetadata?.custom?.codexDetail as string | undefined) || ""
+      if (!filePath) return ""
       return filePath.split("/").pop() || ""
     },
     variant: "simple",

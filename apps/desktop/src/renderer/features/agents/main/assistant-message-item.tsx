@@ -678,6 +678,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
             }}
             nestedTools={group.parts}
             chatStatus={status}
+            subagentInfo={msgMetadata?.subagentInfo}
           />
         )
       }
@@ -705,7 +706,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
 
     if (isSubagentDispatchType(part.type)) {
       const nestedTools = nestedToolsMap.get(part.toolCallId) || []
-      return <AgentTaskTool key={idx} part={part} nestedTools={nestedTools} chatStatus={status} />
+      return <AgentTaskTool key={idx} part={part} nestedTools={nestedTools} chatStatus={status} subagentInfo={msgMetadata?.subagentInfo} />
     }
 
     if (part.type === "tool-Bash") return <AgentBashTool key={idx} part={part} messageId={message.id} partIndex={idx} chatStatus={status} />

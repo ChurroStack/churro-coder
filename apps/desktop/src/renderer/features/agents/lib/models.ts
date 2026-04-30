@@ -95,3 +95,28 @@ export function formatCodexThinkingLabel(thinking: CodexThinkingLevel): string {
   if (thinking === "xhigh") return "Extra High"
   return thinking.charAt(0).toUpperCase() + thinking.slice(1)
 }
+
+export function formatModelLabel(rawId: string | undefined): string {
+  if (!rawId) return ""
+  const lower = rawId.toLowerCase()
+
+  if (lower.startsWith("gpt-") || lower.includes("codex")) {
+    const match = CODEX_MODELS.find((m) => lower === m.id.toLowerCase() || lower.startsWith(m.id.toLowerCase()))
+    if (match) return match.name
+    return rawId
+  }
+
+  const is1m = lower.includes("-1m") || lower.endsWith("1m")
+  const families = [
+    { keyword: "opus", modelId: is1m ? "opus[1m]" : "opus" },
+    { keyword: "sonnet", modelId: is1m ? "sonnet[1m]" : "sonnet" },
+    { keyword: "haiku", modelId: "haiku" },
+  ]
+  for (const family of families) {
+    if (lower.includes(family.keyword)) {
+      const model = CLAUDE_MODELS.find((m) => m.id === family.modelId)
+      if (model) return `Claude ${model.name} ${model.version}`
+    }
+  }
+  return rawId
+}
