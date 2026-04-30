@@ -15,6 +15,7 @@ import {
   normalizeCodexStreamChunk,
 } from "../../../../shared/codex-tool-normalizer"
 import { computeCatchupBlock } from "../../multi-provider/catchup"
+import { getProviderForModelId } from "../../../shared/provider-from-model"
 import { getClaudeShellEnvironment } from "../../claude/env"
 import { resolveProjectPathFromWorktree } from "../../claude-config"
 import { getDatabase, projects as projectsTable, subChats } from "../../db"
@@ -1081,8 +1082,15 @@ function extractPromptFromStoredMessage(message: any): string {
 }
 
 function getLastSessionId(messages: any[]): string | undefined {
-  const lastAssistant = [...messages].reverse().find((message) => message?.role === "assistant")
-  const sessionId = lastAssistant?.metadata?.sessionId
+  // Only resume a Codex session — skip assistant messages from Claude or other
+  // providers to avoid passing a Claude session UUID to the ACP server which
+  // would return "Resource not found".
+  const lastCodexAssistant = [...messages].reverse().find(
+    (message) =>
+      message?.role === "assistant" &&
+      getProviderForModelId(message?.metadata?.model) === "codex",
+  )
+  const sessionId = lastCodexAssistant?.metadata?.sessionId
   return typeof sessionId === "string" ? sessionId : undefined
 }
 
