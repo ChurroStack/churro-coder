@@ -2102,30 +2102,56 @@ ${prompt}
                 },
                 // Use bundled binary
                 pathToClaudeCodeExecutable: claudeBinaryPath,
-                // Session handling: For Ollama, use resume with session ID to maintain history
-                // For Claude API, use resume with rollback/fork support
-                // resume is mutually exclusive with continue (SDK contract)
-                ...(resumeSessionId
-                  ? {
-                      resume: resumeSessionId,
-                      // Fork support - resume at specific point and create new session
-                      ...(shouldForkResume && forkResumeAtUuid && !isUsingOllama
-                        ? { resumeSessionAt: forkResumeAtUuid, forkSession: true }
-                        : // Rollback support - resume at specific message UUID (from DB)
-                          resumeAtUuid && !isUsingOllama
-                          ? { resumeSessionAt: resumeAtUuid }
-                          : {}),
-                    }
-                  : { continue: true }),
+                // Session-mode keys (resume / continue / resumeSessionAt / forkSession)
+                // are assigned per loop iteration via applySessionMode() so a silent
+                // SESSION_EXPIRED retry can swap to a fresh session.
                 ...(resolvedModel && { model: resolvedModel }),
                 ...(input.effort && { effort: input.effort }),
               },
+            }
+
+            // Tracks the session ID to attempt resume with. Cleared to undefined
+            // on a SESSION_EXPIRED silent retry so the next iteration starts fresh.
+            let currentSessionId: string | undefined = resumeSessionId
+            // After an expiry-driven retry we want a truly fresh session — not
+            // `continue: true`, which the CLI uses to pick up the most recent
+            // local conversation in cwd (whose .jsonl still references the
+            // expired session ID).
+            let forceFreshSession = false
+
+            // resume is mutually exclusive with continue (SDK contract). Recompute
+            // every iteration because currentSessionId may flip after expiry.
+            const applySessionMode = () => {
+              const opts = queryOptions.options as any
+              delete opts.resume
+              delete opts.continue
+              delete opts.resumeSessionAt
+              delete opts.forkSession
+              if (currentSessionId) {
+                opts.resume = currentSessionId
+                if (shouldForkResume && forkResumeAtUuid && !isUsingOllama) {
+                  opts.resumeSessionAt = forkResumeAtUuid
+                  opts.forkSession = true
+                } else if (resumeAtUuid && !isUsingOllama) {
+                  opts.resumeSessionAt = resumeAtUuid
+                }
+              } else if (!forceFreshSession) {
+                opts.continue = true
+              }
+              // forceFreshSession: leave both keys unset so the SDK starts
+              // a brand new session ignoring any stale on-disk .jsonl.
             }
 
             // Auto-retry for transient API errors (e.g., false-positive USAGE_POLICY_VIOLATION)
             const MAX_POLICY_RETRIES = 2
             let policyRetryCount = 0
             let policyRetryNeeded = false
+            // Auto-retry once when the SDK reports the resumed session ID is gone.
+            // Anthropic expires sessions server-side; one silent retry with a fresh
+            // session keeps the chat from going visibly empty. A second SESSION_EXPIRED
+            // is treated as a real failure and surfaces normally.
+            const MAX_SESSION_RETRIES = 1
+            let sessionRetryCount = 0
             let messageCount = 0
             let pendingFinishChunk: UIMessageChunk | null = null
 
@@ -2134,6 +2160,9 @@ ${prompt}
               policyRetryNeeded = false
               messageCount = 0
               pendingFinishChunk = null
+
+              // Reflect the latest currentSessionId into queryOptions before the run.
+              applySessionMode()
 
               // 5. Run Claude SDK
               let stream
@@ -2653,6 +2682,37 @@ ${prompt}
                     .set({ sessionId: null })
                     .where(eq(subChats.id, input.subChatId))
                     .run()
+
+                  // Silent retry: re-run the same prompt on a fresh session so
+                  // the renderer never sees the SESSION_EXPIRED error chunk
+                  // (which clears the AI SDK Chat's message buffer and triggers
+                  // a spurious title regeneration on the next user send).
+                  // Guarded on messageCount === 0 / parts empty: SESSION_EXPIRED
+                  // normally fails at session lookup before any chunks arrive,
+                  // and we don't want to silently retry mid-stream and risk
+                  // duplicating an in-progress assistant turn.
+                  if (
+                    !abortController.signal.aborted &&
+                    sessionRetryCount < MAX_SESSION_RETRIES &&
+                    messageCount === 0 &&
+                    parts.length === 0 &&
+                    !currentText.trim()
+                  ) {
+                    sessionRetryCount++
+                    currentSessionId = undefined
+                    forceFreshSession = true
+                    // Reset stderr capture so the next iteration's error analysis
+                    // doesn't see the stale "No conversation found" line.
+                    stderrLines.length = 0
+                    console.log(
+                      `[claude] Session expired - silent retry (attempt ${sessionRetryCount}/${MAX_SESSION_RETRIES})`,
+                    )
+                    safeEmit({
+                      type: "retry-notification",
+                      message: "Reconnecting…",
+                    } as UIMessageChunk)
+                    continue
+                  }
 
                   errorContext = "Previous session expired. Please try again."
                   errorCategory = "SESSION_EXPIRED"
