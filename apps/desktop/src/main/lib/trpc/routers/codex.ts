@@ -15,7 +15,7 @@ import {
   normalizeCodexStreamChunk,
 } from "../../../../shared/codex-tool-normalizer"
 import { computeCatchupBlock } from "../../multi-provider/catchup"
-import { getProviderForModelId } from "../../../shared/provider-from-model"
+import { getProviderForModelId } from "../../../../shared/provider-from-model"
 import { getClaudeShellEnvironment } from "../../claude/env"
 import { resolveProjectPathFromWorktree } from "../../claude-config"
 import { getDatabase, projects as projectsTable, subChats } from "../../db"
