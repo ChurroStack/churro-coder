@@ -32,6 +32,7 @@ import {
 } from "../../claude-config"
 import { anthropicAccounts, anthropicSettings, chats, claudeCodeCredentials, getDatabase, projects as projectsTable, subChats } from "../../db"
 import { computeFileStatsFromMessages } from "../../file-stats"
+import { computeCatchupBlock } from "../../multi-provider/catchup"
 import { createRollbackStash } from "../../git/stash"
 import {
   ensureMcpTokensFresh,
@@ -1056,6 +1057,7 @@ export const claudeRouter = router({
                 id: crypto.randomUUID(),
                 role: "user",
                 parts,
+                metadata: { model: input.model ?? "sonnet" },
               }
               messagesToSave = [...existingMessages, userMessage]
 
@@ -1855,6 +1857,16 @@ ${prompt}
 [/CURRENT REQUEST]`
               finalQueryPrompt = ollamaContext
               console.log("[Ollama] Context prefix added to prompt")
+            }
+
+            // Soft multi-provider handoff: prepend a catch-up block when the active
+            // provider differs from the one that handled recent turns. Skipped for
+            // Ollama (it already embeds full history in the prompt above).
+            if (!isUsingOllama && typeof finalQueryPrompt === "string") {
+              const catchup = computeCatchupBlock(messagesToSave, "claude-code")
+              if (catchup) {
+                finalQueryPrompt = `${catchup}\n\n${finalQueryPrompt}`
+              }
             }
 
             // System prompt config - use preset for both Claude and Ollama

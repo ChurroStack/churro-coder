@@ -1,7 +1,7 @@
 "use client"
 
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { ChevronDown, RefreshCw } from "lucide-react"
+import { ChevronDown, MoreVertical, RefreshCw } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
@@ -1616,12 +1616,10 @@ export const ChatInputArea = memo(function ChatInputArea({
                       onOpenChange={setIsModelDropdownOpen}
                       selectedAgentId={provider}
                       onSelectedAgentIdChange={(nextProvider) => {
-                        if (!canSwitchProvider) return
+                        if (isStreaming || !!sandboxId) return
                         if (nextProvider === provider) return
                         onProviderChange?.(nextProvider)
                       }}
-                      allowProviderSwitch={canSwitchProvider}
-                      onContinueWithProvider={!canSwitchProvider ? onContinueWithProvider : undefined}
                       selectedModelLabel={selectedModelLabel}
                       onOpenModelsSettings={() => {
                         setSettingsTab("models")
@@ -1725,6 +1723,33 @@ export const ChatInputArea = memo(function ChatInputArea({
                         <AttachIcon className="h-4 w-4" />
                       </Button>
                     </>
+                  )}
+
+                  {/* Handoff kebab menu */}
+                  {onContinueWithProvider && messageTokenData.messageCount > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-sm outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+                          aria-label="More actions"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            onContinueWithProvider(
+                              provider === "codex" ? "claude-code" : "codex",
+                            )
+                          }
+                        >
+                          Hand off in new chat window
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
 
                   {/* Send/Stop/Voice button */}

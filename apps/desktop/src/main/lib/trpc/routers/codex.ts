@@ -14,6 +14,7 @@ import {
   normalizeCodexAssistantMessage,
   normalizeCodexStreamChunk,
 } from "../../../../shared/codex-tool-normalizer"
+import { computeCatchupBlock } from "../../multi-provider/catchup"
 import { getClaudeShellEnvironment } from "../../claude/env"
 import { resolveProjectPathFromWorktree } from "../../claude-config"
 import { getDatabase, projects as projectsTable, subChats } from "../../db"
@@ -1768,12 +1769,17 @@ export const codexRouter = router({
               return usagePromise
             }
 
+            const catchup = computeCatchupBlock(messagesForStream, "codex")
+            const augmentedPrompt = catchup
+              ? `${catchup}\n\n${input.prompt}`
+              : input.prompt
+
             const result = streamText({
               model: provider.languageModel(selectedModelId),
               messages: [
                 {
                   role: "user",
-                  content: buildModelMessageContent(input.prompt, input.images),
+                  content: buildModelMessageContent(augmentedPrompt, input.images),
                 },
               ],
               tools: provider.tools,
