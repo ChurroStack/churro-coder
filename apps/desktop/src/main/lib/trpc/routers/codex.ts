@@ -161,6 +161,23 @@ type CodexUsageMetadata = {
   outputTokens?: number
   totalTokens?: number
   modelContextWindow?: number
+  totalCostUsd?: number
+}
+
+// Prices per 1M tokens (USD). Strip the "/thinking" suffix to get the base model ID.
+// Sources: OpenAI API pricing page (April 2026).
+const CODEX_MODEL_PRICING: Record<
+  string,
+  { inputPer1M: number; cachedInputPer1M: number; outputPer1M: number }
+> = {
+  "gpt-5.5":             { inputPer1M: 5.00,  cachedInputPer1M: 0.40,  outputPer1M: 30.00 },
+  "gpt-5.4":             { inputPer1M: 2.50,  cachedInputPer1M: 0.25,  outputPer1M: 15.00 },
+  "gpt-5.4-mini":        { inputPer1M: 0.75,  cachedInputPer1M: 0.075, outputPer1M:  4.50 },
+  "gpt-5.3-codex":       { inputPer1M: 1.75,  cachedInputPer1M: 0.175, outputPer1M: 14.00 },
+  "gpt-5.3-codex-spark": { inputPer1M: 1.75,  cachedInputPer1M: 0.175, outputPer1M: 14.00 },
+  "gpt-5.2-codex":       { inputPer1M: 1.75,  cachedInputPer1M: 0.175, outputPer1M: 14.00 },
+  "gpt-5.1-codex-max":   { inputPer1M: 1.25,  cachedInputPer1M: 0.125, outputPer1M: 10.00 },
+  "gpt-5.1-codex-mini":  { inputPer1M: 0.25,  cachedInputPer1M: 0.025, outputPer1M:  2.00 },
 }
 
 const codexMcpListEntrySchema = z
@@ -577,27 +594,28 @@ async function readLatestTokenCountInfo(
   return null
 }
 
-function mapToUsageMetadata(info: CodexTokenCountInfo): CodexUsageMetadata | null {
+function mapToUsageMetadata(
+  info: CodexTokenCountInfo,
+  modelId?: string,
+): CodexUsageMetadata | null {
   const perMessageUsage = info.last_token_usage
 
   if (!perMessageUsage && info.model_context_window === undefined) {
     return null
   }
 
+  const rawInputTokens = perMessageUsage?.input_tokens
+  const cachedInputTokens = perMessageUsage?.cached_input_tokens ?? 0
   const inputTokens =
-    perMessageUsage?.input_tokens !== undefined
-      ? Math.max(
-          0,
-          perMessageUsage.input_tokens - (perMessageUsage.cached_input_tokens ?? 0),
-        )
+    rawInputTokens !== undefined
+      ? Math.max(0, rawInputTokens - cachedInputTokens)
       : undefined
   const outputTokens = perMessageUsage?.output_tokens
   const totalTokens =
     perMessageUsage?.total_tokens ??
-    (perMessageUsage?.input_tokens !== undefined || perMessageUsage?.output_tokens !== undefined
-      ? (perMessageUsage?.input_tokens ?? 0) + (perMessageUsage?.output_tokens ?? 0)
-      : undefined
-    )
+    (rawInputTokens !== undefined || outputTokens !== undefined
+      ? (rawInputTokens ?? 0) + (outputTokens ?? 0)
+      : undefined)
 
   const usageMetadata: CodexUsageMetadata = {}
   if (inputTokens !== undefined) usageMetadata.inputTokens = inputTokens
@@ -607,12 +625,25 @@ function mapToUsageMetadata(info: CodexTokenCountInfo): CodexUsageMetadata | nul
     usageMetadata.modelContextWindow = info.model_context_window
   }
 
+  // Compute cost when pricing is available for this model.
+  // The ACP model ID uses "baseModel/thinkingLevel" format; strip the suffix.
+  const baseModelId = modelId?.split("/")[0] ?? ""
+  const pricing = CODEX_MODEL_PRICING[baseModelId]
+  if (pricing && rawInputTokens !== undefined && outputTokens !== undefined) {
+    const billableInput = Math.max(0, rawInputTokens - cachedInputTokens)
+    usageMetadata.totalCostUsd =
+      (billableInput * pricing.inputPer1M +
+        cachedInputTokens * pricing.cachedInputPer1M +
+        outputTokens * pricing.outputPer1M) /
+      1_000_000
+  }
+
   return Object.keys(usageMetadata).length > 0 ? usageMetadata : null
 }
 
 async function pollUsage(
   sessionId: string,
-  options?: { notBeforeTimestampMs?: number },
+  options?: { notBeforeTimestampMs?: number; modelId?: string },
 ): Promise<CodexUsageMetadata | null> {
   let sessionFilePath: string | null = null
 
@@ -624,7 +655,7 @@ async function pollUsage(
     if (sessionFilePath) {
       const latestInfo = await readLatestTokenCountInfo(sessionFilePath, options)
       if (latestInfo) {
-        const usageMetadata = mapToUsageMetadata(latestInfo)
+        const usageMetadata = mapToUsageMetadata(latestInfo, options?.modelId)
         if (usageMetadata) {
           return usageMetadata
         }
@@ -1773,6 +1804,7 @@ export const codexRouter = router({
 
               usagePromise = pollUsage(sessionId, {
                 notBeforeTimestampMs: startedAt,
+                modelId: selectedModelId,
               }).catch(() => null)
               return usagePromise
             }
