@@ -135,11 +135,11 @@ function LeftRailPanel(_props: IGridviewPanelProps) {
   return (
     <div
       className="h-full w-full"
-      // Inner edge sits next to the gridview sash (4px wide). To get a visible
-      // gap equal to --shell-gap (cell-edge to cell-edge across the sash),
-      // each cell contributes (gap - sash) / 2 of padding on its inner-facing
-      // edge: pad + sash + pad == --shell-gap, matching the window-edge gap.
-      style={{ paddingRight: "calc((var(--shell-gap) - 4px) / 2)" }}
+      // Each adjacent cell contributes gap/2 of padding on its inner-facing
+      // edge so the visible cell-to-cell gap matches the window-edge gap.
+      // Dockview's sash is absolutely positioned over the seam (no flow
+      // width), so the two paddings sum cleanly to --shell-gap.
+      style={{ paddingRight: "calc(var(--shell-gap) / 2)" }}
     >
       <div
         className="h-full w-full overflow-hidden bg-tl-background border border-border/50"
@@ -214,10 +214,11 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
   return (
     <div
       className="h-full w-full"
-      // (gap - sash) / 2 on each inner edge, so pad + sash + pad == --shell-gap.
+      // gap/2 on each inner edge — paired with the rails' gap/2 it sums to
+      // --shell-gap across the sash (which is absolutely positioned).
       style={{
-        paddingLeft: "calc((var(--shell-gap) - 4px) / 2)",
-        paddingRight: "calc((var(--shell-gap) - 4px) / 2)",
+        paddingLeft: "calc(var(--shell-gap) / 2)",
+        paddingRight: "calc(var(--shell-gap) / 2)",
       }}
     >
       <div
@@ -764,9 +765,9 @@ export function AgentsLayout() {
               className="flex-1 min-h-0"
               style={{
                 // Full --shell-gap on all four window edges. Inter-cell gaps
-                // are equalised inside each rail's renderer (see CenterRail/
-                // LeftRail/DetailsRail), which insets cells by (gap - sash) / 2
-                // so the visible spacing matches the window-edge gap exactly.
+                // are matched by inset padding inside each rail's renderer
+                // (see CenterRail/LeftRail/DetailsRail) — gap/2 on each side
+                // of the absolutely-positioned sash sums to --shell-gap.
                 padding: "var(--shell-gap)",
                 // Outer gutter is draggable so users can move the window from
                 // the strip around the rails. The inner div below opts back

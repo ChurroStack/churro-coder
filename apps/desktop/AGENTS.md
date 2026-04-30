@@ -29,11 +29,11 @@ This file is the canonical agent guide for the Electron desktop app. `CLAUDE.md`
 
 This app is bun-managed; do not run `pnpm install` here. From the monorepo root the same flows are also available via Nx (`pnpm exec nx run desktop:dev` / `:build` / `:dist` / `:package`), which shells back into these scripts.
 
+**Do not run typechecking from agents.** There is no `typecheck` script, and `ts:check` shells out to `tsgo` (`@typescript/native-preview`) which is not installed in this checkout — it exits 127. `bunx tsc --noEmit` "works" but the project has many pre-existing unrelated errors (third-party SDK incompatibilities, drizzle/tRPC narrowing) that drown out anything new, so the signal isn't useful. Verify changes by running the app (`bun run dev`) and exercising the affected feature in the UI instead.
+
 ```bash
 # Development
 bun run dev              # Start Electron with hot reload (electron-vite)
-bun run typecheck        # Equivalent of bun run ts:check (tsgo --noEmit)
-bun run ts:check         # Strict typecheck via tsgo
 
 # Build / package
 bun run build            # electron-vite build → out/{main,preload,renderer}

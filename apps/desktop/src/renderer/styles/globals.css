@@ -33,11 +33,11 @@
     --selection: 228 100% 50% / 0.25;
     /* Text selection background - primary at 25% */
     --radius: 0.6rem;
-    /* Visible gap between the rounded rail/dock cards and the window edge —
-     * also the target for the inter-cell gap (cell-edge to cell-edge across
-     * the gridview sash). Outer wrapper gets `padding: var(--shell-gap)`;
-     * each rail's inner-facing edge gets `(gap - sash) / 2` so
-     * pad + sash + pad == gap. See agents-layout.tsx for the wiring. */
+    /* Visible gap between the rounded rail/dock cards and the window edge,
+     * and the target inter-cell gap. The outer wrapper takes the full
+     * --shell-gap; each rail contributes gap/2 on its inner-facing edge,
+     * which sums to --shell-gap across the absolutely-positioned sash.
+     * See agents-layout.tsx for the wiring. */
     --shell-gap: 6px;
     /* Plan Mode Colors */
     --plan-mode: 33 83% 67%;
