@@ -1,6 +1,6 @@
 import { createACPProvider, type ACPProvider } from "@mcpc-tech/acp-ai-provider"
 import { observable } from "@trpc/server/observable"
-import { streamText } from "ai"
+import { streamText, tool } from "ai"
 import { eq } from "drizzle-orm"
 import { app } from "electron"
 import { spawn, type ChildProcess } from "node:child_process"
@@ -1810,19 +1810,25 @@ export const codexRouter = router({
             }
 
             const catchup = computeCatchupBlock(messagesForStream, "codex")
-            const augmentedPrompt = catchup
-              ? `${catchup}\n\n${input.prompt}`
-              : input.prompt
+            const planInstruction =
+              input.mode === "plan"
+                ? "[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state. Read the codebase as needed, then write a clear numbered implementation plan. End with a sentence saying you are waiting for the user's approval before implementing anything."
+                : ""
+            const augmentedPrompt = [planInstruction, catchup, input.prompt]
+              .filter((segment): segment is string => Boolean(segment))
+              .join("\n\n")
+
+            const codexModeId = input.mode === "plan" ? "read-only" : "full-access"
 
             const result = streamText({
-              model: provider.languageModel(selectedModelId),
+              model: provider.languageModel(selectedModelId, codexModeId),
               messages: [
                 {
                   role: "user",
                   content: buildModelMessageContent(augmentedPrompt, input.images),
                 },
               ],
-              tools: provider.tools,
+              tools: { ...(provider.tools ?? {}) },
               abortSignal: abortController.signal,
             })
 

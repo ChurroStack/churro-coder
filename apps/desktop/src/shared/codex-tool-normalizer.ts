@@ -11,6 +11,7 @@ const CODEX_VERB_TO_TOOL_TYPE: Record<string, string> = {
   Write: "Write",
   Thought: "Thinking",
   Fetch: "WebFetch",
+  PlanWrite: "PlanWrite",
 }
 
 type CodexToolDescriptor = {
@@ -281,6 +282,53 @@ function normalizeCodexToolInput(
     }
   }
 
+  if (descriptor.canonicalToolName === "Edit") {
+    if (!normalizedInput.file_path) {
+      if (typeof normalizedInput.path === "string" && normalizedInput.path.length > 0) {
+        normalizedInput.file_path = normalizedInput.path
+      } else if (parsedPath) {
+        normalizedInput.file_path = parsedPath
+      } else if (parsedName) {
+        normalizedInput.file_path = parsedName
+      } else if (descriptor.detail) {
+        normalizedInput.file_path = descriptor.detail
+      }
+    }
+    if (!normalizedInput.old_string && typeof normalizedInput.old_text === "string") {
+      normalizedInput.old_string = normalizedInput.old_text
+    }
+    if (!normalizedInput.new_string) {
+      if (typeof normalizedInput.new_text === "string") {
+        normalizedInput.new_string = normalizedInput.new_text
+      } else if (typeof normalizedInput.new_content === "string") {
+        normalizedInput.new_string = normalizedInput.new_content
+      }
+    }
+  }
+
+  if (descriptor.canonicalToolName === "Write") {
+    if (!normalizedInput.file_path) {
+      if (typeof normalizedInput.path === "string" && normalizedInput.path.length > 0) {
+        normalizedInput.file_path = normalizedInput.path
+      } else if (parsedPath) {
+        normalizedInput.file_path = parsedPath
+      } else if (parsedName) {
+        normalizedInput.file_path = parsedName
+      } else if (descriptor.detail) {
+        normalizedInput.file_path = descriptor.detail
+      }
+    }
+    if (!normalizedInput.content) {
+      if (typeof normalizedInput.text === "string") {
+        normalizedInput.content = normalizedInput.text
+      } else if (typeof normalizedInput.new_text === "string") {
+        normalizedInput.content = normalizedInput.new_text
+      } else if (typeof normalizedInput.new_content === "string") {
+        normalizedInput.content = normalizedInput.new_content
+      }
+    }
+  }
+
   return normalizedInput
 }
 
@@ -305,7 +353,13 @@ export function normalizeCodexToolPart(
   if (typeof part.type !== "string" || !part.type.startsWith("tool-")) return part
 
   const rawToolName = getPartToolName(part)
-  const descriptor = rawToolName ? parseCodexToolDescriptor(rawToolName) : null
+  let descriptor = rawToolName ? parseCodexToolDescriptor(rawToolName) : null
+
+  // When the outer tool name is an ACP dynamic wrapper (unrecognised), check if
+  // the inner input.toolName resolves to a known tool (e.g. "PlanWrite").
+  if (!descriptor && isRecord(part.input) && typeof part.input.toolName === "string") {
+    descriptor = parseCodexToolDescriptor(part.input.toolName)
+  }
   const shouldNormalizeState =
     options?.normalizeState === true &&
     (part.state === "input-available" || part.state === "output-available")
@@ -417,11 +471,22 @@ export function normalizeCodexStreamChunk(chunk: unknown): unknown {
     isRecord(chunk.input) &&
     (isRecord(chunk.input.args) || typeof chunk.input.toolName === "string")
 
-  if (!descriptor && !hasCodexArgsWrapper) {
+  // When the outer toolName is the ACP dynamic tool wrapper (e.g.
+  // "acp.acp_provider_agent_dynamic_tool"), the real tool descriptor is
+  // embedded in chunk.input.toolName (e.g. "Edit src/foo.ts"). Extract it so
+  // the normalizer can map the chunk to the canonical tool type and name.
+  const innerDescriptor =
+    !descriptor && hasCodexArgsWrapper && isRecord(chunk.input) && typeof chunk.input.toolName === "string"
+      ? parseCodexToolDescriptor(chunk.input.toolName as string)
+      : null
+
+  const effectiveDescriptor = descriptor || innerDescriptor
+
+  if (!effectiveDescriptor && !hasCodexArgsWrapper) {
     return chunk
   }
 
-  const canonicalToolName = descriptor?.canonicalToolName || chunk.toolName
+  const canonicalToolName = effectiveDescriptor?.canonicalToolName || chunk.toolName
   const fallbackDescriptor: CodexToolDescriptor = {
     canonicalToolName,
     detail: "",
@@ -429,13 +494,13 @@ export function normalizeCodexStreamChunk(chunk: unknown): unknown {
   }
   const normalizedInput =
     chunk.type === "tool-input-available"
-      ? normalizeCodexToolInput(chunk.input, descriptor || fallbackDescriptor)
+      ? normalizeCodexToolInput(chunk.input, effectiveDescriptor || fallbackDescriptor)
       : undefined
   const normalizedTitle =
     typeof chunk.title === "string" && chunk.title.trim().length > 0
       ? chunk.title
-      : typeof descriptor?.detail === "string" && descriptor.detail.trim().length > 0
-        ? descriptor.detail
+      : typeof effectiveDescriptor?.detail === "string" && effectiveDescriptor.detail.trim().length > 0
+        ? effectiveDescriptor.detail
         : undefined
   const finalInput =
     chunk.type === "tool-input-available" &&

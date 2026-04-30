@@ -175,7 +175,7 @@ import {
   getSubChatDraftFull
 } from "../lib/drafts"
 import { IPCChatTransport } from "../lib/ipc-chat-transport"
-import { applyModeDefaultModel } from "../lib/model-switching"
+import { applyModeDefaultModel, getProviderForModelId } from "../lib/model-switching"
 import {
   createQueueItem, createTextPreview, generateQueueId,
   toQueuedFile,
@@ -3222,7 +3222,16 @@ export const ChatViewInner = memo(function ChatViewInner({
     [],
   )
 
-  // Handle plan approval - sends "Build plan" message and switches to agent mode
+  // Deferred "Implement plan" send — fires after transport recreates on approve.
+  const [pendingImplementPlan, setPendingImplementPlan] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (pendingImplementPlan !== subChatId || isStreaming) return
+    setPendingImplementPlan(null)
+    sendMessage({ role: "user", parts: [{ type: "text", text: "Implement plan" }] })
+  }, [pendingImplementPlan, subChatId, isStreaming, sendMessage])
+
+  // Handle plan approval - sends "Implement plan" message and switches to agent mode
   const handleApprovePlan = useCallback(() => {
     // Update store mode synchronously BEFORE sending (transport reads from store)
     useAgentSubChatStore.getState().updateSubChatMode(subChatId, "agent")
@@ -3235,19 +3244,21 @@ export const ChatViewInner = memo(function ChatViewInner({
     // Update atomFamily state (for UI) - this also syncs to store via effect
     setSubChatMode("agent")
 
-    // Autoswitch to the Agent-mode default model before sending
-    applyModeDefaultModel(subChatId, "agent")
+    // Autoswitch to the Agent-mode default model and get the resolved provider.
+    const { provider } = applyModeDefaultModel(subChatId, "agent")
 
     // Enable auto-scroll and immediately scroll to bottom
     shouldAutoScrollRef.current = true
     scrollToBottom()
 
-    // Send "Build plan" message (now in agent mode)
-    sendMessageRef.current({
-      role: "user",
-      parts: [{ type: "text", text: "Implement plan" }],
-    })
-  }, [subChatId, setSubChatMode, scrollToBottom, updateSubChatModeMutation])
+    // Recreate the transport for the new provider (e.g. plan=Claude → agent=Codex).
+    // This deletes the existing Chat from agentChatStore so getOrCreateChat in ChatView
+    // builds a fresh instance with the correct transport on the next render.
+    onProviderChange?.(subChatId, provider)
+
+    // Defer the send to after the transport recreates (next render cycle).
+    setPendingImplementPlan(subChatId)
+  }, [subChatId, setSubChatMode, scrollToBottom, updateSubChatModeMutation, onProviderChange])
 
   // Handle pending "Build plan" from sidebar
   useEffect(() => {
@@ -4448,22 +4459,36 @@ export const ChatViewInner = memo(function ChatViewInner({
     }
   }
 
-  // Check if there's an unapproved plan (in plan mode with completed ExitPlanMode)
+  // Check if there's an unapproved plan (in plan mode with completed ExitPlanMode, Codex PlanWrite, or Codex text plan)
   const hasUnapprovedPlan = useMemo(() => {
     // If already in agent mode, plan is approved (mode is the source of truth)
     if (subChatMode !== "plan") return false
 
-    // Look for completed ExitPlanMode in messages
+    // Look for completed ExitPlanMode (Claude) or PlanWrite awaiting_approval (Codex widget)
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
 
-      // If assistant message with completed ExitPlanMode, we found an unapproved plan
       if (msg.role === "assistant" && msg.parts) {
         const exitPlanPart = msg.parts.find(
           (p: any) => p.type === "tool-ExitPlanMode"
         )
-        // Check if ExitPlanMode is completed (has output, even if empty)
         if (exitPlanPart && exitPlanPart.output !== undefined) {
+          return true
+        }
+
+        const planWritePart = msg.parts.find(
+          (p: any) =>
+            p.type === "tool-PlanWrite" &&
+            p.output !== undefined &&
+            p.input?.plan?.status === "awaiting_approval"
+        )
+        if (planWritePart) {
+          return true
+        }
+
+        // Codex writes plans as text — any Codex assistant response in plan mode is pending
+        const msgModel = (msg as any).metadata?.model
+        if (msgModel && getProviderForModelId(String(msgModel)) === "codex") {
           return true
         }
       }

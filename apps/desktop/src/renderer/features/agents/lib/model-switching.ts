@@ -13,9 +13,10 @@ import {
   subChatModelIdAtomFamily,
   subChatProviderOverrideAtomFamily,
 } from "../atoms"
-export type ModeContext = AgentMode | "review"
+import { getProviderForModelId } from "../../../../shared/provider-from-model"
 export type { Provider } from "../../../../shared/provider-from-model"
-export { getProviderForModelId } from "../../../../shared/provider-from-model"
+export { getProviderForModelId }
+export type ModeContext = AgentMode | "review"
 
 export function getDefaultModelForMode(mode: ModeContext): string {
   switch (mode) {
