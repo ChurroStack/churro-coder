@@ -9,6 +9,7 @@ import {
   showNewChatFormAtom,
   loadingSubChatsAtom,
   pendingUserQuestionsAtom,
+  expiredUserQuestionsAtom,
   pendingPlanApprovalsAtom,
   agentsUnseenChangesAtom,
   selectedProjectAtom,
@@ -47,6 +48,7 @@ export function KanbanView() {
   // Status atoms
   const loadingSubChats = useAtomValue(loadingSubChatsAtom)
   const pendingQuestions = useAtomValue(pendingUserQuestionsAtom)
+  const expiredQuestions = useAtomValue(expiredUserQuestionsAtom)
   const pendingPlanApprovals = useAtomValue(pendingPlanApprovalsAtom)
   const unseenChanges = useAtomValue(agentsUnseenChangesAtom)
 
@@ -218,14 +220,17 @@ export function KanbanView() {
     return statsMap
   }, [fileStatsData])
 
-  // Build set of chatIds with pending questions
+  // Build set of chatIds with pending questions (active + expired-but-still-answerable)
   const workspacesWithPendingQuestions = useMemo(() => {
     const set = new Set<string>()
     pendingQuestions.forEach((q) => {
       set.add(q.parentChatId)
     })
+    expiredQuestions.forEach((q) => {
+      set.add(q.parentChatId)
+    })
     return set
-  }, [pendingQuestions])
+  }, [pendingQuestions, expiredQuestions])
 
   // Build set of chatIds (workspace IDs) that are loading
   // loadingSubChats is Map<subChatId, parentChatId>, we need the VALUES (parentChatId)

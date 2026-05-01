@@ -90,6 +90,7 @@ import {
   previousAgentChatIdAtom,
   selectedDraftIdAtom,
   showNewChatFormAtom,
+  newWorkspaceFormKeyAtom,
   loadingSubChatsAtom,
   agentsUnseenChangesAtom,
   archivePopoverOpenAtom,
@@ -98,6 +99,7 @@ import {
   justCreatedIdsAtom,
   undoStackAtom,
   pendingUserQuestionsAtom,
+  expiredUserQuestionsAtom,
   desktopViewAtom,
   type UndoItem,
 } from "../agents/atoms"
@@ -1331,9 +1333,11 @@ export function AgentsSidebar({
   const autoAdvanceTarget = useAtomValue(autoAdvanceTargetAtom)
   const [selectedDraftId, setSelectedDraftId] = useAtom(selectedDraftIdAtom)
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
+  const bumpNewWorkspaceFormKey = useSetAtom(newWorkspaceFormKeyAtom)
   const setDesktopView = useSetAtom(desktopViewAtom)
   const [loadingSubChats] = useAtom(loadingSubChatsAtom)
   const pendingQuestions = useAtomValue(pendingUserQuestionsAtom)
+  const expiredQuestions = useAtomValue(expiredUserQuestionsAtom)
   // Use ref instead of state to avoid re-renders on hover
   const isSidebarHoveredRef = useRef(false)
   const closeButtonRef = useRef<HTMLDivElement>(null)
@@ -2191,14 +2195,17 @@ export function AgentsSidebar({
     return chatIdsWithPendingPlans
   }, [pendingPlanApprovalsData])
 
-  // Get workspace IDs that have pending user questions
+  // Get workspace IDs that have pending user questions (active + expired-but-still-answerable)
   const workspacePendingQuestions = useMemo(() => {
     const chatIds = new Set<string>()
     for (const question of pendingQuestions.values()) {
       chatIds.add(question.parentChatId)
     }
+    for (const question of expiredQuestions.values()) {
+      chatIds.add(question.parentChatId)
+    }
     return chatIds
-  }, [pendingQuestions])
+  }, [pendingQuestions, expiredQuestions])
 
   const handleNewAgent = () => {
     triggerHaptic("light")
@@ -2206,6 +2213,7 @@ export function AgentsSidebar({
     setSelectedDraftId(null) // Clear selected draft so form starts empty
     setShowNewChatForm(true) // Explicitly show new chat form
     setDesktopView(null) // Clear automations/inbox view
+    bumpNewWorkspaceFormKey((key) => key + 1)
     // On mobile, switch to chat mode to show NewChatForm
     if (isMobileFullscreen && onChatSelect) {
       onChatSelect()

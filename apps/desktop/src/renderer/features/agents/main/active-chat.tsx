@@ -2950,8 +2950,14 @@ export const ChatViewInner = memo(function ChatViewInner({
   // details-rail). Computed here so the chip text + primary action button
   // mirror what the sidebar shows.
   const workflow = useWorkflowState(parentChatId, subChatId)
-  const { dispatch: dispatchWorkflowAction, pushDialog: workflowPushDialog } =
-    useWorkflowActions(parentChatId, subChatId)
+  const {
+    dispatch: dispatchWorkflowAction,
+    pushDialog: workflowPushDialog,
+    isActionPending,
+  } = useWorkflowActions(parentChatId, subChatId)
+  const isNextActionPending = workflow?.next
+    ? !!isActionPending[workflow.next.actionKind]
+    : false
   // For "View plan": open the plan as a full dockview panel (mirrors the
   // sidebar PlanWidget's "View plan" button). `addOrFocus` is idempotent —
   // if the panel is already open it just brings it to the front.
@@ -5356,6 +5362,7 @@ export const ChatViewInner = memo(function ChatViewInner({
                   onStop={handleStop}
                   hasQueueCardAbove={queue.length > 0}
                   workflow={workflow}
+                  isNextActionPending={isNextActionPending}
                   onWorkflowAction={handleNotchWorkflowAction}
                 />
               )}

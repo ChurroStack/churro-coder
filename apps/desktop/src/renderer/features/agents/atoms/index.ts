@@ -45,6 +45,10 @@ export const selectedDraftIdAtom = atom<string | null>(null)
 // Set to true when "New Workspace" is clicked
 export const showNewChatFormAtom = atom<boolean>(true)
 
+// Session-only remount key for New Workspace. Bumped when the user explicitly
+// asks for a fresh workspace form, including while already on that view.
+export const newWorkspaceFormKeyAtom = atom(0)
+
 // When true, suppress auto-focus on chat input (e.g. during sidebar keyboard navigation)
 export const suppressInputFocusAtom = atom<boolean>(false)
 

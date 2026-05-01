@@ -377,7 +377,7 @@ Key files:
 
 ### Codex cost computation
 
-`CODEX_MODEL_PRICING` in `codex.ts` maps base model IDs (suffix stripped) to per-1M-token input/cached-input/output rates. Cost is computed in `mapToUsageMetadata` and stored as `totalCostUsd` in the assistant message metadata — the same field Claude uses — so the recap UI renders it identically.
+`CODEX_MODEL_PRICING` in `src/main/lib/codex/usage-metadata.ts` maps base model IDs (suffix stripped) to per-1M-token input/cached-input/output rates. Cost is computed in `mapAppServerUsageToMetadata` and stored as `totalCostUsd` in the assistant message metadata — the same field Claude uses — so the recap UI renders it identically.
 
 ## Workflow Status state machine
 

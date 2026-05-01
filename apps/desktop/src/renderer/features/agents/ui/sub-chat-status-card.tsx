@@ -48,6 +48,8 @@ interface SubChatStatusCardProps {
   hasQueueCardAbove?: boolean
   /** Pre-computed workflow state — drives the contextual chip + primary action */
   workflow?: WorkflowState | null
+  /** Whether the current workflow primary action is running */
+  isNextActionPending?: boolean
   /** Dispatcher for the primary action button */
   onWorkflowAction?: (kind: WorkflowActionKind) => void
 }
@@ -72,6 +74,7 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
   onStop,
   hasQueueCardAbove = false,
   workflow,
+  isNextActionPending = false,
   onWorkflowAction,
 }: SubChatStatusCardProps) {
   const isBusy = isStreaming || isCompacting
@@ -169,6 +172,7 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
     : null
   const handleNextStepClick = (e: React.MouseEvent) => {
     e.stopPropagation()
+    if (isNextActionPending) return
     if (nextStep && onWorkflowAction) {
       onWorkflowAction(nextStep.actionKind)
     } else {
@@ -277,10 +281,17 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
               <Button
                 variant="secondary"
                 size="sm"
+                disabled={isNextActionPending}
                 onClick={handleNextStepClick}
-                className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97]"
+                className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97] disabled:opacity-70"
               >
-                {actionLabel ?? "Review"}
+                {isNextActionPending && nextStep?.actionKind === "pushBranch" ? (
+                  <>
+                    Pushing<AnimatedDots />
+                  </>
+                ) : (
+                  actionLabel ?? "Review"
+                )}
               </Button>
             )}
         </div>
