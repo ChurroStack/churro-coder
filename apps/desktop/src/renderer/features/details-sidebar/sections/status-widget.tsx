@@ -61,10 +61,14 @@ export const StatusWidget = memo(function StatusWidget({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  disabled={!isClickable}
-                  onClick={() =>
-                    m.actionKind && onAction(m.actionKind, m.id)
-                  }
+                  // Use aria-disabled (not native disabled) so the button stays
+                  // focusable / hoverable for the tooltip; the click handler
+                  // already short-circuits when actionKind is missing.
+                  aria-disabled={!isClickable || undefined}
+                  onClick={() => {
+                    if (!isClickable) return
+                    if (m.actionKind) onAction(m.actionKind, m.id)
+                  }}
                   className={cn(
                     "flex flex-col items-center gap-1 rounded-md px-2 py-1.5 min-w-[52px]",
                     "transition-colors focus:outline-none focus:ring-2 focus:ring-ring",

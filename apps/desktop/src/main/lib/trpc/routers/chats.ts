@@ -1575,12 +1575,30 @@ export const chatsRouter = router({
 
       // Compute how many commits the current branch is behind its base branch
       // (e.g. main). Used by the Status widget to flag "Base branch has new
-      // commits" before the PR is created. Falls back to 0 when the remote ref
-      // does not exist (e.g. base branch never pushed).
+      // commits" before the PR is created.
+      //
+      // First do a quiet `git fetch origin <baseBranch>` so the origin ref is
+      // actually fresh — without this, the count reflects whatever was last
+      // fetched manually / by an agent push and silently under-reports when
+      // teammates push to main. The fetch is bounded by an 8 s timeout so a
+      // stalled network can't block the 30 s poll. All errors swallowed
+      // (offline, no remote, auth failure, timeout) — we fall back to whatever
+      // origin/<baseBranch> we already have, which matches the previous
+      // behaviour.
       let baseBranchBehind = 0
       try {
         const git = simpleGit(chat.worktreePath)
         const baseBranch = chat.baseBranch || "main"
+        try {
+          await Promise.race([
+            git.fetch("origin", baseBranch, ["--quiet"]),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("fetch timeout")), 8000),
+            ),
+          ])
+        } catch {
+          // Stale origin ref is acceptable — better than blocking the poll.
+        }
         const out = await git.raw([
           "rev-list",
           "--count",

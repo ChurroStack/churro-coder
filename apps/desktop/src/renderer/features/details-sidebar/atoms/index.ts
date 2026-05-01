@@ -259,27 +259,6 @@ export const planEverGeneratedAtomFamily = atomFamily((subChatId: string) =>
   ),
 )
 
-// Persisted flag: plan is awaiting approval for this subChat.
-// Set when ExitPlanMode/PlanWrite is detected; cleared when the plan is approved
-// (mode transitions plan→agent). Survives app restarts so the state machine
-// doesn't advance to Code before the user approves.
-const planPendingStorageAtom = atomWithStorage<Record<string, boolean>>(
-  "overview:planPending",
-  {},
-  undefined,
-  { getOnInit: true },
-)
-
-export const planPendingAtomFamily = atomFamily((subChatId: string) =>
-  atom(
-    (get) => get(planPendingStorageAtom)[subChatId] ?? false,
-    (get, set, value: boolean) => {
-      const current = get(planPendingStorageAtom)
-      set(planPendingStorageAtom, { ...current, [subChatId]: value })
-    },
-  ),
-)
-
 // Optimistic spinner while AI is creating a PR (cleared once the PR shows up
 // in getPrStatus). In-memory only — survives page navigation but not reloads.
 const prCreatingStorageAtom = atom<Record<string, boolean>>({})

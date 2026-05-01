@@ -337,7 +337,9 @@ async function getTrackingBranchStatus(
 			const remotes = await git.getRemotes();
 			hasRemote = remotes.length > 0;
 		} catch {
-			// git getRemotes failed (e.g. no commits yet) — assume no remote
+			// `git remote -v` failed for an unexpected reason (corrupt repo,
+			// permission issue, etc.). Defensive fall-through: assume no remote
+			// rather than reporting hasRemote=true on stale or partial data.
 		}
 		return { pushCount: 0, pullCount: 0, hasUpstream: false, hasRemote };
 	}

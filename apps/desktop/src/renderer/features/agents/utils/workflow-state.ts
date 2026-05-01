@@ -40,11 +40,9 @@ export interface WorkflowInputs {
   mode: "plan" | "agent"
   isStreaming: boolean
   isCompacting: boolean
-  pendingPlanApproval: boolean
   planEverGenerated: boolean
   changedFilesCount: number
   pushCount: number
-  pullCount: number
   hasUpstream: boolean
   hasRemote: boolean
   baseBranchBehind: number
@@ -93,9 +91,9 @@ function computePlan(i: WorkflowInputs): MilestoneState {
   }
 
   // mode === "plan", not streaming → plan exists and is awaiting approval.
-  // pendingPlanApproval is the real-time signal (populated by active-chat from messages);
-  // when it's true we know for certain. When false (e.g. brief reload gap before
-  // active-chat mounts) we still keep Code blocked — mode already tells us we're here.
+  // The persisted mode atom is the source of truth — it only flips to "agent"
+  // once the user approves, so as long as we're in plan mode we know the
+  // plan is awaiting approval and Code stays blocked.
   return {
     id: "plan",
     status: "attention",
@@ -161,7 +159,8 @@ function computeCode(
       actionKind: "pushBranch",
     }
   }
-  if (i.changedFilesCount === 0 && i.pushCount === 0 && i.baseBranchBehind === 0) {
+  // baseBranchBehind === 0 already guaranteed by the early return above.
+  if (i.changedFilesCount === 0 && i.pushCount === 0) {
     return {
       id: "code",
       status: "idle",

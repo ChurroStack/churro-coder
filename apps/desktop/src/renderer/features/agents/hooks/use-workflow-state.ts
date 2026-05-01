@@ -3,7 +3,6 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { toast } from "sonner"
 import { trpc, trpcClient } from "@/lib/trpc"
 import { usePushAction } from "@/features/changes/hooks/use-push-action"
-import type { WorkflowState } from "@/features/agents/utils/workflow-state"
 import {
   agentFinishedTickAtomFamily,
   compactingSubChatsAtom,
@@ -12,7 +11,6 @@ import {
   filteredSubChatIdAtom,
   loadingSubChatsAtom,
   pendingMergeBaseMessageAtom,
-  pendingPlanApprovalsAtom,
   pendingPrMessageAtom,
   pendingReviewMessageAtom,
   planSidebarOpenAtomFamily,
@@ -58,7 +56,6 @@ export function useWorkflowState(
   const mode = useAtomValue(subChatModeAtomFamily(safeSubChatId))
   const loading = useAtomValue(loadingSubChatsAtom)
   const compacting = useAtomValue(compactingSubChatsAtom)
-  const pendingPlanApprovals = useAtomValue(pendingPlanApprovalsAtom)
   const [planEverGenerated, setPlanEverGenerated] = useAtom(
     planEverGeneratedAtomFamily(safeSubChatId),
   )
@@ -73,7 +70,6 @@ export function useWorkflowState(
 
   const isStreaming = !!subChatId && loading.has(subChatId)
   const isCompacting = !!subChatId && compacting.has(subChatId)
-  const pendingPlanApproval = !!subChatId && pendingPlanApprovals.has(subChatId)
 
   // When mode transitions plan→agent the plan was approved.
   // Persist planEverGenerated so Plan shows as "done" in future sessions.
@@ -100,7 +96,7 @@ export function useWorkflowState(
     }
   }, [prCreating, prStatusData?.pr, setPrCreating])
 
-  // For pushCount / pullCount / hasUpstream we need a worktree path. The
+  // For pushCount / hasUpstream / hasRemote we need a worktree path. The
   // simplest route is to read it from the chat record once.
   const { data: chat } = trpc.chats.get.useQuery(
     { id: safeChatId },
@@ -122,6 +118,21 @@ export function useWorkflowState(
     }
   }, [prCreating, hasRemoteForPr, setPrCreating])
 
+  // Clear prCreating when the AI run that was supposed to open the PR ends
+  // without one appearing. The 10s grace window covers the gap between the
+  // stream finishing and the next getPrStatus poll picking up the new PR.
+  // Without this, an AI failure (network error, gh-auth, agent abort) would
+  // leave the spinner stuck forever.
+  const wasStreamingRef = useRef(isStreaming)
+  useEffect(() => {
+    const wasStreaming = wasStreamingRef.current
+    wasStreamingRef.current = isStreaming
+    if (wasStreaming && !isStreaming && prCreating) {
+      const timeout = setTimeout(() => setPrCreating(false), 10000)
+      return () => clearTimeout(timeout)
+    }
+  }, [isStreaming, prCreating, setPrCreating])
+
   const inputs: WorkflowInputs = useMemo(() => {
     const changedFilesCount =
       (gitStatus?.staged?.length ?? 0) +
@@ -137,11 +148,9 @@ export function useWorkflowState(
       mode: mode === "plan" ? "plan" : "agent",
       isStreaming,
       isCompacting,
-      pendingPlanApproval,
       planEverGenerated,
       changedFilesCount,
       pushCount: gitStatus?.pushCount ?? 0,
-      pullCount: gitStatus?.pullCount ?? 0,
       hasUpstream: gitStatus?.hasUpstream ?? false,
       hasRemote: gitStatus?.hasRemote ?? false,
       baseBranchBehind: prStatusData?.baseBranchBehind ?? 0,
@@ -154,13 +163,11 @@ export function useWorkflowState(
     mode,
     isStreaming,
     isCompacting,
-    pendingPlanApproval,
     planEverGenerated,
     gitStatus?.staged,
     gitStatus?.unstaged,
     gitStatus?.untracked,
     gitStatus?.pushCount,
-    gitStatus?.pullCount,
     gitStatus?.hasUpstream,
     gitStatus?.hasRemote,
     prStatusData?.pr,

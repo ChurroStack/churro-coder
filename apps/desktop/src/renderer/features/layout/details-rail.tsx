@@ -148,14 +148,20 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   )
   const handleWorkflowAction = useCallback(
     (kind: WorkflowActionKind) => {
-      // For expandPlan, also bring the chat panel into focus so the user sees
-      // the plan content and Approve button (not just the sidebar widget opening).
-      if (kind === "expandPlan" && dockApi && activeSubChatId) {
-        dockApi.getPanel(`chat:${activeSubChatId}`)?.api.setActive()
+      // "View plan" → open the plan as a full dock panel, matching the
+      // notch's `handleNotchWorkflowAction`. addOrFocus is idempotent.
+      if (kind === "expandPlan") {
+        if (dockApi && activeSubChatId && planPath) {
+          addOrFocus(dockApi, {
+            kind: "plan",
+            data: { chatId: activeSubChatId, planPath },
+          })
+        }
+        return
       }
       void dispatchWorkflowAction(kind)
     },
-    [dispatchWorkflowAction, dockApi, activeSubChatId],
+    [dispatchWorkflowAction, dockApi, activeSubChatId, planPath],
   )
   const handlePrReview = useCallback(() => {
     void dispatchWorkflowAction("reviewPr")

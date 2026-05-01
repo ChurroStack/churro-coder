@@ -239,6 +239,7 @@ import {
 } from "../hooks/use-workflow-state"
 import type { WorkflowActionKind } from "../utils/workflow-state"
 import { useDockApi } from "../../dock/dock-context"
+import { addOrFocus } from "../../dock/add-or-focus"
 // SplitViewContainer / SplitDropZone removed — dockview groups now own
 // multi-pane chat layout. Drag a chat tab to a group's edge to split.
 import { TextSelectionPopover } from "../ui/text-selection-popover"
@@ -2881,27 +2882,25 @@ export const ChatViewInner = memo(function ChatViewInner({
   const workflow = useWorkflowState(parentChatId, subChatId)
   const { dispatch: dispatchWorkflowAction, pushDialog: workflowPushDialog } =
     useWorkflowActions(parentChatId, subChatId)
-  // For "View plan": close any promoted plan panel and ensure details sidebar is open.
+  // For "View plan": open the plan as a full dockview panel (mirrors the
+  // sidebar PlanWidget's "View plan" button). `addOrFocus` is idempotent —
+  // if the panel is already open it just brings it to the front.
   const dockApiForPlan = useDockApi()
   const currentPlanPathForNotch = useAtomValue(currentPlanPathAtomFamily(subChatId))
-  const setDetailsSidebarOpen = useSetAtom(detailsSidebarOpenAtom)
   const handleNotchWorkflowAction = useCallback(
     (kind: WorkflowActionKind) => {
       if (kind === "expandPlan") {
-        // If the plan is currently open as a full dockview panel, close it so
-        // it returns to the details-sidebar plan widget. No-op if not promoted.
         if (dockApiForPlan && currentPlanPathForNotch) {
-          const planPanelId = `plan:${parentChatId}:${currentPlanPathForNotch}`
-          const existing = dockApiForPlan.getPanel(planPanelId)
-          if (existing) existing.api.close()
+          addOrFocus(dockApiForPlan, {
+            kind: "plan",
+            data: { chatId: subChatId, planPath: currentPlanPathForNotch },
+          })
         }
-        // Ensure the details sidebar rail is open so the plan widget is visible.
-        setDetailsSidebarOpen(true)
         return
       }
       void dispatchWorkflowAction(kind)
     },
-    [dispatchWorkflowAction, dockApiForPlan, currentPlanPathForNotch, parentChatId, setDetailsSidebarOpen],
+    [dispatchWorkflowAction, dockApiForPlan, currentPlanPathForNotch, subChatId],
   )
 
   // Watch for pending PR message and send it
