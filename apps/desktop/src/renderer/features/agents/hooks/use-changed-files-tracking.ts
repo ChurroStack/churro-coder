@@ -27,11 +27,163 @@ interface Message {
   }
 }
 
+// Strip session/plan files stored in app's local storage (never user-facing).
+function isSessionFile(filePath: string): boolean {
+  if (filePath.includes("claude-sessions")) return true
+  if (filePath.includes("Application Support")) return true
+  return false
+}
+
+// Display path = path with sandbox / worktree / absolute prefixes stripped.
+function getDisplayPath(filePath: string, projectPath?: string): string {
+  if (!filePath) return ""
+
+  // Strip project path prefix first (most reliable for desktop)
+  if (projectPath && filePath.startsWith(projectPath)) {
+    const relative = filePath.slice(projectPath.length)
+    return relative.startsWith("/") ? relative.slice(1) : relative
+  }
+
+  const prefixes = [`${REPO_ROOT_PATH}/`, "/project/sandbox/", "/project/"]
+  for (const prefix of prefixes) {
+    if (filePath.startsWith(prefix)) {
+      return filePath.slice(prefix.length)
+    }
+  }
+
+  // Worktree paths: /Users/.../.churrostack/worktrees/ or legacy /.21st/worktrees/.
+  // Extract everything after the subChatId directory.
+  const worktreeMatch = filePath.match(/\.(?:churrostack|21st)\/worktrees\/[^/]+\/[^/]+\/(.+)$/)
+  if (worktreeMatch) {
+    return worktreeMatch[1]
+  }
+
+  // Heuristic: find common root directories.
+  if (filePath.startsWith("/")) {
+    const parts = filePath.split("/")
+    const rootIndicators = ["apps", "packages", "src", "lib", "components"]
+    const rootIndex = parts.findIndex((p) => rootIndicators.includes(p))
+    if (rootIndex > 0) {
+      return parts.slice(rootIndex).join("/")
+    }
+  }
+
+  return filePath
+}
+
+// For Edit: old_string lines are deletions, new_string lines are additions.
+// For Write: counts lines in new content as additions.
+function calculateDiffStats(
+  oldStr: string,
+  newStr: string,
+): { additions: number; deletions: number } {
+  if (oldStr === newStr) return { additions: 0, deletions: 0 }
+
+  const oldLines = oldStr ? oldStr.split("\n").length : 0
+  const newLines = newStr ? newStr.split("\n").length : 0
+
+  if (!oldStr) {
+    return { additions: newLines, deletions: 0 }
+  }
+
+  return {
+    additions: newLines,
+    deletions: oldLines,
+  }
+}
+
 /**
- * Custom hook to track changed files from Edit/Write tool calls and Codex
- * app-server git attribution metadata in a sub-chat
- * Extracts file paths and calculates diff stats from message history
- * Only recalculates after streaming ends (not during streaming)
+ * Pure compute: derive a sub-chat's tracked file list from its message history.
+ *
+ * Two sources are merged, with metadata winning over tool-call inference:
+ * 1. `metadata.changedFiles` — emitted by the Codex tRPC router after each
+ *    turn, comparing git snapshots before/after. Authoritative when present.
+ * 2. `tool-Edit` / `tool-Write` parts — Claude's edit tools, where we
+ *    reconstruct net additions/deletions from the first/last seen content.
+ *
+ * Bash-only edits (mv/rm/sed/echo) are not tracked — that's a known limitation
+ * surfaced in the "This chat" tooltip.
+ */
+export function computeSubChatFiles(
+  messages: Message[],
+  projectPath?: string,
+): SubChatFileChange[] {
+  const fileStates = new Map<
+    string,
+    {
+      originalContent: string | null
+      currentContent: string
+      displayPath: string
+    }
+  >()
+  const attributedFiles = new Map<string, SubChatFileChange>()
+
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue
+
+    for (const changedFile of msg.metadata?.changedFiles || []) {
+      const filePath = changedFile.filePath
+      if (!filePath || isSessionFile(filePath)) continue
+      attributedFiles.set(filePath, {
+        filePath,
+        displayPath: getDisplayPath(filePath, projectPath),
+        additions: Math.max(0, changedFile.additions || 0),
+        deletions: Math.max(0, changedFile.deletions || 0),
+      })
+    }
+
+    for (const part of msg.parts || []) {
+      if (part.type === "tool-Edit" || part.type === "tool-Write") {
+        const filePath = part.input?.file_path
+        if (!filePath) continue
+        if (attributedFiles.has(filePath)) continue
+        if (isSessionFile(filePath)) continue
+
+        const oldString = part.input?.old_string || ""
+        const newString = part.input?.new_string || part.input?.content || ""
+
+        const existing = fileStates.get(filePath)
+        if (existing) {
+          existing.currentContent = newString
+        } else {
+          fileStates.set(filePath, {
+            originalContent: part.type === "tool-Write" ? null : oldString,
+            currentContent: newString,
+            displayPath: getDisplayPath(filePath, projectPath),
+          })
+        }
+      }
+    }
+  }
+
+  const result: SubChatFileChange[] = [...attributedFiles.values()]
+  for (const [filePath, state] of fileStates) {
+    if (attributedFiles.has(filePath)) continue
+    const originalContent = state.originalContent || ""
+
+    if (originalContent === state.currentContent) {
+      continue
+    }
+
+    const stats = calculateDiffStats(originalContent, state.currentContent)
+    result.push({
+      filePath,
+      displayPath: state.displayPath,
+      additions: stats.additions,
+      deletions: stats.deletions,
+    })
+  }
+
+  return result
+}
+
+/**
+ * Hook for the *active* sub-chat's ChatViewInner: keeps the badge fresh as
+ * soon as a streaming turn ends, without waiting for the parent's `chats.get`
+ * refetch. Workspace-level seeding for *all* sub-chats is done by
+ * `<SubChatFilesTracker>` in active-chat.tsx — that handles sub-chats whose
+ * ChatViewInner isn't mounted (e.g. chat tab hidden behind the Changes tab
+ * in the same dockview group).
  */
 export function useChangedFilesTracking(
   messages: Message[],
@@ -43,199 +195,32 @@ export function useChangedFilesTracking(
   const setSubChatFiles = useSetAtom(subChatFilesAtom)
   const setSubChatToChatMap = useSetAtom(subChatToChatMapAtom)
 
-  // Helper to get display path (removes sandbox prefixes and worktree paths)
-  const getDisplayPath = useCallback((filePath: string): string => {
-    if (!filePath) return ""
-
-    // Strip project path prefix first (most reliable for desktop)
-    if (projectPath && filePath.startsWith(projectPath)) {
-      const relative = filePath.slice(projectPath.length)
-      return relative.startsWith("/") ? relative.slice(1) : relative
-    }
-
-    // Use constant from codesandbox-constants
-    const prefixes = [`${REPO_ROOT_PATH}/`, "/project/sandbox/", "/project/"]
-
-    for (const prefix of prefixes) {
-      if (filePath.startsWith(prefix)) {
-        return filePath.slice(prefix.length)
-      }
-    }
-
-    // Handle worktree paths: /Users/.../.churrostack/worktrees/ or legacy /.21st/worktrees/
-    // Extract everything after the subChatId directory
-    const worktreeMatch = filePath.match(/\.(?:churrostack|21st)\/worktrees\/[^/]+\/[^/]+\/(.+)$/)
-    if (worktreeMatch) {
-      return worktreeMatch[1]
-    }
-
-    // Heuristic: find common root directories
-    if (filePath.startsWith("/")) {
-      const parts = filePath.split("/")
-      const rootIndicators = ["apps", "packages", "src", "lib", "components"]
-      const rootIndex = parts.findIndex((p) => rootIndicators.includes(p))
-      if (rootIndex > 0) {
-        return parts.slice(rootIndex).join("/")
-      }
-    }
-
-    return filePath
-  }, [projectPath])
-
-  // Calculate diff stats from old_string and new_string
-  // For Edit: old_string lines are deletions, new_string lines are additions
-  // For Write: counts lines in new content as additions
-  const calculateDiffStats = useCallback(
-    (
-      oldStr: string,
-      newStr: string,
-    ): { additions: number; deletions: number } => {
-      if (oldStr === newStr) return { additions: 0, deletions: 0 }
-
-      const oldLines = oldStr ? oldStr.split("\n").length : 0
-      const newLines = newStr ? newStr.split("\n").length : 0
-
-      // Simple heuristic: if old is empty, it's a new file (Write)
-      if (!oldStr) {
-        return { additions: newLines, deletions: 0 }
-      }
-
-      // For edits: old lines are removed, new lines are added
-      return {
-        additions: newLines,
-        deletions: oldLines,
-      }
-    },
-    [],
-  )
-
-  // State to hold the calculated changed files (only updated when streaming ends)
   const [changedFiles, setChangedFiles] = useState<SubChatFileChange[]>([])
   const wasStreamingRef = useRef(false)
   const isInitializedRef = useRef(false)
 
-  // Check if a file path is a session/plan file that should be excluded
-  const isSessionFile = useCallback((filePath: string): boolean => {
-    // Exclude files in claude-sessions (plan files stored in app's local storage)
-    if (filePath.includes("claude-sessions")) return true
-    // Exclude files in Application Support directory
-    if (filePath.includes("Application Support")) return true
-    return false
-  }, [])
-
-  // Calculate changed files from messages
-  const calculateChangedFiles = useCallback(
-    (inputMessages: Message[] = messages) => {
-      // Track file states: originalContent (first old_string) and currentContent (latest new_string)
-      const fileStates = new Map<
-        string,
-        {
-          originalContent: string | null // null means file didn't exist before
-          currentContent: string
-          displayPath: string
-        }
-      >()
-      const attributedFiles = new Map<string, SubChatFileChange>()
-
-      for (const msg of inputMessages) {
-        if (msg.role !== "assistant") continue
-
-        for (const changedFile of msg.metadata?.changedFiles || []) {
-          const filePath = changedFile.filePath
-          if (!filePath || isSessionFile(filePath)) continue
-          attributedFiles.set(filePath, {
-            filePath,
-            displayPath: getDisplayPath(filePath),
-            additions: Math.max(0, changedFile.additions || 0),
-            deletions: Math.max(0, changedFile.deletions || 0),
-          })
-        }
-
-        for (const part of msg.parts || []) {
-          if (part.type === "tool-Edit" || part.type === "tool-Write") {
-            const filePath = part.input?.file_path
-            if (!filePath) continue
-            if (attributedFiles.has(filePath)) continue
-
-          // Skip session/plan files stored in local app storage
-          if (isSessionFile(filePath)) continue
-
-          const oldString = part.input?.old_string || ""
-          const newString = part.input?.new_string || part.input?.content || ""
-
-            const existing = fileStates.get(filePath)
-            if (existing) {
-              // Update current content only (preserve original)
-              existing.currentContent = newString
-            } else {
-              // First time seeing this file - record original state
-              fileStates.set(filePath, {
-                // For Write (new file), original is null; for Edit, it's the old_string
-                originalContent: part.type === "tool-Write" ? null : oldString,
-                currentContent: newString,
-                displayPath: getDisplayPath(filePath),
-              })
-            }
-          }
-        }
-      }
-
-      // Calculate NET diff from original to current state
-      const result: SubChatFileChange[] = [...attributedFiles.values()]
-      for (const [filePath, state] of fileStates) {
-        if (attributedFiles.has(filePath)) continue
-        const originalContent = state.originalContent || ""
-
-        // Skip if file returned to original state (net change = 0)
-        if (originalContent === state.currentContent) {
-          continue
-        }
-
-        const stats = calculateDiffStats(originalContent, state.currentContent)
-        result.push({
-          filePath,
-          displayPath: state.displayPath,
-          additions: stats.additions,
-          deletions: stats.deletions,
-        })
-      }
-
-      return result
-    },
-    [messages, getDisplayPath, calculateDiffStats, isSessionFile],
-  )
-
   const recomputeChangedFiles = useCallback(
     (overrideMessages?: Message[]) => {
-      const newChangedFiles = calculateChangedFiles(
-        overrideMessages ?? messages,
-      )
-      setChangedFiles(newChangedFiles)
+      const next = computeSubChatFiles(overrideMessages ?? messages, projectPath)
+      setChangedFiles(next)
       isInitializedRef.current = true
     },
-    [calculateChangedFiles, messages],
+    [messages, projectPath],
   )
 
-  // Only recalculate when streaming ends (transition from true to false)
-  // Also calculate on initial mount if not streaming
+  // Recalculate on streaming end OR initial mount with messages.
   useEffect(() => {
-    // Detect streaming end: was streaming, now not streaming
     if (wasStreamingRef.current && !isStreaming) {
-      const newChangedFiles = calculateChangedFiles()
-      setChangedFiles(newChangedFiles)
+      setChangedFiles(computeSubChatFiles(messages, projectPath))
       isInitializedRef.current = true
-    }
-    // Initialize on mount if we have messages and not streaming
-    else if (!isInitializedRef.current && !isStreaming && messages.length > 0) {
-      const newChangedFiles = calculateChangedFiles()
-      setChangedFiles(newChangedFiles)
+    } else if (!isInitializedRef.current && !isStreaming && messages.length > 0) {
+      setChangedFiles(computeSubChatFiles(messages, projectPath))
       isInitializedRef.current = true
     }
 
     wasStreamingRef.current = isStreaming
-  }, [isStreaming, calculateChangedFiles, messages.length])
+  }, [isStreaming, messages, projectPath])
 
-  // Update atom when changed files change
   useEffect(() => {
     setSubChatFiles((prev) => {
       const next = new Map(prev)
@@ -244,7 +229,6 @@ export function useChangedFilesTracking(
     })
   }, [subChatId, changedFiles, setSubChatFiles])
 
-  // Update subChatId -> chatId mapping for aggregation in workspace sidebar
   useEffect(() => {
     if (chatId) {
       setSubChatToChatMap((prev) => {
