@@ -63,7 +63,10 @@ export function getToolStatus(part: any, chatStatus?: string) {
 // Utility to get clean display path (remove sandbox/worktree/absolute prefixes)
 // projectPath: optional absolute path to the project root, used to compute relative paths
 export function getDisplayPath(filePath: string, projectPath?: string): string {
-  if (!filePath) return ""
+  // Defensive: persisted tool parts occasionally arrive with a non-string
+  // file_path (e.g. malformed Codex output) — string methods below would
+  // throw and crash the whole message render.
+  if (typeof filePath !== "string" || !filePath) return ""
 
   // If projectPath is provided, strip it to get a project-relative path
   if (projectPath && filePath.startsWith(projectPath)) {

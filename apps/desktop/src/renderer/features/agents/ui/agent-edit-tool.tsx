@@ -63,8 +63,11 @@ function calculateDiffStatsFromPatch(
   let removedLines = 0
 
   for (const patch of patches) {
-    // Skip patches without lines array
-    if (!patch.lines) continue
+    // Skip patches without a real lines array — older Codex Edit/Write
+    // patches persisted before #17 stored only `{filePath, kind, diff, status}`
+    // and tripped "patch.lines is not iterable" here. Mirrors the guard in
+    // getDiffLines below.
+    if (!patch.lines || !Array.isArray(patch.lines)) continue
     for (const line of patch.lines) {
       if (line.startsWith("+")) addedLines++
       else if (line.startsWith("-")) removedLines++
