@@ -26,6 +26,7 @@ export interface AgentMessageMetadata {
   cacheReadInputTokens?: number
   cacheCreationInputTokens?: number
   totalTokens?: number
+  modelContextWindow?: number
   finalTextId?: string
   durationMs?: number
   resultSubtype?: string
@@ -50,12 +51,13 @@ export const AgentMessageUsage = memo(function AgentMessageUsage({
     model,
     inputTokens = 0,
     outputTokens = 0,
+    cacheReadInputTokens = 0,
     totalTokens = 0,
     durationMs,
     resultSubtype,
   } = metadata
 
-  const hasUsage = inputTokens > 0 || outputTokens > 0
+  const hasUsage = inputTokens > 0 || outputTokens > 0 || totalTokens > 0
 
   if (!hasUsage) return null
 
@@ -63,7 +65,7 @@ export const AgentMessageUsage = memo(function AgentMessageUsage({
   const isCodexModel =
     normalizedModel.includes("codex") || normalizedModel.startsWith("gpt-")
   const displayTokens = isCodexModel
-    ? inputTokens + outputTokens
+    ? totalTokens || inputTokens + cacheReadInputTokens + outputTokens
     : totalTokens || inputTokens + outputTokens
 
   return (

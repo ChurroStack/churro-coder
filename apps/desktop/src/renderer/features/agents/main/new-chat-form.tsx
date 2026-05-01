@@ -244,9 +244,7 @@ export function NewChatForm({
   const [lastSelectedAgentId, setLastSelectedAgentId] = useAtom(
     lastSelectedAgentIdAtom,
   )
-  const [lastSelectedModelId, setLastSelectedModelId] = useAtom(
-    lastSelectedModelIdAtom,
-  )
+  const setLastSelectedModelId = useSetAtom(lastSelectedModelIdAtom)
   // Mode for new chat - uses user's default preference directly
   // Note: defaultAgentMode is initialized synchronously via atomWithStorage with getOnInit: true
   const defaultAgentMode = useAtomValue(defaultAgentModeAtom)
@@ -354,22 +352,13 @@ export function NewChatForm({
 
   const [selectedModel, setSelectedModel] = useState(() => {
     // Initial model comes from the mode's default (Plan or Agent preference in Settings).
-    // Falls back to the legacy lastSelectedModelId, then to the first available model.
+    // Falls back to the first available model.
     const modeDefaultId = getDefaultModelForMode(agentMode)
     return (
       availableModels.models.find((m) => m.id === modeDefaultId) ||
-      availableModels.models.find((m) => m.id === lastSelectedModelId) ||
       availableModels.models[0]
     )
   })
-
-  // Sync selectedModel when atom value changes (e.g., after localStorage hydration)
-  useEffect(() => {
-    const model = availableModels.models.find((m) => m.id === lastSelectedModelId)
-    if (model && model.id !== selectedModel.id) {
-      setSelectedModel(model)
-    }
-  }, [lastSelectedModelId])
 
   // When the mode changes (e.g. user toggles Plan ↔ Agent in the form, or the
   // Settings default changes before first render), switch the selected model

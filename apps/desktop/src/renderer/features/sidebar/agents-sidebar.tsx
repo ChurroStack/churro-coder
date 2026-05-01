@@ -90,6 +90,7 @@ import {
   previousAgentChatIdAtom,
   selectedDraftIdAtom,
   showNewChatFormAtom,
+  newWorkspaceFormKeyAtom,
   loadingSubChatsAtom,
   agentsUnseenChangesAtom,
   archivePopoverOpenAtom,
@@ -1332,6 +1333,7 @@ export function AgentsSidebar({
   const autoAdvanceTarget = useAtomValue(autoAdvanceTargetAtom)
   const [selectedDraftId, setSelectedDraftId] = useAtom(selectedDraftIdAtom)
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
+  const bumpNewWorkspaceFormKey = useSetAtom(newWorkspaceFormKeyAtom)
   const setDesktopView = useSetAtom(desktopViewAtom)
   const [loadingSubChats] = useAtom(loadingSubChatsAtom)
   const pendingQuestions = useAtomValue(pendingUserQuestionsAtom)
@@ -2211,6 +2213,7 @@ export function AgentsSidebar({
     setSelectedDraftId(null) // Clear selected draft so form starts empty
     setShowNewChatForm(true) // Explicitly show new chat form
     setDesktopView(null) // Clear automations/inbox view
+    bumpNewWorkspaceFormKey((key) => key + 1)
     // On mobile, switch to chat mode to show NewChatForm
     if (isMobileFullscreen && onChatSelect) {
       onChatSelect()
