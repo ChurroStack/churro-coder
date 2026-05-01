@@ -3,6 +3,7 @@
 import { memo } from "react"
 import { useAtomValue } from "jotai"
 import { userMessageIdsPerChatAtom } from "../stores/message-store"
+import { ContinueButton } from "../ui/continue-button"
 import { IsolatedMessageGroup } from "./isolated-message-group"
 
 // ============================================================================
@@ -105,6 +106,7 @@ export const IsolatedMessagesSection = memo(function IsolatedMessagesSection({
           toolRegistry={toolRegistry}
         />
       ))}
+      <ContinueButton subChatId={subChatId} />
     </>
   )
 }, areSectionPropsEqual)
