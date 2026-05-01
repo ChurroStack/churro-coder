@@ -23,7 +23,7 @@ This file is the canonical agent guide for the Electron desktop app. `CLAUDE.md`
 
 ## What is this?
 
-**CS Coder** - A local-first, fully offline Electron desktop app for AI-powered code assistance. Users create chat sessions linked to local project folders, interact with Claude in Plan or Agent mode, and see real-time tool execution (bash, file edits, web search, etc.). All functionality runs on-device — no login, no cloud sync, no analytics.
+**Churro Coder** - A local-first, fully offline Electron desktop app for AI-powered code assistance. Users create chat sessions linked to local project folders, interact with Claude in Plan or Agent mode, and see real-time tool execution (bash, file edits, web search, etc.). All functionality runs on-device — no login, no cloud sync, no analytics.
 
 ## Commands
 
@@ -268,7 +268,7 @@ bun run dev
 ```
 
 **Dev vs Production App:**
-- Dev mode uses separate userData path (`~/Library/Application Support/CS Coder Dev/`)
+- Dev mode uses separate userData path (`~/Library/Application Support/Churro Coder Dev/`)
 - This prevents conflicts between dev and production installs
 
 **Common First-Install Bugs:**

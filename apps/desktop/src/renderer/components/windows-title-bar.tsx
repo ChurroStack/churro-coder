@@ -77,7 +77,7 @@ export function WindowsTitleBar() {
     >
       {/* Left side - App title (draggable) */}
       <div className="flex items-center gap-2 px-3 h-full">
-        <span className="text-xs font-medium text-foreground/70">CS Coder</span>
+        <span className="text-xs font-medium text-foreground/70">Churro Coder</span>
       </div>
 
       {/* Right side - Window controls (non-draggable) */}

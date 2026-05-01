@@ -1,4 +1,4 @@
-// Patches the Electron.app bundle in node_modules to show "CS Coder" name and icon in macOS dock during dev mode.
+// Patches the Electron.app bundle in node_modules to show "Churro Coder" name and icon in macOS dock during dev mode.
 import { execSync } from "child_process"
 import { copyFileSync, existsSync } from "fs"
 import { join, dirname } from "path"
@@ -18,9 +18,9 @@ if (process.platform !== "darwin") {
 
 if (existsSync(plistPath)) {
   try {
-    execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleName CS Coder" "${plistPath}"`)
-    execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName CS Coder" "${plistPath}"`)
-    console.log("[patch-electron-dev] Updated Info.plist: name -> CS Coder")
+    execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleName Churro Coder" "${plistPath}"`)
+    execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Churro Coder" "${plistPath}"`)
+    console.log("[patch-electron-dev] Updated Info.plist: name -> Churro Coder")
   } catch (e) {
     console.warn("[patch-electron-dev] Failed to update Info.plist:", e.message)
   }

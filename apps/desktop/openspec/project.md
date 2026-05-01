@@ -1,7 +1,7 @@
 # Project Context
 
 ## Purpose
-**CS Coder** - A local-first Electron desktop app for AI-powered code assistance. Users create chat sessions linked to local project folders, interact with Claude in Plan or Agent mode, and see real-time tool execution (bash, file edits, web search, etc.).
+**Churro Coder** - A local-first Electron desktop app for AI-powered code assistance. Users create chat sessions linked to local project folders, interact with Claude in Plan or Agent mode, and see real-time tool execution (bash, file edits, web search, etc.).
 
 ## Tech Stack
 | Layer | Tech |

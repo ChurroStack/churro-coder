@@ -93,9 +93,9 @@ function registerIpcHandlers(): void {
     } else if (process.platform === "win32" && win) {
       // Windows: Update title with count as fallback
       if (count !== null && count > 0) {
-        win.setTitle(`CS Coder (${count})`)
+        win.setTitle(`Churro Coder (${count})`)
       } else {
-        win.setTitle("CS Coder")
+        win.setTitle("Churro Coder")
         win.setOverlayIcon(null, "")
       }
     }
@@ -274,7 +274,7 @@ function registerIpcHandlers(): void {
     const win = getWindowFromEvent(event)
     if (win) {
       // Show just the title, or default app name if empty
-      win.setTitle(title || "CS Coder")
+      win.setTitle(title || "Churro Coder")
     }
   })
 
@@ -493,7 +493,7 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
     minWidth: 500, // Allow narrow mobile-like mode
     minHeight: 600,
     show: false,
-    title: "CS Coder",
+    title: "Churro Coder",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#09090b" : "#ffffff",
     // hiddenInset shows native traffic lights inset in the window
     // hiddenInset hides the native title bar but keeps traffic lights visible
