@@ -844,6 +844,12 @@ export const claudeRouter = router({
 
         // Track if observable is still active (not unsubscribed)
         let isObservableActive = true
+        // Track whether a finish chunk has been emitted, so the cleanup
+        // function can synthesize one if the stream was torn down before
+        // the natural finish path ran. Without this, hung streams leave the
+        // renderer's chatStatus stuck on "streaming" forever and the UI
+        // shows tools as "Running" indefinitely.
+        let emittedFinish = false
 
         // text-delta coalescing: the Claude SDK emits many small delta chunks
         // per second during streaming. Sending each one through tRPC+IPC churns
@@ -882,6 +888,8 @@ export const claudeRouter = router({
         // emitting chunks of other types so ordering stays correct.
         const safeEmit = (chunk: UIMessageChunk) => {
           if (!isObservableActive) return false
+
+          if (chunk.type === "finish") emittedFinish = true
 
           if (chunk.type === "text-delta") {
             const { id, delta } = chunk as { id: string; delta: string }
@@ -2944,6 +2952,16 @@ ${prompt}
           console.log(
             `[SD] M:CLEANUP sub=${subId} sessionId=${currentSessionId || "none"}`,
           )
+          // If the stream never emitted a finish chunk (hung SDK iterator,
+          // network stall, abrupt unsubscribe), synthesize one now so the
+          // renderer's chatStatus transitions to "ready". Must precede
+          // isObservableActive=false because safeEmit no-ops once it's cleared.
+          if (!emittedFinish) {
+            console.log(
+              `[SD] M:CLEANUP_SYNTHETIC_FINISH sub=${subId}`,
+            )
+            safeEmit({ type: "finish" } as UIMessageChunk)
+          }
           isObservableActive = false // Prevent emit after unsubscribe
           if (pendingTextDeltaTimer !== null) {
             clearTimeout(pendingTextDeltaTimer)
