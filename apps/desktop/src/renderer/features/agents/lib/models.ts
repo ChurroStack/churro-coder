@@ -96,6 +96,16 @@ export function formatCodexThinkingLabel(thinking: CodexThinkingLevel): string {
   return thinking.charAt(0).toUpperCase() + thinking.slice(1)
 }
 
+export function coerceCodexThinking(
+  thinking: ClaudeThinkingLevel | "off" | "max",
+  supported: readonly CodexThinkingLevel[],
+): CodexThinkingLevel {
+  const preferred = thinking === "max" ? "xhigh" : thinking === "off" ? "low" : thinking
+  if (supported.includes(preferred as CodexThinkingLevel)) return preferred as CodexThinkingLevel
+  if (supported.includes("high")) return "high"
+  return supported[0] ?? "high"
+}
+
 export function formatModelLabel(rawId: string | undefined): string {
   if (!rawId) return ""
   const lower = rawId.toLowerCase()

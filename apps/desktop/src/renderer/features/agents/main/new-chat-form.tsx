@@ -44,8 +44,14 @@ import {
   selectedProjectAtom,
   getNextMode,
   type AgentMode,
+  type ClaudeThinkingPreference,
+  defaultAgentModeModelAtom,
+  defaultAgentModeThinkingAtom,
+  defaultPlanModeModelAtom,
+  defaultPlanModeThinkingAtom,
 } from "../atoms"
 import {
+  applyModeDefaultModel,
   getDefaultModelForMode,
   getDefaultThinkingForMode,
   getProviderForModelId,
@@ -132,6 +138,7 @@ import {
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
+  coerceCodexThinking,
   type ClaudeThinkingLevel,
   type CodexThinkingLevel,
 } from "../lib/models"
@@ -241,14 +248,20 @@ export function NewChatForm({
     setNewWorkspaceViewerFile(null)
   }, [validatedProjectPath, setNewWorkspaceViewerFile])
 
-  const [lastSelectedAgentId, setLastSelectedAgentId] = useAtom(
-    lastSelectedAgentIdAtom,
-  )
+  const setLastSelectedAgentId = useSetAtom(lastSelectedAgentIdAtom)
   const setLastSelectedModelId = useSetAtom(lastSelectedModelIdAtom)
   // Mode for new chat - uses user's default preference directly
   // Note: defaultAgentMode is initialized synchronously via atomWithStorage with getOnInit: true
   const defaultAgentMode = useAtomValue(defaultAgentModeAtom)
   const [agentMode, setAgentMode] = useState<AgentMode>(() => defaultAgentMode)
+  const defaultPlanModel = useAtomValue(defaultPlanModeModelAtom)
+  const defaultAgentModel = useAtomValue(defaultAgentModeModelAtom)
+  const defaultPlanThinking = useAtomValue(defaultPlanModeThinkingAtom)
+  const defaultAgentThinking = useAtomValue(defaultAgentModeThinkingAtom)
+  const modeDefaultModelId =
+    agentMode === "plan" ? defaultPlanModel : defaultAgentModel
+  const modeDefaultThinking =
+    agentMode === "plan" ? defaultPlanThinking : defaultAgentThinking
   // Toggle mode helper
   const toggleMode = useCallback(() => {
     setAgentMode(getNextMode)
@@ -322,20 +335,11 @@ export function NewChatForm({
   )
   const fallbackAgent = enabledAgents[0] ?? agents[0]!
   const [selectedAgent, setSelectedAgent] = useState(
-    () =>
-      enabledAgents.find((agent) => agent.id === lastSelectedAgentId) ||
-      fallbackAgent,
+    () => {
+      const provider = getProviderForModelId(modeDefaultModelId)
+      return enabledAgents.find((agent) => agent.id === provider) || fallbackAgent
+    },
   )
-
-  useEffect(() => {
-    const nextAgent =
-      enabledAgents.find((agent) => agent.id === lastSelectedAgentId) ||
-      fallbackAgent
-
-    if (nextAgent && nextAgent.id !== selectedAgent.id) {
-      setSelectedAgent(nextAgent)
-    }
-  }, [enabledAgents, fallbackAgent, lastSelectedAgentId, selectedAgent.id])
 
   // Get available models (with offline support)
   const availableModels = useAvailableModels()
@@ -353,12 +357,48 @@ export function NewChatForm({
   const [selectedModel, setSelectedModel] = useState(() => {
     // Initial model comes from the mode's default (Plan or Agent preference in Settings).
     // Falls back to the first available model.
-    const modeDefaultId = getDefaultModelForMode(agentMode)
     return (
-      availableModels.models.find((m) => m.id === modeDefaultId) ||
+      availableModels.models.find((m) => m.id === modeDefaultModelId) ||
       availableModels.models[0]
     )
   })
+
+  const applyModeDefaultSelection = useCallback(
+    (modelId: string, thinking: ClaudeThinkingPreference) => {
+      const provider = getProviderForModelId(modelId)
+      const nextAgent =
+        enabledAgents.find((agent) => agent.id === provider) || fallbackAgent
+
+      setSelectedAgent((current) =>
+        current.id === nextAgent.id ? current : nextAgent,
+      )
+
+      if (provider === "codex") {
+        const codexModel =
+          CODEX_MODELS.find((model) => model.id === modelId) ||
+          CODEX_MODELS[0]!
+        setLastSelectedCodexModelId(modelId)
+        setLastSelectedCodexThinking(
+          coerceCodexThinking(thinking, codexModel.thinkings),
+        )
+        return
+      }
+
+      const model = availableModels.models.find((m) => m.id === modelId)
+      if (model) {
+        setSelectedModel(model)
+      }
+      setLastSelectedClaudeThinking(thinking)
+    },
+    [
+      availableModels.models,
+      enabledAgents,
+      fallbackAgent,
+      setLastSelectedClaudeThinking,
+      setLastSelectedCodexModelId,
+      setLastSelectedCodexThinking,
+    ],
+  )
 
   // When the mode changes (e.g. user toggles Plan ↔ Agent in the form, or the
   // Settings default changes before first render), switch the selected model
@@ -366,35 +406,8 @@ export function NewChatForm({
   // Codex defaults — the active agent is swapped accordingly so the right
   // transport is used.
   useEffect(() => {
-    const modeDefaultId = getDefaultModelForMode(agentMode)
-    const provider = getProviderForModelId(modeDefaultId)
-    if (provider === "codex") {
-      const codexAgent =
-        enabledAgents.find((agent) => agent.id === "codex") || fallbackAgent
-      if (codexAgent.id !== selectedAgent.id) {
-        setSelectedAgent(codexAgent)
-      }
-      if (lastSelectedCodexModelId !== modeDefaultId) {
-        setLastSelectedCodexModelId(modeDefaultId)
-      }
-      return
-    }
-    // Claude default
-    if (selectedAgent.id !== "claude-code") {
-      const next =
-        enabledAgents.find((agent) => agent.id === "claude-code") ||
-        fallbackAgent
-      setSelectedAgent(next)
-    }
-    const model = availableModels.models.find((m) => m.id === modeDefaultId)
-    if (model && model.id !== selectedModel.id) {
-      setSelectedModel(model)
-    }
-    setLastSelectedClaudeThinking(getDefaultThinkingForMode(agentMode))
-    // Only fire on mode change — manual picks via setSelectedModel should not
-    // be overridden by this effect re-running.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentMode])
+    applyModeDefaultSelection(modeDefaultModelId, modeDefaultThinking)
+  }, [applyModeDefaultSelection, modeDefaultModelId, modeDefaultThinking])
 
   const storedCodexApiKey = useAtomValue(codexApiKeyAtom)
   const hasAppCodexApiKey = Boolean(normalizeCodexApiKey(storedCodexApiKey))
@@ -1209,6 +1222,7 @@ export function NewChatForm({
     // Note: 's' flag makes '.' match newlines, so multi-line arguments are captured
     const slashMatch = message.match(/^\/(\S+)\s*(.*)$/s)
     let reviewModelOverride: string | null = null
+    let isReviewSend = false
     if (slashMatch) {
       const [, commandName, args] = slashMatch
 
@@ -1219,7 +1233,20 @@ export function NewChatForm({
       // Review-type commands should create the new chat on the Review-mode
       // default model instead of the agent/plan default.
       if (commandName === "review" || commandName === "security-review") {
-        reviewModelOverride = getDefaultModelForMode("review")
+        isReviewSend = true
+        const reviewModelId = getDefaultModelForMode("review")
+        const reviewProvider = getProviderForModelId(reviewModelId)
+        const reviewThinking = getDefaultThinkingForMode("review")
+        if (reviewProvider === "codex") {
+          const codexModel = CODEX_MODELS.find((m) => m.id === reviewModelId)
+          const coerced = coerceCodexThinking(
+            reviewThinking,
+            codexModel?.thinkings ?? ["low", "medium", "high", "xhigh"],
+          )
+          reviewModelOverride = `${reviewModelId}/${coerced}`
+        } else {
+          reviewModelOverride = reviewModelId
+        }
       }
       if (!builtinNames.has(commandName)) {
         // This is a custom command - load content and replace $ARGUMENTS
@@ -1307,18 +1334,28 @@ export function NewChatForm({
     }
 
     // Create chat with selected project, branch, and initial message
-    createChatMutation.mutate({
-      projectId: selectedProject.id,
-      name: message.trim().slice(0, 50), // Use first 50 chars as chat name
-      model: reviewModelOverride ?? selectedChatModel,
-      initialMessageParts: parts.length > 0 ? parts : undefined,
-      baseBranch:
-        workMode === "worktree" ? selectedBranch || undefined : undefined,
-      branchType:
-        workMode === "worktree" ? selectedBranchType : undefined,
-      useWorktree: workMode === "worktree",
-      mode: agentMode,
-    })
+    createChatMutation.mutate(
+      {
+        projectId: selectedProject.id,
+        name: message.trim().slice(0, 50), // Use first 50 chars as chat name
+        model: reviewModelOverride ?? selectedChatModel,
+        initialMessageParts: parts.length > 0 ? parts : undefined,
+        baseBranch:
+          workMode === "worktree" ? selectedBranch || undefined : undefined,
+        branchType:
+          workMode === "worktree" ? selectedBranchType : undefined,
+        useWorktree: workMode === "worktree",
+        mode: agentMode,
+      },
+      isReviewSend
+        ? {
+            onSuccess: (data) => {
+              const newSubChatId = data.subChats?.[0]?.id
+              if (newSubChatId) applyModeDefaultModel(newSubChatId, "review")
+            },
+          }
+        : undefined,
+    )
     // Editor, images, files, and pasted texts are cleared in onSuccess callback
   }, [
     selectedProject,
