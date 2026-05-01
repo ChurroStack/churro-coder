@@ -123,14 +123,45 @@ function expandHome(p: string): string {
   return p
 }
 
+interface ResolvedGitDirs {
+  gitDir: string | null
+  commonDir: string | null
+}
+
+function resolveGitDirsForSandbox(cwd: string): ResolvedGitDirs {
+  const opts = {
+    cwd,
+    stdio: ["ignore", "pipe", "ignore"] as const,
+    encoding: "utf8" as const,
+    timeout: 2_000,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+  }
+  let gitDir: string | null = null
+  let commonDir: string | null = null
+  try {
+    gitDir = execSync("git rev-parse --absolute-git-dir", opts).trim() || null
+  } catch {
+    return { gitDir: null, commonDir: null }
+  }
+  try {
+    const raw = execSync("git rev-parse --git-common-dir", opts).trim()
+    // --git-common-dir has no --absolute variant; resolve relative output against cwd.
+    commonDir = raw ? path.resolve(cwd, raw) : null
+  } catch {
+    commonDir = null
+  }
+  return { gitDir, commonDir }
+}
+
 function buildWritableRoots(
   worktreePath: string,
-  projectPath: string,
+  _projectPath: string,
   allowToolchainCaches: boolean,
   extraWritablePaths: string[],
 ): string[] {
   const home = os.homedir()
   const tmpdir = os.tmpdir()
+  const { gitDir, commonDir } = resolveGitDirsForSandbox(worktreePath)
 
   const roots = [
     worktreePath,
@@ -142,8 +173,9 @@ function buildWritableRoots(
     path.join(home, ".gitconfig"),
     path.join(home, ".gitconfig.d"),
     path.join(home, ".config", "gh"),
-    path.join(projectPath, ".git"),
   ]
+  if (gitDir) roots.push(gitDir)
+  if (commonDir) roots.push(commonDir)
 
   // Windows gh CLI config
   if (process.platform === "win32" && process.env.APPDATA) {
