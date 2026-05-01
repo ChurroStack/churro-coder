@@ -2154,9 +2154,11 @@ export const codexRouter = router({
         })
 
         let isActive = true
+        let emittedFinish = false
 
         const safeEmit = (chunk: any) => {
           if (!isActive) return
+          if (chunk?.type === "finish") emittedFinish = true
           try {
             emit.next(chunk)
           } catch {
@@ -2313,6 +2315,7 @@ export const codexRouter = router({
               getLastSessionId(existingMessages)
             let usagePromise: Promise<CodexUsageMetadata | null> | null = null
 
+            const USAGE_RESOLVE_TIMEOUT_MS = 6_000
             const resolveUsageOnce = (): Promise<CodexUsageMetadata | null> => {
               if (usagePromise) return usagePromise
 
@@ -2321,10 +2324,18 @@ export const codexRouter = router({
                 return Promise.resolve(null)
               }
 
-              usagePromise = pollUsage(sessionId, {
-                notBeforeTimestampMs: startedAt,
-                modelId: selectedModelId,
-              }).catch(() => null)
+              // Cap the poll so a stalled filesystem read can't block the
+              // queued finish chunk. On timeout we resolve to null — the
+              // caller already handles a missing usage payload cleanly.
+              usagePromise = Promise.race<CodexUsageMetadata | null>([
+                pollUsage(sessionId, {
+                  notBeforeTimestampMs: startedAt,
+                  modelId: selectedModelId,
+                }).catch(() => null),
+                new Promise<null>((resolve) =>
+                  setTimeout(() => resolve(null), USAGE_RESOLVE_TIMEOUT_MS),
+                ),
+              ])
               return usagePromise
             }
 
@@ -2523,8 +2534,42 @@ export const codexRouter = router({
 
             const reader = uiStream.getReader()
             let pendingFinishChunk: any | null = null
+            // Idle-stream wedge: if no chunk arrives in this window, the
+            // upstream is hung (zombie ACP child, network stall). Cancel the
+            // reader, surface an error, and emit finish so the renderer's
+            // chatStatus transitions to "ready" instead of stuck on streaming.
+            const STREAM_IDLE_TIMEOUT_MS = 60_000
+            let streamIdleWedged = false
             while (true) {
-              const { done, value } = await reader.read()
+              let idleTimer: ReturnType<typeof setTimeout> | undefined
+              const raceResult = await Promise.race<
+                | { kind: "chunk"; done: boolean; value: any }
+                | { kind: "idle" }
+              >([
+                reader.read().then((r) => ({ kind: "chunk" as const, done: r.done, value: r.value })),
+                new Promise<{ kind: "idle" }>((resolve) => {
+                  idleTimer = setTimeout(
+                    () => resolve({ kind: "idle" }),
+                    STREAM_IDLE_TIMEOUT_MS,
+                  )
+                }),
+              ])
+              if (idleTimer) clearTimeout(idleTimer)
+
+              if (raceResult.kind === "idle") {
+                streamIdleWedged = true
+                console.error(
+                  `[codex] Stream idle for ${STREAM_IDLE_TIMEOUT_MS / 1000}s, cancelling reader`,
+                )
+                try {
+                  await reader.cancel()
+                } catch {
+                  // ignore
+                }
+                break
+              }
+
+              const { done, value } = raceResult
               if (done) break
 
               if (value?.type === "error") {
@@ -2554,6 +2599,16 @@ export const codexRouter = router({
               }
 
               safeEmit(value)
+            }
+
+            if (streamIdleWedged) {
+              safeEmit({
+                type: "error",
+                errorText: `Codex stream idle for ${STREAM_IDLE_TIMEOUT_MS / 1000}s — recovering`,
+              })
+              safeEmit({ type: "finish" })
+              safeComplete()
+              return
             }
 
             if (input.mode === "plan") {
@@ -2599,6 +2654,17 @@ export const codexRouter = router({
         })()
 
         return () => {
+          // If the stream never emitted a finish chunk (e.g. underlying
+          // ACP child or usage poll hung), emit one synthetically so the
+          // renderer's chatStatus transitions to "ready" and the UI stops
+          // showing tools as "Running" forever. Must precede isActive=false
+          // because safeEmit no-ops once isActive is cleared.
+          if (!emittedFinish) {
+            console.log(
+              `[codex] CLEANUP_SYNTHETIC_FINISH sub=${input.subChatId}`,
+            )
+            safeEmit({ type: "finish" })
+          }
           isActive = false
           abortController.abort()
           clearPendingApprovals("Session ended.", input.subChatId)
