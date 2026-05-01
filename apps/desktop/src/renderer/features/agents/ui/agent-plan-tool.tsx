@@ -205,8 +205,12 @@ export const AgentPlanTool = memo(function AgentPlanTool({
   )
   const subChatMode = useAtomValue(subChatModeAtom)
   const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom)
-  const buildDisabled =
-    isPending || chatStatus === "streaming" || chatStatus === "submitted"
+  const hasCompletedPlanWrite =
+    part.output !== undefined ||
+    part.result !== undefined ||
+    part.state === "output-available" ||
+    part.state === "result"
+  const buildDisabled = isPending || !hasCompletedPlanWrite
   const canApprovePlan =
     plan?.status === "awaiting_approval" && subChatMode === "plan"
   const planContent = useMemo(
