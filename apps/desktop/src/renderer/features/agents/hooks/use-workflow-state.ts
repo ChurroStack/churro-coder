@@ -13,9 +13,11 @@ import {
   pendingMergeBaseMessageAtom,
   pendingPrMessageAtom,
   pendingReviewMessageAtom,
-  planSidebarOpenAtomFamily,
+  currentPlanPathAtomFamily,
   subChatModeAtomFamily,
 } from "@/features/agents/atoms"
+import { addOrFocus } from "@/features/dock/add-or-focus"
+import { useDockApi } from "@/features/dock/dock-context"
 import {
   localReviewCompletedAtomFamily,
   planEverGeneratedAtomFamily,
@@ -208,7 +210,8 @@ export function useWorkflowActions(
   const setFilteredDiffFiles = useSetAtom(filteredDiffFilesAtom)
   const setFilteredSubChatId = useSetAtom(filteredSubChatIdAtom)
   const setDiffSidebarOpen = useSetAtom(diffSidebarOpenAtomFamily(safeChatId))
-  const setPlanSidebarOpen = useSetAtom(planSidebarOpenAtomFamily(safeSubChatId))
+  const dockApi = useDockApi()
+  const planPath = useAtomValue(currentPlanPathAtomFamily(safeSubChatId))
   const trpcUtils = trpc.useUtils()
 
   const { data: chat } = trpc.chats.get.useQuery(
@@ -248,7 +251,12 @@ export function useWorkflowActions(
 
       switch (kind) {
         case "expandPlan":
-          setPlanSidebarOpen(true)
+          if (dockApi && planPath) {
+            addOrFocus(dockApi, {
+              kind: "plan",
+              data: { chatId: subChatId, planPath },
+            })
+          }
           break
 
         case "mergeBase":
@@ -319,7 +327,8 @@ export function useWorkflowActions(
       baseBranch,
       prUrl,
       pushBranch,
-      setPlanSidebarOpen,
+      dockApi,
+      planPath,
       setPendingMergeBaseMessage,
       setFilteredSubChatId,
       setFilteredDiffFiles,

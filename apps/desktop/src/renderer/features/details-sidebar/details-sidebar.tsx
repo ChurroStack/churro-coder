@@ -176,7 +176,6 @@ interface DetailsSidebarProps {
   /** Active sub-chat ID for plan */
   activeSubChatId?: string | null
   /** Sidebar open states - used to hide widgets when their sidebar is open */
-  isPlanSidebarOpen?: boolean
   isTerminalSidebarOpen?: boolean
   isDiffSidebarOpen?: boolean
   /** Diff display mode - only hide widget when in side-peek mode */
@@ -199,9 +198,8 @@ interface DetailsSidebarProps {
   isGitStatusLoading?: boolean
   /** Current branch name for header */
   currentBranch?: string
-  /** Callbacks to expand widgets to legacy sidebars */
+  /** Callbacks to expand widgets that still use sidebars */
   onExpandTerminal?: () => void
-  onExpandPlan?: () => void
   onExpandDiff?: () => void
   /** Callback when a file is selected in Changes widget - opens diff with file selected */
   onFileSelect?: (filePath: string) => void
@@ -231,7 +229,6 @@ export function DetailsSidebar({
   onBuildPlan,
   planRefetchTrigger,
   activeSubChatId,
-  isPlanSidebarOpen,
   isTerminalSidebarOpen,
   isDiffSidebarOpen,
   diffDisplayMode,
@@ -246,7 +243,6 @@ export function DetailsSidebar({
   isGitStatusLoading,
   currentBranch,
   onExpandTerminal,
-  onExpandPlan,
   onExpandDiff,
   onFileSelect,
   onOpenFile,
@@ -527,8 +523,7 @@ export function DetailsSidebar({
                 )
 
               case "plan":
-                // Hidden when Plan sidebar is open
-                if (!planPath || isPlanSidebarOpen) return null
+                if (!planPath) return null
                 return (
                   <PlanWidget
                     key="plan"
@@ -538,7 +533,6 @@ export function DetailsSidebar({
                     refetchTrigger={planRefetchTrigger}
                     mode={mode}
                     onApprovePlan={onBuildPlan}
-                    onExpandPlan={onExpandPlan}
                   />
                 )
 

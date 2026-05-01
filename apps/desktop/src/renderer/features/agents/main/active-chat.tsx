@@ -90,7 +90,6 @@ import { DiffSidebarHeader } from "../../changes/components/diff-sidebar-header"
 import { usePushAction } from "../../changes/hooks/use-push-action"
 import { getStatusIndicator } from "../../changes/utils/status"
 import { detailsSidebarOpenAtom } from "../../details-sidebar/atoms"
-import { DetailsSidebar } from "../../details-sidebar/details-sidebar"
 import { FileViewerSidebar } from "../../file-viewer"
 import { terminalBottomHeightAtom, terminalDisplayModeAtom, terminalSidebarOpenAtomFamily } from "../../terminal/atoms"
 import { TerminalBottomPanelContent, TerminalSidebar } from "../../terminal/terminal-sidebar"
@@ -99,7 +98,6 @@ import {
   agentsChangesPanelCollapsedAtom,
   agentsChangesPanelWidthAtom,
   agentsDiffSidebarWidthAtom,
-  agentsPlanSidebarWidthAtom,
   agentsPreviewSidebarOpenAtom,
   agentsPreviewSidebarWidthAtom,
   agentsSubChatsSidebarModeAtom,
@@ -135,7 +133,6 @@ import {
   pendingUserQuestionsAtom,
   agentFinishedTickAtomFamily,
   planEditRefetchTriggerAtomFamily,
-  planSidebarOpenAtomFamily,
   QUESTIONS_SKIPPED_MESSAGE,
   selectedAgentChatIdAtom,
   selectedCommitAtom,
@@ -219,7 +216,6 @@ import {
   type AgentDiffViewRef,
   type ParsedDiffFile,
 } from "../ui/agent-diff-view"
-import { AgentPlanSidebar } from "../ui/agent-plan-sidebar"
 import { AgentPreview } from "../ui/agent-preview"
 import { AgentQueueIndicator } from "../ui/agent-queue-indicator"
 import { AgentToolCall } from "../ui/agent-tool-call"
@@ -241,8 +237,6 @@ import {
   useWorkflowState,
 } from "../hooks/use-workflow-state"
 import type { WorkflowActionKind } from "../utils/workflow-state"
-import { useDockApi } from "../../dock/dock-context"
-import { addOrFocus } from "../../dock/add-or-focus"
 // SplitViewContainer / SplitDropZone removed — dockview groups now own
 // multi-pane chat layout. Drag a chat tab to a group's edge to split.
 import { TextSelectionPopover } from "../ui/text-selection-popover"
@@ -2958,25 +2952,11 @@ export const ChatViewInner = memo(function ChatViewInner({
   const isNextActionPending = workflow?.next
     ? !!isActionPending[workflow.next.actionKind]
     : false
-  // For "View plan": open the plan as a full dockview panel (mirrors the
-  // sidebar PlanWidget's "View plan" button). `addOrFocus` is idempotent —
-  // if the panel is already open it just brings it to the front.
-  const dockApiForPlan = useDockApi()
-  const currentPlanPathForNotch = useAtomValue(currentPlanPathAtomFamily(subChatId))
   const handleNotchWorkflowAction = useCallback(
     (kind: WorkflowActionKind) => {
-      if (kind === "expandPlan") {
-        if (dockApiForPlan && currentPlanPathForNotch) {
-          addOrFocus(dockApiForPlan, {
-            kind: "plan",
-            data: { chatId: subChatId, planPath: currentPlanPathForNotch },
-          })
-        }
-        return
-      }
       void dispatchWorkflowAction(kind)
     },
-    [dispatchWorkflowAction, dockApiForPlan, currentPlanPathForNotch, subChatId],
+    [dispatchWorkflowAction],
   )
 
   // Watch for pending PR message and send it
@@ -5527,17 +5507,11 @@ export function ChatView({
   const activeSubChatIdFromStoreForPlan = useAgentSubChatStore((state) => state.activeSubChatId)
   const activeSubChatIdForPlan = subChatIdOverride ?? activeSubChatIdFromStoreForPlan
 
-  // Per-subChat plan sidebar state - each sub-chat remembers its own open/close state
-  const planSidebarAtom = useMemo(
-    () => planSidebarOpenAtomFamily(activeSubChatIdForPlan || ""),
-    [activeSubChatIdForPlan],
-  )
-  const [isPlanSidebarOpen, setIsPlanSidebarOpen] = useAtom(planSidebarAtom)
   const currentPlanPathAtom = useMemo(
     () => currentPlanPathAtomFamily(activeSubChatIdForPlan || ""),
     [activeSubChatIdForPlan],
   )
-  const [currentPlanPath, setCurrentPlanPath] = useAtom(currentPlanPathAtom)
+  const setCurrentPlanPath = useSetAtom(currentPlanPathAtom)
 
   // File viewer sidebar state - per-chat open file path
   const fileViewerAtom = useMemo(
@@ -5553,35 +5527,6 @@ export function ChatView({
   // Resolved hotkeys for tooltips
   const toggleDetailsHotkey = useResolvedHotkeyDisplay("toggle-details")
   const toggleTerminalHotkey = useResolvedHotkeyDisplay("toggle-terminal")
-
-  // Close plan sidebar when switching to a sub-chat that has no plan
-  const prevSubChatIdRef = useRef(activeSubChatIdForPlan)
-  useEffect(() => {
-    if (prevSubChatIdRef.current !== activeSubChatIdForPlan) {
-      // Sub-chat changed - if new one has no plan path, close sidebar
-      if (!currentPlanPath) {
-        setIsPlanSidebarOpen(false)
-      }
-      prevSubChatIdRef.current = activeSubChatIdForPlan
-    }
-  }, [activeSubChatIdForPlan, currentPlanPath, setIsPlanSidebarOpen])
-  const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom)
-
-  // Read plan edit refetch trigger from atom (set by ChatViewInner when Edit completes)
-  const planEditRefetchTriggerAtom = useMemo(
-    () => planEditRefetchTriggerAtomFamily(activeSubChatIdForPlan || ""),
-    [activeSubChatIdForPlan],
-  )
-  const planEditRefetchTrigger = useAtomValue(planEditRefetchTriggerAtom)
-
-  // Handler for plan sidebar "Build plan" button
-  // Uses getState() to get fresh activeSubChatId (avoids stale closure)
-  const handleApprovePlanFromSidebar = useCallback(() => {
-    const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId
-    if (activeSubChatId) {
-      setPendingBuildPlanSubChatId(activeSubChatId)
-    }
-  }, [setPendingBuildPlanSubChatId])
 
   // Per-chat terminal sidebar state - each chat remembers its own open/close state
   const terminalSidebarAtom = useMemo(
@@ -5611,20 +5556,18 @@ export function ChatView({
     return () => window.removeEventListener("keydown", handleKeyDown, true)
   }, [isTerminalSidebarOpen, setIsTerminalSidebarOpen])
 
-  // Mutual exclusion: Details sidebar vs Plan/Terminal/Diff(side-peek) sidebars
+  // Mutual exclusion: Details sidebar vs Terminal/Diff(side-peek) sidebars
   // When one opens, close the conflicting ones and remember for restoration
 
   // Track what was auto-closed and by whom for restoration
   const autoClosedStateRef = useRef<{
     // What closed Details
-    detailsClosedBy: "plan" | "terminal" | "diff" | null
+    detailsClosedBy: "terminal" | "diff" | null
     // What Details closed
-    planClosedByDetails: boolean
     terminalClosedByDetails: boolean
     diffClosedByDetails: boolean
   }>({
     detailsClosedBy: null,
-    planClosedByDetails: false,
     terminalClosedByDetails: false,
     diffClosedByDetails: false,
   })
@@ -5632,20 +5575,16 @@ export function ChatView({
   // Track previous states to detect opens/closes
   const prevSidebarStatesRef = useRef({
     details: isDetailsSidebarOpen,
-    plan: isPlanSidebarOpen && !!currentPlanPath,
     terminal: isTerminalSidebarOpen,
   })
 
   useEffect(() => {
     const prev = prevSidebarStatesRef.current
     const auto = autoClosedStateRef.current
-    const isPlanOpen = isPlanSidebarOpen && !!currentPlanPath
 
     // Detect state changes
     const detailsJustOpened = isDetailsSidebarOpen && !prev.details
     const detailsJustClosed = !isDetailsSidebarOpen && prev.details
-    const planJustOpened = isPlanOpen && !prev.plan
-    const planJustClosed = !isPlanOpen && prev.plan
     const terminalJustOpened = isTerminalSidebarOpen && !prev.terminal
     const terminalJustClosed = !isTerminalSidebarOpen && prev.terminal
 
@@ -5654,10 +5593,6 @@ export function ChatView({
 
     // Details opened → close conflicting sidebars and remember
     if (detailsJustOpened) {
-      if (isPlanOpen) {
-        auto.planClosedByDetails = true
-        setIsPlanSidebarOpen(false)
-      }
       if (isTerminalSidebarOpen && terminalConflictsWithDetails) {
         auto.terminalClosedByDetails = true
         setIsTerminalSidebarOpen(false)
@@ -5665,24 +5600,10 @@ export function ChatView({
     }
     // Details closed → restore what it closed
     else if (detailsJustClosed) {
-      if (auto.planClosedByDetails) {
-        auto.planClosedByDetails = false
-        setIsPlanSidebarOpen(true)
-      }
       if (auto.terminalClosedByDetails) {
         auto.terminalClosedByDetails = false
         setIsTerminalSidebarOpen(true)
       }
-    }
-    // Plan opened → close Details and remember
-    else if (planJustOpened && isDetailsSidebarOpen) {
-      auto.detailsClosedBy = "plan"
-      setIsDetailsSidebarOpen(false)
-    }
-    // Plan closed → restore Details if we closed it
-    else if (planJustClosed && auto.detailsClosedBy === "plan") {
-      auto.detailsClosedBy = null
-      setIsDetailsSidebarOpen(true)
     }
     // Terminal opened → close Details and remember (only in side-peek mode)
     else if (terminalJustOpened && isDetailsSidebarOpen && terminalConflictsWithDetails) {
@@ -5697,17 +5618,13 @@ export function ChatView({
 
     prevSidebarStatesRef.current = {
       details: isDetailsSidebarOpen,
-      plan: isPlanOpen,
       terminal: isTerminalSidebarOpen,
     }
   }, [
     isDetailsSidebarOpen,
-    isPlanSidebarOpen,
-    currentPlanPath,
     isTerminalSidebarOpen,
     terminalDisplayMode,
     setIsDetailsSidebarOpen,
-    setIsPlanSidebarOpen,
     setIsTerminalSidebarOpen,
   ])
 
@@ -8477,34 +8394,6 @@ Make sure to preserve all functionality from both branches when resolving confli
             </>
           )}
         </div>
-
-        {/* Plan Sidebar - shows plan files on the right (leftmost right sidebar) */}
-        {/* Only show when we have an active sub-chat with a plan */}
-        {!isMobileFullscreen && activeSubChatIdForPlan && (
-          <ResizableSidebar
-            isOpen={isPlanSidebarOpen && !!currentPlanPath}
-            onClose={() => setIsPlanSidebarOpen(false)}
-            widthAtom={agentsPlanSidebarWidthAtom}
-            minWidth={400}
-            maxWidth={800}
-            side="right"
-            animationDuration={0}
-            initialWidth={0}
-            exitWidth={0}
-            showResizeTooltip={true}
-            className="bg-tl-background border-l"
-            style={{ borderLeftWidth: "0.5px" }}
-          >
-            <AgentPlanSidebar
-              chatId={activeSubChatIdForPlan}
-              planPath={currentPlanPath}
-              onClose={() => setIsPlanSidebarOpen(false)}
-              onBuildPlan={handleApprovePlanFromSidebar}
-              refetchTrigger={planEditRefetchTrigger}
-              mode={currentMode}
-            />
-          </ResizableSidebar>
-        )}
 
         {/* Diff View - hidden on mobile fullscreen and when diff is not available */}
         {/* Supports three display modes: side-peek (sidebar), center-peek (dialog), full-page */}
