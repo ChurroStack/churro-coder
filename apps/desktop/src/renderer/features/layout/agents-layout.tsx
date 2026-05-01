@@ -25,7 +25,7 @@ import {
   betaKanbanEnabledAtom,
   betaAutomationsEnabledAtom,
 } from "../../lib/atoms"
-import { selectedAgentChatIdAtom, selectedProjectAtom, selectedDraftIdAtom, showNewChatFormAtom, desktopViewAtom } from "../agents/atoms"
+import { selectedAgentChatIdAtom, selectedProjectAtom, selectedDraftIdAtom, showNewChatFormAtom, desktopViewAtom, newWorkspaceFormKeyAtom } from "../agents/atoms"
 import { SpotlightModal } from "../spotlight/spotlight-modal"
 import { trpc } from "../../lib/trpc"
 import { useAgentsHotkeys } from "../agents/lib/agents-hotkeys-manager"
@@ -207,6 +207,7 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
   const { registerWorkspaceDockApi, unregisterWorkspaceDockApi } =
     useShellContext()
   const systemView = useEffectiveSystemView()
+  const newWorkspaceFormKey = useAtomValue(newWorkspaceFormKeyAtom)
   const betaAutomationsEnabled = useAtomValue(betaAutomationsEnabledAtom)
   const selectedChatId = useAtomValue(selectedAgentChatIdAtom)
   const mountedWorkspaceIds = useAtomValue(mountedWorkspaceIdsAtom)
@@ -259,7 +260,7 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
             {systemView === "kanban" && <KanbanView />}
             {systemView === "new-workspace" && (
               <div className="h-full flex flex-col relative overflow-hidden">
-                <NewChatForm />
+                <NewChatForm key={newWorkspaceFormKey} />
               </div>
             )}
             {betaAutomationsEnabled && systemView === "automations" && (
