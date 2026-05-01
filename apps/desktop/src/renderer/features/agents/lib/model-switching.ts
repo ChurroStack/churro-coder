@@ -8,13 +8,20 @@ import {
   defaultReviewModeModelAtom,
   defaultReviewModeThinkingAtom,
   lastSelectedAgentIdAtom,
+  lastSelectedClaudeThinkingAtom,
+  lastSelectedCodexThinkingAtom,
   subChatClaudeThinkingAtomFamily,
+  subChatCodexThinkingAtomFamily,
   subChatCodexModelIdAtomFamily,
   subChatModelIdAtomFamily,
   subChatProviderOverrideAtomFamily,
 } from "../atoms"
-import { getProviderForModelId } from "../../../../shared/provider-from-model"
-export type { Provider } from "../../../../shared/provider-from-model"
+import {
+  getProviderForModelId,
+  type Provider,
+} from "../../../../shared/provider-from-model"
+import { CODEX_MODELS, coerceCodexThinking } from "./models"
+export type { Provider }
 export { getProviderForModelId }
 export type ModeContext = AgentMode | "review"
 
@@ -77,9 +84,20 @@ export function applyModeDefaultModel(
 ): { modelId: string; provider: Provider } {
   const modelId = getDefaultModelForMode(mode)
   const provider = setSubChatModel(subChatId, modelId)
-  appStore.set(
-    subChatClaudeThinkingAtomFamily(subChatId),
-    getDefaultThinkingForMode(mode),
-  )
+  const thinking = getDefaultThinkingForMode(mode)
+
+  if (provider === "codex") {
+    const codexModel = CODEX_MODELS.find((m) => m.id === modelId)
+    const coerced = coerceCodexThinking(
+      thinking,
+      codexModel?.thinkings ?? ["low", "medium", "high", "xhigh"],
+    )
+    appStore.set(subChatCodexThinkingAtomFamily(subChatId), coerced)
+    appStore.set(lastSelectedCodexThinkingAtom, coerced)
+  } else {
+    appStore.set(subChatClaudeThinkingAtomFamily(subChatId), thinking)
+    appStore.set(lastSelectedClaudeThinkingAtom, thinking)
+  }
+
   return { modelId, provider }
 }
