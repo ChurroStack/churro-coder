@@ -160,6 +160,7 @@ import { ConfirmDeleteDialog } from "../../../components/confirm-delete-dialog"
 import { AgentSendButton } from "../components/agent-send-button"
 import { OpenLocallyDialog } from "../components/open-locally-dialog"
 import { PreviewSetupHoverCard } from "../components/preview-setup-hover-card"
+import { SubChatFilesTracker } from "../components/sub-chat-files-tracker"
 import type { TextSelectionSource } from "../context/text-selection-context"
 import { TextSelectionProvider } from "../context/text-selection-context"
 import { useAgentsFileUpload, type UploadedImage } from "../hooks/use-agents-file-upload"
@@ -8041,6 +8042,11 @@ Make sure to preserve all functionality from both branches when resolving confli
     <FileOpenProvider onOpenFile={setFileViewerPath}>
     <TextSelectionProvider>
     {pushDialog}
+    <SubChatFilesTracker
+      chatId={chatId}
+      subChats={agentSubChats}
+      projectPath={worktreePath || undefined}
+    />
     <div className="flex h-full flex-col">
       {/* Main content */}
       <div className="flex-1 overflow-hidden flex">
