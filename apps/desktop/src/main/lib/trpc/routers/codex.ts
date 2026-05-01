@@ -15,6 +15,10 @@ import {
   type CodexAppServerNotification,
   type CodexAppServerServerRequest,
 } from "../../codex/app-server-client"
+import {
+  mapAppServerUsageToMetadata,
+  type CodexUsageMetadata,
+} from "../../codex/usage-metadata"
 import { getClaudeShellEnvironment } from "../../claude/env"
 import { resolveProjectPathFromWorktree } from "../../claude-config"
 import { getDatabase, projects as projectsTable, subChats } from "../../db"
@@ -213,14 +217,6 @@ const AUTH_HINTS = [
 const DEFAULT_CODEX_MODEL = "gpt-5.4/high"
 const CODEX_MCP_TOOLS_FETCH_TIMEOUT_MS = 40_000
 
-type CodexUsageMetadata = {
-  inputTokens?: number
-  outputTokens?: number
-  totalTokens?: number
-  modelContextWindow?: number
-  totalCostUsd?: number
-}
-
 type CodexChangedFileMetadata = {
   filePath: string
   additions: number
@@ -233,22 +229,6 @@ type GitChangeSnapshotEntry = CodexChangedFileMetadata & {
 }
 
 type GitChangeSnapshot = Map<string, GitChangeSnapshotEntry>
-
-// Prices per 1M tokens (USD). Strip the "/thinking" suffix to get the base model ID.
-// Sources: OpenAI API pricing page (April 2026).
-const CODEX_MODEL_PRICING: Record<
-  string,
-  { inputPer1M: number; cachedInputPer1M: number; outputPer1M: number }
-> = {
-  "gpt-5.5":             { inputPer1M: 5.00,  cachedInputPer1M: 0.40,  outputPer1M: 30.00 },
-  "gpt-5.4":             { inputPer1M: 2.50,  cachedInputPer1M: 0.25,  outputPer1M: 15.00 },
-  "gpt-5.4-mini":        { inputPer1M: 0.75,  cachedInputPer1M: 0.075, outputPer1M:  4.50 },
-  "gpt-5.3-codex":       { inputPer1M: 1.75,  cachedInputPer1M: 0.175, outputPer1M: 14.00 },
-  "gpt-5.3-codex-spark": { inputPer1M: 1.75,  cachedInputPer1M: 0.175, outputPer1M: 14.00 },
-  "gpt-5.2-codex":       { inputPer1M: 1.75,  cachedInputPer1M: 0.175, outputPer1M: 14.00 },
-  "gpt-5.1-codex-max":   { inputPer1M: 1.25,  cachedInputPer1M: 0.125, outputPer1M: 10.00 },
-  "gpt-5.1-codex-mini":  { inputPer1M: 0.25,  cachedInputPer1M: 0.025, outputPer1M:  2.00 },
-}
 
 const codexMcpListEntrySchema = z
   .object({
@@ -586,75 +566,6 @@ function diffGitChangeSnapshots(
     })
   }
   return changed
-}
-
-function toNonNegativeInt(value: unknown): number | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return undefined
-  }
-  return Math.trunc(value)
-}
-
-function mapAppServerUsageToMetadata(
-  rawUsage: unknown,
-  modelId?: string,
-): CodexUsageMetadata | null {
-  if (!rawUsage || typeof rawUsage !== "object") {
-    return null
-  }
-
-  const usage = rawUsage as any
-  const tokenUsage = usage.last_token_usage || usage.lastTokenUsage || usage
-  const rawInputTokens =
-    toNonNegativeInt(tokenUsage.inputTokens) ??
-    toNonNegativeInt(tokenUsage.input_tokens) ??
-    toNonNegativeInt(tokenUsage.promptTokens) ??
-    toNonNegativeInt(tokenUsage.prompt_tokens)
-  const cachedInputTokens =
-    toNonNegativeInt(tokenUsage.cachedInputTokens) ??
-    toNonNegativeInt(tokenUsage.cached_input_tokens) ??
-    0
-  const inputTokens =
-    rawInputTokens !== undefined
-      ? Math.max(0, rawInputTokens - cachedInputTokens)
-      : undefined
-  const outputTokens =
-    toNonNegativeInt(tokenUsage.outputTokens) ??
-    toNonNegativeInt(tokenUsage.output_tokens) ??
-    toNonNegativeInt(tokenUsage.completionTokens) ??
-    toNonNegativeInt(tokenUsage.completion_tokens)
-  const totalTokens =
-    toNonNegativeInt(tokenUsage.totalTokens) ??
-    toNonNegativeInt(tokenUsage.total_tokens) ??
-    (rawInputTokens !== undefined || outputTokens !== undefined
-      ? (rawInputTokens ?? 0) + (outputTokens ?? 0)
-      : undefined)
-  const modelContextWindow =
-    toNonNegativeInt(usage.modelContextWindow) ??
-    toNonNegativeInt(usage.model_context_window)
-
-  const usageMetadata: CodexUsageMetadata = {}
-  if (inputTokens !== undefined) usageMetadata.inputTokens = inputTokens
-  if (outputTokens !== undefined) usageMetadata.outputTokens = outputTokens
-  if (totalTokens !== undefined) usageMetadata.totalTokens = totalTokens
-  if (modelContextWindow !== undefined) {
-    usageMetadata.modelContextWindow = modelContextWindow
-  }
-
-  // Compute cost when pricing is available for this model.
-  // The UI model ID uses "baseModel/thinkingLevel" format; strip the suffix.
-  const baseModelId = modelId?.split("/")[0] ?? ""
-  const pricing = CODEX_MODEL_PRICING[baseModelId]
-  if (pricing && rawInputTokens !== undefined && outputTokens !== undefined) {
-    const billableInput = Math.max(0, rawInputTokens - cachedInputTokens)
-    usageMetadata.totalCostUsd =
-      (billableInput * pricing.inputPer1M +
-        cachedInputTokens * pricing.cachedInputPer1M +
-        outputTokens * pricing.outputPer1M) /
-      1_000_000
-  }
-
-  return Object.keys(usageMetadata).length > 0 ? usageMetadata : null
 }
 
 function getCodexMcpAuthState(authStatus: string | null | undefined): {
@@ -3443,28 +3354,33 @@ export const codexRouter = router({
               beforeSnapshot,
               afterSnapshot,
             )
+            const finalMetadata = {
+              model: metadataModel,
+              sessionId: threadId,
+              durationMs: Date.now() - startedAt,
+              resultSubtype:
+                turnAccumulator.resultSubtype ||
+                (abortController.signal.aborted ? "interrupted" : "success"),
+              stopReason:
+                turnAccumulator.stopReason ||
+                (abortController.signal.aborted ? "interrupted" : "stop"),
+              ...(turnAccumulator.usageMetadata || {}),
+              ...(changedFiles.length > 0 ? { changedFiles } : {}),
+            }
 
             try {
               const assistantMessage = {
                 id: crypto.randomUUID(),
                 role: "assistant",
                 parts: turnAccumulator.parts,
-                metadata: {
-                  model: metadataModel,
-                  sessionId: threadId,
-                  durationMs: Date.now() - startedAt,
-                  resultSubtype:
-                    turnAccumulator.resultSubtype ||
-                    (abortController.signal.aborted ? "interrupted" : "success"),
-                  stopReason:
-                    turnAccumulator.stopReason ||
-                    (abortController.signal.aborted ? "interrupted" : "stop"),
-                  ...(turnAccumulator.usageMetadata || {}),
-                  ...(changedFiles.length > 0 ? { changedFiles } : {}),
-                },
+                metadata: finalMetadata,
               }
+              const shouldPersistAssistant =
+                assistantMessage.parts.length > 0 ||
+                changedFiles.length > 0 ||
+                Boolean(turnAccumulator.usageMetadata)
               const messagesWithAssistant =
-                assistantMessage.parts.length > 0 || changedFiles.length > 0
+                shouldPersistAssistant
                   ? [...messagesForStream, assistantMessage]
                   : messagesForStream
               const messagesWithPlanFallback =
@@ -3493,13 +3409,10 @@ export const codexRouter = router({
             if (turnAccumulator.usageMetadata || changedFiles.length > 0) {
               safeEmit({
                 type: "message-metadata",
-                messageMetadata: {
-                  ...(turnAccumulator.usageMetadata || {}),
-                  ...(changedFiles.length > 0 ? { changedFiles } : {}),
-                },
+                messageMetadata: finalMetadata,
               })
             }
-            safeEmit({ type: "finish" })
+            safeEmit({ type: "finish", messageMetadata: finalMetadata })
 
             safeComplete()
           } catch (error) {
