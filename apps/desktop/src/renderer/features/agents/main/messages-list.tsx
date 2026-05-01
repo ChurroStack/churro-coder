@@ -10,6 +10,7 @@ import {
   messageAtomFamily,
 } from "../stores/message-store"
 import { useStreamingStatusStore } from "../stores/streaming-status-store"
+import { ContinueButton } from "../ui/continue-button"
 import { MessageJsonDisplay } from "../ui/message-json-display"
 import { AssistantMessageItem } from "./assistant-message-item"
 
@@ -760,6 +761,7 @@ export const MessagesList = memo(function MessagesList({
           sandboxSetupStatus={sandboxSetupStatus}
         />
       ))}
+      <ContinueButton subChatId={subChatId} />
     </>
   )
 })
