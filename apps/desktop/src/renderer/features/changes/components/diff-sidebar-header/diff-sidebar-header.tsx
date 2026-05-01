@@ -383,7 +383,20 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 
 		// 5. No PR, branch is synced - Create PR if ahead of default, otherwise Fetch
 		if (hasUpstream && !pr) {
-			// Show Create PR if we have commits ahead of default branch (not on default branch)
+			// Prefer AI-assisted PR creation as the default primary action.
+			if (aheadOfDefault > 0 && !isDefaultBranch && onCreatePrWithAI) {
+				return {
+					label: "Create PR with AI",
+					pendingLabel: "Creating...",
+					icon: <GitPullRequest className="size-3.5" />,
+					handler: onCreatePrWithAI,
+					tooltip: `Let AI create and push PR (${aheadOfDefault} commit${aheadOfDefault !== 1 ? "s" : ""} ahead of ${branchData?.defaultBranch || "main"})`,
+					badge: `↑${aheadOfDefault}`,
+					variant: "default",
+					isPending: isCreatingPrWithAI,
+				};
+			}
+			// Fallback: manual Create PR if AI handler isn't wired.
 			if (aheadOfDefault > 0 && !isDefaultBranch && onCreatePr) {
 				return {
 					label: "Create PR",
@@ -740,7 +753,7 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 								)}
 
 								{/* PR actions separator */}
-								{((hasUpstream && !pr && onCreatePr && !isDefaultBranch && primaryAction.label !== "Create PR") || (hasUpstream && !pr && onCreatePrWithAI && !isDefaultBranch) || pr || (hasPrNumber && isPrOpen && onMergePr)) && (
+								{((hasUpstream && !pr && onCreatePr && !isDefaultBranch && primaryAction.label !== "Create PR") || (hasUpstream && !pr && onCreatePrWithAI && !isDefaultBranch && primaryAction.label !== "Create PR with AI") || pr || (hasPrNumber && isPrOpen && onMergePr)) && (
 									<DropdownMenuSeparator />
 								)}
 
@@ -769,7 +782,7 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 								)}
 
 								{/* Create PR with AI */}
-								{hasUpstream && !pr && onCreatePrWithAI && !isDefaultBranch && (
+								{hasUpstream && !pr && onCreatePrWithAI && !isDefaultBranch && primaryAction.label !== "Create PR with AI" && (
 									<DropdownMenuItem
 										onClick={onCreatePrWithAI}
 										disabled={isCreatingPrWithAI}
