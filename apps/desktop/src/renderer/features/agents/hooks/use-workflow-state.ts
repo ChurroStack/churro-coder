@@ -225,7 +225,11 @@ export function useWorkflowActions(
   )
   const hasUpstream = gitStatus?.hasUpstream ?? false
 
-  const { push: pushBranch, dialog: pushDialog } = usePushAction({
+  const {
+    push: pushBranch,
+    isPending: isPushPending,
+    dialog: pushDialog,
+  } = usePushAction({
     worktreePath,
     hasUpstream,
     onSuccess: () => {
@@ -327,5 +331,11 @@ export function useWorkflowActions(
     ],
   )
 
-  return { dispatch, pushDialog }
+  return {
+    dispatch,
+    pushDialog,
+    isActionPending: {
+      pushBranch: isPushPending,
+    } as Partial<Record<WorkflowActionKind, boolean>>,
+  }
 }
