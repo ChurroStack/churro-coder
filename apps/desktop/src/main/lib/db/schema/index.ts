@@ -23,6 +23,8 @@ export const projects = sqliteTable("projects", {
   gitProject: text("git_project"), // Azure DevOps project (null for other providers)
   // Custom project icon (absolute path to local image file)
   iconPath: text("icon_path"),
+  // Sandbox: null = use global default (true), false/true = project override
+  sandboxEnabled: integer("sandbox_enabled", { mode: "boolean" }),
 })
 
 export const projectsRelations = relations(projects, ({ many }) => ({
@@ -52,6 +54,8 @@ export const chats = sqliteTable("chats", {
   // PR tracking fields
   prUrl: text("pr_url"),
   prNumber: integer("pr_number"),
+  // Sandbox: null = inherit from project, false/true = chat override
+  sandboxEnabled: integer("sandbox_enabled", { mode: "boolean" }),
 }, (table) => [
   index("chats_worktree_path_idx").on(table.worktreePath),
   index("chats_project_id_idx").on(table.projectId),
@@ -137,6 +141,16 @@ export const anthropicSettings = sqliteTable("anthropic_settings", {
   ),
 })
 
+// ============ SANDBOX SETTINGS ============
+export const sandboxSettings = sqliteTable("sandbox_settings", {
+  id: text("id").primaryKey().default("singleton"),
+  sandboxEnabled: integer("sandbox_enabled", { mode: "boolean" }).notNull().default(true),
+  extraWritablePaths: text("extra_writable_paths").notNull().default("[]"),
+  extraDeniedPaths: text("extra_denied_paths").notNull().default("[]"),
+  allowToolchainCaches: integer("allow_toolchain_caches", { mode: "boolean" }).notNull().default(true),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+})
+
 // ============ TYPE EXPORTS ============
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
@@ -149,3 +163,4 @@ export type NewClaudeCodeCredential = typeof claudeCodeCredentials.$inferInsert
 export type AnthropicAccount = typeof anthropicAccounts.$inferSelect
 export type NewAnthropicAccount = typeof anthropicAccounts.$inferInsert
 export type AnthropicSettings = typeof anthropicSettings.$inferSelect
+export type SandboxSettings = typeof sandboxSettings.$inferSelect

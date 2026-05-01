@@ -78,6 +78,20 @@
       "when": 1776705123163,
       "tag": "0010_careless_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1777000000000,
+      "tag": "0011_sandbox_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1777100000000,
+      "tag": "0012_sandbox_global_toggle",
+      "breakpoints": true
     }
   ]
 }

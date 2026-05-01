@@ -18,6 +18,7 @@ import { commandsRouter } from "./commands"
 import { voiceRouter } from "./voice"
 import { pluginsRouter } from "./plugins"
 import { usageRouter } from "./usage"
+import { sandboxRouter } from "./sandbox"
 import { createGitRouter } from "../../git"
 import { BrowserWindow } from "electron"
 
@@ -46,6 +47,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     voice: voiceRouter,
     plugins: pluginsRouter,
     usage: usageRouter,
+    sandbox: sandboxRouter,
     // Git operations - named "changes" to match Superset API
     changes: createGitRouter(),
   })

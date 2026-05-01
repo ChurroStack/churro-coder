@@ -47,6 +47,12 @@ import { discoverPluginMcpServers } from "../../plugins"
 import { publicProcedure, router } from "../index"
 import { buildAgentsOption } from "./agent-utils"
 import {
+  resolveSandboxPolicy,
+  pathIsInsideAny,
+  writeSandboxSettingsFile,
+  cleanupSandboxSettingsFile,
+} from "../../sandbox/policy"
+import {
   getApprovedPluginMcpServers,
   getEnabledPlugins,
 } from "./claude-settings"
@@ -950,6 +956,7 @@ export const claudeRouter = router({
         }
 
         ;(async () => {
+          let sandboxSettingsFilePath: string | null = null
           try {
             const db = getDatabase()
 
@@ -1881,6 +1888,17 @@ ${prompt}
                   preset: "claude_code" as const,
                 }
 
+            // Resolve sandbox policy for this chat turn
+            const sandboxPolicy = await resolveSandboxPolicy(
+              input.chatId,
+              input.cwd,
+              input.projectPath ?? input.cwd,
+            )
+            const sandboxOn = sandboxPolicy.enabled && input.mode === "agent"
+            if (sandboxOn) {
+              sandboxSettingsFilePath = await writeSandboxSettingsFile(input.cwd, sandboxPolicy)
+            }
+
             const queryOptions = {
               prompt: finalQueryPrompt,
               options: {
@@ -1901,8 +1919,10 @@ ${prompt}
                 permissionMode:
                   input.mode === "plan"
                     ? ("plan" as const)
-                    : ("bypassPermissions" as const),
-                ...(input.mode !== "plan" && {
+                    : sandboxOn
+                      ? ("default" as const)
+                      : ("bypassPermissions" as const),
+                ...(input.mode !== "plan" && !sandboxOn && {
                   allowDangerouslySkipPermissions: true,
                 }),
                 includePartialMessages: true,
@@ -1991,6 +2011,55 @@ ${prompt}
                       toolInput.command = toolInput.cmd
                       delete toolInput.cmd
                       console.log("[Ollama] Fixed Bash tool: cmd -> command")
+                    }
+                  }
+
+                  // Sandbox enforcement — deny writes/reads outside allowed roots
+                  if (sandboxOn) {
+                    const writeTools = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"])
+                    const readDenyTools = new Set(["Read", "Glob", "Grep"])
+                    const allowedRoots = sandboxPolicy.writableRootsExpanded
+                    if (writeTools.has(toolName)) {
+                      const fp = typeof toolInput.file_path === "string" ? toolInput.file_path : ""
+                      if (fp && !pathIsInsideAny(path.resolve(input.cwd, fp), allowedRoots)) {
+                        return {
+                          behavior: "deny",
+                          message: `Sandbox: write blocked outside allowed directories (${fp})`,
+                        }
+                      }
+                    }
+                    if (readDenyTools.has(toolName)) {
+                      const sp =
+                        typeof toolInput.file_path === "string"
+                          ? toolInput.file_path
+                          : typeof toolInput.path === "string"
+                            ? toolInput.path
+                            : ""
+                      const resolvedSp = sp ? path.resolve(input.cwd, sp) : ""
+                      if (resolvedSp) {
+                        // Block reads of anything inside $HOME that isn't in an allowed root.
+                        // System paths (/usr, /etc, /bin, etc.) remain readable for toolchain use.
+                        const home = os.homedir()
+                        const insideHome =
+                          resolvedSp === home ||
+                          resolvedSp.startsWith(home + path.sep)
+                        if (
+                          insideHome &&
+                          !pathIsInsideAny(resolvedSp, allowedRoots)
+                        ) {
+                          return {
+                            behavior: "deny",
+                            message: `Sandbox: read blocked outside allowed directories (${sp})`,
+                          }
+                        }
+                        // Also block specific credential files regardless of location
+                        if (sandboxPolicy.deniedReads.some(d => resolvedSp === d)) {
+                          return {
+                            behavior: "deny",
+                            message: `Sandbox: read blocked for sensitive path (${sp})`,
+                          }
+                        }
+                      }
                     }
                   }
 
@@ -2944,6 +3013,9 @@ ${prompt}
             safeComplete()
           } finally {
             activeSessions.delete(input.subChatId)
+            if (sandboxSettingsFilePath) {
+              cleanupSandboxSettingsFile(sandboxSettingsFilePath).catch(() => {})
+            }
           }
         })()
 
