@@ -1328,6 +1328,150 @@ function normalizeCodexPlan(plan: z.infer<typeof codexPlanSchema>) {
   }
 }
 
+function getAssistantText(message: any): string {
+  if (!message || !Array.isArray(message.parts)) return ""
+  return message.parts
+    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .map((part: any) => part.text.trim())
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+function hasCodexPlanWritePart(message: any): boolean {
+  if (!message || !Array.isArray(message.parts)) return false
+  return message.parts.some(
+    (part: any) =>
+      part?.type === "tool-PlanWrite" ||
+      part?.toolName === "PlanWrite" ||
+      part?.input?.toolName === "PlanWrite" ||
+      (typeof part?.input?.toolName === "string" &&
+        part.input.toolName.startsWith("PlanWrite ")),
+  )
+}
+
+function extractPlanStepTitles(text: string): string[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const steps: string[] = []
+
+  for (const line of lines) {
+    const match = line.match(/^(?:\d+[\).\:-]|\-|\*)\s+(.+)$/)
+    if (!match) continue
+
+    const title = match[1]
+      .replace(/\*\*/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+    if (title.length < 4) continue
+
+    steps.push(title.length > 120 ? `${title.slice(0, 117)}...` : title)
+  }
+
+  return steps.slice(0, 8)
+}
+
+function buildFallbackPlanWritePart(params: {
+  prompt: string
+  text: string
+}): any {
+  const now = Date.now()
+  const toolCallId = `codex-planwrite-fallback-${now}-${Math.random().toString(36).slice(2, 8)}`
+  const stepTitles = extractPlanStepTitles(params.text)
+  const fallbackStepTitles =
+    stepTitles.length > 0
+      ? stepTitles
+      : [
+          "Create the requested implementation in the project",
+          "Add the expected interaction and state handling",
+          "Keep the result self-contained and easy to run",
+          "Verify the behavior manually before reporting completion",
+        ]
+
+  const plan = normalizeCodexPlan({
+    id: `plan-${now}`,
+    title: "Implementation plan",
+    summary:
+      params.text.trim() ||
+      `Plan for: ${params.prompt.trim() || "the requested change"}`,
+    status: "awaiting_approval",
+    steps: fallbackStepTitles.map((title) => ({
+      title,
+      status: "pending",
+    })),
+  })
+  const output = {
+    success: true,
+    message: "Plan ready for review.",
+    action: "create",
+    plan,
+    synthesized: true,
+  }
+
+  return {
+    type: "tool-PlanWrite",
+    toolCallId,
+    toolName: "PlanWrite",
+    state: "output-available",
+    input: {
+      action: "create",
+      plan,
+    },
+    output,
+    result: output,
+    startedAt: now,
+  }
+}
+
+function ensurePlanWriteForCodexPlanMode(params: {
+  messages: any[]
+  prompt: string
+  fallbackPart: any | null
+}): { messages: any[]; fallbackPart: any | null } {
+  let lastAssistantIndex = -1
+  for (let index = params.messages.length - 1; index >= 0; index--) {
+    if (params.messages[index]?.role === "assistant") {
+      lastAssistantIndex = index
+      break
+    }
+  }
+  if (lastAssistantIndex === -1) {
+    return { messages: params.messages, fallbackPart: params.fallbackPart }
+  }
+
+  const lastAssistant = params.messages[lastAssistantIndex]
+  if (hasCodexPlanWritePart(lastAssistant)) {
+    return { messages: params.messages, fallbackPart: null }
+  }
+
+  const fallbackPart =
+    params.fallbackPart ||
+    buildFallbackPlanWritePart({
+      prompt: params.prompt,
+      text: getAssistantText(lastAssistant),
+    })
+  const updatedAssistant = {
+    ...lastAssistant,
+    parts: [...(lastAssistant.parts || []), fallbackPart],
+  }
+  const messages = [...params.messages]
+  messages[lastAssistantIndex] = updatedAssistant
+
+  return { messages, fallbackPart }
+}
+
+function isPlanWriteStreamChunk(chunk: any): boolean {
+  if (!chunk || typeof chunk !== "object") return false
+  const inputToolName =
+    typeof chunk.input?.toolName === "string" ? chunk.input.toolName : ""
+  return (
+    chunk.toolName === "PlanWrite" ||
+    inputToolName === "PlanWrite" ||
+    inputToolName.startsWith("PlanWrite ")
+  )
+}
+
 function buildCodexPlanTools(params: {
   subChatId: string
   safeEmit: (chunk: any) => void
@@ -2014,6 +2158,9 @@ export const codexRouter = router({
               abortSignal: abortController.signal,
             })
 
+            let sawPlanWriteInStream = false
+            let planWriteFallbackPart: any | null = null
+
             const uiStream = result.toUIMessageStream({
               originalMessages: messagesForStream,
               generateMessageId: () => crypto.randomUUID(),
@@ -2045,7 +2192,18 @@ export const codexRouter = router({
               onFinish: async ({ messages }) => {
                 try {
                   const usageMetadata = await resolveUsageOnce()
-                  const assistantIndexes = messages
+                  const messagesWithPlanFallback =
+                    input.mode === "plan"
+                      ? ensurePlanWriteForCodexPlanMode({
+                          messages,
+                          prompt: input.prompt,
+                          fallbackPart: planWriteFallbackPart,
+                        })
+                      : { messages, fallbackPart: null }
+
+                  planWriteFallbackPart = messagesWithPlanFallback.fallbackPart
+
+                  const assistantIndexes = messagesWithPlanFallback.messages
                     .map((message: any, index: number) =>
                       message?.role === "assistant" ? index : -1,
                     )
@@ -2053,7 +2211,7 @@ export const codexRouter = router({
                   const lastAssistantIndex =
                     assistantIndexes[assistantIndexes.length - 1]
 
-                  const cleanedMessages = messages
+                  const cleanedMessages = messagesWithPlanFallback.messages
                     .map((message: any, index: number) => {
                       const shouldAddUsage =
                         usageMetadata &&
@@ -2108,7 +2266,39 @@ export const codexRouter = router({
                 continue
               }
 
+              if (
+                input.mode === "plan" &&
+                value?.type === "tool-input-available" &&
+                isPlanWriteStreamChunk(value)
+              ) {
+                sawPlanWriteInStream = true
+              }
+
               safeEmit(value)
+            }
+
+            if (
+              input.mode === "plan" &&
+              !sawPlanWriteInStream &&
+              planWriteFallbackPart
+            ) {
+              safeEmit({
+                type: "tool-input-available",
+                toolCallId: planWriteFallbackPart.toolCallId,
+                toolName: "PlanWrite",
+                input: planWriteFallbackPart.input,
+                providerMetadata: {
+                  custom: {
+                    startedAt: planWriteFallbackPart.startedAt,
+                    synthesized: true,
+                  },
+                },
+              })
+              safeEmit({
+                type: "tool-output-available",
+                toolCallId: planWriteFallbackPart.toolCallId,
+                output: planWriteFallbackPart.output,
+              })
             }
 
             if (pendingFinishChunk) {
