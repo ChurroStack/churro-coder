@@ -124,6 +124,7 @@ import {
   pendingAuthRetryMessageAtom,
   pendingBuildPlanSubChatIdAtom,
   pendingConflictResolutionMessageAtom,
+  pendingContinueMessageAtom,
   pendingChatHistoryAtom,
   type PendingChatHistory,
   pendingMentionAtom,
@@ -2977,6 +2978,21 @@ export const ChatViewInner = memo(function ChatViewInner({
       })
     }
   }, [pendingMergeBaseMessage, isStreaming, sendMessage, setPendingMergeBaseMessage, subChatId])
+
+  // Watch for pending Continue message and send it
+  const [pendingContinueMessage, setPendingContinueMessage] = useAtom(
+    pendingContinueMessageAtom,
+  )
+
+  useEffect(() => {
+    if (pendingContinueMessage?.subChatId === subChatId && !isStreaming) {
+      setPendingContinueMessage(null)
+      sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: "Continue" }],
+      })
+    }
+  }, [pendingContinueMessage, isStreaming, sendMessage, setPendingContinueMessage, subChatId])
 
   // Handle pending "Build plan" from sidebar (atom - effect is defined after handleApprovePlan)
   const [pendingBuildPlanSubChatId, setPendingBuildPlanSubChatId] = useAtom(
