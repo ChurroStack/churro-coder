@@ -73,9 +73,20 @@
     </div>
     <script>
       console.log("[HTML] Inline script running - scripts work!");
+      window.__churroReactMounted = false;
       window.onerror = function(msg, url, line) {
         console.error("[HTML] Global error:", msg, "at", url, "line", line);
-        document.getElementById("root").innerHTML = "<pre style='color:red;padding:20px'>Error: " + msg + "</pre>";
+        // Pre-mount only: if React never got a chance to boot, swap in a
+        // fallback so users see something instead of a blank page. Once
+        // React has mounted, AppErrorBoundary owns recovery (auto-reloads
+        // once via sessionStorage flag) and we must NOT clobber the
+        // React DOM here, or the boundary can't run.
+        if (!window.__churroReactMounted) {
+          var root = document.getElementById("root");
+          if (root) {
+            root.innerHTML = "<pre style='color:red;padding:20px'>Error: " + msg + "</pre>";
+          }
+        }
       };
     </script>
     <script type="module" src="./main.tsx"></script>

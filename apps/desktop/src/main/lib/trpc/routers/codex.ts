@@ -1968,16 +1968,38 @@ function getFileChangePath(item: any): string {
   )
 }
 
+function parseDiffToLines(diff: string): string[] {
+  if (!diff) return []
+  const result: string[] = []
+  for (const line of diff.split("\n")) {
+    // Trailing-space form so a removed/added code line whose content
+    // starts with "---"/"+++" (e.g. removing a markdown HR "---" arrives
+    // as "----") is not misclassified as a header.
+    if (line.startsWith("--- ") || line.startsWith("+++ ")) continue
+    if (line.startsWith("@@")) continue
+    if (line.startsWith("diff ") || line.startsWith("index ")) continue
+    if (line.startsWith("\\ ")) continue
+    if (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) {
+      result.push(line)
+    }
+  }
+  return result
+}
+
 function toStructuredPatch(item: any): any[] {
   const changes = Array.isArray(item?.changes) ? item.changes : []
-  return changes.map((change: any) => ({
-    filePath:
-      getStringField(change, ["path", "filePath", "file_path"]) ||
-      getFileChangePath(item),
-    kind: change?.kind,
-    diff: typeof change?.diff === "string" ? change.diff : "",
-    status: item?.status,
-  }))
+  return changes.map((change: any) => {
+    const diff = typeof change?.diff === "string" ? change.diff : ""
+    return {
+      filePath:
+        getStringField(change, ["path", "filePath", "file_path"]) ||
+        getFileChangePath(item),
+      kind: change?.kind,
+      diff,
+      lines: parseDiffToLines(diff),
+      status: item?.status,
+    }
+  })
 }
 
 function createFileChangePart(item: any): any {

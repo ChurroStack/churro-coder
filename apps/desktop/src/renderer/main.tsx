@@ -41,5 +41,14 @@ window.onerror = (message, source, lineno, colno, error) => {
 const rootElement = document.getElementById("root")
 
 if (rootElement) {
-  ReactDOM.createRoot(rootElement).render(<App />)
+  ReactDOM.createRoot(rootElement, {
+    onRecoverableError: (error, errorInfo) => {
+      // React already routed this to AppErrorBoundary.componentDidCatch,
+      // which auto-reloads. Log here for dev visibility, but don't let
+      // React's default re-throw to window.onerror — the global handler
+      // in index.html would race the boundary's recovery.
+      console.error("[React] Recoverable error:", error, errorInfo)
+    },
+  }).render(<App />)
+  ;(window as unknown as { __churroReactMounted: boolean }).__churroReactMounted = true
 }

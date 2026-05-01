@@ -77,12 +77,13 @@ function calculateDiffStatsFromPatch(
 type DiffLine = { type: "added" | "removed" | "context"; content: string }
 
 // Get all diff lines from structuredPatch
-function getDiffLines(patches: Array<{ lines: string[] }>): DiffLine[] {
+function getDiffLines(patches: Array<{ lines?: string[] }>): DiffLine[] {
   const result: DiffLine[] = []
 
   if (!patches) return result
 
   for (const patch of patches) {
+    if (!patch.lines || !Array.isArray(patch.lines)) continue
     for (const line of patch.lines) {
       if (line.startsWith("+")) {
         result.push({ type: "added", content: line.slice(1) })
