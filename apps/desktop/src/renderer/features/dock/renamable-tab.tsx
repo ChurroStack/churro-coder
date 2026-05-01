@@ -22,7 +22,7 @@ import { getFileIconByExtension } from "../agents/mentions/agents-file-mention"
 import { requestArchiveChatTab } from "./chat-tab-archive"
 import { requestCloseTerminalTab } from "./terminal-tab-close"
 import { useStreamingStatusStore } from "../agents/stores/streaming-status-store"
-import { useChatAttentionStore } from "../agents/stores/chat-attention-store"
+import { useSubChatNeedsInput } from "../kanban/lib/use-sub-chat-status"
 
 /**
  * Default dockview tab component used by every panel kind. The body renders
@@ -278,18 +278,16 @@ function ChatTabIcon({ subChatId }: { subChatId: string | null }) {
   const status = useStreamingStatusStore((s) =>
     subChatId ? (s.statuses[subChatId] ?? "ready") : "ready"
   )
-  const attention = useChatAttentionStore((s) =>
-    subChatId ? s.flags[subChatId] : undefined
-  )
+  const needsInput = useSubChatNeedsInput(subChatId)
 
-  if (status === "streaming" || status === "submitted") {
-    return <Loader2 className="h-3 w-3 flex-shrink-0 text-primary animate-spin" />
-  }
-  if (attention) {
-    return <Hand className="h-3 w-3 flex-shrink-0 text-amber-500" />
-  }
   if (status === "error") {
     return <AlertCircle className="h-3 w-3 flex-shrink-0 text-destructive" />
+  }
+  if (needsInput) {
+    return <Hand className="h-3 w-3 flex-shrink-0 text-amber-500" />
+  }
+  if (status === "streaming" || status === "submitted") {
+    return <Loader2 className="h-3 w-3 flex-shrink-0 text-primary animate-spin" />
   }
   return <MessageSquare className="h-3 w-3 flex-shrink-0 opacity-70" />
 }

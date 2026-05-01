@@ -6,6 +6,11 @@ interface WorkspaceStatusDependencies {
   workspacesWithPendingApprovals: Set<string>
 }
 
+interface SubChatNeedsInputDependencies {
+  subChatsWithPendingQuestions: Set<string>
+  subChatsWithPendingPlanApprovals: Set<string>
+}
+
 export function deriveWorkspaceStatus(
   chatId: string,
   deps: WorkspaceStatusDependencies
@@ -24,4 +29,14 @@ export function deriveWorkspaceStatus(
 
   // 3. Done - everything else (workspaces are never "draft" - they always have at least one sub-chat)
   return "done"
+}
+
+export function isSubChatNeedingInput(
+  subChatId: string,
+  deps: SubChatNeedsInputDependencies
+): boolean {
+  return (
+    deps.subChatsWithPendingQuestions.has(subChatId) ||
+    deps.subChatsWithPendingPlanApprovals.has(subChatId)
+  )
 }

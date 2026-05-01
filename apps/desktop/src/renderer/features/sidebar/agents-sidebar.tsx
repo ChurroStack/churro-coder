@@ -99,6 +99,7 @@ import {
   justCreatedIdsAtom,
   undoStackAtom,
   pendingUserQuestionsAtom,
+  expiredUserQuestionsAtom,
   desktopViewAtom,
   type UndoItem,
 } from "../agents/atoms"
@@ -1336,6 +1337,7 @@ export function AgentsSidebar({
   const setDesktopView = useSetAtom(desktopViewAtom)
   const [loadingSubChats] = useAtom(loadingSubChatsAtom)
   const pendingQuestions = useAtomValue(pendingUserQuestionsAtom)
+  const expiredQuestions = useAtomValue(expiredUserQuestionsAtom)
   // Use ref instead of state to avoid re-renders on hover
   const isSidebarHoveredRef = useRef(false)
   const closeButtonRef = useRef<HTMLDivElement>(null)
@@ -2193,14 +2195,17 @@ export function AgentsSidebar({
     return chatIdsWithPendingPlans
   }, [pendingPlanApprovalsData])
 
-  // Get workspace IDs that have pending user questions
+  // Get workspace IDs that have pending user questions (active + expired-but-still-answerable)
   const workspacePendingQuestions = useMemo(() => {
     const chatIds = new Set<string>()
     for (const question of pendingQuestions.values()) {
       chatIds.add(question.parentChatId)
     }
+    for (const question of expiredQuestions.values()) {
+      chatIds.add(question.parentChatId)
+    }
     return chatIds
-  }, [pendingQuestions])
+  }, [pendingQuestions, expiredQuestions])
 
   const handleNewAgent = () => {
     triggerHaptic("light")
