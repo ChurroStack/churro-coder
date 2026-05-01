@@ -79,28 +79,29 @@ export function SettingsContent() {
   // Two-panel tabs need full width and height, no scroll wrapper
   const isTwoPanelTab = activeTab === "mcp" || activeTab === "skills" || activeTab === "agents" || activeTab === "projects" || activeTab === "keyboard" || activeTab === "plugins"
 
-  // Drag region for window — child buttons opt out via
-  // WebkitAppRegion: "no-drag" so clicks still register. min-h matches
-  // the sidebar's "Back" button row (px-2 pt-3 pb-2 + h-7 = 48px) so
-  // both halves of the settings view share a visually-aligned top bar
-  // even when AgentsHeaderControls renders nothing (sidebar open).
+  // Drag region for window — floats as an absolute overlay so it doesn't
+  // consume layout space. pointer-events:none lets clicks reach content
+  // beneath; the inner wrapper re-enables them for the sidebar button.
   const dragBar = (
     <div
-      className="flex-shrink-0 flex items-center px-2 pt-3 pb-2 min-h-12"
+      className="absolute inset-x-0 top-0 h-12 flex items-center px-2 z-10"
       style={{
         WebkitAppRegion: "drag",
-      }}
+        pointerEvents: "none",
+      } as React.CSSProperties}
     >
-      <AgentsHeaderControls
-        isSidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-      />
+      <div style={{ pointerEvents: "auto" }}>
+        <AgentsHeaderControls
+          isSidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        />
+      </div>
     </div>
   )
 
   if (isTwoPanelTab) {
     return (
-      <div className="h-full flex flex-col overflow-hidden">
+      <div className="relative h-full flex flex-col overflow-hidden">
         {dragBar}
         <div className="flex-1 min-h-0 overflow-hidden">
           {renderTabContent()}
@@ -110,7 +111,7 @@ export function SettingsContent() {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="relative h-full flex flex-col overflow-hidden">
       {dragBar}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-5xl mx-auto">
