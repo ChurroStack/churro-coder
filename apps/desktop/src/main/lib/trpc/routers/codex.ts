@@ -1450,15 +1450,22 @@ function buildFallbackPlanWritePart(params: {
 }): any {
   const now = Date.now()
   const toolCallId = `codex-planwrite-fallback-${now}-${Math.random().toString(36).slice(2, 8)}`
+  const requestSummary = params.prompt.trim().replace(/\s+/g, " ")
+  const shortRequest =
+    requestSummary.length > 140
+      ? `${requestSummary.slice(0, 137)}...`
+      : requestSummary
   const stepTitles = extractPlanStepTitles(params.text)
   const fallbackStepTitles =
     stepTitles.length > 0
       ? stepTitles
       : [
-          "Create the requested implementation in the project",
-          "Add the expected interaction and state handling",
-          "Keep the result self-contained and easy to run",
-          "Verify the behavior manually before reporting completion",
+          "Confirm the existing project structure and constraints",
+          shortRequest
+            ? `Implement the requested change: ${shortRequest}`
+            : "Implement the requested change",
+          "Add the expected interaction, state handling, and edge-case behavior",
+          "Verify the result through the relevant local run or manual check",
         ]
 
   const plan = normalizeCodexPlan(
@@ -1471,10 +1478,10 @@ function buildFallbackPlanWritePart(params: {
         }
       : {
           id: `plan-${now}`,
-          title: "Implementation plan",
+          title: shortRequest ? `Plan: ${shortRequest}` : "Implementation plan",
           summary:
             params.text.trim() ||
-            `Plan for: ${params.prompt.trim() || "the requested change"}`,
+            `Plan for: ${requestSummary || "the requested change"}`,
           status: "awaiting_approval",
           steps: fallbackStepTitles.map((title) => ({
             title,
@@ -1542,6 +1549,135 @@ function ensurePlanWriteForCodexPlanMode(params: {
   messages[lastAssistantIndex] = updatedAssistant
 
   return { messages, fallbackPart }
+}
+
+type CodexPlanStreamAccumulator = {
+  currentText: string
+  parts: any[]
+  toolPartsByCallId: Map<string, any>
+}
+
+function createCodexPlanStreamAccumulator(): CodexPlanStreamAccumulator {
+  return {
+    currentText: "",
+    parts: [],
+    toolPartsByCallId: new Map(),
+  }
+}
+
+function flushCodexPlanText(accumulator: CodexPlanStreamAccumulator) {
+  const text = accumulator.currentText.trim()
+  if (text) {
+    accumulator.parts.push({ type: "text", text })
+  }
+  accumulator.currentText = ""
+}
+
+function upsertCodexPlanToolPart(
+  accumulator: CodexPlanStreamAccumulator,
+  chunk: any,
+): any | null {
+  const toolCallId =
+    typeof chunk?.toolCallId === "string" ? chunk.toolCallId : ""
+  if (!toolCallId) return null
+
+  let part = accumulator.toolPartsByCallId.get(toolCallId)
+  if (!part) {
+    const toolName =
+      typeof chunk.toolName === "string" && chunk.toolName.length > 0
+        ? chunk.toolName
+        : "unknown"
+    part = {
+      type: `tool-${toolName}`,
+      toolCallId,
+      toolName,
+      state: "input-streaming",
+      startedAt: Date.now(),
+    }
+    accumulator.toolPartsByCallId.set(toolCallId, part)
+    accumulator.parts.push(part)
+  }
+
+  if (typeof chunk.toolName === "string" && chunk.toolName.length > 0) {
+    part.toolName = chunk.toolName
+    part.type = `tool-${chunk.toolName}`
+  }
+  if (chunk.input !== undefined) {
+    part.input = chunk.input
+  }
+  if (typeof chunk.title === "string" && chunk.title.length > 0) {
+    part.title = chunk.title
+  }
+
+  return part
+}
+
+function accumulateCodexPlanStreamChunk(
+  accumulator: CodexPlanStreamAccumulator,
+  chunk: any,
+) {
+  if (!chunk || typeof chunk !== "object") return
+
+  switch (chunk.type) {
+    case "text-delta":
+      accumulator.currentText += chunk.delta || ""
+      break
+    case "text-end":
+      flushCodexPlanText(accumulator)
+      break
+    case "tool-input-start": {
+      const part = upsertCodexPlanToolPart(accumulator, chunk)
+      if (part) part.state = "input-streaming"
+      break
+    }
+    case "tool-input-available": {
+      const part = upsertCodexPlanToolPart(accumulator, chunk)
+      if (part) part.state = "input-available"
+      break
+    }
+    case "tool-input-error": {
+      const part = upsertCodexPlanToolPart(accumulator, chunk)
+      if (part) {
+        part.state = "input-error"
+        part.errorText = chunk.errorText
+      }
+      break
+    }
+    case "tool-output-available": {
+      const part =
+        typeof chunk.toolCallId === "string"
+          ? accumulator.toolPartsByCallId.get(chunk.toolCallId)
+          : null
+      if (part) {
+        part.state = "output-available"
+        part.output = chunk.output
+        part.result = chunk.output
+      }
+      break
+    }
+    case "tool-output-error": {
+      const part =
+        typeof chunk.toolCallId === "string"
+          ? accumulator.toolPartsByCallId.get(chunk.toolCallId)
+          : null
+      if (part) {
+        part.state = "output-error"
+        part.errorText = chunk.errorText
+      }
+      break
+    }
+    case "tool-output-denied": {
+      const part =
+        typeof chunk.toolCallId === "string"
+          ? accumulator.toolPartsByCallId.get(chunk.toolCallId)
+          : null
+      if (part) {
+        part.state = "output-error"
+        part.errorText = "Tool output denied"
+      }
+      break
+    }
+  }
 }
 
 function buildCodexPlanTools(params: {
@@ -2197,7 +2333,10 @@ export const codexRouter = router({
                     "[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.",
                     "Read the codebase as needed using read-only tools.",
                     "If any high-impact requirement is ambiguous and cannot be resolved from the repository, call AskUserQuestion with concise multiple-choice follow-up questions before planning.",
-                    "When the plan is complete, call PlanWrite exactly once with action \"create\" and plan.status \"awaiting_approval\".",
+                    "A plan-mode turn is incomplete until PlanWrite succeeds. Do not stop after inspection or status text.",
+                    "When no clarification is needed, immediately call PlanWrite in this same turn.",
+                    "Call PlanWrite exactly once with action \"create\" and plan.status \"awaiting_approval\".",
+                    "PlanWrite input must include a concrete task-specific plan with title, summary, and pending steps. Include step descriptions and files when useful.",
                     "Do not write the final plan as plain text only, do not call PlanWrite more than once, and do not restate the plan after PlanWrite.",
                     "After PlanWrite, stop and wait for the user's approval before implementing anything.",
                   ].join("\n")
@@ -2233,6 +2372,58 @@ export const codexRouter = router({
             })
 
             let planWriteFallbackPart: any | null = null
+            let planWriteFallbackEmitted = false
+            let sawStreamError = false
+            const planStreamAccumulator =
+              input.mode === "plan"
+                ? createCodexPlanStreamAccumulator()
+                : null
+
+            const emitPlanWriteFallbackIfNeeded = () => {
+              if (
+                input.mode !== "plan" ||
+                !planStreamAccumulator ||
+                planWriteFallbackEmitted ||
+                sawStreamError
+              ) {
+                return
+              }
+
+              flushCodexPlanText(planStreamAccumulator)
+              const messagesWithPlanFallback = ensurePlanWriteForCodexPlanMode({
+                messages: [
+                  {
+                    id: "codex-plan-stream-accumulator",
+                    role: "assistant",
+                    parts: planStreamAccumulator.parts,
+                  },
+                ],
+                prompt: input.prompt,
+                fallbackPart: planWriteFallbackPart,
+              })
+
+              planWriteFallbackPart = messagesWithPlanFallback.fallbackPart
+              if (!planWriteFallbackPart) return
+
+              planWriteFallbackEmitted = true
+              safeEmit({
+                type: "tool-input-available",
+                toolCallId: planWriteFallbackPart.toolCallId,
+                toolName: "PlanWrite",
+                input: planWriteFallbackPart.input,
+                providerMetadata: {
+                  custom: {
+                    startedAt: planWriteFallbackPart.startedAt,
+                    synthesized: true,
+                  },
+                },
+              })
+              safeEmit({
+                type: "tool-output-available",
+                toolCallId: planWriteFallbackPart.toolCallId,
+                output: planWriteFallbackPart.output,
+              })
+            }
 
             const uiStream = result.toUIMessageStream({
               originalMessages: messagesForStream,
@@ -2324,6 +2515,7 @@ export const codexRouter = router({
               if (done) break
 
               if (value?.type === "error") {
+                sawStreamError = true
                 const normalized = extractCodexError(value)
 
                 if (isCodexAuthError(normalized)) {
@@ -2334,7 +2526,19 @@ export const codexRouter = router({
                 continue
               }
 
+              if (value?.type === "abort") {
+                sawStreamError = true
+              }
+
+              if (planStreamAccumulator) {
+                accumulateCodexPlanStreamChunk(planStreamAccumulator, value)
+              }
+
               if (value?.type === "finish") {
+                if (value.finishReason === "error") {
+                  sawStreamError = true
+                }
+                emitPlanWriteFallbackIfNeeded()
                 pendingFinishChunk = value
                 continue
               }
@@ -2342,27 +2546,8 @@ export const codexRouter = router({
               safeEmit(value)
             }
 
-            if (
-              input.mode === "plan" &&
-              planWriteFallbackPart
-            ) {
-              safeEmit({
-                type: "tool-input-available",
-                toolCallId: planWriteFallbackPart.toolCallId,
-                toolName: "PlanWrite",
-                input: planWriteFallbackPart.input,
-                providerMetadata: {
-                  custom: {
-                    startedAt: planWriteFallbackPart.startedAt,
-                    synthesized: true,
-                  },
-                },
-              })
-              safeEmit({
-                type: "tool-output-available",
-                toolCallId: planWriteFallbackPart.toolCallId,
-                output: planWriteFallbackPart.output,
-              })
+            if (input.mode === "plan") {
+              emitPlanWriteFallbackIfNeeded()
             }
 
             if (pendingFinishChunk) {
