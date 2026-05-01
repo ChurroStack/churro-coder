@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DockviewApi } from "dockview-react"
 import { cn } from "../../lib/utils"
 import { DockShell } from "./dock-shell"
@@ -9,6 +9,7 @@ import {
   captureDock,
   tryRestoreDock,
 } from "./persistence"
+import { DockWorkspaceProvider } from "./workspace-context"
 
 export interface WorkspaceDockShellProps {
   /** The workspace this shell renders. Drives the persisted dock-layout
@@ -48,6 +49,10 @@ export function WorkspaceDockShell({
   onDockApiDisposed,
 }: WorkspaceDockShellProps) {
   const [dockApi, setDockApi] = useState<DockviewApi | null>(null)
+  const workspaceContext = useMemo(
+    () => ({ workspaceId, active }),
+    [workspaceId, active],
+  )
   // Pin our own workspaceId for the saver's closure — guards against the
   // case where someone changes workspaceId for an existing instance (we
   // don't, but cheaper than reasoning about it).
@@ -114,25 +119,27 @@ export function WorkspaceDockShell({
   }, [])
 
   return (
-    <div
-      className={cn(
-        "absolute inset-0",
-        active
-          ? "opacity-100 pointer-events-auto z-[1]"
-          : "opacity-0 pointer-events-none z-0",
-      )}
-      // `display: none` would stop dockview's ResizeObserver from firing
-      // and leave the panel frozen at zero size. Keeping it laid out but
-      // invisible means it picks up resizes and is ready to show instantly
-      // when the user switches back.
-      aria-hidden={!active}
-    >
-      <DockShell onApiReady={handleReady} className="h-full w-full" />
-      <ChatPanelSync
-        workspaceId={workspaceId}
-        active={active}
-        dockApi={dockApi}
-      />
-    </div>
+    <DockWorkspaceProvider value={workspaceContext}>
+      <div
+        className={cn(
+          "absolute inset-0",
+          active
+            ? "opacity-100 pointer-events-auto z-[1]"
+            : "opacity-0 pointer-events-none z-0",
+        )}
+        // `display: none` would stop dockview's ResizeObserver from firing
+        // and leave the panel frozen at zero size. Keeping it laid out but
+        // invisible means it picks up resizes and is ready to show instantly
+        // when the user switches back.
+        aria-hidden={!active}
+      >
+        <DockShell onApiReady={handleReady} className="h-full w-full" />
+        <ChatPanelSync
+          workspaceId={workspaceId}
+          active={active}
+          dockApi={dockApi}
+        />
+      </div>
+    </DockWorkspaceProvider>
   )
 }

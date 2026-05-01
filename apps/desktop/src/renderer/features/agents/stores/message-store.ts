@@ -790,37 +790,48 @@ export const messageTokenDataAtom = atom((get) => {
 // Track previous message state to detect changes
 // Key format: "subChatId:msgId" to isolate per chat
 //
-// NOTE: This is a simplified change detection optimized for streaming performance.
-// It only checks the LAST part (partsLength + lastPartText + lastPartState).
-// During streaming, only the last part changes, so this is sufficient and fast.
-//
-// Compare with messages-list.tsx which uses a more thorough check (all parts'
-// textLengths[] and partStates[]) for useSyncExternalStore. That approach is
-// more comprehensive but slightly slower. Both are correct for their use cases:
-// - This (message-store): Jotai atom updates during high-frequency streaming
-// - messages-list.tsx: External store subscription for React render triggering
+// NOTE: AI SDK can mutate message objects and parts in place during streaming.
+// This snapshot intentionally tracks all parts instead of relying on the
+// message/parts array reference, so callers can safely invoke sync on every
+// render without losing realtime text/tool deltas.
 const previousMessageState = new Map<string, {
   partsLength: number
-  lastPartText: string | undefined
-  lastPartState: string | undefined
-  lastPartInputJson: string | undefined
+  partsSignature: string
   metadataJson: string | undefined
 }>()
+
+function safeJsonSignature(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function getPartSignature(part: any): string {
+  return [
+    part?.type,
+    part?.state,
+    part?.text,
+    part?.toolCallId,
+    safeJsonSignature(part?.input),
+    safeJsonSignature(part?.output),
+    part?.errorText,
+  ].map((value) => value ?? "").join("\u0001")
+}
 
 function hasMessageChanged(subChatId: string, msgId: string, msg: Message): boolean {
   const cacheKey = `${subChatId}:${msgId}`
   const prev = previousMessageState.get(cacheKey)
   const parts = msg.parts || []
-  const lastPart = parts[parts.length - 1]
 
   const current = {
     partsLength: parts.length,
-    lastPartText: lastPart?.text,
-    lastPartState: lastPart?.state,
-    lastPartInputJson: lastPart?.input ? JSON.stringify(lastPart.input) : undefined,
+    partsSignature: parts.map(getPartSignature).join("\u0002"),
     // Include metadata in change detection to ensure token usage, costs, etc.
     // appear after stream completion (fixes race condition on fast streams)
-    metadataJson: msg.metadata ? JSON.stringify(msg.metadata) : undefined,
+    metadataJson: safeJsonSignature(msg.metadata),
   }
 
   if (!prev) {
@@ -830,9 +841,7 @@ function hasMessageChanged(subChatId: string, msgId: string, msg: Message): bool
 
   const changed =
     prev.partsLength !== current.partsLength ||
-    prev.lastPartText !== current.lastPartText ||
-    prev.lastPartState !== current.lastPartState ||
-    prev.lastPartInputJson !== current.lastPartInputJson ||
+    prev.partsSignature !== current.partsSignature ||
     prev.metadataJson !== current.metadataJson
 
   if (changed) {
@@ -937,17 +946,13 @@ export const syncMessagesWithStatusAtom = atom(
     // 1. msg object itself is mutated in-place
     // 2. msg.parts array is mutated in-place
     // 3. Individual part objects inside parts are mutated in-place
-    const lastMessageId = newIds[newIds.length - 1] ?? null
     for (const msg of messages) {
       const messageKey = getPerChatMessageKey(currentSubChatId, msg.id)
       const currentAtomValue = get(messageAtomFamily(messageKey))
       const msgChanged = hasMessageChanged(currentSubChatId, msg.id, msg)
-      const isLastMessage = msg.id === lastMessageId
 
       // CRITICAL FIX: Also update if atom is null (not yet populated)
-      // Always refresh the last message because AI SDK can mutate non-last parts
-      // of the current streaming assistant message without changing the last part.
-      if (msgChanged || !currentAtomValue || isLastMessage) {
+      if (msgChanged || !currentAtomValue) {
         // Deep clone message with new parts array and new part objects
         const clonedMsg = {
           ...msg,

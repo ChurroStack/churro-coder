@@ -5,6 +5,7 @@ import { AgentsContent } from "../../agents/ui/agents-content"
 import { selectedAgentChatIdAtom } from "../../agents/atoms"
 import { appStore } from "../../../lib/jotai-store"
 import type { ChatPanelEntity } from "../atoms"
+import { useDockWorkspace } from "../workspace-context"
 
 /**
  * ChatPanel — one dockview tab per open sub-chat. Each tab carries
@@ -25,13 +26,9 @@ import type { ChatPanelEntity } from "../atoms"
  * that's what the right-rail widgets / hotkeys treat as "the chat the
  * user is currently looking at".
  *
- * ChatView reads `activeSubChatId` from the store and renders the matching
- * sub-chat. So when both panels are visible, both mount AgentsContent →
- * both ChatView instances render. ChatView keys its body by
- * `activeSubChatId`, so each instance ends up showing the same sub-chat
- * when the global active changes — but each panel's PromptInput / scroll
- * position / chat header remains distinct because the underlying message
- * streams live in agentChatStore (Zustand) keyed by subChatId.
+ * ChatPanel passes its own sub-chat id through to ChatView, so each visible
+ * split pane renders its own conversation while only the focused panel writes
+ * global active-chat state.
  *
  * The opposite direction (store openSubChatIds → dockview) lives in
  * [chat-panel-sync.tsx].
@@ -42,6 +39,7 @@ export function ChatPanel({
 }: IDockviewPanelProps<ChatPanelEntity>) {
   const [isVisible, setIsVisible] = useState(api.isVisible)
   const [isActive, setIsActive] = useState(api.isActive)
+  const { active: isWorkspaceActive } = useDockWorkspace()
   const setActiveSubChat = useAgentSubChatStore((s) => s.setActiveSubChat)
   const allSubChats = useAgentSubChatStore((s) => s.allSubChats)
 
@@ -70,19 +68,16 @@ export function ChatPanel({
   // they'd race to write the global `activeSubChatId`. Only the
   // currently-selected workspace's chat panels should claim focus.
   //
-  // The workspace check reads `selectedAgentChatIdAtom` via
-  // `appStore.get` instead of `useAtomValue` — subscribing would make
-  // ChatPanel re-render on every workspace switch and ripple through
-  // the entire AgentsContent → ChatView subtree, which (in dev) tripped
-  // an infinite render loop in Radix's composeRefs in dock-header
-  // dropdown buttons. Reading at fire-time keeps the gate honest
-  // without the subscription cost.
+  // The workspace id check still reads `selectedAgentChatIdAtom` via
+  // `appStore.get` instead of `useAtomValue`; workspace visibility is
+  // delivered by WorkspaceDockShell context, while the selected-id read
+  // remains a fire-time guard against stale panel events.
   useEffect(() => {
-    if (!isActive) return
+    if (!isWorkspaceActive || !isActive) return
     const selectedWorkspaceId = appStore.get(selectedAgentChatIdAtom)
     if (params.chatId !== selectedWorkspaceId) return
     setActiveSubChat(params.subChatId)
-  }, [isActive, params.chatId, params.subChatId, setActiveSubChat])
+  }, [isWorkspaceActive, isActive, params.chatId, params.subChatId, setActiveSubChat])
 
   // Keep the dockview tab title in sync with the sub-chat's display name.
   // The store's allSubChats array is the source of truth for names.
@@ -108,7 +103,14 @@ export function ChatPanel({
         contain: "layout style paint",
       }}
     >
-      {isVisible ? <AgentsContent subChatIdOverride={params.subChatId} /> : null}
+      {isVisible ? (
+        <AgentsContent
+          subChatIdOverride={params.subChatId}
+          dockWorkspaceActive={isWorkspaceActive}
+          dockPanelVisible={isVisible}
+          dockPanelActive={isActive}
+        />
+      ) : null}
     </div>
   )
 }
