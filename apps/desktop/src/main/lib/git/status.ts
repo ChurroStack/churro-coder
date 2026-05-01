@@ -90,6 +90,7 @@ export const createStatusRouter = () => {
 					pushCount: trackingStatus.pushCount,
 					pullCount: trackingStatus.pullCount,
 					hasUpstream: trackingStatus.hasUpstream,
+					hasRemote: trackingStatus.hasRemote,
 				};
 
 				// Store in cache
@@ -307,6 +308,7 @@ interface TrackingStatus {
 	pushCount: number;
 	pullCount: number;
 	hasUpstream: boolean;
+	hasRemote: boolean;
 }
 
 async function getTrackingBranchStatus(
@@ -326,9 +328,17 @@ async function getTrackingBranchStatus(
 			pushCount: Number.parseInt(pushStr || "0", 10),
 			pullCount: Number.parseInt(pullStr || "0", 10),
 			hasUpstream: true,
+			hasRemote: true, // upstream implies a remote exists
 		};
 	} catch {
-		// No upstream branch configured
-		return { pushCount: 0, pullCount: 0, hasUpstream: false };
+		// No upstream branch configured; check if any remote is present
+		let hasRemote = false;
+		try {
+			const remotes = await git.getRemotes();
+			hasRemote = remotes.length > 0;
+		} catch {
+			// git getRemotes failed (e.g. no commits yet) — assume no remote
+		}
+		return { pushCount: 0, pullCount: 0, hasUpstream: false, hasRemote };
 	}
 }

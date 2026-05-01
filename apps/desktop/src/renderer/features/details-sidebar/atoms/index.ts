@@ -11,6 +11,7 @@ import {
   GitPullRequest,
   Activity,
   PlayCircle,
+  Workflow,
 } from "lucide-react"
 import { OriginalMCPIcon } from "../../../components/ui/icons"
 
@@ -18,7 +19,7 @@ import { OriginalMCPIcon } from "../../../components/ui/icons"
 // Widget System Types & Registry
 // ============================================================================
 
-export type WidgetId = "info" | "tasks" | "todo" | "plan" | "terminal" | "diff" | "mcp" | "pr" | "scripts"
+export type WidgetId = "status" | "info" | "tasks" | "todo" | "plan" | "terminal" | "diff" | "mcp" | "pr" | "scripts"
 
 export interface WidgetConfig {
   id: WidgetId
@@ -29,6 +30,7 @@ export interface WidgetConfig {
 }
 
 export const WIDGET_REGISTRY: WidgetConfig[] = [
+  { id: "status", label: "Status", icon: Workflow, canExpand: false, defaultVisible: true },
   { id: "info", label: "Workspace", icon: Box, canExpand: false, defaultVisible: true },
   { id: "pr", label: "Pull Request", icon: GitPullRequest, canExpand: false, defaultVisible: false },
   { id: "tasks", label: "Tasks", icon: Activity, canExpand: false, defaultVisible: true },
@@ -211,6 +213,83 @@ export const fileTreeExpandedAtomFamily = atomFamily((worktreePath: string) =>
         ...current,
         [worktreePath]: paths,
       })
+    },
+  ),
+)
+
+// ============================================================================
+// Status widget — per-subChat workflow tracking
+// ============================================================================
+
+// User clicked Review (local) and the diff-sidebar opened — flip to "done" so
+// the Review milestone goes green even without a PR.
+const localReviewCompletedStorageAtom = atomWithStorage<Record<string, boolean>>(
+  "overview:localReviewCompleted",
+  {},
+  undefined,
+  { getOnInit: true },
+)
+
+export const localReviewCompletedAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) => get(localReviewCompletedStorageAtom)[subChatId] ?? false,
+    (get, set, value: boolean) => {
+      const current = get(localReviewCompletedStorageAtom)
+      set(localReviewCompletedStorageAtom, { ...current, [subChatId]: value })
+    },
+  ),
+)
+
+// True once a plan was generated for this subChat (drives Plan = "done" after
+// the user approves the plan and we flip the chat into agent mode).
+const planEverGeneratedStorageAtom = atomWithStorage<Record<string, boolean>>(
+  "overview:planEverGenerated",
+  {},
+  undefined,
+  { getOnInit: true },
+)
+
+export const planEverGeneratedAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) => get(planEverGeneratedStorageAtom)[subChatId] ?? false,
+    (get, set, value: boolean) => {
+      const current = get(planEverGeneratedStorageAtom)
+      set(planEverGeneratedStorageAtom, { ...current, [subChatId]: value })
+    },
+  ),
+)
+
+// Persisted flag: plan is awaiting approval for this subChat.
+// Set when ExitPlanMode/PlanWrite is detected; cleared when the plan is approved
+// (mode transitions plan→agent). Survives app restarts so the state machine
+// doesn't advance to Code before the user approves.
+const planPendingStorageAtom = atomWithStorage<Record<string, boolean>>(
+  "overview:planPending",
+  {},
+  undefined,
+  { getOnInit: true },
+)
+
+export const planPendingAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) => get(planPendingStorageAtom)[subChatId] ?? false,
+    (get, set, value: boolean) => {
+      const current = get(planPendingStorageAtom)
+      set(planPendingStorageAtom, { ...current, [subChatId]: value })
+    },
+  ),
+)
+
+// Optimistic spinner while AI is creating a PR (cleared once the PR shows up
+// in getPrStatus). In-memory only — survives page navigation but not reloads.
+const prCreatingStorageAtom = atom<Record<string, boolean>>({})
+
+export const prCreatingAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) => get(prCreatingStorageAtom)[subChatId] ?? false,
+    (get, set, value: boolean) => {
+      const current = get(prCreatingStorageAtom)
+      set(prCreatingStorageAtom, { ...current, [subChatId]: value })
     },
   ),
 )

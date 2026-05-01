@@ -17,6 +17,11 @@ import { useCommitActions } from "../changes/components/commit-input"
 import { usePushAction } from "../changes/hooks/use-push-action"
 import { useDockApi } from "../dock/dock-context"
 import { addOrFocus } from "../dock/add-or-focus"
+import {
+  useWorkflowActions,
+  useWorkflowState,
+} from "../agents/hooks/use-workflow-state"
+import type { WorkflowActionKind } from "../agents/utils/workflow-state"
 
 /**
  * DetailsRail — gridview right cell. Lifts DetailsSidebar out of ChatView so
@@ -135,6 +140,27 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     [dockApi],
   )
 
+  // Status widget — workflow state + dispatch
+  const workflow = useWorkflowState(chatId, activeSubChatId ?? null)
+  const { dispatch: dispatchWorkflowAction, pushDialog } = useWorkflowActions(
+    chatId,
+    activeSubChatId ?? null,
+  )
+  const handleWorkflowAction = useCallback(
+    (kind: WorkflowActionKind) => {
+      // For expandPlan, also bring the chat panel into focus so the user sees
+      // the plan content and Approve button (not just the sidebar widget opening).
+      if (kind === "expandPlan" && dockApi && activeSubChatId) {
+        dockApi.getPanel(`chat:${activeSubChatId}`)?.api.setActive()
+      }
+      void dispatchWorkflowAction(kind)
+    },
+    [dispatchWorkflowAction, dockApi, activeSubChatId],
+  )
+  const handlePrReview = useCallback(() => {
+    void dispatchWorkflowAction("reviewPr")
+  }, [dispatchWorkflowAction])
+
   // Without a chat there's nothing to render.
   if (!chatId) {
     return (
@@ -189,7 +215,11 @@ export function DetailsRail(_props: IGridviewPanelProps) {
           onOpenFile={handleOpenFile}
           remoteInfo={remoteInfo}
           isRemoteChat={!!remoteInfo}
+          workflow={workflow}
+          onWorkflowAction={handleWorkflowAction}
+          onPrReview={handlePrReview}
         />
+        {pushDialog}
       </div>
     </div>
   )

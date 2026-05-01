@@ -1573,6 +1573,24 @@ export const chatsRouter = router({
 
       const status = await fetchPRStatus(chat.worktreePath)
 
+      // Compute how many commits the current branch is behind its base branch
+      // (e.g. main). Used by the Status widget to flag "Base branch has new
+      // commits" before the PR is created. Falls back to 0 when the remote ref
+      // does not exist (e.g. base branch never pushed).
+      let baseBranchBehind = 0
+      try {
+        const git = simpleGit(chat.worktreePath)
+        const baseBranch = chat.baseBranch || "main"
+        const out = await git.raw([
+          "rev-list",
+          "--count",
+          `HEAD..origin/${baseBranch}`,
+        ])
+        baseBranchBehind = Number.parseInt(out.trim(), 10) || 0
+      } catch {
+        baseBranchBehind = 0
+      }
+
       // Back-fill DB so the sidebar badge can render from cached fields
       const pr = status?.pr
       const nextNumber = pr?.number ?? null
@@ -1588,7 +1606,10 @@ export const chatsRouter = router({
         }
       }
 
-      return status
+      if (status === null) {
+        return null
+      }
+      return { ...status, baseBranchBehind }
     }),
 
   /**
