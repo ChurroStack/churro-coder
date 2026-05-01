@@ -1,6 +1,6 @@
 /**
  * CLI command support for cscode
- * Allows users to open CS Coder from terminal with: cscode . or cscode /path/to/project
+ * Allows users to open Churro Coder from terminal with: cscode . or cscode /path/to/project
  *
  * Based on PR #16 by @caffeinum (Aleksey Bykhun)
  * https://github.com/21st-dev/1code/pull/16

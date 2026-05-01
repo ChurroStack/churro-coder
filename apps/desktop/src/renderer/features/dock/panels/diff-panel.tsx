@@ -273,11 +273,10 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
     if (!chatId) return
     setIsReviewing(true)
     try {
-      const context = await trpcClient.chats.getPrContext.query({ chatId })
-      if (!context) {
-        toast.error("Could not get git context", { position: "top-center" })
-        return
-      }
+      // Switch the sub-chat to the configured Review-mode model + thinking
+      // FIRST, synchronously, before any await yields the event loop. This
+      // guarantees the model is in place by the time the transport reads it
+      // (transport reads `subChatModelIdAtomFamily` at send time).
       const subChatStore = useAgentSubChatStore.getState()
       const activeSubChatId = subChatStore.activeSubChatId
       if (!activeSubChatId) {
@@ -286,6 +285,12 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       }
       subChatStore.addToOpenSubChats(activeSubChatId)
       applyModeDefaultModel(activeSubChatId, "review")
+
+      const context = await trpcClient.chats.getPrContext.query({ chatId })
+      if (!context) {
+        toast.error("Could not get git context", { position: "top-center" })
+        return
+      }
       // Honor the Scoped/All toggle: pass the filtered file list when set.
       const scopedFiles = filteredSubChatIdValue
         ? (subChatFiles.get(filteredSubChatIdValue) ?? [])
@@ -409,15 +414,24 @@ Make sure to preserve all functionality from both branches when resolving confli
       <DiffSidebarHeader
         worktreePath={worktreePath}
         currentBranch={branchData?.current ?? ""}
-        diffStats={
-          cache.diffStats ?? {
+        diffStats={(() => {
+          // hasChanges from the in-memory diff cache resets on reload.
+          // Supplement with git status so the Review button stays visible
+          // whenever there are staged/unstaged/untracked files or unpushed commits.
+          const gitHasChanges =
+            (gitStatus?.staged.length ?? 0) +
+            (gitStatus?.unstaged.length ?? 0) +
+            (gitStatus?.untracked.length ?? 0) +
+            (gitStatus?.ahead ?? 0) > 0
+          const base = cache.diffStats ?? {
             isLoading: false,
             hasChanges: false,
             fileCount: 0,
             additions: 0,
             deletions: 0,
           }
-        }
+          return { ...base, hasChanges: base.hasChanges || gitHasChanges }
+        })()}
         sidebarWidth={typeof window !== "undefined" ? window.innerWidth : 1200}
         pushCount={gitStatus?.pushCount ?? 0}
         pullCount={gitStatus?.pullCount ?? 0}

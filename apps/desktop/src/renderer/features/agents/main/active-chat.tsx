@@ -127,6 +127,7 @@ import {
   pendingChatHistoryAtom,
   type PendingChatHistory,
   pendingMentionAtom,
+  pendingMergeBaseMessageAtom,
   pendingPlanApprovalsAtom,
   pendingPrMessageAtom,
   pendingReviewMessageAtom,
@@ -232,6 +233,13 @@ import { QuickCommentInput } from "../ui/quick-comment-input"
 // [chat-panel.tsx]). The component file is kept because the agents-subchats
 // sidebar still uses parts of its rename/context-menu UX.
 import { SubChatStatusCard } from "../ui/sub-chat-status-card"
+import {
+  useWorkflowActions,
+  useWorkflowState,
+} from "../hooks/use-workflow-state"
+import type { WorkflowActionKind } from "../utils/workflow-state"
+import { useDockApi } from "../../dock/dock-context"
+import { addOrFocus } from "../../dock/add-or-focus"
 // SplitViewContainer / SplitDropZone removed — dockview groups now own
 // multi-pane chat layout. Drag a chat tab to a group's edge to split.
 import { TextSelectionPopover } from "../ui/text-selection-popover"
@@ -2868,6 +2876,33 @@ export const ChatViewInner = memo(function ChatViewInner({
     }
   }, [isStreaming, subChatId, setLoadingSubChats])
 
+  // Workflow state for the notch (Status widget reuses the same hook in
+  // details-rail). Computed here so the chip text + primary action button
+  // mirror what the sidebar shows.
+  const workflow = useWorkflowState(parentChatId, subChatId)
+  const { dispatch: dispatchWorkflowAction, pushDialog: workflowPushDialog } =
+    useWorkflowActions(parentChatId, subChatId)
+  // For "View plan": open the plan as a full dockview panel (mirrors the
+  // sidebar PlanWidget's "View plan" button). `addOrFocus` is idempotent —
+  // if the panel is already open it just brings it to the front.
+  const dockApiForPlan = useDockApi()
+  const currentPlanPathForNotch = useAtomValue(currentPlanPathAtomFamily(subChatId))
+  const handleNotchWorkflowAction = useCallback(
+    (kind: WorkflowActionKind) => {
+      if (kind === "expandPlan") {
+        if (dockApiForPlan && currentPlanPathForNotch) {
+          addOrFocus(dockApiForPlan, {
+            kind: "plan",
+            data: { chatId: subChatId, planPath: currentPlanPathForNotch },
+          })
+        }
+        return
+      }
+      void dispatchWorkflowAction(kind)
+    },
+    [dispatchWorkflowAction, dockApiForPlan, currentPlanPathForNotch, subChatId],
+  )
+
   // Watch for pending PR message and send it
   const [pendingPrMessage, setPendingPrMessage] = useAtom(pendingPrMessageAtom)
 
@@ -2927,6 +2962,21 @@ export const ChatViewInner = memo(function ChatViewInner({
       })
     }
   }, [pendingConflictMessage, isStreaming, sendMessage, setPendingConflictMessage, subChatId])
+
+  // Watch for pending merge-base message and send it (Status widget action)
+  const [pendingMergeBaseMessage, setPendingMergeBaseMessage] = useAtom(
+    pendingMergeBaseMessageAtom,
+  )
+
+  useEffect(() => {
+    if (pendingMergeBaseMessage?.subChatId === subChatId && !isStreaming) {
+      setPendingMergeBaseMessage(null)
+      sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: pendingMergeBaseMessage.message }],
+      })
+    }
+  }, [pendingMergeBaseMessage, isStreaming, sendMessage, setPendingMergeBaseMessage, subChatId])
 
   // Handle pending "Build plan" from sidebar (atom - effect is defined after handleApprovePlan)
   const [pendingBuildPlanSubChatId, setPendingBuildPlanSubChatId] = useAtom(
@@ -4930,7 +4980,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Calculate top offset for search bar based on sub-chat selector
   const searchBarTopOffset = isSubChatsSidebarOpen ? "52px" : undefined
   const shouldShowStatusCard =
-    isStreaming || isCompacting || changedFilesForSubChat.length > 0
+    isStreaming || isCompacting || changedFilesForSubChat.length > 0 || !!workflow?.next
   const shouldShowStackedCards =
     !displayQuestions && (queue.length > 0 || shouldShowStatusCard)
   const handleInputProviderChange = useCallback(
@@ -5188,11 +5238,16 @@ export const ChatViewInner = memo(function ChatViewInner({
                   worktreePath={projectPath}
                   onStop={handleStop}
                   hasQueueCardAbove={queue.length > 0}
+                  workflow={workflow}
+                  onWorkflowAction={handleNotchWorkflowAction}
                 />
               )}
             </div>
           </div>
         )}
+
+      {/* Push dialog (mounts when a workflow push action hits REMOTE_AHEAD) */}
+      {workflowPushDialog}
 
       {/* Input - isolated component to prevent re-renders */}
       <ChatInputArea
@@ -6560,17 +6615,18 @@ export function ChatView({
 
     setIsReviewing(true)
     try {
+      // Switch the sub-chat to the configured Review-mode model + thinking
+      // FIRST, synchronously, before any await yields the event loop. This
+      // guarantees the model is in place by the time the transport reads it.
+      if (activeSubChatId) {
+        applyModeDefaultModel(activeSubChatId, "review")
+      }
+
       // Get PR context from backend
       const context = await trpcClient.chats.getPrContext.query({ chatId })
       if (!context) {
         toast.error("Could not get git context", { position: "top-center" })
         return
-      }
-
-      // Switch the sub-chat to the configured Review-mode model + thinking
-      // before sending, mirroring the /review slash-command path.
-      if (activeSubChatId) {
-        applyModeDefaultModel(activeSubChatId, "review")
       }
 
       // Honor the Scoped/All toggle in the Changes panel: if a sub-chat

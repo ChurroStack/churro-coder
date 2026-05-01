@@ -524,8 +524,11 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 					WebkitAppRegion: "no-drag",
 				}}
 			>
-				{/* Review button - visible when there's enough space */}
-				{showReviewButton && diffStats.hasChanges && onReview && (
+				{/* Review button - visible whenever an onReview handler is provided.
+				    Don't gate on `diffStats.hasChanges` — the in-memory diff cache
+				    resets on reload, and untracked files in a fresh repo show no
+				    cached diff but are still reviewable. */}
+				{showReviewButton && onReview && (
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button
@@ -863,8 +866,8 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end" className="w-48">
-						{/* Review - shown here when button is hidden */}
-						{!showReviewButton && diffStats.hasChanges && onReview && (
+						{/* Review - shown here when the inline button is hidden (narrow panel) */}
+						{!showReviewButton && onReview && (
 							<DropdownMenuItem
 								onClick={onReview}
 								disabled={isReviewing}
@@ -876,7 +879,7 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 						)}
 
 						{/* Separator only if we have hidden review above */}
-						{(!showReviewButton && diffStats.hasChanges && onReview) && (
+						{(!showReviewButton && onReview) && (
 							<DropdownMenuSeparator />
 						)}
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # cscode CLI launcher
-# Opens CS Coder app with the specified directory
+# Opens Churro Coder app with the specified directory
 
 # Resolve the directory argument (default to current directory)
 DIR="${1:-.}"
@@ -15,5 +15,5 @@ if [ -z "$DIR" ] || [ ! -d "$DIR" ]; then
   exit 1
 fi
 
-# Open CS Coder app with the directory argument
-open -a "CS Coder" --args "$DIR"
+# Open Churro Coder app with the directory argument
+open -a "Churro Coder" --args "$DIR"

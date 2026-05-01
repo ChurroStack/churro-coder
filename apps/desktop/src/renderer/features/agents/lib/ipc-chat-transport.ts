@@ -96,7 +96,7 @@ const ERROR_TOAST_CONFIG: Record<
   EXECUTABLE_NOT_FOUND: {
     title: "Claude binary missing",
     description:
-      "The bundled Claude binary could not be found. Reinstalling CS Coder should restore it.",
+      "The bundled Claude binary could not be found. Reinstalling Churro Coder should restore it.",
   },
   NETWORK_ERROR: {
     title: "Network error",

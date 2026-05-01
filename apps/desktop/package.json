@@ -2,7 +2,7 @@
   "name": "cscode-desktop",
   "version": "1.0.0-aletc1",
   "private": true,
-  "description": "CS Coder - UI for parallel work with AI agents",
+  "description": "Churro Coder - UI for parallel work with AI agents",
   "homepage": "https://www.churrostack.com",
   "author": {
     "name": "ChurroStack",
@@ -139,11 +139,11 @@
   },
   "build": {
     "appId": "com.churrostack.code",
-    "productName": "CS Coder",
+    "productName": "Churro Coder",
     "npmRebuild": true,
     "protocols": [
       {
-        "name": "CS Coder",
+        "name": "Churro Coder",
         "schemes": [
           "cscode"
         ]
@@ -207,7 +207,7 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "CS Coder needs microphone access for voice dictation"
+        "NSMicrophoneUsageDescription": "Churro Coder needs microphone access for voice dictation"
       }
     },
     "dmg": {

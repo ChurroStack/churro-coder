@@ -26,6 +26,9 @@ import { PrCommentsList } from "./pr-comments-section"
 
 interface PrWidgetProps {
   chatId: string
+  /** Click handler for the "Review pending" / "Changes requested" line.
+   *  Wired from DetailsSidebar to launch the PR-flow review (`/review <PR#>`). */
+  onReviewClick?: () => void
 }
 
 type ReviewDecision = "approved" | "changes_requested" | "pending"
@@ -50,7 +53,7 @@ function stateLabel(state: string, isDraft?: boolean): string {
   return "Open"
 }
 
-export const PrWidget = memo(function PrWidget({ chatId }: PrWidgetProps) {
+export const PrWidget = memo(function PrWidget({ chatId, onReviewClick }: PrWidgetProps) {
   const { data: status, isLoading } = trpc.chats.getPrStatus.useQuery(
     { chatId },
     { refetchInterval: 30000, enabled: !!chatId },
@@ -135,18 +138,50 @@ export const PrWidget = memo(function PrWidget({ chatId }: PrWidgetProps) {
 
         {/* Review + checks row */}
         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px]">
-          {reviewLabel(pr.reviewDecision) && (
-            <span className={cn("inline-flex items-center gap-1", reviewTone(pr.reviewDecision))}>
-              {pr.reviewDecision === "approved" ? (
-                <Check className="h-3 w-3" />
-              ) : pr.reviewDecision === "changes_requested" ? (
-                <TriangleAlert className="h-3 w-3" />
-              ) : (
-                <CircleDashed className="h-3 w-3" />
-              )}
-              {reviewLabel(pr.reviewDecision)}
-            </span>
-          )}
+          {reviewLabel(pr.reviewDecision) &&
+            (() => {
+              const reviewActionable =
+                !!onReviewClick &&
+                (pr.reviewDecision === "pending" ||
+                  pr.reviewDecision === "changes_requested")
+              const content = (
+                <>
+                  {pr.reviewDecision === "approved" ? (
+                    <Check className="h-3 w-3" />
+                  ) : pr.reviewDecision === "changes_requested" ? (
+                    <TriangleAlert className="h-3 w-3" />
+                  ) : (
+                    <CircleDashed className="h-3 w-3" />
+                  )}
+                  {reviewLabel(pr.reviewDecision)}
+                </>
+              )
+              if (reviewActionable) {
+                return (
+                  <button
+                    type="button"
+                    onClick={onReviewClick}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-sm hover:underline decoration-dotted underline-offset-2 transition-colors",
+                      reviewTone(pr.reviewDecision),
+                    )}
+                    title="Run AI review on this PR"
+                  >
+                    {content}
+                  </button>
+                )
+              }
+              return (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1",
+                    reviewTone(pr.reviewDecision),
+                  )}
+                >
+                  {content}
+                </span>
+              )
+            })()}
           {checks.length > 0 && (
             <span className="inline-flex items-center gap-2 text-muted-foreground">
               {successCount > 0 && (
