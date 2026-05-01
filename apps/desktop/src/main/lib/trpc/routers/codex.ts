@@ -1,25 +1,20 @@
-import {
-  acpTools,
-  createACPProvider,
-  type ACPProvider,
-} from "@mcpc-tech/acp-ai-provider"
 import { observable } from "@trpc/server/observable"
-import { stepCountIs, streamText, tool } from "ai"
 import { eq } from "drizzle-orm"
 import { app } from "electron"
 import { spawn, type ChildProcess } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
-import { readdir, readFile } from "node:fs/promises"
-import { homedir } from "node:os"
-import { basename, dirname, join, sep } from "node:path"
+import { readFile } from "node:fs/promises"
+import { basename, join } from "node:path"
 import { z } from "zod"
-import {
-  normalizeCodexAssistantMessage,
-  normalizeCodexStreamChunk,
-} from "../../../../shared/codex-tool-normalizer"
+import { normalizeCodexAssistantMessage } from "../../../../shared/codex-tool-normalizer"
 import { computeCatchupBlock } from "../../multi-provider/catchup"
 import { getProviderForModelId } from "../../../../shared/provider-from-model"
+import {
+  CodexAppServerClient,
+  type CodexAppServerNotification,
+  type CodexAppServerServerRequest,
+} from "../../codex/app-server-client"
 import { getClaudeShellEnvironment } from "../../claude/env"
 import { resolveProjectPathFromWorktree } from "../../claude-config"
 import { getDatabase, projects as projectsTable, subChats } from "../../db"
@@ -30,10 +25,7 @@ import {
   type McpToolInfo,
 } from "../../mcp-auth"
 import { publicProcedure, router } from "../index"
-import {
-  clearPendingApprovals,
-  pendingToolApprovals,
-} from "./tool-approvals"
+import { clearPendingApprovals, pendingToolApprovals } from "./tool-approvals"
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
@@ -78,11 +70,9 @@ const codexPlanSchema = z.object({
   status: z.literal("awaiting_approval").optional(),
 })
 
-type CodexProviderSession = {
-  provider: ACPProvider
-  cwd: string
+type CodexAppServerSession = {
+  client: CodexAppServerClient
   authFingerprint: string | null
-  mcpFingerprint: string
 }
 
 type CodexLoginSessionState =
@@ -142,14 +132,40 @@ type CodexMcpSnapshot = {
   toolsResolved: boolean
 }
 
-const providerSessions = new Map<string, CodexProviderSession>()
 type ActiveCodexStream = {
   runId: string
   controller: AbortController
   cancelRequested: boolean
+  client?: CodexAppServerClient
+  threadId?: string
+  turnId?: string
 }
 
+const appServerSessions = new Map<string, CodexAppServerSession>()
+const subChatThreadIds = new Map<string, string>()
+const activeStreamsByThreadId = new Map<string, string>()
+const activeThreadIdsByTurnId = new Map<string, string>()
 const activeStreams = new Map<string, ActiveCodexStream>()
+
+type AppServerTurnAccumulator = {
+  subChatId: string
+  prompt: string
+  model: string
+  mode: "plan" | "agent"
+  startedAt: number
+  safeEmit: (chunk: any) => void
+  parts: any[]
+  currentTextId: string | null
+  currentText: string
+  toolPartsByItemId: Map<string, any>
+  usageMetadata: CodexUsageMetadata | null
+  completed: boolean
+  lastEventAt: number
+  stopReason?: string
+  resultSubtype?: string
+}
+
+const activeAppServerTurns = new Map<string, AppServerTurnAccumulator>()
 
 /** Check if there are any active Codex streaming sessions */
 export function hasActiveCodexStreams(): boolean {
@@ -161,7 +177,15 @@ export function abortAllCodexStreams(): void {
   for (const [subChatId, stream] of activeStreams) {
     console.log(`[codex] Aborting stream ${subChatId} before reload`)
     stream.controller.abort()
+    void interruptCodexTurn(stream)
     clearPendingApprovals("Session ended.", subChatId)
+    if (stream.turnId) {
+      activeThreadIdsByTurnId.delete(stream.turnId)
+    }
+    if (stream.threadId) {
+      activeStreamsByThreadId.delete(stream.threadId)
+      activeAppServerTurns.delete(stream.threadId)
+    }
   }
   activeStreams.clear()
 }
@@ -187,20 +211,6 @@ const AUTH_HINTS = [
 ]
 const DEFAULT_CODEX_MODEL = "gpt-5.4/high"
 const CODEX_MCP_TOOLS_FETCH_TIMEOUT_MS = 40_000
-const CODEX_USAGE_POLL_ATTEMPTS = 3
-const CODEX_USAGE_POLL_INTERVAL_MS = 200
-
-type CodexTokenUsage = {
-  input_tokens?: number
-  cached_input_tokens?: number
-  output_tokens?: number
-  total_tokens?: number
-}
-
-type CodexTokenCountInfo = {
-  last_token_usage?: CodexTokenUsage
-  model_context_window?: number
-}
 
 type CodexUsageMetadata = {
   inputTokens?: number
@@ -209,6 +219,19 @@ type CodexUsageMetadata = {
   modelContextWindow?: number
   totalCostUsd?: number
 }
+
+type CodexChangedFileMetadata = {
+  filePath: string
+  additions: number
+  deletions: number
+  status: string
+}
+
+type GitChangeSnapshotEntry = CodexChangedFileMetadata & {
+  fingerprint: string
+}
+
+type GitChangeSnapshot = Map<string, GitChangeSnapshotEntry>
 
 // Prices per 1M tokens (USD). Strip the "/thinking" suffix to get the base model ID.
 // Sources: OpenAI API pricing page (April 2026).
@@ -250,55 +273,6 @@ const codexMcpListEntrySchema = z
   .passthrough()
 
 type CodexMcpListEntry = z.infer<typeof codexMcpListEntrySchema>
-
-function getCodexPackageName(): string {
-  const platform = process.platform
-  const arch = process.arch
-
-  if (platform === "darwin") {
-    if (arch === "arm64") return "@zed-industries/codex-acp-darwin-arm64"
-    if (arch === "x64") return "@zed-industries/codex-acp-darwin-x64"
-  }
-
-  if (platform === "linux") {
-    if (arch === "arm64") return "@zed-industries/codex-acp-linux-arm64"
-    if (arch === "x64") return "@zed-industries/codex-acp-linux-x64"
-  }
-
-  if (platform === "win32") {
-    if (arch === "arm64") return "@zed-industries/codex-acp-win32-arm64"
-    if (arch === "x64") return "@zed-industries/codex-acp-win32-x64"
-  }
-
-  throw new Error(`Unsupported platform/arch for codex-acp: ${platform}/${arch}`)
-}
-
-function toUnpackedAsarPath(filePath: string): string {
-  const unpackedPath = filePath.replace(
-    `${sep}app.asar${sep}`,
-    `${sep}app.asar.unpacked${sep}`,
-  )
-
-  if (unpackedPath !== filePath && existsSync(unpackedPath)) {
-    return unpackedPath
-  }
-
-  return filePath
-}
-
-function resolveCodexAcpBinaryPath(): string {
-  const packageName = getCodexPackageName()
-  const binaryName = process.platform === "win32" ? "codex-acp.exe" : "codex-acp"
-  const codexPackageRoot = dirname(
-    require.resolve("@zed-industries/codex-acp/package.json"),
-  )
-  const resolvedPath = require.resolve(`${packageName}/bin/${binaryName}`, {
-    // Resolve relative to the wrapper package so nested optional deps work in packaged apps.
-    paths: [codexPackageRoot],
-  })
-
-  return toUnpackedAsarPath(resolvedPath)
-}
 
 function resolveBundledCodexCliPath(): string {
   const binaryName = process.platform === "win32" ? "codex.exe" : "codex"
@@ -491,6 +465,128 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 }
 
+async function runGit(
+  cwd: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  return await new Promise((resolvePromise) => {
+    const child = spawn("git", args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+      windowsHide: true,
+    })
+
+    let stdout = ""
+    let stderr = ""
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8")
+    })
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8")
+    })
+    child.once("error", (error) => {
+      resolvePromise({ stdout: "", stderr: error.message, exitCode: 1 })
+    })
+    child.once("close", (exitCode) => {
+      resolvePromise({ stdout, stderr, exitCode })
+    })
+  })
+}
+
+function normalizeGitPath(rawPath: string): string {
+  const trimmed = rawPath.trim()
+  const renameArrowIndex = trimmed.lastIndexOf(" -> ")
+  if (renameArrowIndex >= 0) {
+    return trimmed.slice(renameArrowIndex + " -> ".length).trim()
+  }
+  return trimmed.replace(/^"|"$/g, "")
+}
+
+function countLines(content: string): number {
+  if (!content) return 0
+  return content.split("\n").length
+}
+
+async function countFileLines(cwd: string, relativePath: string): Promise<number> {
+  try {
+    const content = await readFile(join(cwd, relativePath), "utf8")
+    return countLines(content)
+  } catch {
+    return 0
+  }
+}
+
+async function captureGitChangeSnapshot(cwd: string): Promise<GitChangeSnapshot> {
+  const snapshot: GitChangeSnapshot = new Map()
+  const [numstatResult, statusResult] = await Promise.all([
+    runGit(cwd, ["diff", "--numstat", "HEAD", "--"]),
+    runGit(cwd, ["status", "--porcelain"]),
+  ])
+
+  if (numstatResult.exitCode === 0) {
+    for (const line of numstatResult.stdout.split(/\r?\n/)) {
+      if (!line.trim()) continue
+      const [rawAdditions, rawDeletions, ...pathParts] = line.split("\t")
+      const relativePath = normalizeGitPath(pathParts.join("\t"))
+      if (!relativePath) continue
+      const additions = Number.parseInt(rawAdditions || "0", 10)
+      const deletions = Number.parseInt(rawDeletions || "0", 10)
+      snapshot.set(relativePath, {
+        filePath: join(cwd, relativePath),
+        additions: Number.isFinite(additions) ? additions : 0,
+        deletions: Number.isFinite(deletions) ? deletions : 0,
+        status: "modified",
+        fingerprint: line,
+      })
+    }
+  }
+
+  if (statusResult.exitCode === 0) {
+    for (const line of statusResult.stdout.split(/\r?\n/)) {
+      if (line.length < 4) continue
+      const status = line.slice(0, 2)
+      const relativePath = normalizeGitPath(line.slice(3))
+      if (!relativePath) continue
+      const existing = snapshot.get(relativePath)
+      if (existing) {
+        existing.status = status.trim() || existing.status
+        existing.fingerprint = `${existing.fingerprint}|${status}`
+        continue
+      }
+
+      const additions = status === "??" ? await countFileLines(cwd, relativePath) : 0
+      snapshot.set(relativePath, {
+        filePath: join(cwd, relativePath),
+        additions,
+        deletions: 0,
+        status: status.trim() || "changed",
+        fingerprint: `${status}\t${relativePath}`,
+      })
+    }
+  }
+
+  return snapshot
+}
+
+function diffGitChangeSnapshots(
+  before: GitChangeSnapshot,
+  after: GitChangeSnapshot,
+): CodexChangedFileMetadata[] {
+  const changed: CodexChangedFileMetadata[] = []
+  for (const [relativePath, afterEntry] of after) {
+    const beforeEntry = before.get(relativePath)
+    if (beforeEntry?.fingerprint === afterEntry.fingerprint) continue
+    changed.push({
+      filePath: afterEntry.filePath,
+      additions: afterEntry.additions,
+      deletions: afterEntry.deletions,
+      status: afterEntry.status,
+    })
+  }
+  return changed
+}
+
 function toNonNegativeInt(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     return undefined
@@ -498,181 +594,54 @@ function toNonNegativeInt(value: unknown): number | undefined {
   return Math.trunc(value)
 }
 
-function toTimestampMs(value: unknown): number | undefined {
-  if (typeof value !== "string") {
-    return undefined
-  }
-  const parsed = Date.parse(value)
-  if (!Number.isFinite(parsed)) {
-    return undefined
-  }
-  return parsed
-}
-
-function resolveSessionsRoot(): string {
-  // Match provider env precedence: shell-derived env overrides process.env.
-  const shellCodexHome = getClaudeShellEnvironment().CODEX_HOME?.trim()
-  if (shellCodexHome) {
-    return join(shellCodexHome, "sessions")
-  }
-
-  const processCodexHome = process.env.CODEX_HOME?.trim()
-  if (processCodexHome) {
-    return join(processCodexHome, "sessions")
-  }
-
-  return join(homedir(), ".codex", "sessions")
-}
-
-async function findSessionFileById(sessionId: string): Promise<string | null> {
-  const sessionsRoot = resolveSessionsRoot()
-  const fileSuffix = `-${sessionId}.jsonl`
-  const sortDesc = (values: string[]) =>
-    values.sort((left, right) =>
-      right.localeCompare(left, undefined, { numeric: true }),
-    )
-  const listNames = async (dirPath: string): Promise<string[]> => {
-    try {
-      return await readdir(dirPath, { encoding: "utf8" })
-    } catch {
-      return []
-    }
-  }
-  const years = sortDesc(
-    (await listNames(sessionsRoot)).filter((name) => /^\d{4}$/.test(name)),
-  )
-
-  for (const year of years) {
-    const yearPath = join(sessionsRoot, year)
-    const months = sortDesc(
-      (await listNames(yearPath)).filter((name) => /^\d{2}$/.test(name)),
-    )
-    for (const month of months) {
-      const monthPath = join(yearPath, month)
-      const days = sortDesc(
-        (await listNames(monthPath)).filter((name) => /^\d{2}$/.test(name)),
-      )
-      for (const day of days) {
-        const dayPath = join(monthPath, day)
-        const fileName = (await listNames(dayPath)).find((name) =>
-          name.endsWith(fileSuffix),
-        )
-        if (fileName) {
-          return join(dayPath, fileName)
-        }
-      }
-    }
-  }
-
-  return null
-}
-
-async function readLatestTokenCountInfo(
-  filePath: string,
-  options?: { notBeforeTimestampMs?: number },
-): Promise<CodexTokenCountInfo | null> {
-  let rawContent = ""
-  try {
-    rawContent = await readFile(filePath, "utf8")
-  } catch {
-    return null
-  }
-
-  const lines = rawContent.split("\n")
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const rawLine = lines[index]?.trim()
-    if (!rawLine) continue
-
-    let parsedLine: any
-    try {
-      parsedLine = JSON.parse(rawLine)
-    } catch {
-      continue
-    }
-
-    if (
-      parsedLine?.type !== "event_msg" ||
-      parsedLine?.payload?.type !== "token_count"
-    ) {
-      continue
-    }
-
-    const eventTimestampMs = toTimestampMs(parsedLine?.timestamp)
-    const notBeforeTimestampMs = options?.notBeforeTimestampMs
-    if (
-      notBeforeTimestampMs !== undefined &&
-      (eventTimestampMs === undefined || eventTimestampMs < notBeforeTimestampMs)
-    ) {
-      continue
-    }
-
-    const rawInfo = parsedLine.payload?.info
-    if (!rawInfo || typeof rawInfo !== "object") continue
-
-    const rawTokenUsage = (rawInfo as any).last_token_usage
-    let lastTokenUsage: CodexTokenUsage | undefined
-    if (rawTokenUsage && typeof rawTokenUsage === "object") {
-      const tokenUsage = rawTokenUsage as any
-      const parsedTokenUsage: CodexTokenUsage = {
-        input_tokens: toNonNegativeInt(tokenUsage.input_tokens),
-        cached_input_tokens: toNonNegativeInt(tokenUsage.cached_input_tokens),
-        output_tokens: toNonNegativeInt(tokenUsage.output_tokens),
-        total_tokens: toNonNegativeInt(tokenUsage.total_tokens),
-      }
-      if (Object.values(parsedTokenUsage).some((tokenCount) => tokenCount !== undefined)) {
-        lastTokenUsage = parsedTokenUsage
-      }
-    }
-
-    const modelContextWindow = toNonNegativeInt(
-      (rawInfo as any).model_context_window,
-    )
-
-    const info: CodexTokenCountInfo = {
-      last_token_usage: lastTokenUsage,
-      model_context_window: modelContextWindow,
-    }
-    if (!info.last_token_usage && info.model_context_window === undefined) continue
-
-    return info
-  }
-
-  return null
-}
-
-function mapToUsageMetadata(
-  info: CodexTokenCountInfo,
+function mapAppServerUsageToMetadata(
+  rawUsage: unknown,
   modelId?: string,
 ): CodexUsageMetadata | null {
-  const perMessageUsage = info.last_token_usage
-
-  if (!perMessageUsage && info.model_context_window === undefined) {
+  if (!rawUsage || typeof rawUsage !== "object") {
     return null
   }
 
-  const rawInputTokens = perMessageUsage?.input_tokens
-  const cachedInputTokens = perMessageUsage?.cached_input_tokens ?? 0
+  const usage = rawUsage as any
+  const tokenUsage = usage.last_token_usage || usage.lastTokenUsage || usage
+  const rawInputTokens =
+    toNonNegativeInt(tokenUsage.inputTokens) ??
+    toNonNegativeInt(tokenUsage.input_tokens) ??
+    toNonNegativeInt(tokenUsage.promptTokens) ??
+    toNonNegativeInt(tokenUsage.prompt_tokens)
+  const cachedInputTokens =
+    toNonNegativeInt(tokenUsage.cachedInputTokens) ??
+    toNonNegativeInt(tokenUsage.cached_input_tokens) ??
+    0
   const inputTokens =
     rawInputTokens !== undefined
       ? Math.max(0, rawInputTokens - cachedInputTokens)
       : undefined
-  const outputTokens = perMessageUsage?.output_tokens
+  const outputTokens =
+    toNonNegativeInt(tokenUsage.outputTokens) ??
+    toNonNegativeInt(tokenUsage.output_tokens) ??
+    toNonNegativeInt(tokenUsage.completionTokens) ??
+    toNonNegativeInt(tokenUsage.completion_tokens)
   const totalTokens =
-    perMessageUsage?.total_tokens ??
+    toNonNegativeInt(tokenUsage.totalTokens) ??
+    toNonNegativeInt(tokenUsage.total_tokens) ??
     (rawInputTokens !== undefined || outputTokens !== undefined
       ? (rawInputTokens ?? 0) + (outputTokens ?? 0)
       : undefined)
+  const modelContextWindow =
+    toNonNegativeInt(usage.modelContextWindow) ??
+    toNonNegativeInt(usage.model_context_window)
 
   const usageMetadata: CodexUsageMetadata = {}
   if (inputTokens !== undefined) usageMetadata.inputTokens = inputTokens
   if (outputTokens !== undefined) usageMetadata.outputTokens = outputTokens
   if (totalTokens !== undefined) usageMetadata.totalTokens = totalTokens
-  if (info.model_context_window !== undefined) {
-    usageMetadata.modelContextWindow = info.model_context_window
+  if (modelContextWindow !== undefined) {
+    usageMetadata.modelContextWindow = modelContextWindow
   }
 
   // Compute cost when pricing is available for this model.
-  // The ACP model ID uses "baseModel/thinkingLevel" format; strip the suffix.
+  // The UI model ID uses "baseModel/thinkingLevel" format; strip the suffix.
   const baseModelId = modelId?.split("/")[0] ?? ""
   const pricing = CODEX_MODEL_PRICING[baseModelId]
   if (pricing && rawInputTokens !== undefined && outputTokens !== undefined) {
@@ -685,35 +654,6 @@ function mapToUsageMetadata(
   }
 
   return Object.keys(usageMetadata).length > 0 ? usageMetadata : null
-}
-
-async function pollUsage(
-  sessionId: string,
-  options?: { notBeforeTimestampMs?: number; modelId?: string },
-): Promise<CodexUsageMetadata | null> {
-  let sessionFilePath: string | null = null
-
-  for (let attempt = 0; attempt < CODEX_USAGE_POLL_ATTEMPTS; attempt += 1) {
-    if (!sessionFilePath) {
-      sessionFilePath = await findSessionFileById(sessionId)
-    }
-
-    if (sessionFilePath) {
-      const latestInfo = await readLatestTokenCountInfo(sessionFilePath, options)
-      if (latestInfo) {
-        const usageMetadata = mapToUsageMetadata(latestInfo, options?.modelId)
-        if (usageMetadata) {
-          return usageMetadata
-        }
-      }
-    }
-
-    if (attempt < CODEX_USAGE_POLL_ATTEMPTS - 1) {
-      await sleep(CODEX_USAGE_POLL_INTERVAL_MS)
-    }
-  }
-
-  return null
 }
 
 function getCodexMcpAuthState(authStatus: string | null | undefined): {
@@ -1160,7 +1100,7 @@ function extractPromptFromStoredMessage(message: any): string {
 
 function getLastSessionId(messages: any[]): string | undefined {
   // Only resume a Codex session — skip assistant messages from Claude or other
-  // providers to avoid passing a Claude session UUID to the ACP server which
+  // providers to avoid passing a Claude session UUID to app-server which
   // would return "Resource not found".
   const lastCodexAssistant = [...messages].reverse().find(
     (message) =>
@@ -1233,22 +1173,6 @@ function buildCodexProviderEnv(authConfig?: { apiKey: string }): Record<string, 
   }
 }
 
-function getCodexAuthMethodId(authConfig?: {
-  apiKey: string
-}): "codex-api-key" | undefined {
-  const apiKey = authConfig?.apiKey?.trim()
-  if (!apiKey) {
-    return undefined
-  }
-
-  // codex-acp advertises auth methods:
-  // - chatgpt
-  // - codex-api-key
-  // - openai-api-key
-  // For app-managed API key path we want deterministic key auth.
-  return "codex-api-key"
-}
-
 function buildUserParts(
   prompt: string,
   images:
@@ -1278,33 +1202,6 @@ function buildUserParts(
   return parts
 }
 
-function buildModelMessageContent(
-  prompt: string,
-  images:
-    | Array<{
-        base64Data?: string
-        mediaType?: string
-        filename?: string
-      }>
-    | undefined,
-): any[] {
-  const content: any[] = [{ type: "text", text: prompt }]
-
-  if (images && images.length > 0) {
-    for (const image of images) {
-      if (!image.base64Data || !image.mediaType) continue
-      content.push({
-        type: "file",
-        mediaType: image.mediaType,
-        data: image.base64Data,
-        ...(image.filename ? { filename: image.filename } : {}),
-      })
-    }
-  }
-
-  return content
-}
-
 function normalizeCodexQuestions(
   questions: z.infer<typeof codexQuestionSchema>[],
 ) {
@@ -1329,20 +1226,6 @@ function normalizeCodexPlan(plan: z.infer<typeof codexPlanSchema>) {
       id: step.id || `step-${index + 1}`,
       status: step.status || "pending",
     })),
-  }
-}
-
-function toMcpToolResult(result: unknown) {
-  const contentText =
-    typeof result === "string" ? result : JSON.stringify(result)
-
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text: contentText,
-      },
-    ],
   }
 }
 
@@ -1682,165 +1565,1114 @@ function accumulateCodexPlanStreamChunk(
   }
 }
 
-function buildCodexPlanTools(params: {
-  subChatId: string
-  safeEmit: (chunk: any) => void
+function isAppServerRecord(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null
+}
+
+function getStringField(value: unknown, keys: string[]): string | undefined {
+  if (!isAppServerRecord(value)) return undefined
+  for (const key of keys) {
+    const candidate = value[key]
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate
+    }
+  }
+  return undefined
+}
+
+function getAppServerThreadId(value: unknown): string | undefined {
+  if (!isAppServerRecord(value)) return undefined
+  return (
+    getStringField(value, ["threadId", "thread_id"]) ||
+    getStringField(value.thread, ["id", "threadId", "thread_id"]) ||
+    getStringField(value.turn, ["threadId", "thread_id"])
+  )
+}
+
+function getAppServerTurnId(value: unknown): string | undefined {
+  if (!isAppServerRecord(value)) return undefined
+  return (
+    getStringField(value, ["turnId", "turn_id"]) ||
+    getStringField(value.turn, ["id", "turnId", "turn_id"])
+  )
+}
+
+function getAppServerItemId(value: unknown): string {
+  if (!isAppServerRecord(value)) return crypto.randomUUID()
+  return (
+    getStringField(value, ["itemId", "item_id", "id", "callId", "call_id"]) ||
+    getStringField(value.item, ["id", "itemId", "item_id", "callId", "call_id"]) ||
+    crypto.randomUUID()
+  )
+}
+
+function getAppServerSessionKey(authConfig?: { apiKey: string }): string {
+  return getAuthFingerprint(authConfig) || "codex-chatgpt"
+}
+
+async function getOrCreateAppServerClient(params: {
+  authConfig?: { apiKey: string }
+}): Promise<CodexAppServerClient> {
+  const sessionKey = getAppServerSessionKey(params.authConfig)
+  const authFingerprint = getAuthFingerprint(params.authConfig)
+  const existing = appServerSessions.get(sessionKey)
+
+  if (existing && existing.authFingerprint === authFingerprint) {
+    await existing.client.ensureInitialized()
+    return existing.client
+  }
+
+  existing?.client.dispose()
+  appServerSessions.delete(sessionKey)
+
+  const client = new CodexAppServerClient({
+    command: resolveBundledCodexCliPath(),
+    args: ["app-server"],
+    env: buildCodexProviderEnv(params.authConfig),
+    onNotification: handleAppServerNotification,
+    onServerRequest: handleAppServerServerRequest,
+    onExit: () => {
+      const current = appServerSessions.get(sessionKey)
+      if (current?.client === client) {
+        appServerSessions.delete(sessionKey)
+      }
+    },
+  })
+
+  appServerSessions.set(sessionKey, {
+    client,
+    authFingerprint,
+  })
+  await client.ensureInitialized()
+  return client
+}
+
+function cleanupCodexAppServerSubChat(subChatId: string): void {
+  const threadId = subChatThreadIds.get(subChatId)
+  if (threadId) {
+    activeStreamsByThreadId.delete(threadId)
+    activeAppServerTurns.delete(threadId)
+    subChatThreadIds.delete(subChatId)
+  }
+
+  for (const [turnId, mappedThreadId] of activeThreadIdsByTurnId) {
+    if (mappedThreadId === threadId) {
+      activeThreadIdsByTurnId.delete(turnId)
+    }
+  }
+}
+
+function extractThreadIdFromStartResult(result: unknown): string | undefined {
+  return (
+    getAppServerThreadId(result) ||
+    getStringField(result, ["id", "threadId", "thread_id"])
+  )
+}
+
+function extractTurnIdFromStartResult(result: unknown): string | undefined {
+  return (
+    getAppServerTurnId(result) ||
+    getStringField(result, ["id", "turnId", "turn_id"])
+  )
+}
+
+function splitCodexModelAndEffort(modelId: string): {
+  model: string
+  effort?: string
+} {
+  const [model, effort] = modelId.split("/", 2)
+  return {
+    model: model || modelId,
+    ...(effort ? { effort } : {}),
+  }
+}
+
+function buildAppServerInput(
+  prompt: string,
+  images:
+    | Array<{
+        base64Data?: string
+        mediaType?: string
+        filename?: string
+      }>
+    | undefined,
+): any[] {
+  const input: any[] = [{ type: "text", text: prompt }]
+
+  if (images && images.length > 0) {
+    for (const image of images) {
+      if (!image.base64Data || !image.mediaType) continue
+      input.push({
+        type: "image",
+        url: `data:${image.mediaType};base64,${image.base64Data}`,
+        ...(image.filename ? { filename: image.filename } : {}),
+      })
+    }
+  }
+
+  return input
+}
+
+function buildCodexSandboxPolicy(mode: "plan" | "agent"): any {
+  if (mode === "plan") {
+    return { type: "readOnly" }
+  }
+
+  return { type: "dangerFullAccess" }
+}
+
+function buildCodexBaseConfig(params: {
+  cwd: string
+  selectedModelId: string
+}) {
+  const { model, effort } = splitCodexModelAndEffort(params.selectedModelId)
+  return {
+    cwd: params.cwd,
+    model,
+    ...(effort ? { effort } : {}),
+    personality: "pragmatic",
+  }
+}
+
+function buildCodexThreadConfig(params: {
+  cwd: string
+  selectedModelId: string
 }) {
   return {
-    AskUserQuestion: tool({
-      description:
-        "Ask the user concise follow-up questions before writing a plan. Use this only for high-impact ambiguity that cannot be resolved by inspecting the project. Provide answer options so the UI can collect the response.",
-      inputSchema: z.object({
-        questions: z.array(codexQuestionSchema).min(1).max(3),
-      }),
-      execute: async (input, options) => {
-        const toolUseId = `${options.toolCallId || "AskUserQuestion"}-${crypto.randomUUID()}`
-        const questions = normalizeCodexQuestions(input.questions)
-
-        params.safeEmit({
-          type: "ask-user-question",
-          toolUseId,
-          questions,
-        })
-
-        const response = await new Promise<{
-          approved: boolean
-          message?: string
-          updatedInput?: unknown
-        }>((resolve) => {
-          const timeoutId = setTimeout(() => {
-            pendingToolApprovals.delete(toolUseId)
-            params.safeEmit({
-              type: "ask-user-question-timeout",
-              toolUseId,
-            })
-            resolve({
-              approved: false,
-              message: QUESTIONS_TIMED_OUT_MESSAGE,
-            })
-          }, ASK_USER_QUESTION_TIMEOUT_MS)
-
-          pendingToolApprovals.set(toolUseId, {
-            subChatId: params.subChatId,
-            resolve: (decision) => {
-              clearTimeout(timeoutId)
-              resolve(decision)
-            },
-          })
-        })
-
-        if (!response.approved) {
-          const result = response.message || QUESTIONS_SKIPPED_MESSAGE
-          params.safeEmit({
-            type: "ask-user-question-result",
-            toolUseId,
-            result,
-          })
-          return toMcpToolResult(result)
-        }
-
-        const answers =
-          typeof response.updatedInput === "object" &&
-          response.updatedInput !== null &&
-          "answers" in response.updatedInput
-            ? (response.updatedInput as { answers?: Record<string, string> })
-                .answers || {}
-            : {}
-        const result = { answers }
-
-        params.safeEmit({
-          type: "ask-user-question-result",
-          toolUseId,
-          result,
-        })
-
-        return toMcpToolResult(result)
-      },
-    }),
-    PlanWrite: tool({
-      description:
-        "Submit the final read-only implementation plan for user review. Call this exactly once when the plan is complete. Do not implement anything.",
-      inputSchema: z.object({
-        action: z.literal("create").optional(),
-        plan: codexPlanSchema,
-      }),
-      execute: async (input) => {
-        const plan = normalizeCodexPlan(input.plan)
-        return toMcpToolResult({
-          success: true,
-          message: "Plan ready for review.",
-          action: input.action || "create",
-          plan,
-        })
-      },
-    }),
+    ...buildCodexBaseConfig(params),
+    approvalPolicy: "never",
+    serviceName: "churro-coder",
+    persistExtendedHistory: true,
   }
 }
 
-function getOrCreateProvider(params: {
-  subChatId: string
+function buildCodexTurnConfig(params: {
   cwd: string
-  mcpServers: CodexMcpServerForSession[]
-  mcpFingerprint: string
-  existingSessionId?: string
-  authConfig?: {
-    apiKey: string
+  mode: "plan" | "agent"
+  selectedModelId: string
+}) {
+  return {
+    ...buildCodexBaseConfig(params),
+    approvalPolicy: "never",
+    sandboxPolicy: buildCodexSandboxPolicy(params.mode),
   }
-}): ACPProvider {
-  const authFingerprint = getAuthFingerprint(params.authConfig)
-  const existing = providerSessions.get(params.subChatId)
+}
+
+async function startOrResumeAppServerThread(params: {
+  client: CodexAppServerClient
+  threadId?: string
+  cwd: string
+  selectedModelId: string
+}): Promise<string> {
+  const config = buildCodexThreadConfig({
+    cwd: params.cwd,
+    selectedModelId: params.selectedModelId,
+  })
+
+  const result = params.threadId
+    ? await params.client.request("thread/resume", {
+        threadId: params.threadId,
+        excludeTurns: true,
+        ...config,
+      })
+    : await params.client.request("thread/start", config)
+
+  const threadId = extractThreadIdFromStartResult(result)
+  if (!threadId) {
+    throw new Error("Codex app-server did not return a thread id")
+  }
+
+  return threadId
+}
+
+async function interruptCodexTurn(stream: ActiveCodexStream): Promise<void> {
+  if (!stream.client || !stream.threadId) return
+
+  try {
+    await stream.client.request(
+      "turn/interrupt",
+      {
+        threadId: stream.threadId,
+        ...(stream.turnId ? { turnId: stream.turnId } : {}),
+      },
+      10_000,
+    )
+  } catch (error) {
+    console.warn("[codex] Failed to interrupt app-server turn:", error)
+  }
+}
+
+function getAccumulatorForNotification(
+  notification: CodexAppServerNotification,
+): AppServerTurnAccumulator | null {
+  const params = notification.params
+  const threadId =
+    getAppServerThreadId(params) ||
+    activeThreadIdsByTurnId.get(getAppServerTurnId(params) || "")
+  if (!threadId) return null
+  return activeAppServerTurns.get(threadId) || null
+}
+
+function emitTextDelta(accumulator: AppServerTurnAccumulator, delta: string) {
+  if (!delta) return
+  if (!accumulator.currentTextId) {
+    accumulator.currentTextId = `text-${crypto.randomUUID()}`
+    accumulator.safeEmit({ type: "text-start", id: accumulator.currentTextId })
+  }
+  accumulator.currentText += delta
+  accumulator.safeEmit({
+    type: "text-delta",
+    id: accumulator.currentTextId,
+    delta,
+  })
+}
+
+function flushTextPart(accumulator: AppServerTurnAccumulator) {
+  const text = accumulator.currentText
+  if (!text) return
+  accumulator.parts.push({ type: "text", text })
+  if (accumulator.currentTextId) {
+    accumulator.safeEmit({ type: "text-end", id: accumulator.currentTextId })
+  }
+  accumulator.currentText = ""
+  accumulator.currentTextId = null
+}
+
+function emitToolStart(
+  accumulator: AppServerTurnAccumulator,
+  part: any,
+  input?: unknown,
+) {
+  accumulator.toolPartsByItemId.set(part.toolCallId, part)
+  accumulator.parts.push(part)
+  accumulator.safeEmit({
+    type: "tool-input-start",
+    toolCallId: part.toolCallId,
+    toolName: part.toolName,
+    providerMetadata: {
+      custom: {
+        startedAt: part.startedAt,
+      },
+    },
+  })
+  if (input !== undefined) {
+    part.input = input
+    part.state = "input-available"
+    accumulator.safeEmit({
+      type: "tool-input-available",
+      toolCallId: part.toolCallId,
+      toolName: part.toolName,
+      input,
+      providerMetadata: {
+        custom: {
+          startedAt: part.startedAt,
+        },
+      },
+    })
+  }
+}
+
+function updateToolOutput(
+  accumulator: AppServerTurnAccumulator,
+  toolCallId: string,
+  output: unknown,
+  state = "output-available",
+) {
+  const part = accumulator.toolPartsByItemId.get(toolCallId)
+  if (!part) return
+
+  part.state = state
+  part.output = output
+  part.result = output
+  accumulator.safeEmit({
+    type: state === "output-error" ? "tool-output-error" : "tool-output-available",
+    toolCallId,
+    ...(state === "output-error"
+      ? { errorText: extractCodexError(output).message }
+      : { output }),
+  })
+}
+
+function getCommandText(item: any): string {
+  const command = item?.command
+  if (Array.isArray(command)) return command.join(" ")
+  if (typeof command === "string") return command
+  if (Array.isArray(item?.commandActions)) {
+    const action = item.commandActions.find((entry: any) => entry?.command)
+    if (Array.isArray(action?.command)) return action.command.join(" ")
+    if (typeof action?.command === "string") return action.command
+  }
+  return ""
+}
+
+function toCommandOutput(item: any, streamingOutput?: string) {
+  const aggregatedOutput =
+    typeof item?.aggregatedOutput === "string"
+      ? item.aggregatedOutput
+      : typeof streamingOutput === "string"
+        ? streamingOutput
+        : ""
+
+  return {
+    stdout: aggregatedOutput,
+    stderr: "",
+    output: aggregatedOutput,
+    exitCode:
+      typeof item?.exitCode === "number"
+        ? item.exitCode
+        : item?.status === "failed"
+          ? 1
+          : item?.status === "declined"
+            ? 1
+            : item?.status === "completed"
+              ? 0
+              : undefined,
+    status: item?.status,
+    durationMs: item?.durationMs,
+  }
+}
+
+function createCommandPart(item: any): any {
+  const toolCallId = getAppServerItemId(item)
+  return {
+    type: "tool-Bash",
+    toolCallId,
+    toolName: "Bash",
+    state: "input-available",
+    input: {
+      command: getCommandText(item),
+      cwd: item?.cwd,
+      commandActions: item?.commandActions,
+    },
+    startedAt: Date.now(),
+    outputText: "",
+  }
+}
+
+function getFileChangeKind(item: any): "Write" | "Edit" {
+  const changes = Array.isArray(item?.changes) ? item.changes : []
+  const firstChange = changes[0]
+  const kind = String(firstChange?.kind || item?.kind || "").toLowerCase()
+  if (kind.includes("add") || kind.includes("create") || kind.includes("write")) {
+    return "Write"
+  }
+  return "Edit"
+}
+
+function getFileChangePath(item: any): string {
+  const changes = Array.isArray(item?.changes) ? item.changes : []
+  return (
+    getStringField(item, ["path", "filePath", "file_path"]) ||
+    getStringField(changes[0], ["path", "filePath", "file_path"]) ||
+    ""
+  )
+}
+
+function toStructuredPatch(item: any): any[] {
+  const changes = Array.isArray(item?.changes) ? item.changes : []
+  return changes.map((change: any) => ({
+    filePath:
+      getStringField(change, ["path", "filePath", "file_path"]) ||
+      getFileChangePath(item),
+    kind: change?.kind,
+    diff: typeof change?.diff === "string" ? change.diff : "",
+    status: item?.status,
+  }))
+}
+
+function createFileChangePart(item: any): any {
+  const toolName = getFileChangeKind(item)
+  const filePath = getFileChangePath(item)
+  const structuredPatch = toStructuredPatch(item)
+  const diffText = structuredPatch
+    .map((change) => change.diff)
+    .filter(Boolean)
+    .join("\n")
+
+  return {
+    type: `tool-${toolName}`,
+    toolCallId: getAppServerItemId(item),
+    toolName,
+    state: "input-available",
+    input:
+      toolName === "Write"
+        ? {
+            file_path: filePath,
+            content: diffText,
+          }
+        : {
+            file_path: filePath,
+            old_string: "",
+            new_string: diffText,
+          },
+    output: {
+      structuredPatch,
+      status: item?.status,
+    },
+    result: {
+      structuredPatch,
+      status: item?.status,
+    },
+    startedAt: Date.now(),
+  }
+}
+
+function createReasoningPart(item: any): any {
+  const toolCallId = getAppServerItemId(item)
+  const summary = Array.isArray(item?.summary)
+    ? item.summary.join("\n")
+    : typeof item?.summary === "string"
+      ? item.summary
+      : ""
+  const content = Array.isArray(item?.content)
+    ? item.content.join("\n")
+    : typeof item?.content === "string"
+      ? item.content
+      : ""
+  const thinking = [summary, content].filter(Boolean).join("\n\n")
+
+  return {
+    type: "tool-Thinking",
+    toolCallId,
+    toolName: "Thinking",
+    state: thinking ? "output-available" : "input-streaming",
+    input: {},
+    output: thinking ? { thinking } : undefined,
+    result: thinking ? { thinking } : undefined,
+    thinking,
+    startedAt: Date.now(),
+  }
+}
+
+function createMcpToolPart(item: any): any {
+  const server = typeof item?.server === "string" ? item.server : "mcp"
+  const tool = typeof item?.tool === "string" ? item.tool : "tool"
+  const toolName = `mcp__${server}__${tool.replaceAll("/", "__")}`
+  return {
+    type: `tool-${toolName}`,
+    toolCallId: getAppServerItemId(item),
+    toolName,
+    state: "input-available",
+    input: item?.arguments || {},
+    startedAt: Date.now(),
+  }
+}
+
+function createWebSearchPart(item: any): any {
+  const action = item?.action || {}
+  const query =
+    typeof item?.query === "string"
+      ? item.query
+      : typeof action?.query === "string"
+        ? action.query
+        : ""
+  return {
+    type: "tool-WebSearch",
+    toolCallId: getAppServerItemId(item),
+    toolName: "WebSearch",
+    state: "input-available",
+    input: {
+      query,
+      action,
+    },
+    startedAt: Date.now(),
+  }
+}
+
+function createPlanWritePartFromPlan(params: {
+  itemId: string
+  prompt: string
+  text?: string
+  plan?: any
+}): any {
+  const planLike = params.plan
+  const normalizedPlan =
+    Array.isArray(planLike)
+      ? normalizeCodexPlan({
+          id: `plan-${Date.now()}`,
+          title: "Implementation plan",
+          summary: params.text || "",
+          status: "awaiting_approval",
+          steps: planLike.map((step: any, index: number) => ({
+            title:
+              typeof step?.step === "string"
+                ? step.step
+                : typeof step?.title === "string"
+                  ? step.title
+                  : `Step ${index + 1}`,
+            description: typeof step?.description === "string" ? step.description : undefined,
+            status:
+              step?.status === "inProgress"
+                ? "in_progress"
+                : step?.status === "completed"
+                  ? "completed"
+                  : "pending",
+          })),
+        })
+      : planLike && typeof planLike === "object" && Array.isArray(planLike.steps)
+        ? normalizeCodexPlan(planLike)
+        : normalizeCodexPlan({
+            id: `plan-${Date.now()}`,
+            title: "Implementation plan",
+            summary: params.text || "",
+            status: "awaiting_approval",
+            steps: extractPlanStepTitles(params.text || "").map((title) => ({
+              title,
+              status: "pending",
+            })),
+          })
+
+  const output = {
+    success: true,
+    message: "Plan ready for review.",
+    action: "create",
+    plan: normalizedPlan,
+  }
+
+  return {
+    type: "tool-PlanWrite",
+    toolCallId: params.itemId,
+    toolName: "PlanWrite",
+    state: "output-available",
+    input: {
+      action: "create",
+      plan: normalizedPlan,
+    },
+    output,
+    result: output,
+    startedAt: Date.now(),
+  }
+}
+
+function handleItemStarted(accumulator: AppServerTurnAccumulator, item: any) {
+  if (!isAppServerRecord(item)) return
+
+  const itemType = item.type
+  if (itemType === "commandExecution") {
+    const part = createCommandPart(item)
+    emitToolStart(accumulator, part, part.input)
+    return
+  }
+
+  if (itemType === "fileChange") {
+    const part = createFileChangePart(item)
+    emitToolStart(accumulator, part, part.input)
+    return
+  }
+
+  if (itemType === "reasoning") {
+    const part = createReasoningPart(item)
+    emitToolStart(accumulator, part, part.input)
+    if (part.output) {
+      updateToolOutput(accumulator, part.toolCallId, part.output)
+    }
+    return
+  }
+
+  if (itemType === "mcpToolCall") {
+    const part = createMcpToolPart(item)
+    emitToolStart(accumulator, part, part.input)
+    return
+  }
+
+  if (itemType === "webSearch") {
+    const part = createWebSearchPart(item)
+    emitToolStart(accumulator, part, part.input)
+    return
+  }
+
+  if (itemType === "plan") {
+    const text = typeof item.text === "string" ? item.text : ""
+    const part = createPlanWritePartFromPlan({
+      itemId: getAppServerItemId(item),
+      prompt: accumulator.prompt,
+      text,
+    })
+    emitToolStart(accumulator, part, part.input)
+    updateToolOutput(accumulator, part.toolCallId, part.output)
+  }
+}
+
+function handleItemCompleted(accumulator: AppServerTurnAccumulator, item: any) {
+  if (!isAppServerRecord(item)) return
+
+  const itemType = item.type
+  const itemId = getAppServerItemId(item)
+
+  if (itemType === "agentMessage") {
+    const text = typeof item.text === "string" ? item.text : ""
+    if (text && !accumulator.currentText.includes(text)) {
+      emitTextDelta(accumulator, text)
+    }
+    flushTextPart(accumulator)
+    return
+  }
+
+  if (itemType === "commandExecution") {
+    const part =
+      accumulator.toolPartsByItemId.get(itemId) || createCommandPart(item)
+    if (!accumulator.toolPartsByItemId.has(itemId)) {
+      emitToolStart(accumulator, part, part.input)
+    }
+    updateToolOutput(
+      accumulator,
+      itemId,
+      toCommandOutput(item, part.outputText),
+      item.status === "failed" || item.status === "declined"
+        ? "output-error"
+        : "output-available",
+    )
+    return
+  }
+
+  if (itemType === "fileChange") {
+    const part =
+      accumulator.toolPartsByItemId.get(itemId) || createFileChangePart(item)
+    if (!accumulator.toolPartsByItemId.has(itemId)) {
+      emitToolStart(accumulator, part, part.input)
+    }
+    const structuredPatch = toStructuredPatch(item)
+    const output = { structuredPatch, status: item.status }
+    updateToolOutput(
+      accumulator,
+      itemId,
+      output,
+      item.status === "failed" || item.status === "declined"
+        ? "output-error"
+        : "output-available",
+    )
+    return
+  }
+
+  if (itemType === "reasoning") {
+    const part =
+      accumulator.toolPartsByItemId.get(itemId) || createReasoningPart(item)
+    if (!accumulator.toolPartsByItemId.has(itemId)) {
+      emitToolStart(accumulator, part, part.input)
+    }
+    const finalPart = createReasoningPart(item)
+    part.thinking = finalPart.thinking
+    updateToolOutput(accumulator, itemId, { thinking: finalPart.thinking })
+    return
+  }
+
+  if (itemType === "mcpToolCall") {
+    const part = accumulator.toolPartsByItemId.get(itemId) || createMcpToolPart(item)
+    if (!accumulator.toolPartsByItemId.has(itemId)) {
+      emitToolStart(accumulator, part, part.input)
+    }
+    updateToolOutput(
+      accumulator,
+      itemId,
+      item.error ? { error: item.error } : item.result,
+      item.status === "failed" ? "output-error" : "output-available",
+    )
+    return
+  }
+
+  if (itemType === "webSearch") {
+    const part =
+      accumulator.toolPartsByItemId.get(itemId) || createWebSearchPart(item)
+    if (!accumulator.toolPartsByItemId.has(itemId)) {
+      emitToolStart(accumulator, part, part.input)
+    }
+    updateToolOutput(accumulator, itemId, {
+      query: part.input?.query,
+      action: item.action,
+      results: item.results,
+    })
+    return
+  }
+
+  if (itemType === "plan") {
+    const part = createPlanWritePartFromPlan({
+      itemId,
+      prompt: accumulator.prompt,
+      text: typeof item.text === "string" ? item.text : "",
+    })
+    if (!accumulator.toolPartsByItemId.has(itemId)) {
+      emitToolStart(accumulator, part, part.input)
+    }
+    updateToolOutput(accumulator, itemId, part.output)
+  }
+}
+
+function appendToolText(
+  accumulator: AppServerTurnAccumulator,
+  itemId: string,
+  outputDelta: string,
+) {
+  const part = accumulator.toolPartsByItemId.get(itemId)
+  if (!part || !outputDelta) return
+  part.outputText = `${part.outputText || ""}${outputDelta}`
+  part.output = toCommandOutput({}, part.outputText)
+  part.result = part.output
+  accumulator.safeEmit({
+    type: "tool-output-available",
+    toolCallId: itemId,
+    output: part.output,
+  })
+}
+
+function handlePlanUpdated(
+  accumulator: AppServerTurnAccumulator,
+  params: any,
+) {
+  const plan = params?.plan
+  const itemId =
+    getStringField(params, ["itemId", "item_id"]) ||
+    `codex-plan-${getAppServerTurnId(params) || crypto.randomUUID()}`
+  const existing = accumulator.toolPartsByItemId.get(itemId)
+  const part = createPlanWritePartFromPlan({
+    itemId,
+    prompt: accumulator.prompt,
+    text: typeof params?.explanation === "string" ? params.explanation : "",
+    plan,
+  })
+
+  if (!existing) {
+    emitToolStart(accumulator, part, part.input)
+  } else {
+    existing.input = part.input
+    existing.output = part.output
+    existing.result = part.result
+  }
+  updateToolOutput(accumulator, itemId, part.output)
+}
+
+function handleAppServerNotification(
+  notification: CodexAppServerNotification,
+): void {
+  const method = notification.method
+  const params = notification.params
+  const accumulator = getAccumulatorForNotification(notification)
+
+  if (method === "thread/tokenUsage/updated") {
+    const threadId = getAppServerThreadId(params)
+    const target =
+      (threadId ? activeAppServerTurns.get(threadId) : null) || accumulator
+    if (target) {
+      target.usageMetadata = mapAppServerUsageToMetadata(params, target.model)
+    }
+    return
+  }
+
+  if (!accumulator) return
+  accumulator.lastEventAt = Date.now()
+
+  if (method === "turn/started") {
+    const turnId = getAppServerTurnId(params)
+    const threadId = getAppServerThreadId(params)
+    if (turnId && threadId) {
+      activeThreadIdsByTurnId.set(turnId, threadId)
+      const activeStream = activeStreams.get(accumulator.subChatId)
+      if (activeStream) activeStream.turnId = turnId
+    }
+    return
+  }
+
+  if (method === "turn/completed") {
+    const turn = isAppServerRecord(params) ? params.turn : null
+    accumulator.completed = true
+    accumulator.stopReason =
+      typeof turn?.status === "string" ? turn.status : accumulator.stopReason
+    accumulator.resultSubtype = turn?.status === "failed" ? "error" : "success"
+    const turnUsage = isAppServerRecord(turn) ? turn.usage : undefined
+    if (turnUsage) {
+      accumulator.usageMetadata = mapAppServerUsageToMetadata(
+        turnUsage,
+        accumulator.model,
+      )
+    }
+    return
+  }
+
+  if (method === "error") {
+    const normalized = extractCodexError(params)
+    accumulator.safeEmit({ type: "error", errorText: normalized.message })
+    return
+  }
+
+  if (method === "turn/plan/updated") {
+    handlePlanUpdated(accumulator, params)
+    return
+  }
+
+  if (!isAppServerRecord(params)) return
+
+  if (method === "item/started") {
+    handleItemStarted(accumulator, params.item)
+    return
+  }
+
+  if (method === "item/completed") {
+    handleItemCompleted(accumulator, params.item)
+    return
+  }
+
+  if (method === "item/agentMessage/delta") {
+    emitTextDelta(
+      accumulator,
+      typeof params.delta === "string" ? params.delta : "",
+    )
+    return
+  }
+
+  if (method === "item/plan/delta") {
+    handlePlanUpdated(accumulator, {
+      ...params,
+      explanation: typeof params.delta === "string" ? params.delta : "",
+      plan: [
+        {
+          step: typeof params.delta === "string" ? params.delta : "Update plan",
+          status: "pending",
+        },
+      ],
+    })
+    return
+  }
 
   if (
-    existing &&
-    existing.cwd === params.cwd &&
-    existing.authFingerprint === authFingerprint &&
-    existing.mcpFingerprint === params.mcpFingerprint
+    method === "item/reasoning/summaryTextDelta" ||
+    method === "item/reasoning/textDelta"
   ) {
-    return existing.provider
+    const itemId = getAppServerItemId(params)
+    let part = accumulator.toolPartsByItemId.get(itemId)
+    if (!part) {
+      part = {
+        type: "tool-Thinking",
+        toolCallId: itemId,
+        toolName: "Thinking",
+        state: "input-available",
+        input: {},
+        thinking: "",
+        startedAt: Date.now(),
+      }
+      emitToolStart(accumulator, part, part.input)
+    }
+    const delta = typeof params.delta === "string" ? params.delta : ""
+    part.thinking = `${part.thinking || ""}${delta}`
+    updateToolOutput(accumulator, itemId, { thinking: part.thinking })
+    return
   }
 
-  if (existing) {
-    existing.provider.cleanup()
-    providerSessions.delete(params.subChatId)
+  if (method === "item/commandExecution/outputDelta") {
+    appendToolText(
+      accumulator,
+      getAppServerItemId(params),
+      typeof params.delta === "string" ? params.delta : "",
+    )
+    return
   }
 
-  const hasAppManagedApiKey = Boolean(params.authConfig?.apiKey?.trim())
-  // When app-managed key auth is used, avoid resuming older persisted session IDs.
-  // Those can be tied to unauthenticated/CLI-auth state and trigger auth loops.
-  const existingSessionIdForProvider = hasAppManagedApiKey
-    ? undefined
-    : params.existingSessionId
-
-  const provider = createACPProvider({
-    command: resolveCodexAcpBinaryPath(),
-    env: buildCodexProviderEnv(params.authConfig),
-    authMethodId: getCodexAuthMethodId(params.authConfig),
-    session: {
-      cwd: params.cwd,
-      mcpServers: params.mcpServers,
-    },
-    ...(existingSessionIdForProvider
-      ? { existingSessionId: existingSessionIdForProvider }
-      : {}),
-    persistSession: true,
-  })
-
-  providerSessions.set(params.subChatId, {
-    provider,
-    cwd: params.cwd,
-    authFingerprint,
-    mcpFingerprint: params.mcpFingerprint,
-  })
-
-  return provider
+  if (method === "item/fileChange/patchUpdated") {
+    const itemId = getAppServerItemId(params)
+    const item = {
+      id: itemId,
+      type: "fileChange",
+      status: "inProgress",
+      changes: params.changes || params.patch || [],
+    }
+    let part = accumulator.toolPartsByItemId.get(itemId)
+    if (!part) {
+      part = createFileChangePart(item)
+      emitToolStart(accumulator, part, part.input)
+    }
+    updateToolOutput(accumulator, itemId, {
+      structuredPatch: toStructuredPatch(item),
+      status: item.status,
+    })
+  }
 }
 
-function cleanupProvider(subChatId: string): void {
-  const existing = providerSessions.get(subChatId)
-  if (!existing) return
+async function handleAskUserQuestionRequest(params: any) {
+  const threadId = getAppServerThreadId(params)
+  const subChatId = threadId ? activeStreamsByThreadId.get(threadId) : undefined
+  const accumulator = threadId ? activeAppServerTurns.get(threadId) : undefined
+  const questionsInput = Array.isArray(params?.questions)
+    ? params.questions
+    : Array.isArray(params?.input?.questions)
+      ? params.input.questions
+      : []
+  const parsed = z.array(codexQuestionSchema).safeParse(questionsInput)
+  const questions = normalizeCodexQuestions(
+    parsed.success
+      ? parsed.data
+      : [
+          {
+            question:
+              typeof params?.question === "string"
+                ? params.question
+                : typeof params?.message === "string"
+                  ? params.message
+                  : "How should Codex proceed?",
+            header: "Question",
+            options: [
+              { label: "Proceed", description: "Continue with reasonable defaults." },
+              { label: "Stop", description: "Do not continue this turn." },
+            ],
+          },
+        ],
+  )
+  const toolUseId =
+    getStringField(params, ["callId", "call_id", "itemId", "item_id"]) ||
+    `AskUserQuestion-${crypto.randomUUID()}`
 
-  existing.provider.cleanup()
-  providerSessions.delete(subChatId)
+  accumulator?.safeEmit({
+    type: "ask-user-question",
+    toolUseId,
+    questions,
+  })
+
+  const response = await new Promise<{
+    approved: boolean
+    message?: string
+    updatedInput?: unknown
+  }>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      pendingToolApprovals.delete(toolUseId)
+      accumulator?.safeEmit({
+        type: "ask-user-question-timeout",
+        toolUseId,
+      })
+      resolve({
+        approved: false,
+        message: QUESTIONS_TIMED_OUT_MESSAGE,
+      })
+    }, ASK_USER_QUESTION_TIMEOUT_MS)
+
+    pendingToolApprovals.set(toolUseId, {
+      subChatId: subChatId || accumulator?.subChatId || "",
+      resolve: (decision) => {
+        clearTimeout(timeoutId)
+        resolve(decision)
+      },
+    })
+  })
+
+  if (!response.approved) {
+    const result = response.message || QUESTIONS_SKIPPED_MESSAGE
+    accumulator?.safeEmit({
+      type: "ask-user-question-result",
+      toolUseId,
+      result,
+    })
+    return {
+      contentItems: [{ type: "inputText", text: result }],
+      success: true,
+    }
+  }
+
+  const answers =
+    typeof response.updatedInput === "object" &&
+    response.updatedInput !== null &&
+    "answers" in response.updatedInput
+      ? (response.updatedInput as { answers?: Record<string, string> }).answers ||
+        {}
+      : {}
+  const result = { answers }
+  accumulator?.safeEmit({
+    type: "ask-user-question-result",
+    toolUseId,
+    result,
+  })
+  return {
+    contentItems: [{ type: "inputText", text: JSON.stringify(result) }],
+    success: true,
+  }
+}
+
+async function handleAppServerServerRequest(
+  request: CodexAppServerServerRequest,
+): Promise<unknown> {
+  const method = request.method
+  const params = isAppServerRecord(request.params) ? request.params : {}
+
+  if (
+    method === "item/tool/call" &&
+    (params.tool === "AskUserQuestion" ||
+      params.tool === "ask_user_question" ||
+      params.tool === "request_user_input")
+  ) {
+    return await handleAskUserQuestionRequest(params)
+  }
+
+  if (method === "item/tool/requestUserInput") {
+    return await handleAskUserQuestionRequest(params)
+  }
+
+  if (
+    method.includes("requestApproval") ||
+    method.includes("approval") ||
+    method === "item/commandExecution/requestApproval" ||
+    method === "item/fileChange/requestApproval"
+  ) {
+    return { decision: "accept" }
+  }
+
+  if (method === "item/permissions/requestApproval") {
+    return {
+      scope: "session",
+      permissions: params.permissions || {},
+    }
+  }
+
+  if (method === "mcpServer/elicitation/request") {
+    return {
+      action: "decline",
+      content: null,
+    }
+  }
+
+  return {}
+}
+
+function waitForAppServerTurn(params: {
+  accumulator: AppServerTurnAccumulator
+  signal: AbortSignal
+  idleTimeoutMs: number
+  maxRuntimeMs: number
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now()
+    let intervalId: ReturnType<typeof setInterval> | null = null
+
+    const cleanup = () => {
+      if (intervalId) {
+        clearInterval(intervalId)
+        intervalId = null
+      }
+      params.signal.removeEventListener("abort", onAbort)
+    }
+    const onAbort = () => {
+      cleanup()
+      resolve()
+    }
+
+    params.signal.addEventListener("abort", onAbort, { once: true })
+    intervalId = setInterval(() => {
+      if (params.accumulator.completed) {
+        cleanup()
+        resolve()
+        return
+      }
+
+      if (Date.now() - params.accumulator.lastEventAt > params.idleTimeoutMs) {
+        cleanup()
+        reject(
+          new Error(
+            `Codex app-server stream idle for ${params.idleTimeoutMs / 1000}s`,
+          ),
+        )
+        return
+      }
+
+      if (Date.now() - startedAt > params.maxRuntimeMs) {
+        cleanup()
+        reject(new Error("Codex app-server turn timed out"))
+      }
+    }, 250)
+  })
 }
 
 export const codexRouter = router({
@@ -2143,7 +2975,7 @@ export const codexRouter = router({
           existingStream.controller.abort()
           clearPendingApprovals("Session ended.", input.subChatId)
           // Ensure old run cannot continue emitting after supersede.
-          cleanupProvider(input.subChatId)
+          cleanupCodexAppServerSubChat(input.subChatId)
         }
 
         const abortController = new AbortController()
@@ -2273,7 +3105,7 @@ export const codexRouter = router({
             }
 
             if (input.forceNewSession) {
-              cleanupProvider(input.subChatId)
+              cleanupCodexAppServerSubChat(input.subChatId)
             }
 
             let mcpSnapshot: CodexMcpSnapshot = {
@@ -2296,49 +3128,7 @@ export const codexRouter = router({
               console.error("[codex] Failed to resolve MCP servers:", mcpError)
             }
 
-            const provider = getOrCreateProvider({
-              subChatId: input.subChatId,
-              cwd: input.cwd,
-              mcpServers: mcpSnapshot.mcpServersForSession,
-              mcpFingerprint: mcpSnapshot.fingerprint,
-              existingSessionId:
-                input.forceNewSession
-                  ? undefined
-                  : getLastSessionId(existingMessages),
-              authConfig: input.authConfig,
-            })
-
             const startedAt = Date.now()
-            let latestSessionId =
-              provider.getSessionId() ||
-              input.sessionId ||
-              getLastSessionId(existingMessages)
-            let usagePromise: Promise<CodexUsageMetadata | null> | null = null
-
-            const USAGE_RESOLVE_TIMEOUT_MS = 6_000
-            const resolveUsageOnce = (): Promise<CodexUsageMetadata | null> => {
-              if (usagePromise) return usagePromise
-
-              const sessionId = latestSessionId || provider.getSessionId()
-              if (!sessionId) {
-                return Promise.resolve(null)
-              }
-
-              // Cap the poll so a stalled filesystem read can't block the
-              // queued finish chunk. On timeout we resolve to null — the
-              // caller already handles a missing usage payload cleanly.
-              usagePromise = Promise.race<CodexUsageMetadata | null>([
-                pollUsage(sessionId, {
-                  notBeforeTimestampMs: startedAt,
-                  modelId: selectedModelId,
-                }).catch(() => null),
-                new Promise<null>((resolve) =>
-                  setTimeout(() => resolve(null), USAGE_RESOLVE_TIMEOUT_MS),
-                ),
-              ])
-              return usagePromise
-            }
-
             const catchup = computeCatchupBlock(messagesForStream, "codex")
             const planInstruction =
               input.mode === "plan"
@@ -2357,32 +3147,6 @@ export const codexRouter = router({
             const augmentedPrompt = [planInstruction, catchup, input.prompt]
               .filter((segment): segment is string => Boolean(segment))
               .join("\n\n")
-
-            const codexModeId = input.mode === "plan" ? "read-only" : "full-access"
-            const planTools =
-              input.mode === "plan"
-                ? buildCodexPlanTools({
-                    subChatId: input.subChatId,
-                    safeEmit,
-                  })
-                : {}
-            const tools =
-              input.mode === "plan" ? acpTools(planTools) : provider.tools
-
-            const result = streamText({
-              model: provider.languageModel(selectedModelId, codexModeId),
-              messages: [
-                {
-                  role: "user",
-                  content: buildModelMessageContent(augmentedPrompt, input.images),
-                },
-              ],
-              tools,
-              ...(input.mode === "plan"
-                ? { stopWhen: stepCountIs(8) }
-                : {}),
-              abortSignal: abortController.signal,
-            })
 
             let planWriteFallbackPart: any | null = null
             let planWriteFallbackEmitted = false
@@ -2449,184 +3213,243 @@ export const codexRouter = router({
               })
             }
 
-            const uiStream = result.toUIMessageStream({
-              originalMessages: messagesForStream,
-              generateMessageId: () => crypto.randomUUID(),
-              messageMetadata: ({ part }) => {
-                const sessionId = provider.getSessionId() || undefined
-                if (sessionId) {
-                  latestSessionId = sessionId
-                }
-
-                if (part.type === "finish") {
-                  return {
-                    model: metadataModel,
-                    sessionId,
-                    durationMs: Date.now() - startedAt,
-                    resultSubtype: part.finishReason === "error" ? "error" : "success",
-                    stopReason: part.finishReason ?? undefined,
-                  }
-                }
-
-                if (sessionId) {
-                  return {
-                    model: metadataModel,
-                    sessionId,
-                  }
-                }
-
-                return { model: metadataModel }
-              },
-              onFinish: async ({ messages }) => {
-                try {
-                  const usageMetadata = await resolveUsageOnce()
-                  const messagesWithPlanFallback =
-                    input.mode === "plan"
-                      ? ensurePlanWriteForCodexPlanMode({
-                          messages,
-                          prompt: input.prompt,
-                          fallbackPart: planWriteFallbackPart,
-                        })
-                      : { messages, fallbackPart: null }
-
-                  planWriteFallbackPart = messagesWithPlanFallback.fallbackPart
-
-                  const assistantIndexes = messagesWithPlanFallback.messages
-                    .map((message: any, index: number) =>
-                      message?.role === "assistant" ? index : -1,
-                    )
-                    .filter((index: number) => index !== -1)
-                  const lastAssistantIndex =
-                    assistantIndexes[assistantIndexes.length - 1]
-
-                  const cleanedMessages = messagesWithPlanFallback.messages
-                    .map((message: any, index: number) => {
-                      const shouldAddUsage =
-                        usageMetadata &&
-                        message?.role === "assistant" &&
-                        index === lastAssistantIndex
-                      const messageWithUsage = shouldAddUsage
-                        ? {
-                            ...message,
-                            metadata: {
-                              ...(message.metadata || {}),
-                              ...usageMetadata,
-                            },
-                          }
-                        : message
-
-                      return cleanAssistantMessageForPersistence(messageWithUsage)
-                    })
-                    .filter(Boolean)
-
-                  if (cleanedMessages.length === 0) {
-                    persistSubChatMessages(messagesForStream)
-                    return
-                  }
-
-                  persistSubChatMessages(cleanedMessages)
-                } catch (error) {
-                  console.error("[codex] Failed to persist messages:", error)
-                }
-              },
-              onError: (error) => extractCodexError(error).message,
-            })
-
-            const reader = uiStream.getReader()
-            let pendingFinishChunk: any | null = null
-            // Idle-stream wedge: if no chunk arrives in this window, the
-            // upstream is hung (zombie ACP child, network stall). Cancel the
-            // reader, surface an error, and emit finish so the renderer's
-            // chatStatus transitions to "ready" instead of stuck on streaming.
-            const STREAM_IDLE_TIMEOUT_MS = 60_000
-            let streamIdleWedged = false
-            while (true) {
-              let idleTimer: ReturnType<typeof setTimeout> | undefined
-              const raceResult = await Promise.race<
-                | { kind: "chunk"; done: boolean; value: any }
-                | { kind: "idle" }
-              >([
-                reader.read().then((r) => ({ kind: "chunk" as const, done: r.done, value: r.value })),
-                new Promise<{ kind: "idle" }>((resolve) => {
-                  idleTimer = setTimeout(
-                    () => resolve({ kind: "idle" }),
-                    STREAM_IDLE_TIMEOUT_MS,
-                  )
-                }),
-              ])
-              if (idleTimer) clearTimeout(idleTimer)
-
-              if (raceResult.kind === "idle") {
-                streamIdleWedged = true
-                console.error(
-                  `[codex] Stream idle for ${STREAM_IDLE_TIMEOUT_MS / 1000}s, cancelling reader`,
-                )
-                try {
-                  await reader.cancel()
-                } catch {
-                  // ignore
-                }
-                break
-              }
-
-              const { done, value } = raceResult
-              if (done) break
-
-              if (value?.type === "error") {
-                const normalized = extractCodexError(value)
-
-                if (isCodexAuthError(normalized)) {
-                  suppressPlanWriteFallback = true
-                  safeEmit({ ...value, type: "auth-error", errorText: normalized.message })
-                } else {
-                  safeEmit({ ...value, errorText: normalized.message })
-                }
-                continue
-              }
-
-              if (value?.type === "abort") {
+            const safeEmitTurn = (chunk: any) => {
+              if (chunk?.type === "error" || chunk?.type === "auth-error") {
                 suppressPlanWriteFallback = true
               }
-
               if (planStreamAccumulator) {
-                accumulateCodexPlanStreamChunk(planStreamAccumulator, value)
+                accumulateCodexPlanStreamChunk(planStreamAccumulator, chunk)
               }
-
-              if (value?.type === "finish") {
-                emitPlanWriteFallbackIfNeeded()
-                pendingFinishChunk = value
-                continue
-              }
-
-              safeEmit(value)
+              safeEmit(chunk)
             }
 
-            if (streamIdleWedged) {
-              safeEmit({
-                type: "error",
-                errorText: `Codex stream idle for ${STREAM_IDLE_TIMEOUT_MS / 1000}s — recovering`,
+            const beforeSnapshot = await captureGitChangeSnapshot(input.cwd).catch(
+              (error) => {
+                console.warn("[codex] Failed to capture pre-turn git snapshot:", error)
+                return new Map<string, GitChangeSnapshotEntry>()
+              },
+            )
+            const client = await getOrCreateAppServerClient({
+              authConfig: input.authConfig,
+            })
+            const activeStream = activeStreams.get(input.subChatId)
+            if (activeStream?.runId === input.runId) {
+              activeStream.client = client
+            }
+
+            const hasAppManagedApiKey = Boolean(input.authConfig?.apiKey?.trim())
+            const persistedThreadId =
+              subChatThreadIds.get(input.subChatId) ||
+              (!hasAppManagedApiKey
+                ? input.sessionId || getLastSessionId(existingMessages)
+                : undefined)
+
+            let threadId: string
+            try {
+              threadId = await startOrResumeAppServerThread({
+                client,
+                threadId: input.forceNewSession ? undefined : persistedThreadId,
+                cwd: input.cwd,
+                selectedModelId,
               })
-              safeEmit({ type: "finish" })
-              safeComplete()
-              return
+            } catch (resumeError) {
+              if (!persistedThreadId || input.forceNewSession) {
+                throw resumeError
+              }
+
+              console.warn(
+                "[codex] Failed to resume app-server thread, starting a new one:",
+                resumeError,
+              )
+              threadId = await startOrResumeAppServerThread({
+                client,
+                cwd: input.cwd,
+                selectedModelId,
+              })
             }
+
+            subChatThreadIds.set(input.subChatId, threadId)
+            activeStreamsByThreadId.set(threadId, input.subChatId)
+            if (activeStream?.runId === input.runId) {
+              activeStream.threadId = threadId
+            }
+
+            const mcpServersForUi = mcpSnapshot.groups.flatMap((group) =>
+              group.mcpServers.map((server) => ({
+                name: server.name,
+                status: server.status,
+                ...(typeof server.config?.serverInfo === "object"
+                  ? { serverInfo: server.config.serverInfo }
+                  : {}),
+                ...(typeof server.config?.error === "string"
+                  ? { error: server.config.error }
+                  : {}),
+              })),
+            )
+            const mcpTools = mcpSnapshot.groups
+              .flatMap((group) => group.mcpServers)
+              .flatMap((server) =>
+                server.tools.map(
+                  (tool) => `mcp__${server.name}__${tool.name.replaceAll("/", "__")}`,
+                ),
+              )
+            const builtInTools =
+              input.mode === "plan"
+                ? ["Read", "Glob", "Grep", "Thinking", "PlanWrite", "AskUserQuestion"]
+                : [
+                    "Bash",
+                    "Edit",
+                    "Write",
+                    "Read",
+                    "Glob",
+                    "Grep",
+                    "Thinking",
+                    "WebSearch",
+                    "WebFetch",
+                  ]
+            safeEmit({
+              type: "session-init",
+              tools: [...builtInTools, ...mcpTools],
+              mcpServers: mcpServersForUi,
+              plugins: [],
+              skills: [],
+            })
+            safeEmit({ type: "start" })
+            safeEmit({ type: "start-step" })
+
+            const turnAccumulator: AppServerTurnAccumulator = {
+              subChatId: input.subChatId,
+              prompt: input.prompt,
+              model: metadataModel,
+              mode: input.mode,
+              startedAt,
+              safeEmit: safeEmitTurn,
+              parts: [],
+              currentTextId: null,
+              currentText: "",
+              toolPartsByItemId: new Map(),
+              usageMetadata: null,
+              completed: false,
+              lastEventAt: Date.now(),
+            }
+
+            activeAppServerTurns.set(threadId, turnAccumulator)
+            const onAbort = () => {
+              const stream = activeStreams.get(input.subChatId)
+              if (stream?.runId === input.runId) {
+                void interruptCodexTurn(stream)
+              }
+            }
+            abortController.signal.addEventListener("abort", onAbort, {
+              once: true,
+            })
+
+            const turnResult = await client.request(
+              "turn/start",
+              {
+                threadId,
+                input: buildAppServerInput(augmentedPrompt, input.images),
+                ...buildCodexTurnConfig({
+                  cwd: input.cwd,
+                  mode: input.mode,
+                  selectedModelId,
+                }),
+              },
+              30_000,
+            )
+            const turnId = extractTurnIdFromStartResult(turnResult)
+            if (turnId) {
+              activeThreadIdsByTurnId.set(turnId, threadId)
+              const stream = activeStreams.get(input.subChatId)
+              if (stream?.runId === input.runId) {
+                stream.turnId = turnId
+              }
+            }
+
+            await waitForAppServerTurn({
+              accumulator: turnAccumulator,
+              signal: abortController.signal,
+              idleTimeoutMs: 60_000,
+              maxRuntimeMs: 60 * 60 * 1000,
+            })
+            if (!turnAccumulator.usageMetadata && !abortController.signal.aborted) {
+              await new Promise((resolve) => setTimeout(resolve, 750))
+            }
+            abortController.signal.removeEventListener("abort", onAbort)
+
+            flushTextPart(turnAccumulator)
 
             if (input.mode === "plan") {
               emitPlanWriteFallbackIfNeeded()
             }
 
-            if (pendingFinishChunk) {
-              const usageMetadata = await resolveUsageOnce()
-              if (usageMetadata) {
-                safeEmit({
-                  type: "message-metadata",
-                  messageMetadata: usageMetadata,
-                })
+            const afterSnapshot = await captureGitChangeSnapshot(input.cwd).catch(
+              (error) => {
+                console.warn("[codex] Failed to capture post-turn git snapshot:", error)
+                return new Map<string, GitChangeSnapshotEntry>()
+              },
+            )
+            const changedFiles = diffGitChangeSnapshots(
+              beforeSnapshot,
+              afterSnapshot,
+            )
+
+            try {
+              const assistantMessage = {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                parts: turnAccumulator.parts,
+                metadata: {
+                  model: metadataModel,
+                  sessionId: threadId,
+                  durationMs: Date.now() - startedAt,
+                  resultSubtype:
+                    turnAccumulator.resultSubtype ||
+                    (abortController.signal.aborted ? "interrupted" : "success"),
+                  stopReason:
+                    turnAccumulator.stopReason ||
+                    (abortController.signal.aborted ? "interrupted" : "stop"),
+                  ...(turnAccumulator.usageMetadata || {}),
+                  ...(changedFiles.length > 0 ? { changedFiles } : {}),
+                },
               }
-              safeEmit(pendingFinishChunk)
-            } else {
-              safeEmit({ type: "finish" })
+              const messagesWithAssistant =
+                assistantMessage.parts.length > 0 || changedFiles.length > 0
+                  ? [...messagesForStream, assistantMessage]
+                  : messagesForStream
+              const messagesWithPlanFallback =
+                input.mode === "plan"
+                  ? ensurePlanWriteForCodexPlanMode({
+                      messages: messagesWithAssistant,
+                      prompt: input.prompt,
+                      fallbackPart: planWriteFallbackPart,
+                    })
+                  : { messages: messagesWithAssistant, fallbackPart: null }
+              planWriteFallbackPart = messagesWithPlanFallback.fallbackPart
+
+              const cleanedMessages = messagesWithPlanFallback.messages
+                .map(cleanAssistantMessageForPersistence)
+                .filter(Boolean)
+
+              if (cleanedMessages.length > 0) {
+                persistSubChatMessages(cleanedMessages)
+              } else {
+                persistSubChatMessages(messagesForStream)
+              }
+            } catch (persistError) {
+              console.error("[codex] Failed to persist messages:", persistError)
             }
+
+            if (turnAccumulator.usageMetadata || changedFiles.length > 0) {
+              safeEmit({
+                type: "message-metadata",
+                messageMetadata: {
+                  ...(turnAccumulator.usageMetadata || {}),
+                  ...(changedFiles.length > 0 ? { changedFiles } : {}),
+                },
+              })
+            }
+            safeEmit({ type: "finish" })
 
             safeComplete()
           } catch (error) {
@@ -2643,10 +3466,12 @@ export const codexRouter = router({
           } finally {
             const activeStream = activeStreams.get(input.subChatId)
             if (activeStream?.runId === input.runId) {
-              const shouldCleanupProvider =
-                abortController.signal.aborted || activeStream.cancelRequested
-              if (shouldCleanupProvider) {
-                cleanupProvider(input.subChatId)
+              if (activeStream.turnId) {
+                activeThreadIdsByTurnId.delete(activeStream.turnId)
+              }
+              if (activeStream.threadId) {
+                activeStreamsByThreadId.delete(activeStream.threadId)
+                activeAppServerTurns.delete(activeStream.threadId)
               }
               activeStreams.delete(input.subChatId)
             }
@@ -2654,8 +3479,8 @@ export const codexRouter = router({
         })()
 
         return () => {
-          // If the stream never emitted a finish chunk (e.g. underlying
-          // ACP child or usage poll hung), emit one synthetically so the
+          // If the stream never emitted a finish chunk (e.g. app-server
+          // process or turn wait hung), emit one synthetically so the
           // renderer's chatStatus transitions to "ready" and the UI stops
           // showing tools as "Running" forever. Must precede isActive=false
           // because safeEmit no-ops once isActive is cleared.
@@ -2684,7 +3509,7 @@ export const codexRouter = router({
         runId: z.string(),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const activeStream = activeStreams.get(input.subChatId)
       if (!activeStream) {
         return { cancelled: false, ignoredStale: false }
@@ -2696,6 +3521,7 @@ export const codexRouter = router({
 
       activeStream.cancelRequested = true
       activeStream.controller.abort()
+      await interruptCodexTurn(activeStream)
       clearPendingApprovals("Session cancelled.", input.subChatId)
 
       return { cancelled: true, ignoredStale: false }
@@ -2704,7 +3530,7 @@ export const codexRouter = router({
   cleanup: publicProcedure
     .input(z.object({ subChatId: z.string() }))
     .mutation(({ input }) => {
-      cleanupProvider(input.subChatId)
+      cleanupCodexAppServerSubChat(input.subChatId)
 
       const activeStream = activeStreams.get(input.subChatId)
       if (activeStream) {

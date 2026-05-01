@@ -962,10 +962,9 @@ export function ChangesView({
 						{/* Scope toggle: picks between "this chat's slice" and the full branch
 						    diff. Drives the same atom that handleReview / commit message
 						    generation read, so Claude's prompts stay in sync with what the
-						    user sees. Always visible when there's an active sub-chat — the
-						    "This chat" button shows 0 if no tool-Edit/tool-Write has been
-						    captured yet (e.g. bash-only edits, or the chat panel hasn't
-						    been mounted long enough for the message walker to run). */}
+						    user sees. Always visible when there's an active sub-chat; the
+						    count comes from edit/write tool parts and Codex worktree
+						    attribution metadata. */}
 						{activeSubChatId && (() => {
 							const isScoped = subChatFilter === activeSubChatId;
 							const scopedEntry = subChats.find((sc) => sc.id === activeSubChatId);

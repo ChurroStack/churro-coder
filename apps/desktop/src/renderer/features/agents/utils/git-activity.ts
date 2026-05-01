@@ -215,17 +215,43 @@ function toRelativePath(filePath: string, projectPath?: string): string {
 }
 
 /**
- * Extract changed files from Edit/Write tool parts in a message.
- * Tracks additions and deletions per file.
+ * Extract changed files from Edit/Write tool parts and Codex app-server
+ * changed-file metadata in a message. Metadata wins for a file because it is
+ * derived from the worktree diff and catches shell/Python edits.
  * @param projectPath - project root path for computing relative display paths
  */
-export function extractChangedFiles(parts: any[], projectPath?: string): ChangedFileInfo[] {
+export function extractChangedFiles(
+  parts: any[],
+  projectPath?: string,
+  metadata?: {
+    changedFiles?: Array<{
+      filePath?: string
+      additions?: number
+      deletions?: number
+      status?: string
+    }>
+  },
+): ChangedFileInfo[] {
   const fileMap = new Map<string, ChangedFileInfo>()
+
+  for (const changedFile of metadata?.changedFiles || []) {
+    const filePath = changedFile.filePath || ""
+    if (!filePath) continue
+    if (filePath.includes("claude-sessions") || filePath.includes("Application Support")) continue
+
+    fileMap.set(filePath, {
+      filePath,
+      displayPath: toRelativePath(filePath, projectPath),
+      additions: Math.max(0, changedFile.additions || 0),
+      deletions: Math.max(0, changedFile.deletions || 0),
+    })
+  }
 
   for (const part of parts) {
     if (part.type !== "tool-Edit" && part.type !== "tool-Write") continue
     const filePath: string = part.input?.file_path || ""
     if (!filePath) continue
+    if (fileMap.has(filePath)) continue
 
     // Skip session/plan files
     if (filePath.includes("claude-sessions") || filePath.includes("Application Support")) continue
