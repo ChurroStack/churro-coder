@@ -50,6 +50,10 @@ import {
   getApprovedPluginMcpServers,
   getEnabledPlugins,
 } from "./claude-settings"
+import {
+  clearPendingApprovals,
+  pendingToolApprovals,
+} from "./tool-approvals"
 
 /**
  * Parse @[agent:name], @[skill:name], and @[tool:servername] mentions from prompt text
@@ -350,27 +354,7 @@ async function readProjectMcpJsonCached(
   }
 }
 
-const pendingToolApprovals = new Map<
-  string,
-  {
-    subChatId: string
-    resolve: (decision: {
-      approved: boolean
-      message?: string
-      updatedInput?: unknown
-    }) => void
-  }
->()
-
 const PLAN_MODE_BLOCKED_TOOLS = new Set(["Bash", "NotebookEdit"])
-
-const clearPendingApprovals = (message: string, subChatId?: string) => {
-  for (const [toolUseId, pending] of pendingToolApprovals) {
-    if (subChatId && pending.subChatId !== subChatId) continue
-    pending.resolve({ approved: false, message })
-    pendingToolApprovals.delete(toolUseId)
-  }
-}
 
 // Image attachment schema
 const imageAttachmentSchema = z.object({

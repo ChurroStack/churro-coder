@@ -4459,7 +4459,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     }
   }
 
-  // Check if there's an unapproved plan (in plan mode with completed ExitPlanMode, Codex PlanWrite, or Codex text plan)
+  // Check if there's an unapproved plan (in plan mode with completed ExitPlanMode, Codex PlanWrite, or legacy Codex text plan)
   const hasUnapprovedPlan = useMemo(() => {
     // If already in agent mode, plan is approved (mode is the source of truth)
     if (subChatMode !== "plan") return false
@@ -4486,15 +4486,43 @@ export const ChatViewInner = memo(function ChatViewInner({
           return true
         }
 
-        // Codex writes plans as text — any Codex assistant response in plan mode is pending
+        const hasAnyPlanWrite = msg.parts.some(
+          (p: any) => p.type === "tool-PlanWrite",
+        )
+        if (hasAnyPlanWrite) {
+          return false
+        }
+
+        const hasPendingAskUserQuestion = msg.parts.some(
+          (p: any) =>
+            p.type === "tool-AskUserQuestion" &&
+            p.input?.questions &&
+            p.state !== "output-available" &&
+            p.state !== "output-error" &&
+            p.state !== "result",
+        )
+        if (hasPendingAskUserQuestion) {
+          return false
+        }
+
+        // Legacy Codex plans were text-only. Keep supporting those, but do not
+        // treat a live AskUserQuestion turn as plan approval.
         const msgModel = (msg as any).metadata?.model
-        if (msgModel && getProviderForModelId(String(msgModel)) === "codex") {
+        const hasTextPlan = msg.parts.some(
+          (p: any) => p.type === "text" && p.text?.trim(),
+        )
+        if (
+          !isStreaming &&
+          msgModel &&
+          getProviderForModelId(String(msgModel)) === "codex" &&
+          hasTextPlan
+        ) {
           return true
         }
       }
     }
     return false
-  }, [messages, subChatMode])
+  }, [messages, subChatMode, isStreaming])
 
   // Keep ref in sync for use in initializeScroll (which runs in useLayoutEffect)
   hasUnapprovedPlanRef.current = hasUnapprovedPlan

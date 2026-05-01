@@ -1786,7 +1786,7 @@ export const chatsRouter = router({
         }>
 
         // Check if there's a completed ExitPlanMode (Claude), PlanWrite awaiting_approval (Codex widget),
-        // or any Codex text response in plan mode (Codex writes plans as text, not tool calls)
+        // or a legacy Codex text response in plan mode.
         const hasPendingPlanApproval = (): boolean => {
           for (let i = messages.length - 1; i >= 0; i--) {
             const msg = messages[i]
@@ -1810,9 +1810,36 @@ export const chatsRouter = router({
                 return true
               }
 
-              // Codex writes plans as text — any Codex assistant response in plan mode is pending
+              const hasAnyPlanWrite = msg.parts.some(
+                (p: any) => p.type === "tool-PlanWrite",
+              )
+              if (hasAnyPlanWrite) {
+                return false
+              }
+
+              const hasPendingAskUserQuestion = msg.parts.some(
+                (p: any) =>
+                  p.type === "tool-AskUserQuestion" &&
+                  p.input?.questions &&
+                  p.state !== "output-available" &&
+                  p.state !== "output-error" &&
+                  p.state !== "result",
+              )
+              if (hasPendingAskUserQuestion) {
+                return false
+              }
+
+              // Legacy Codex plans were text-only. Keep supporting those, but
+              // do not treat a live AskUserQuestion turn as plan approval.
               const msgModel = (msg as any).metadata?.model
-              if (msgModel && getProviderForModelId(String(msgModel)) === "codex") {
+              const hasTextPlan = msg.parts.some(
+                (p: any) => p.type === "text" && p.text?.trim(),
+              )
+              if (
+                msgModel &&
+                getProviderForModelId(String(msgModel)) === "codex" &&
+                hasTextPlan
+              ) {
                 return true
               }
             }

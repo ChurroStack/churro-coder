@@ -1,6 +1,16 @@
 "use client"
 
-import { memo, useState, useEffect } from "react"
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+} from "react"
+import { useAtomValue, useSetAtom } from "jotai"
+import { Button } from "../../../components/ui/button"
+import { Kbd } from "../../../components/ui/kbd"
 import { useChatAttentionStore } from "../stores/chat-attention-store"
 import { TextShimmer } from "../../../components/ui/text-shimmer"
 import {
@@ -12,7 +22,12 @@ import {
 import { getToolStatus } from "./agent-tool-registry"
 import { areToolPropsEqual } from "./agent-tool-utils"
 import { cn } from "../../../lib/utils"
-import { Circle, SkipForward, FileCode2 } from "lucide-react"
+import { SkipForward, FileCode2 } from "lucide-react"
+import {
+  pendingBuildPlanSubChatIdAtom,
+  subChatModeAtomFamily,
+} from "../atoms"
+import { useAgentSubChatStore } from "../stores/sub-chat-store"
 
 interface PlanStep {
   id: string
@@ -120,6 +135,25 @@ export const AgentPlanTool = memo(function AgentPlanTool({
 
   const plan = part.input?.plan
   const action = part.input?.action || "create"
+  const subChatModeAtom = useMemo(
+    () => subChatModeAtomFamily(subChatId || ""),
+    [subChatId],
+  )
+  const subChatMode = useAtomValue(subChatModeAtom)
+  const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom)
+  const buildDisabled =
+    isPending || chatStatus === "streaming" || chatStatus === "submitted"
+  const canApprovePlan =
+    plan?.status === "awaiting_approval" && subChatMode === "plan"
+
+  const handleApprovePlan = useCallback((event: MouseEvent) => {
+    event.stopPropagation()
+    const targetSubChatId =
+      subChatId || useAgentSubChatStore.getState().activeSubChatId
+    if (targetSubChatId) {
+      setPendingBuildPlanSubChatId(targetSubChatId)
+    }
+  }, [setPendingBuildPlanSubChatId, subChatId])
 
   useEffect(() => {
     if (!subChatId) return
@@ -208,6 +242,18 @@ export const AgentPlanTool = memo(function AgentPlanTool({
             <span className="text-xs text-muted-foreground">
               {completedCount}/{totalSteps}
             </span>
+          )}
+
+          {canApprovePlan && (
+            <Button
+              size="sm"
+              onClick={handleApprovePlan}
+              disabled={buildDisabled}
+              className="h-6 px-2 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97] disabled:opacity-50"
+            >
+              Approve
+              <Kbd className="ml-1 text-primary-foreground/70">⌘↵</Kbd>
+            </Button>
           )}
 
           {/* Expand/Collapse icon */}

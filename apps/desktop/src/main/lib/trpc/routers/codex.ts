@@ -1,6 +1,6 @@
 import { createACPProvider, type ACPProvider } from "@mcpc-tech/acp-ai-provider"
 import { observable } from "@trpc/server/observable"
-import { streamText, tool } from "ai"
+import { stepCountIs, streamText, tool } from "ai"
 import { eq } from "drizzle-orm"
 import { app } from "electron"
 import { spawn, type ChildProcess } from "node:child_process"
@@ -26,11 +26,52 @@ import {
   type McpToolInfo,
 } from "../../mcp-auth"
 import { publicProcedure, router } from "../index"
+import {
+  clearPendingApprovals,
+  pendingToolApprovals,
+} from "./tool-approvals"
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
   mediaType: z.string(),
   filename: z.string().optional(),
+})
+
+const ASK_USER_QUESTION_TIMEOUT_MS = 60_000
+const QUESTIONS_SKIPPED_MESSAGE = "User skipped questions - proceed with defaults"
+const QUESTIONS_TIMED_OUT_MESSAGE = "Timed out"
+
+const codexQuestionSchema = z.object({
+  question: z.string().min(1),
+  header: z.string().min(1),
+  options: z
+    .array(
+      z.object({
+        label: z.string().min(1),
+        description: z.string().optional(),
+      }),
+    )
+    .min(2),
+  multiSelect: z.boolean().optional(),
+})
+
+const codexPlanStepSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  files: z.array(z.string()).optional(),
+  estimatedComplexity: z.enum(["low", "medium", "high"]).optional(),
+  status: z
+    .enum(["pending", "in_progress", "completed", "skipped"])
+    .optional(),
+})
+
+const codexPlanSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().min(1),
+  summary: z.string().optional(),
+  steps: z.array(codexPlanStepSchema),
+  status: z.literal("awaiting_approval").optional(),
 })
 
 type CodexProviderSession = {
@@ -116,6 +157,7 @@ export function abortAllCodexStreams(): void {
   for (const [subChatId, stream] of activeStreams) {
     console.log(`[codex] Aborting stream ${subChatId} before reload`)
     stream.controller.abort()
+    clearPendingApprovals("Session ended.", subChatId)
   }
   activeStreams.clear()
 }
@@ -1259,6 +1301,128 @@ function buildModelMessageContent(
   return content
 }
 
+function normalizeCodexQuestions(
+  questions: z.infer<typeof codexQuestionSchema>[],
+) {
+  return questions.map((question) => ({
+    question: question.question,
+    header: question.header,
+    options: question.options.map((option) => ({
+      label: option.label,
+      description: option.description || "",
+    })),
+    multiSelect: Boolean(question.multiSelect),
+  }))
+}
+
+function normalizeCodexPlan(plan: z.infer<typeof codexPlanSchema>) {
+  return {
+    ...plan,
+    id: plan.id || `plan-${Date.now()}`,
+    status: "awaiting_approval" as const,
+    steps: plan.steps.map((step, index) => ({
+      ...step,
+      id: step.id || `step-${index + 1}`,
+      status: step.status || "pending",
+    })),
+  }
+}
+
+function buildCodexPlanTools(params: {
+  subChatId: string
+  safeEmit: (chunk: any) => void
+}) {
+  return {
+    AskUserQuestion: tool({
+      description:
+        "Ask the user concise follow-up questions before writing a plan. Use this only for high-impact ambiguity that cannot be resolved by inspecting the project. Provide answer options so the UI can collect the response.",
+      inputSchema: z.object({
+        questions: z.array(codexQuestionSchema).min(1).max(3),
+      }),
+      execute: async (input, options) => {
+        const toolUseId = options.toolCallId
+        const questions = normalizeCodexQuestions(input.questions)
+
+        params.safeEmit({
+          type: "ask-user-question",
+          toolUseId,
+          questions,
+        })
+
+        const response = await new Promise<{
+          approved: boolean
+          message?: string
+          updatedInput?: unknown
+        }>((resolve) => {
+          const timeoutId = setTimeout(() => {
+            pendingToolApprovals.delete(toolUseId)
+            params.safeEmit({
+              type: "ask-user-question-timeout",
+              toolUseId,
+            })
+            resolve({
+              approved: false,
+              message: QUESTIONS_TIMED_OUT_MESSAGE,
+            })
+          }, ASK_USER_QUESTION_TIMEOUT_MS)
+
+          pendingToolApprovals.set(toolUseId, {
+            subChatId: params.subChatId,
+            resolve: (decision) => {
+              clearTimeout(timeoutId)
+              resolve(decision)
+            },
+          })
+        })
+
+        if (!response.approved) {
+          const result = response.message || QUESTIONS_SKIPPED_MESSAGE
+          params.safeEmit({
+            type: "ask-user-question-result",
+            toolUseId,
+            result,
+          })
+          return result
+        }
+
+        const answers =
+          typeof response.updatedInput === "object" &&
+          response.updatedInput !== null &&
+          "answers" in response.updatedInput
+            ? (response.updatedInput as { answers?: Record<string, string> })
+                .answers || {}
+            : {}
+        const result = { answers }
+
+        params.safeEmit({
+          type: "ask-user-question-result",
+          toolUseId,
+          result,
+        })
+
+        return result
+      },
+    }),
+    PlanWrite: tool({
+      description:
+        "Submit the final read-only implementation plan for user review. Call this exactly once when the plan is complete. Do not implement anything.",
+      inputSchema: z.object({
+        action: z.literal("create").optional(),
+        plan: codexPlanSchema,
+      }),
+      execute: async (input) => {
+        const plan = normalizeCodexPlan(input.plan)
+        return {
+          success: true,
+          message: "Plan ready for review.",
+          action: input.action || "create",
+          plan,
+        }
+      },
+    }),
+  }
+}
+
 function getOrCreateProvider(params: {
   subChatId: string
   cwd: string
@@ -1623,6 +1787,7 @@ export const codexRouter = router({
         if (existingStream) {
           existingStream.cancelRequested = true
           existingStream.controller.abort()
+          clearPendingApprovals("Session ended.", input.subChatId)
           // Ensure old run cannot continue emitting after supersede.
           cleanupProvider(input.subChatId)
         }
@@ -1812,13 +1977,27 @@ export const codexRouter = router({
             const catchup = computeCatchupBlock(messagesForStream, "codex")
             const planInstruction =
               input.mode === "plan"
-                ? "[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state. Read the codebase as needed, then write a clear numbered implementation plan. End with a sentence saying you are waiting for the user's approval before implementing anything."
+                ? [
+                    "[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.",
+                    "Read the codebase as needed using read-only tools.",
+                    "If any high-impact requirement is ambiguous and cannot be resolved from the repository, call AskUserQuestion with concise multiple-choice follow-up questions before planning.",
+                    "When the plan is complete, call PlanWrite exactly once with action \"create\" and plan.status \"awaiting_approval\".",
+                    "Do not write the final plan as plain text only, do not call PlanWrite more than once, and do not restate the plan after PlanWrite.",
+                    "After PlanWrite, stop and wait for the user's approval before implementing anything.",
+                  ].join("\n")
                 : ""
             const augmentedPrompt = [planInstruction, catchup, input.prompt]
               .filter((segment): segment is string => Boolean(segment))
               .join("\n\n")
 
             const codexModeId = input.mode === "plan" ? "read-only" : "full-access"
+            const planTools =
+              input.mode === "plan"
+                ? buildCodexPlanTools({
+                    subChatId: input.subChatId,
+                    safeEmit,
+                  })
+                : {}
 
             const result = streamText({
               model: provider.languageModel(selectedModelId, codexModeId),
@@ -1828,7 +2007,10 @@ export const codexRouter = router({
                   content: buildModelMessageContent(augmentedPrompt, input.images),
                 },
               ],
-              tools: { ...(provider.tools ?? {}) },
+              tools: { ...(provider.tools ?? {}), ...planTools },
+              ...(input.mode === "plan"
+                ? { stopWhen: stepCountIs(8) }
+                : {}),
               abortSignal: abortController.signal,
             })
 
@@ -1860,34 +2042,43 @@ export const codexRouter = router({
 
                 return { model: metadataModel }
               },
-              onFinish: async ({ responseMessage, isContinuation }) => {
+              onFinish: async ({ messages }) => {
                 try {
                   const usageMetadata = await resolveUsageOnce()
-                  const responseWithUsage = usageMetadata
-                    ? {
-                        ...responseMessage,
-                        metadata: {
-                          ...((responseMessage as any)?.metadata || {}),
-                          ...usageMetadata,
-                        },
-                      }
-                    : responseMessage
-                  const cleanedResponseMessage =
-                    cleanAssistantMessageForPersistence(responseWithUsage)
+                  const assistantIndexes = messages
+                    .map((message: any, index: number) =>
+                      message?.role === "assistant" ? index : -1,
+                    )
+                    .filter((index: number) => index !== -1)
+                  const lastAssistantIndex =
+                    assistantIndexes[assistantIndexes.length - 1]
 
-                  if (!cleanedResponseMessage) {
+                  const cleanedMessages = messages
+                    .map((message: any, index: number) => {
+                      const shouldAddUsage =
+                        usageMetadata &&
+                        message?.role === "assistant" &&
+                        index === lastAssistantIndex
+                      const messageWithUsage = shouldAddUsage
+                        ? {
+                            ...message,
+                            metadata: {
+                              ...(message.metadata || {}),
+                              ...usageMetadata,
+                            },
+                          }
+                        : message
+
+                      return cleanAssistantMessageForPersistence(messageWithUsage)
+                    })
+                    .filter(Boolean)
+
+                  if (cleanedMessages.length === 0) {
                     persistSubChatMessages(messagesForStream)
                     return
                   }
 
-                  const messagesToPersist = [
-                    ...(isContinuation
-                      ? messagesForStream.slice(0, -1)
-                      : messagesForStream),
-                    cleanedResponseMessage,
-                  ]
-
-                  persistSubChatMessages(messagesToPersist)
+                  persistSubChatMessages(cleanedMessages)
                 } catch (error) {
                   console.error("[codex] Failed to persist messages:", error)
                 }
@@ -1961,6 +2152,7 @@ export const codexRouter = router({
         return () => {
           isActive = false
           abortController.abort()
+          clearPendingApprovals("Session ended.", input.subChatId)
 
           const activeStream = activeStreams.get(input.subChatId)
           if (activeStream?.runId === input.runId) {
@@ -1989,6 +2181,7 @@ export const codexRouter = router({
 
       activeStream.cancelRequested = true
       activeStream.controller.abort()
+      clearPendingApprovals("Session cancelled.", input.subChatId)
 
       return { cancelled: true, ignoredStale: false }
     }),
@@ -2003,6 +2196,7 @@ export const codexRouter = router({
         activeStream.controller.abort()
         activeStreams.delete(input.subChatId)
       }
+      clearPendingApprovals("Session ended.", input.subChatId)
 
       return { success: true }
     }),

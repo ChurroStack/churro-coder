@@ -11,6 +11,7 @@ const CODEX_VERB_TO_TOOL_TYPE: Record<string, string> = {
   Write: "Write",
   Thought: "Thinking",
   Fetch: "WebFetch",
+  AskUserQuestion: "AskUserQuestion",
   PlanWrite: "PlanWrite",
 }
 
@@ -164,6 +165,48 @@ function stripExecutionBookkeeping(input: AnyRecord): AnyRecord {
   delete cleaned.server
   delete cleaned.tool
   return cleaned
+}
+
+function normalizePlanWriteInput(input: unknown): unknown {
+  if (!isRecord(input)) return input
+
+  const normalizedInput: AnyRecord = { ...input }
+  normalizedInput.action =
+    typeof normalizedInput.action === "string" && normalizedInput.action.length > 0
+      ? normalizedInput.action
+      : "create"
+
+  if (!isRecord(normalizedInput.plan)) {
+    return normalizedInput
+  }
+
+  const plan: AnyRecord = { ...normalizedInput.plan }
+  if (typeof plan.status !== "string" || plan.status.length === 0) {
+    plan.status = "awaiting_approval"
+  }
+  if (typeof plan.id !== "string" || plan.id.length === 0) {
+    plan.id = "plan"
+  }
+
+  if (Array.isArray(plan.steps)) {
+    plan.steps = plan.steps.map((step: unknown, index: number) => {
+      if (!isRecord(step)) return step
+      const normalizedStep: AnyRecord = { ...step }
+      if (typeof normalizedStep.id !== "string" || normalizedStep.id.length === 0) {
+        normalizedStep.id = `step-${index + 1}`
+      }
+      if (
+        typeof normalizedStep.status !== "string" ||
+        normalizedStep.status.length === 0
+      ) {
+        normalizedStep.status = "pending"
+      }
+      return normalizedStep
+    })
+  }
+
+  normalizedInput.plan = plan
+  return normalizedInput
 }
 
 function normalizeCodexToolInput(
@@ -327,6 +370,10 @@ function normalizeCodexToolInput(
         normalizedInput.content = normalizedInput.new_content
       }
     }
+  }
+
+  if (descriptor.canonicalToolName === "PlanWrite") {
+    return normalizePlanWriteInput(normalizedInput)
   }
 
   return normalizedInput
