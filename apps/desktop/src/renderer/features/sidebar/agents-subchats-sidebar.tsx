@@ -15,6 +15,7 @@ import {
   subChatFilesAtom,
   justCreatedIdsAtom,
   pendingUserQuestionsAtom,
+  expiredUserQuestionsAtom,
   undoStackAtom,
   subChatModeAtomFamily,
   suppressInputFocusAtom,
@@ -352,7 +353,16 @@ export function AgentsSubChatsSidebar({
   // Resolved hotkey for tooltip
   const newAgentHotkey = useResolvedHotkeyDisplay("new-agent")
   const [justCreatedIds, setJustCreatedIds] = useAtom(justCreatedIdsAtom)
-  const pendingQuestionsMap = useAtomValue(pendingUserQuestionsAtom)
+  const activePendingQuestionsMap = useAtomValue(pendingUserQuestionsAtom)
+  const expiredQuestionsMap = useAtomValue(expiredUserQuestionsAtom)
+  // Treat active + expired (still-answerable) questions uniformly so the sub-chat row's
+  // needs-input glyph stays in sync with the dock tab's `useSubChatNeedsInput`.
+  const pendingQuestionsMap = useMemo(() => {
+    if (expiredQuestionsMap.size === 0) return activePendingQuestionsMap
+    const merged = new Map(activePendingQuestionsMap)
+    for (const [k, v] of expiredQuestionsMap) merged.set(k, v)
+    return merged
+  }, [activePendingQuestionsMap, expiredQuestionsMap])
   const defaultAgentMode = useAtomValue(defaultAgentModeAtom)
 
   // Pending plan approvals from DB - only for open sub-chats
