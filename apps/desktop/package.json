@@ -41,7 +41,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@git-diff-view/react": "^0.0.35",
     "@git-diff-view/shiki": "^0.0.36",
-    "@mcpc-tech/acp-ai-provider": "^0.2.4",
+    "@mcpc-tech/acp-ai-provider": "0.3.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@monaco-editor/react": "^4.7.0",
     "@pierre/diffs": "1.1.0-beta.18",

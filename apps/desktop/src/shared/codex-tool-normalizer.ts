@@ -221,6 +221,44 @@ function normalizePlanWriteInput(input: unknown): unknown {
   return normalizedInput
 }
 
+function unwrapAcpSdkToolOutput(
+  output: unknown,
+  canonicalToolName: string,
+): unknown {
+  const normalizeUnwrapped = (value: unknown): unknown => {
+    if (
+      canonicalToolName === "AskUserQuestion" &&
+      isRecord(value) &&
+      typeof value.result === "string"
+    ) {
+      return value.result
+    }
+    return value
+  }
+
+  if (!isRecord(output)) return output
+
+  if (isRecord(output.structuredContent)) {
+    return normalizeUnwrapped(output.structuredContent)
+  }
+
+  if (Array.isArray(output.content) && output.content.length > 0) {
+    const firstContent = output.content[0]
+    if (isRecord(firstContent) && typeof firstContent.text === "string") {
+      const text = firstContent.text.trim()
+      if (text.length > 0) {
+        try {
+          return normalizeUnwrapped(JSON.parse(text))
+        } catch {
+          return normalizeUnwrapped(text)
+        }
+      }
+    }
+  }
+
+  return normalizeUnwrapped(output)
+}
+
 function normalizeCodexToolInput(
   rawInput: unknown,
   descriptor: CodexToolDescriptor,
@@ -445,8 +483,19 @@ export function normalizeCodexToolPart(
       : hasCodexArgsWrapper
         ? normalizeCodexToolInput(part.input, fallbackDescriptor)
         : part.input
-  const normalizedOutput = part.output !== undefined ? part.output : part.result
-  const normalizedResult = part.result !== undefined ? part.result : part.output
+  const shouldUnwrapAcpSdkOutput =
+    fallbackDescriptor.canonicalToolName === "AskUserQuestion" ||
+    fallbackDescriptor.canonicalToolName === "PlanWrite"
+  const rawOutput = part.output !== undefined ? part.output : part.result
+  const rawResult = part.result !== undefined ? part.result : part.output
+  const normalizedOutput =
+    shouldUnwrapAcpSdkOutput
+      ? unwrapAcpSdkToolOutput(rawOutput, fallbackDescriptor.canonicalToolName)
+      : rawOutput
+  const normalizedResult =
+    shouldUnwrapAcpSdkOutput
+      ? unwrapAcpSdkToolOutput(rawResult, fallbackDescriptor.canonicalToolName)
+      : rawResult
   const outputPayload =
     normalizedOutput !== undefined ? normalizedOutput : normalizedResult
   const outputEnrichedInput =

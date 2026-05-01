@@ -1332,6 +1332,20 @@ function normalizeCodexPlan(plan: z.infer<typeof codexPlanSchema>) {
   }
 }
 
+function toMcpToolResult(result: unknown) {
+  const contentText =
+    typeof result === "string" ? result : JSON.stringify(result)
+
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: contentText,
+      },
+    ],
+  }
+}
+
 function getAssistantText(message: any): string {
   if (!message || !Array.isArray(message.parts)) return ""
   return message.parts
@@ -1533,7 +1547,7 @@ function buildCodexPlanTools(params: {
             toolUseId,
             result,
           })
-          return result
+          return toMcpToolResult(result)
         }
 
         const answers =
@@ -1551,7 +1565,7 @@ function buildCodexPlanTools(params: {
           result,
         })
 
-        return result
+        return toMcpToolResult(result)
       },
     }),
     PlanWrite: tool({
@@ -1563,12 +1577,12 @@ function buildCodexPlanTools(params: {
       }),
       execute: async (input) => {
         const plan = normalizeCodexPlan(input.plan)
-        return {
+        return toMcpToolResult({
           success: true,
           message: "Plan ready for review.",
           action: input.action || "create",
           plan,
-        }
+        })
       },
     }),
   }
