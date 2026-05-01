@@ -555,9 +555,14 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
     return { nestedToolsMap, nestedToolIds, orphanTaskGroups, orphanToolCallIds, orphanFirstToolCallIds }
   }, [messageParts])
 
-  // Collect all plan operations (Write/Edit) for unified handling
+  // Collect all plan operations for unified handling. Claude commonly writes
+  // plan markdown files; Codex uses the structured PlanWrite tool.
   const planOpsSummary = useMemo(() => {
-    const operations: Array<{ type: "write" | "edit"; part: any; index: number }> = []
+    const operations: Array<{
+      type: "write" | "edit" | "planwrite"
+      part: any
+      index: number
+    }> = []
 
     for (let i = 0; i < messageParts.length; i++) {
       const part = messageParts[i]
@@ -569,11 +574,22 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
           part,
           index: i,
         })
+      } else if (part.type === "tool-PlanWrite" && part.input?.plan) {
+        operations.push({
+          type: "planwrite",
+          part,
+          index: i,
+        })
       }
     }
 
     if (operations.length === 0) {
-      return { operations: [], hasAnyPlanOperation: false, isStreaming: false, lastOperationType: null as "write" | "edit" | null }
+      return {
+        operations: [],
+        hasAnyPlanOperation: false,
+        isStreaming: false,
+        lastOperationType: null as "write" | "edit" | "planwrite" | null,
+      }
     }
 
     const isStreaming = operations.some(op =>
@@ -782,7 +798,38 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
     if (part.type === "tool-Write") return <AgentEditTool key={idx} part={part} messageId={message.id} partIndex={idx} chatStatus={status} />
     if (part.type === "tool-WebSearch") return <AgentWebSearchCollapsible key={idx} part={part} chatStatus={status} />
     if (part.type === "tool-WebFetch") return <AgentWebFetchTool key={idx} part={part} chatStatus={status} />
-    if (part.type === "tool-PlanWrite") return <AgentPlanTool key={idx} part={part} chatStatus={status} subChatId={subChatId} />
+    if (part.type === "tool-PlanWrite") {
+      const opIndex = planOpsSummary.operations.findIndex(op => op.part.toolCallId === part.toolCallId)
+      const originalIndex = planOpsSummary.operations[opIndex]?.index ?? -1
+      const isInCollapsedSteps = shouldCollapse && collapseBeforeIndex !== -1 && originalIndex < collapseBeforeIndex
+      const isLastCollapsedOp = lastCollapsedPlanOp?.part.toolCallId === part.toolCallId
+      const isLastOperation = opIndex === planOpsSummary.operations.length - 1
+
+      // If this is the last collapsed PlanWrite, hide it here and render the
+      // full card below the final text, matching Claude plan-file behavior.
+      if (isInCollapsedSteps && isLastCollapsedOp) {
+        return null
+      }
+
+      if (isInCollapsedSteps || !isLastOperation) {
+        const { isPending } = getToolStatus(part, status)
+        return (
+          <div key={idx} className="flex items-center gap-1.5 px-2 py-0.5">
+            <span className="text-xs text-muted-foreground">
+              {isPending ? (
+                <TextShimmer as="span" duration={1.2}>
+                  Creating plan...
+                </TextShimmer>
+              ) : (
+                "Created plan"
+              )}
+            </span>
+          </div>
+        )
+      }
+
+      return <AgentPlanTool key={idx} part={part} chatStatus={status} subChatId={subChatId} />
+    }
 
     // ExitPlanMode tool is hidden - plan is shown in sidebar instead
     if (part.type === "tool-ExitPlanMode") {
@@ -948,12 +995,20 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
 
         {/* Show plan card after finalParts if any plan operation was in collapsed steps */}
         {shouldCollapse && lastCollapsedPlanOp && (
-          <AgentPlanFileTool
-            part={lastCollapsedPlanOp.part}
-            chatStatus={status}
-            subChatId={subChatId}
-            isEdit={lastCollapsedPlanOp.type === "edit"}
-          />
+          lastCollapsedPlanOp.type === "planwrite" ? (
+            <AgentPlanTool
+              part={lastCollapsedPlanOp.part}
+              chatStatus={status}
+              subChatId={subChatId}
+            />
+          ) : (
+            <AgentPlanFileTool
+              part={lastCollapsedPlanOp.part}
+              chatStatus={status}
+              subChatId={subChatId}
+              isEdit={lastCollapsedPlanOp.type === "edit"}
+            />
+          )
         )}
 
         {shouldShowPlanning && (
