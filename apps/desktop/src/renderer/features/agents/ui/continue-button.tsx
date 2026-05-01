@@ -16,17 +16,8 @@ interface ContinueButtonProps {
   subChatId: string
 }
 
-function recapWillRender(metadata?: AgentMessageMetadata) {
-  if (!metadata) return false
-  if (!metadata.resultSubtype) return false
-
-  const {
-    inputTokens = 0,
-    outputTokens = 0,
-    totalTokens = 0,
-  } = metadata
-
-  return inputTokens > 0 || outputTokens > 0 || totalTokens > 0
+function turnHasCompletionSignal(metadata?: AgentMessageMetadata) {
+  return Boolean(metadata?.resultSubtype)
 }
 
 export function ContinueButton({ subChatId }: ContinueButtonProps) {
@@ -43,7 +34,7 @@ export function ContinueButton({ subChatId }: ContinueButtonProps) {
   if (!lastMessage) return null
   if (
     lastMessage.role === "assistant" &&
-    recapWillRender(lastMessage.metadata)
+    turnHasCompletionSignal(lastMessage.metadata)
   ) {
     return null
   }
