@@ -17,6 +17,10 @@ import {
   type SubChatFileChange,
 } from "../atoms"
 import { getFileIconByExtension } from "../mentions/agents-file-mention"
+import type {
+  WorkflowActionKind,
+  WorkflowState,
+} from "../utils/workflow-state"
 
 // Animated dots component that cycles through ., .., ...
 function AnimatedDots() {
@@ -42,6 +46,20 @@ interface SubChatStatusCardProps {
   onStop?: () => void
   /** Whether there's a queue card above this one - affects border radius */
   hasQueueCardAbove?: boolean
+  /** Pre-computed workflow state — drives the contextual chip + primary action */
+  workflow?: WorkflowState | null
+  /** Dispatcher for the primary action button */
+  onWorkflowAction?: (kind: WorkflowActionKind) => void
+}
+
+const ACTION_BUTTON_LABELS: Record<WorkflowActionKind, string> = {
+  expandPlan: "View plan",
+  mergeBase: "Update from base",
+  pushBranch: "Push",
+  reviewLocal: "Review",
+  reviewPr: "Review",
+  createPr: "Create PR",
+  openPr: "View PR",
 }
 
 export const SubChatStatusCard = memo(function SubChatStatusCard({
@@ -53,6 +71,8 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
   worktreePath,
   onStop,
   hasQueueCardAbove = false,
+  workflow,
+  onWorkflowAction,
 }: SubChatStatusCardProps) {
   const isBusy = isStreaming || isCompacting
   const [isExpanded, setIsExpanded] = useState(false)
@@ -125,8 +145,11 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
   // Check if there's expandable content (only files now)
   const hasExpandableContent = uncommittedFiles.length > 0
 
-  // Don't show if no changed files - only show when there are files to review
-  if (!isBusy && uncommittedFiles.length === 0) {
+  const nextStep = workflow?.next ?? null
+
+  // Don't show if there's nothing to do — no streaming, no changed files, and
+  // the workflow has no actionable next step.
+  if (!isBusy && uncommittedFiles.length === 0 && !nextStep) {
     return null
   }
 
@@ -138,6 +161,20 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
     // Also set subchat ID filter for ChangesPanel - use the prop, not activeSubChatId from store
     setFilteredSubChatId(subChatId)
     setDiffSidebarOpen(true)
+  }
+
+  const showFileStats = !isBusy && uncommittedFiles.length > 0
+  const actionLabel = nextStep
+    ? ACTION_BUTTON_LABELS[nextStep.actionKind]
+    : null
+  const handleNextStepClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (nextStep && onWorkflowAction) {
+      onWorkflowAction(nextStep.actionKind)
+    } else {
+      // Legacy fallback: open the diff sidebar filtered to this sub-chat
+      handleReview()
+    }
   }
 
   return (
@@ -184,9 +221,21 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
             </span>
           )}
 
-          {/* File count and stats - only show when not streaming */}
-          {!isBusy && (
-            <span className="text-xs text-muted-foreground">
+          {/* Workflow chip — primary user-facing label when not busy */}
+          {!isBusy && nextStep && (
+            <span className="text-xs text-foreground truncate">
+              {nextStep.label}
+            </span>
+          )}
+
+          {/* File stats — secondary detail when there are uncommitted files */}
+          {showFileStats && (
+            <span
+              className={cn(
+                "text-xs text-muted-foreground",
+                nextStep && "border-l border-border/50 pl-2 ml-1",
+              )}
+            >
               {totals.fileCount} {totals.fileCount === 1 ? "file" : "files"}
               {(totals.additions > 0 || totals.deletions > 0) && (
                 <>
@@ -221,20 +270,19 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
             </Button>
           )}
 
-          {/* Review button */}
-          {uncommittedFiles.length > 0 && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleReview()
-              }}
-              className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97]"
-            >
-              Review
-            </Button>
-          )}
+          {/* Primary action — driven by workflow state when available, else
+              falls back to the legacy Review-files behaviour. */}
+          {!isBusy &&
+            (actionLabel || uncommittedFiles.length > 0) && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleNextStepClick}
+                className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97]"
+              >
+                {actionLabel ?? "Review"}
+              </Button>
+            )}
         </div>
       </div>
 

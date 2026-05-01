@@ -170,10 +170,14 @@ export const PlanSection = memo(function PlanSection({
     return null
   }
 
+  // When expanded (e.g. promoted to a dockview panel) the section needs to
+  // fill the parent's height so its inner content can actually scroll.
+  // Without `h-full`, the outer flex column shrinks to its natural content
+  // height and overflow is clipped by the panel — long plans become unscrollable.
   return (
-    <div className="flex flex-col">
+    <div className={isExpanded ? "flex flex-col h-full" : "flex flex-col"}>
       {/* Plan content with scroll gradients */}
-      <div className="relative">
+      <div className={isExpanded ? "relative flex-1 min-h-0" : "relative"}>
         {/* Top scroll gradient - matches header bg (muted/30) */}
         <div
           ref={topGradientRef}
@@ -187,7 +191,7 @@ export const PlanSection = memo(function PlanSection({
 
         <div
           ref={contentRef}
-          className={`px-2 py-2 overflow-y-auto allow-text-selection ${isExpanded ? "" : "max-h-64"}`}
+          className={`px-2 py-2 overflow-y-auto allow-text-selection ${isExpanded ? "h-full" : "max-h-64"}`}
           data-plan-path={planPath}
         >
           <ChatMarkdownRenderer content={displayContent} size="sm" />

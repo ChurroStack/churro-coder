@@ -851,6 +851,9 @@ export const pendingReviewMessageAtom = atom<{ message: string; subChatId: strin
 // Set when user clicks "Fix Conflicts" button, consumed by ChatViewInner
 export const pendingConflictResolutionMessageAtom = atom<{ message: string; subChatId: string } | null>(null)
 
+// Pending merge-base message to send to chat (Status widget "Merge from base" action)
+export const pendingMergeBaseMessageAtom = atom<{ message: string; subChatId: string } | null>(null)
+
 // Pending auth retry - stores failed message when auth-error occurs
 // After successful OAuth flow, this triggers automatic retry of the message
 export type PendingAuthRetryMessage = {

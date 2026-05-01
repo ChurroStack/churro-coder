@@ -53,6 +53,7 @@ export interface GitChangesStatus {
 	pushCount: number; // Commits to push to tracking branch
 	pullCount: number; // Commits to pull from tracking branch
 	hasUpstream: boolean; // Whether branch has an upstream tracking branch
+	hasRemote: boolean; // Whether the repo has any remote configured (e.g. origin)
 }
 
 /** Diff view mode toggle */
