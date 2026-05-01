@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { ArrowUpRight, TerminalSquare, Box, ListTodo, GitPullRequest, Activity, Info, Folder, Search, PlayCircle } from "lucide-react"
+import { ArrowUpRight, TerminalSquare, Box, ListTodo, GitPullRequest, Activity, Info, Folder, Search, PlayCircle, Workflow } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -38,6 +38,12 @@ import { ChangesWidget } from "./sections/changes-widget"
 import { McpWidget } from "./sections/mcp-widget"
 import { PrWidget } from "./sections/pr-widget"
 import { ScriptsWidget } from "./sections/scripts-widget"
+import { StatusWidget } from "./sections/status-widget"
+import type {
+  MilestoneId,
+  WorkflowActionKind,
+  WorkflowState,
+} from "@/features/agents/utils/workflow-state"
 import { getTerminalScopeKey } from "../terminal/utils"
 import { trpc } from "../../lib/trpc"
 import { FilesTab, type FilesTabHandle } from "./sections/files-tab"
@@ -56,6 +62,8 @@ import {
 
 function getWidgetIcon(widgetId: WidgetId) {
   switch (widgetId) {
+    case "status":
+      return Workflow
     case "info":
       return Box
     case "tasks":
@@ -207,6 +215,12 @@ interface DetailsSidebarProps {
   } | null
   /** Whether this is a remote sandbox chat (no local worktree) */
   isRemoteChat?: boolean
+  /** Pre-computed workflow state from active-chat (Plan/Code/Review/PR milestones) */
+  workflow?: WorkflowState | null
+  /** Dispatcher for Status widget actions and PR-widget review-pending click */
+  onWorkflowAction?: (kind: WorkflowActionKind, milestone: MilestoneId) => void
+  /** Direct handler for the PR widget's "Review pending" click (PR-flow review) */
+  onPrReview?: () => void
 }
 
 export function DetailsSidebar({
@@ -238,6 +252,9 @@ export function DetailsSidebar({
   onOpenFile,
   remoteInfo,
   isRemoteChat = false,
+  workflow,
+  onWorkflowAction,
+  onPrReview,
 }: DetailsSidebarProps) {
   // Global sidebar open state
   const [isOpen, setIsOpen] = useAtom(detailsSidebarOpenAtom)
@@ -299,14 +316,29 @@ export function DetailsSidebar({
     () => widgetVisibilityAtomFamily(chatId),
     [chatId],
   )
-  const visibleWidgets = useAtomValue(widgetVisibilityAtom)
+  const [visibleWidgets, setVisibleWidgets] = useAtom(widgetVisibilityAtom)
 
   // Per-workspace widget order
   const widgetOrderAtom = useMemo(
     () => widgetOrderAtomFamily(chatId),
     [chatId],
   )
-  const widgetOrder = useAtomValue(widgetOrderAtom)
+  const [widgetOrder, setWidgetOrder] = useAtom(widgetOrderAtom)
+
+  // One-time migration per chat: inject "status" into pre-existing saved arrays
+  // that were persisted before this widget existed. New chats get the defaults
+  // (which already include "status") so this only fires for old workspaces.
+  const migratedChatsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (migratedChatsRef.current.has(chatId)) return
+    migratedChatsRef.current.add(chatId)
+    if (!visibleWidgets.includes("status")) {
+      setVisibleWidgets(["status", ...visibleWidgets])
+    }
+    if (!widgetOrder.includes("status")) {
+      setWidgetOrder(["status", ...widgetOrder])
+    }
+  }, [chatId, visibleWidgets, widgetOrder, setVisibleWidgets, setWidgetOrder])
 
   // Close sidebar callback
   const closeSidebar = useCallback(() => {
@@ -462,6 +494,17 @@ export function DetailsSidebar({
             if (!isWidgetVisible(widgetId)) return null
 
             switch (widgetId) {
+              case "status":
+                if (!workflow || !onWorkflowAction) return null
+                return (
+                  <WidgetCard key="status" widgetId="status" title="Status" hideExpand>
+                    <StatusWidget
+                      workflow={workflow}
+                      onAction={onWorkflowAction}
+                    />
+                  </WidgetCard>
+                )
+
               case "info":
                 return (
                   <WidgetCard key="info" widgetId="info" title="Workspace">
@@ -545,7 +588,7 @@ export function DetailsSidebar({
                 if (!worktreePath) return null
                 return (
                   <WidgetCard key="pr" widgetId="pr" title="Pull Request">
-                    <PrWidget chatId={chatId} />
+                    <PrWidget chatId={chatId} onReviewClick={onPrReview} />
                   </WidgetCard>
                 )
 

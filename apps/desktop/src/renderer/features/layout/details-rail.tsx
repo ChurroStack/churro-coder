@@ -17,6 +17,11 @@ import { useCommitActions } from "../changes/components/commit-input"
 import { usePushAction } from "../changes/hooks/use-push-action"
 import { useDockApi } from "../dock/dock-context"
 import { addOrFocus } from "../dock/add-or-focus"
+import {
+  useWorkflowActions,
+  useWorkflowState,
+} from "../agents/hooks/use-workflow-state"
+import type { WorkflowActionKind } from "../agents/utils/workflow-state"
 
 /**
  * DetailsRail — gridview right cell. Lifts DetailsSidebar out of ChatView so
@@ -135,6 +140,33 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     [dockApi],
   )
 
+  // Status widget — workflow state + dispatch
+  const workflow = useWorkflowState(chatId, activeSubChatId ?? null)
+  const { dispatch: dispatchWorkflowAction, pushDialog } = useWorkflowActions(
+    chatId,
+    activeSubChatId ?? null,
+  )
+  const handleWorkflowAction = useCallback(
+    (kind: WorkflowActionKind) => {
+      // "View plan" → open the plan as a full dock panel, matching the
+      // notch's `handleNotchWorkflowAction`. addOrFocus is idempotent.
+      if (kind === "expandPlan") {
+        if (dockApi && activeSubChatId && planPath) {
+          addOrFocus(dockApi, {
+            kind: "plan",
+            data: { chatId: activeSubChatId, planPath },
+          })
+        }
+        return
+      }
+      void dispatchWorkflowAction(kind)
+    },
+    [dispatchWorkflowAction, dockApi, activeSubChatId, planPath],
+  )
+  const handlePrReview = useCallback(() => {
+    void dispatchWorkflowAction("reviewPr")
+  }, [dispatchWorkflowAction])
+
   // Without a chat there's nothing to render.
   if (!chatId) {
     return (
@@ -189,7 +221,11 @@ export function DetailsRail(_props: IGridviewPanelProps) {
           onOpenFile={handleOpenFile}
           remoteInfo={remoteInfo}
           isRemoteChat={!!remoteInfo}
+          workflow={workflow}
+          onWorkflowAction={handleWorkflowAction}
+          onPrReview={handlePrReview}
         />
+        {pushDialog}
       </div>
     </div>
   )
