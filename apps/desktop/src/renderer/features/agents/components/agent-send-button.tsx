@@ -44,11 +44,11 @@ interface AgentSendButtonProps {
   isRecording?: boolean
   /** Whether voice is currently transcribing */
   isTranscribing?: boolean
-  /** Mouse down handler for voice recording */
+  /** Click handler for starting voice recording */
   onVoiceMouseDown?: () => void
-  /** Mouse up handler for voice recording */
+  /** Click handler for stopping voice recording */
   onVoiceMouseUp?: () => void
-  /** Mouse leave handler for voice recording */
+  /** Deprecated hold-to-talk cancel handler retained for call-site compatibility */
   onVoiceMouseLeave?: () => void
 }
 
@@ -68,7 +68,6 @@ export function AgentSendButton({
   isTranscribing = false,
   onVoiceMouseDown,
   onVoiceMouseUp,
-  onVoiceMouseLeave,
 }: AgentSendButtonProps) {
   // Resolved hotkeys for stop-generation tooltip
   const stopHotkey = useResolvedHotkeyDisplayWithAlt("stop-generation")
@@ -93,7 +92,7 @@ export function AgentSendButton({
   }
 
   // Check if currently in voice mode (showing mic/stop when no content)
-  const isVoiceMode = showVoiceInput && !isStreaming && !hasContent
+  const isVoiceMode = showVoiceInput && !isStreaming && (!hasContent || isRecording)
 
   // Determine if button should be disabled
   // During streaming with content, enable the button for queue
@@ -222,32 +221,14 @@ export function AgentSendButton({
     ? "!bg-plan-mode hover:!bg-plan-mode/90 !text-background !shadow-none"
     : "!bg-foreground hover:!bg-foreground/90 !text-background !shadow-none"
 
-  // Handle button interactions for voice mode
-  // Supports both hold-to-talk AND click-to-toggle
-  const handleMouseDown = () => {
-    if (isVoiceMode && !isRecording && onVoiceMouseDown) {
-      onVoiceMouseDown()
-    }
-  }
-
-  const handleMouseUp = () => {
-    // Only handle mouseUp for hold-to-talk if we started recording on mouseDown
-    // Click-to-toggle is handled in handleButtonClick
-  }
-
-  const handleMouseLeave = () => {
-    if (isVoiceMode && isRecording && onVoiceMouseLeave) {
-      onVoiceMouseLeave()
-    }
-  }
-
   const handleButtonClick = () => {
     // In voice mode: if recording, stop it; if not recording, start it
     if (isVoiceMode) {
       if (isRecording && onVoiceMouseUp) {
         onVoiceMouseUp()
+      } else if (!isRecording && onVoiceMouseDown) {
+        onVoiceMouseDown()
       }
-      // Starting is handled by mouseDown
       return
     }
     handleClick()
@@ -265,9 +246,6 @@ export function AgentSendButton({
           disabled={isDisabled || isTranscribing}
           type="button"
           onClick={handleButtonClick}
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
           aria-label={getAriaLabel()}
         >
           {getIcon()}
@@ -277,4 +255,3 @@ export function AgentSendButton({
     </Tooltip>
   )
 }
-

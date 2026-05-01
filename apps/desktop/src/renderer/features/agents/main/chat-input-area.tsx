@@ -1022,12 +1022,15 @@ export const ChatInputArea = memo(function ChatInputArea({
 
   // Content change handler
   const handleContentChange = useCallback((newHasContent: boolean) => {
+    if (newHasContent && !hasContent && isVoiceRecording) {
+      cancelVoiceRecording()
+    }
     setHasContent(newHasContent)
     onInputContentChange?.(newHasContent)
     // Sync the draft text ref for unmount save
     const draft = editorRef.current?.getValue() || ""
     currentDraftTextRef.current = draft
-  }, [editorRef, onInputContentChange])
+  }, [cancelVoiceRecording, editorRef, hasContent, isVoiceRecording, onInputContentChange])
 
   // Editor submit handler - handles Enter key with queue logic
   // If input is empty and queue has items, stop stream and send first from queue

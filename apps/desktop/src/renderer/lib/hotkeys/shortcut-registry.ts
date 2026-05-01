@@ -203,9 +203,9 @@ export const ALL_SHORTCUT_ACTIONS: ShortcutAction[] = [
   },
   {
     id: "voice-input",
-    label: "Voice input (hold)",
+    label: "Voice input",
     category: "agents",
-    defaultKeys: ["ctrl", "opt"],
+    defaultKeys: [],
   },
 
   // ============================================

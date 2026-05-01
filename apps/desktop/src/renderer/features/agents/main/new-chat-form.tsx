@@ -1380,8 +1380,11 @@ export function NewChatForm({
 
   // Save draft to localStorage when content changes
   const handleContentChange = useCallback(
-    (hasContent: boolean) => {
-      setHasContent(hasContent)
+    (newHasContent: boolean) => {
+      if (newHasContent && !hasContent && isVoiceRecording) {
+        cancelRecording()
+      }
+      setHasContent(newHasContent)
       const text = editorRef.current?.getValue() || ""
 
       // Skip if text hasn't changed
@@ -1408,7 +1411,7 @@ export function NewChatForm({
         currentDraftIdRef.current = null
       }
     },
-    [validatedProject, images],
+    [cancelRecording, hasContent, images, isVoiceRecording, validatedProject],
   )
 
   // Re-save draft when images change (text may not have changed)
