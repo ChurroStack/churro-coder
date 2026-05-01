@@ -1,4 +1,8 @@
-import { createACPProvider, type ACPProvider } from "@mcpc-tech/acp-ai-provider"
+import {
+  acpTools,
+  createACPProvider,
+  type ACPProvider,
+} from "@mcpc-tech/acp-ai-provider"
 import { observable } from "@trpc/server/observable"
 import { stepCountIs, streamText, tool } from "ai"
 import { eq } from "drizzle-orm"
@@ -1345,7 +1349,8 @@ function hasCodexPlanWritePart(message: any): boolean {
       part?.toolName === "PlanWrite" ||
       part?.input?.toolName === "PlanWrite" ||
       (typeof part?.input?.toolName === "string" &&
-        part.input.toolName.startsWith("PlanWrite ")),
+        (part.input.toolName.startsWith("PlanWrite ") ||
+          part.input.toolName.endsWith("/PlanWrite"))),
   )
 }
 
@@ -1467,8 +1472,10 @@ function isPlanWriteStreamChunk(chunk: any): boolean {
     typeof chunk.input?.toolName === "string" ? chunk.input.toolName : ""
   return (
     chunk.toolName === "PlanWrite" ||
+    chunk.toolName === "Tool:acp-ai-sdk-tools/PlanWrite" ||
     inputToolName === "PlanWrite" ||
-    inputToolName.startsWith("PlanWrite ")
+    inputToolName.startsWith("PlanWrite ") ||
+    inputToolName.endsWith("/PlanWrite")
   )
 }
 
@@ -1484,7 +1491,7 @@ function buildCodexPlanTools(params: {
         questions: z.array(codexQuestionSchema).min(1).max(3),
       }),
       execute: async (input, options) => {
-        const toolUseId = options.toolCallId
+        const toolUseId = `${options.toolCallId || "AskUserQuestion"}-${crypto.randomUUID()}`
         const questions = normalizeCodexQuestions(input.questions)
 
         params.safeEmit({
@@ -2142,6 +2149,8 @@ export const codexRouter = router({
                     safeEmit,
                   })
                 : {}
+            const tools =
+              input.mode === "plan" ? acpTools(planTools) : provider.tools
 
             const result = streamText({
               model: provider.languageModel(selectedModelId, codexModeId),
@@ -2151,7 +2160,7 @@ export const codexRouter = router({
                   content: buildModelMessageContent(augmentedPrompt, input.images),
                 },
               ],
-              tools: { ...(provider.tools ?? {}), ...planTools },
+              tools,
               ...(input.mode === "plan"
                 ? { stopWhen: stepCountIs(8) }
                 : {}),

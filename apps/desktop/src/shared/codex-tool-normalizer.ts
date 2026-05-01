@@ -130,8 +130,20 @@ function parseCodexToolDescriptor(rawToolName: string): CodexToolDescriptor | nu
     if (separatorIndex === -1) return null
 
     const serverName = payload.slice(0, separatorIndex).trim()
-    const toolName = payload.slice(separatorIndex + 1).trim().replaceAll("/", "__")
+    const rawToolName = payload.slice(separatorIndex + 1).trim()
+    const toolName = rawToolName.replaceAll("/", "__")
     if (!serverName || !toolName) return null
+
+    if (
+      serverName === "acp-ai-sdk-tools" &&
+      (rawToolName === "AskUserQuestion" || rawToolName === "PlanWrite")
+    ) {
+      return {
+        canonicalToolName: rawToolName,
+        detail: "",
+        isMcp: false,
+      }
+    }
 
     return {
       canonicalToolName: `mcp__${serverName}__${toolName}`,
