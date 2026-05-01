@@ -32,7 +32,7 @@ import {
   type AgentMessageMetadata,
 } from "../ui/agent-message-usage"
 import { AgentTurnRecap } from "../ui/agent-turn-recap"
-import { AgentPlanTool } from "../ui/agent-plan-tool"
+import { AgentPlanTool, getPlanFromPlanWritePart } from "../ui/agent-plan-tool"
 import { AgentTaskTool } from "../ui/agent-task-tool"
 import { AgentThinkingTool } from "../ui/agent-thinking-tool"
 import { AgentTodoTool } from "../ui/agent-todo-tool"
@@ -574,7 +574,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
           part,
           index: i,
         })
-      } else if (part.type === "tool-PlanWrite" && part.input?.plan) {
+      } else if (part.type === "tool-PlanWrite" && getPlanFromPlanWritePart(part)) {
         operations.push({
           type: "planwrite",
           part,
@@ -799,7 +799,27 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
     if (part.type === "tool-WebSearch") return <AgentWebSearchCollapsible key={idx} part={part} chatStatus={status} />
     if (part.type === "tool-WebFetch") return <AgentWebFetchTool key={idx} part={part} chatStatus={status} />
     if (part.type === "tool-PlanWrite") {
+      const hasRenderablePlan = Boolean(getPlanFromPlanWritePart(part))
+      if (!hasRenderablePlan) {
+        const meta = AgentToolRegistry[part.type]
+        const { isPending, isError } = getToolStatus(part, status)
+        return (
+          <AgentToolCall
+            key={idx}
+            icon={meta.icon}
+            title={meta.title(part)}
+            subtitle={meta.subtitle?.(part)}
+            isPending={isPending}
+            isError={isError}
+          />
+        )
+      }
+
       const opIndex = planOpsSummary.operations.findIndex(op => op.part.toolCallId === part.toolCallId)
+      if (opIndex === -1) {
+        return <AgentPlanTool key={idx} part={part} chatStatus={status} subChatId={subChatId} />
+      }
+
       const originalIndex = planOpsSummary.operations[opIndex]?.index ?? -1
       const isInCollapsedSteps = shouldCollapse && collapseBeforeIndex !== -1 && originalIndex < collapseBeforeIndex
       const isLastCollapsedOp = lastCollapsedPlanOp?.part.toolCallId === part.toolCallId

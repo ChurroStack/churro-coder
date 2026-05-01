@@ -1383,6 +1383,8 @@ function getPlanFromPlanWritePart(part: any): any | null {
   const candidates = [
     part?.input?.plan,
     part?.input?.args?.plan,
+    part?.input?.arguments?.plan,
+    part?.args?.plan,
     part?.output?.plan,
     part?.result?.plan,
     part?.output?.structuredContent?.plan,

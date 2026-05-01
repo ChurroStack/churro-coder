@@ -366,6 +366,8 @@ function getPlanFromPlanWritePart(part: any): any | null {
   const candidates = [
     part?.input?.plan,
     part?.input?.args?.plan,
+    part?.input?.arguments?.plan,
+    part?.args?.plan,
     part?.output?.plan,
     part?.result?.plan,
     part?.output?.structuredContent?.plan,
@@ -4718,10 +4720,12 @@ export const ChatViewInner = memo(function ChatViewInner({
         }
 
         const planWritePart = msg.parts.find(
-          (p: any) =>
-            p.type === "tool-PlanWrite" &&
-            p.output !== undefined &&
-            p.input?.plan?.status === "awaiting_approval"
+          (p: any) => {
+            if (p.type !== "tool-PlanWrite") return false
+            if (p.output === undefined && p.result === undefined) return false
+            const plan = getPlanFromPlanWritePart(p)
+            return Boolean(plan) && (plan.status ?? "awaiting_approval") === "awaiting_approval"
+          }
         )
         if (planWritePart) {
           return true
@@ -6853,18 +6857,13 @@ Make sure to preserve all functionality from both branches when resolving confli
           isPlanFile(part.input?.file_path || "")
         ) {
           lastPlanPath = part.input.file_path
-        } else if (
-          part.type === "tool-PlanWrite" &&
-          part.toolCallId &&
-          part.input?.plan?.status === "awaiting_approval"
-        ) {
-          const planContent = formatStructuredPlanAsMarkdown(
-            getPlanFromPlanWritePart(part),
-          )
+        } else if (part.type === "tool-PlanWrite" && part.toolCallId) {
+          const plan = getPlanFromPlanWritePart(part)
+          const planContent = formatStructuredPlanAsMarkdown(plan)
           if (planContent) {
             lastPlanPath = `codex-plan://${activeSubChatIdForPlan}/${part.toolCallId}`
             appStore.set(virtualPlanContentAtomFamily(lastPlanPath), {
-              title: part.input.plan.title || "Plan",
+              title: plan?.title || "Plan",
               content: planContent,
             })
           }

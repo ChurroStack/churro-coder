@@ -71,6 +71,35 @@ function getFallbackName(userMessage: string): string {
   return userMessage.trim().slice(0, 255) || "New Chat"
 }
 
+function parseMcpContentJson(value: any): any | null {
+  const content = Array.isArray(value?.content) ? value.content : []
+  const firstText = content.find((item: any) => typeof item?.text === "string")
+  if (!firstText?.text) return null
+
+  try {
+    return JSON.parse(firstText.text)
+  } catch {
+    return null
+  }
+}
+
+function getPlanFromPlanWritePart(part: any): any | null {
+  const candidates = [
+    part?.input?.plan,
+    part?.input?.args?.plan,
+    part?.input?.arguments?.plan,
+    part?.args?.plan,
+    part?.output?.plan,
+    part?.result?.plan,
+    part?.output?.structuredContent?.plan,
+    part?.result?.structuredContent?.plan,
+    parseMcpContentJson(part?.output)?.plan,
+    parseMcpContentJson(part?.result)?.plan,
+  ]
+
+  return candidates.find((plan) => plan && typeof plan === "object") || null
+}
+
 /**
  * Generate text using local Ollama model
  * Used for chat title generation in offline mode
@@ -1801,10 +1830,12 @@ export const chatsRouter = router({
               }
 
               const planWritePart = msg.parts.find(
-                (p: any) =>
-                  p.type === "tool-PlanWrite" &&
-                  p.output !== undefined &&
-                  p.input?.plan?.status === "awaiting_approval"
+                (p: any) => {
+                  if (p.type !== "tool-PlanWrite") return false
+                  if (p.output === undefined && p.result === undefined) return false
+                  const plan = getPlanFromPlanWritePart(p)
+                  return Boolean(plan) && (plan.status ?? "awaiting_approval") === "awaiting_approval"
+                }
               )
               if (planWritePart) {
                 return true

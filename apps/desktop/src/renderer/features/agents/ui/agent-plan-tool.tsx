@@ -60,17 +60,99 @@ interface AgentPlanToolProps {
     input?: {
       action?: "create" | "update" | "approve" | "complete"
       plan?: Plan
+      args?: {
+        plan?: Plan
+      }
+      arguments?: {
+        plan?: Plan
+      }
     }
-    output?: {
-      success?: boolean
-      message?: string
-    }
+    output?: any
+    result?: any
   }
   chatStatus?: string
   subChatId?: string
 }
 
-function formatPlanAsMarkdown(plan: Plan): string {
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null
+}
+
+function parseMcpContentJson(value: unknown): any | null {
+  if (!isRecord(value) || !Array.isArray(value.content)) return null
+  const textPart = value.content.find(
+    (item: unknown) => isRecord(item) && typeof item.text === "string",
+  )
+  if (!textPart?.text) return null
+
+  try {
+    return JSON.parse(textPart.text)
+  } catch {
+    return null
+  }
+}
+
+function normalizePlanForRender(plan: any): Plan | null {
+  if (!isRecord(plan)) return null
+
+  const steps = Array.isArray(plan.steps) ? plan.steps : []
+  const title =
+    typeof plan.title === "string" && plan.title.trim()
+      ? plan.title
+      : "Plan"
+
+  return {
+    ...plan,
+    id:
+      typeof plan.id === "string" && plan.id.trim()
+        ? plan.id
+        : "plan",
+    title,
+    status:
+      typeof plan.status === "string" && plan.status.trim()
+        ? plan.status
+        : "awaiting_approval",
+    steps: steps.map((step: any, index: number) => ({
+      ...step,
+      id:
+        typeof step?.id === "string" && step.id.trim()
+          ? step.id
+          : `step-${index + 1}`,
+      title:
+        typeof step?.title === "string" && step.title.trim()
+          ? step.title
+          : `Step ${index + 1}`,
+      status:
+        typeof step?.status === "string" && step.status.trim()
+          ? step.status
+          : "pending",
+    })),
+  } as Plan
+}
+
+export function getPlanFromPlanWritePart(part: any): Plan | null {
+  const candidates = [
+    part?.input?.plan,
+    part?.input?.args?.plan,
+    part?.input?.arguments?.plan,
+    part?.args?.plan,
+    part?.output?.plan,
+    part?.result?.plan,
+    part?.output?.structuredContent?.plan,
+    part?.result?.structuredContent?.plan,
+    parseMcpContentJson(part?.output)?.plan,
+    parseMcpContentJson(part?.result)?.plan,
+  ]
+
+  for (const candidate of candidates) {
+    const plan = normalizePlanForRender(candidate)
+    if (plan) return plan
+  }
+
+  return null
+}
+
+export function formatPlanAsMarkdown(plan: Plan): string {
   const lines: string[] = []
   const steps = Array.isArray(plan.steps) ? plan.steps : []
 
@@ -115,7 +197,7 @@ export const AgentPlanTool = memo(function AgentPlanTool({
   const [copied, setCopied] = useState(false)
   const { isPending } = getToolStatus(part, chatStatus)
 
-  const plan = part.input?.plan
+  const plan = getPlanFromPlanWritePart(part)
   const targetSubChatId = subChatId || ""
   const subChatModeAtom = useMemo(
     () => subChatModeAtomFamily(targetSubChatId),
