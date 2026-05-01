@@ -1355,17 +1355,69 @@ function getAssistantText(message: any): string {
     .join("\n\n")
 }
 
-function hasCodexPlanWritePart(message: any): boolean {
-  if (!message || !Array.isArray(message.parts)) return false
-  return message.parts.some(
-    (part: any) =>
-      part?.type === "tool-PlanWrite" ||
-      part?.toolName === "PlanWrite" ||
-      part?.input?.toolName === "PlanWrite" ||
-      (typeof part?.input?.toolName === "string" &&
-        (part.input.toolName.startsWith("PlanWrite ") ||
-          part.input.toolName.endsWith("/PlanWrite"))),
+function isCodexPlanWritePart(part: any): boolean {
+  const inputToolName =
+    typeof part?.input?.toolName === "string" ? part.input.toolName : ""
+  return (
+    part?.type === "tool-PlanWrite" ||
+    part?.toolName === "PlanWrite" ||
+    inputToolName === "PlanWrite" ||
+    inputToolName.startsWith("PlanWrite ") ||
+    inputToolName.endsWith("/PlanWrite")
   )
+}
+
+function parseMcpContentJson(value: any): any | null {
+  const content = Array.isArray(value?.content) ? value.content : []
+  const firstText = content.find((item: any) => typeof item?.text === "string")
+  if (!firstText?.text) return null
+
+  try {
+    return JSON.parse(firstText.text)
+  } catch {
+    return null
+  }
+}
+
+function getPlanFromPlanWritePart(part: any): any | null {
+  const candidates = [
+    part?.input?.plan,
+    part?.input?.args?.plan,
+    part?.output?.plan,
+    part?.result?.plan,
+    part?.output?.structuredContent?.plan,
+    part?.result?.structuredContent?.plan,
+    parseMcpContentJson(part?.output)?.plan,
+    parseMcpContentJson(part?.result)?.plan,
+  ]
+
+  return candidates.find((plan) => plan && typeof plan === "object") || null
+}
+
+function hasUsableCodexPlanWritePart(message: any): boolean {
+  if (!message || !Array.isArray(message.parts)) return false
+  return message.parts.some((part: any) => {
+    if (!isCodexPlanWritePart(part)) return false
+    if (part.state === "output-error") return false
+    if (part.errorText || part.error) return false
+
+    const plan = getPlanFromPlanWritePart(part)
+    if (!plan) return false
+
+    return part.output !== undefined || part.result !== undefined
+  })
+}
+
+function findPlanFromAnyPlanWritePart(message: any): any | null {
+  if (!message || !Array.isArray(message.parts)) return null
+
+  for (const part of message.parts) {
+    if (!isCodexPlanWritePart(part)) continue
+    const plan = getPlanFromPlanWritePart(part)
+    if (plan) return plan
+  }
+
+  return null
 }
 
 function extractPlanStepTitles(text: string): string[] {
@@ -1394,6 +1446,7 @@ function extractPlanStepTitles(text: string): string[] {
 function buildFallbackPlanWritePart(params: {
   prompt: string
   text: string
+  plan?: any
 }): any {
   const now = Date.now()
   const toolCallId = `codex-planwrite-fallback-${now}-${Math.random().toString(36).slice(2, 8)}`
@@ -1408,18 +1461,27 @@ function buildFallbackPlanWritePart(params: {
           "Verify the behavior manually before reporting completion",
         ]
 
-  const plan = normalizeCodexPlan({
-    id: `plan-${now}`,
-    title: "Implementation plan",
-    summary:
-      params.text.trim() ||
-      `Plan for: ${params.prompt.trim() || "the requested change"}`,
-    status: "awaiting_approval",
-    steps: fallbackStepTitles.map((title) => ({
-      title,
-      status: "pending",
-    })),
-  })
+  const plan = normalizeCodexPlan(
+    params.plan && typeof params.plan === "object"
+      ? {
+          ...params.plan,
+          steps: Array.isArray(params.plan.steps)
+            ? params.plan.steps
+            : fallbackStepTitles.map((title) => ({ title, status: "pending" })),
+        }
+      : {
+          id: `plan-${now}`,
+          title: "Implementation plan",
+          summary:
+            params.text.trim() ||
+            `Plan for: ${params.prompt.trim() || "the requested change"}`,
+          status: "awaiting_approval",
+          steps: fallbackStepTitles.map((title) => ({
+            title,
+            status: "pending",
+          })),
+        },
+  )
   const output = {
     success: true,
     message: "Plan ready for review.",
@@ -1460,15 +1522,17 @@ function ensurePlanWriteForCodexPlanMode(params: {
   }
 
   const lastAssistant = params.messages[lastAssistantIndex]
-  if (hasCodexPlanWritePart(lastAssistant)) {
+  if (hasUsableCodexPlanWritePart(lastAssistant)) {
     return { messages: params.messages, fallbackPart: null }
   }
 
+  const planFromFailedPlanWrite = findPlanFromAnyPlanWritePart(lastAssistant)
   const fallbackPart =
     params.fallbackPart ||
     buildFallbackPlanWritePart({
       prompt: params.prompt,
       text: getAssistantText(lastAssistant),
+      plan: planFromFailedPlanWrite,
     })
   const updatedAssistant = {
     ...lastAssistant,
@@ -1478,19 +1542,6 @@ function ensurePlanWriteForCodexPlanMode(params: {
   messages[lastAssistantIndex] = updatedAssistant
 
   return { messages, fallbackPart }
-}
-
-function isPlanWriteStreamChunk(chunk: any): boolean {
-  if (!chunk || typeof chunk !== "object") return false
-  const inputToolName =
-    typeof chunk.input?.toolName === "string" ? chunk.input.toolName : ""
-  return (
-    chunk.toolName === "PlanWrite" ||
-    chunk.toolName === "Tool:acp-ai-sdk-tools/PlanWrite" ||
-    inputToolName === "PlanWrite" ||
-    inputToolName.startsWith("PlanWrite ") ||
-    inputToolName.endsWith("/PlanWrite")
-  )
 }
 
 function buildCodexPlanTools(params: {
@@ -2181,7 +2232,6 @@ export const codexRouter = router({
               abortSignal: abortController.signal,
             })
 
-            let sawPlanWriteInStream = false
             let planWriteFallbackPart: any | null = null
 
             const uiStream = result.toUIMessageStream({
@@ -2289,20 +2339,11 @@ export const codexRouter = router({
                 continue
               }
 
-              if (
-                input.mode === "plan" &&
-                value?.type === "tool-input-available" &&
-                isPlanWriteStreamChunk(value)
-              ) {
-                sawPlanWriteInStream = true
-              }
-
               safeEmit(value)
             }
 
             if (
               input.mode === "plan" &&
-              !sawPlanWriteInStream &&
               planWriteFallbackPart
             ) {
               safeEmit({
