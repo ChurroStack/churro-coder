@@ -2373,7 +2373,7 @@ export const codexRouter = router({
 
             let planWriteFallbackPart: any | null = null
             let planWriteFallbackEmitted = false
-            let sawStreamError = false
+            let suppressPlanWriteFallback = false
             const planStreamAccumulator =
               input.mode === "plan"
                 ? createCodexPlanStreamAccumulator()
@@ -2384,7 +2384,7 @@ export const codexRouter = router({
                 input.mode !== "plan" ||
                 !planStreamAccumulator ||
                 planWriteFallbackEmitted ||
-                sawStreamError
+                suppressPlanWriteFallback
               ) {
                 return
               }
@@ -2526,10 +2526,10 @@ export const codexRouter = router({
               if (done) break
 
               if (value?.type === "error") {
-                sawStreamError = true
                 const normalized = extractCodexError(value)
 
                 if (isCodexAuthError(normalized)) {
+                  suppressPlanWriteFallback = true
                   safeEmit({ ...value, type: "auth-error", errorText: normalized.message })
                 } else {
                   safeEmit({ ...value, errorText: normalized.message })
@@ -2538,7 +2538,7 @@ export const codexRouter = router({
               }
 
               if (value?.type === "abort") {
-                sawStreamError = true
+                suppressPlanWriteFallback = true
               }
 
               if (planStreamAccumulator) {

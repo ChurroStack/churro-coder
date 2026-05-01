@@ -1,11 +1,12 @@
 "use client"
 
 import { memo, useCallback, useEffect, useMemo, useRef } from "react"
-import { useAtom } from "jotai"
-import { IconSpinner, PlanIcon } from "@/components/ui/icons"
+import { useAtom, useAtomValue } from "jotai"
+import { IconSpinner } from "@/components/ui/icons"
 import { ChatMarkdownRenderer } from "@/components/chat-markdown-renderer"
 import { trpc } from "@/lib/trpc"
 import { planContentCacheAtomFamily } from "../atoms"
+import { virtualPlanContentAtomFamily } from "../../agents/atoms"
 
 interface PlanSectionProps {
   chatId: string
@@ -32,14 +33,26 @@ export const PlanSection = memo(function PlanSection({
 
   // Plan content cache to avoid flashing loading state
   const [planCache, setPlanCache] = useAtom(planContentCacheAtomFamily(chatId))
+  const virtualPlanAtom = useMemo(
+    () => virtualPlanContentAtomFamily(planPath || ""),
+    [planPath],
+  )
+  const virtualPlan = useAtomValue(virtualPlanAtom)
 
   // Fetch plan file content using tRPC
+  const shouldReadPlanFile = !!planPath && !virtualPlan
   const {
-    data: planContent,
-    isLoading,
-    error,
+    data: filePlanContent,
+    isLoading: isFileLoading,
+    error: fileError,
     refetch,
-  } = trpc.files.readFile.useQuery({ filePath: planPath! }, { enabled: !!planPath })
+  } = trpc.files.readFile.useQuery(
+    { filePath: planPath || "" },
+    { enabled: shouldReadPlanFile },
+  )
+  const planContent = virtualPlan?.content ?? filePlanContent
+  const isLoading = !virtualPlan && isFileLoading
+  const error = virtualPlan ? null : fileError
 
   // Update cache when content loads successfully
   useEffect(() => {
@@ -62,10 +75,10 @@ export const PlanSection = memo(function PlanSection({
 
   // Refetch when trigger changes
   useEffect(() => {
-    if (refetchTrigger && planPath) {
+    if (refetchTrigger && shouldReadPlanFile) {
       refetch()
     }
-  }, [refetchTrigger, planPath, refetch])
+  }, [refetchTrigger, shouldReadPlanFile, refetch])
 
   // Update scroll gradients via DOM (no state, no re-renders)
   const updateScrollGradients = useCallback(() => {
