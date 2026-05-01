@@ -11,6 +11,7 @@ const CODEX_VERB_TO_TOOL_TYPE: Record<string, string> = {
   Write: "Write",
   Thought: "Thinking",
   Fetch: "WebFetch",
+  AskUserQuestion: "AskUserQuestion",
   PlanWrite: "PlanWrite",
 }
 
@@ -129,8 +130,20 @@ function parseCodexToolDescriptor(rawToolName: string): CodexToolDescriptor | nu
     if (separatorIndex === -1) return null
 
     const serverName = payload.slice(0, separatorIndex).trim()
-    const toolName = payload.slice(separatorIndex + 1).trim().replaceAll("/", "__")
+    const rawToolName = payload.slice(separatorIndex + 1).trim()
+    const toolName = rawToolName.replaceAll("/", "__")
     if (!serverName || !toolName) return null
+
+    if (
+      serverName === "acp-ai-sdk-tools" &&
+      (rawToolName === "AskUserQuestion" || rawToolName === "PlanWrite")
+    ) {
+      return {
+        canonicalToolName: rawToolName,
+        detail: "",
+        isMcp: false,
+      }
+    }
 
     return {
       canonicalToolName: `mcp__${serverName}__${toolName}`,
@@ -164,6 +177,86 @@ function stripExecutionBookkeeping(input: AnyRecord): AnyRecord {
   delete cleaned.server
   delete cleaned.tool
   return cleaned
+}
+
+function normalizePlanWriteInput(input: unknown): unknown {
+  if (!isRecord(input)) return input
+
+  const normalizedInput: AnyRecord = { ...input }
+  normalizedInput.action =
+    typeof normalizedInput.action === "string" && normalizedInput.action.length > 0
+      ? normalizedInput.action
+      : "create"
+
+  if (!isRecord(normalizedInput.plan)) {
+    return normalizedInput
+  }
+
+  const plan: AnyRecord = { ...normalizedInput.plan }
+  if (typeof plan.status !== "string" || plan.status.length === 0) {
+    plan.status = "awaiting_approval"
+  }
+  if (typeof plan.id !== "string" || plan.id.length === 0) {
+    plan.id = "plan"
+  }
+
+  if (Array.isArray(plan.steps)) {
+    plan.steps = plan.steps.map((step: unknown, index: number) => {
+      if (!isRecord(step)) return step
+      const normalizedStep: AnyRecord = { ...step }
+      if (typeof normalizedStep.id !== "string" || normalizedStep.id.length === 0) {
+        normalizedStep.id = `step-${index + 1}`
+      }
+      if (
+        typeof normalizedStep.status !== "string" ||
+        normalizedStep.status.length === 0
+      ) {
+        normalizedStep.status = "pending"
+      }
+      return normalizedStep
+    })
+  }
+
+  normalizedInput.plan = plan
+  return normalizedInput
+}
+
+function unwrapAcpSdkToolOutput(
+  output: unknown,
+  canonicalToolName: string,
+): unknown {
+  const normalizeUnwrapped = (value: unknown): unknown => {
+    if (
+      canonicalToolName === "AskUserQuestion" &&
+      isRecord(value) &&
+      typeof value.result === "string"
+    ) {
+      return value.result
+    }
+    return value
+  }
+
+  if (!isRecord(output)) return output
+
+  if (isRecord(output.structuredContent)) {
+    return normalizeUnwrapped(output.structuredContent)
+  }
+
+  if (Array.isArray(output.content) && output.content.length > 0) {
+    const firstContent = output.content[0]
+    if (isRecord(firstContent) && typeof firstContent.text === "string") {
+      const text = firstContent.text.trim()
+      if (text.length > 0) {
+        try {
+          return normalizeUnwrapped(JSON.parse(text))
+        } catch {
+          return normalizeUnwrapped(text)
+        }
+      }
+    }
+  }
+
+  return normalizeUnwrapped(output)
 }
 
 function normalizeCodexToolInput(
@@ -329,6 +422,10 @@ function normalizeCodexToolInput(
     }
   }
 
+  if (descriptor.canonicalToolName === "PlanWrite") {
+    return normalizePlanWriteInput(normalizedInput)
+  }
+
   return normalizedInput
 }
 
@@ -386,8 +483,19 @@ export function normalizeCodexToolPart(
       : hasCodexArgsWrapper
         ? normalizeCodexToolInput(part.input, fallbackDescriptor)
         : part.input
-  const normalizedOutput = part.output !== undefined ? part.output : part.result
-  const normalizedResult = part.result !== undefined ? part.result : part.output
+  const shouldUnwrapAcpSdkOutput =
+    fallbackDescriptor.canonicalToolName === "AskUserQuestion" ||
+    fallbackDescriptor.canonicalToolName === "PlanWrite"
+  const rawOutput = part.output !== undefined ? part.output : part.result
+  const rawResult = part.result !== undefined ? part.result : part.output
+  const normalizedOutput =
+    shouldUnwrapAcpSdkOutput
+      ? unwrapAcpSdkToolOutput(rawOutput, fallbackDescriptor.canonicalToolName)
+      : rawOutput
+  const normalizedResult =
+    shouldUnwrapAcpSdkOutput
+      ? unwrapAcpSdkToolOutput(rawResult, fallbackDescriptor.canonicalToolName)
+      : rawResult
   const outputPayload =
     normalizedOutput !== undefined ? normalizedOutput : normalizedResult
   const outputEnrichedInput =

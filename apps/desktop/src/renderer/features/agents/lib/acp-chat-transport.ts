@@ -12,7 +12,10 @@ import {
 import { appStore } from "../../../lib/jotai-store"
 import { trpcClient } from "../../../lib/trpc"
 import {
+  askUserQuestionResultsAtom,
+  expiredUserQuestionsAtom,
   pendingAuthRetryMessageAtom,
+  pendingUserQuestionsAtom,
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily,
 } from "../atoms"
@@ -190,6 +193,64 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
                   plugins: chunk.plugins || [],
                   skills: chunk.skills || [],
                 })
+              }
+
+              if (chunk.type === "ask-user-question") {
+                const currentMap = appStore.get(pendingUserQuestionsAtom)
+                const newMap = new Map(currentMap)
+                newMap.set(this.config.subChatId, {
+                  subChatId: this.config.subChatId,
+                  parentChatId: this.config.chatId,
+                  toolUseId: chunk.toolUseId,
+                  questions: chunk.questions,
+                })
+                appStore.set(pendingUserQuestionsAtom, newMap)
+
+                const currentExpired = appStore.get(expiredUserQuestionsAtom)
+                if (currentExpired.has(this.config.subChatId)) {
+                  const newExpiredMap = new Map(currentExpired)
+                  newExpiredMap.delete(this.config.subChatId)
+                  appStore.set(expiredUserQuestionsAtom, newExpiredMap)
+                }
+              }
+
+              if (chunk.type === "ask-user-question-timeout") {
+                const currentMap = appStore.get(pendingUserQuestionsAtom)
+                const pending = currentMap.get(this.config.subChatId)
+                if (pending && pending.toolUseId === chunk.toolUseId) {
+                  const newPendingMap = new Map(currentMap)
+                  newPendingMap.delete(this.config.subChatId)
+                  appStore.set(pendingUserQuestionsAtom, newPendingMap)
+
+                  const currentExpired = appStore.get(expiredUserQuestionsAtom)
+                  const newExpiredMap = new Map(currentExpired)
+                  newExpiredMap.set(this.config.subChatId, pending)
+                  appStore.set(expiredUserQuestionsAtom, newExpiredMap)
+                }
+              }
+
+              if (chunk.type === "ask-user-question-result") {
+                const currentResults = appStore.get(askUserQuestionResultsAtom)
+                const newResults = new Map(currentResults)
+                newResults.set(chunk.toolUseId, chunk.result)
+                appStore.set(askUserQuestionResultsAtom, newResults)
+              }
+
+              const shouldClearQuestionOnChunk =
+                chunk.type !== "ask-user-question" &&
+                chunk.type !== "ask-user-question-timeout" &&
+                chunk.type !== "ask-user-question-result" &&
+                !chunk.type.startsWith("tool-input") &&
+                chunk.type !== "start" &&
+                chunk.type !== "start-step"
+
+              if (shouldClearQuestionOnChunk) {
+                const currentMap = appStore.get(pendingUserQuestionsAtom)
+                if (currentMap.has(this.config.subChatId)) {
+                  const newMap = new Map(currentMap)
+                  newMap.delete(this.config.subChatId)
+                  appStore.set(pendingUserQuestionsAtom, newMap)
+                }
               }
 
               if (chunk.type === "auth-error") {

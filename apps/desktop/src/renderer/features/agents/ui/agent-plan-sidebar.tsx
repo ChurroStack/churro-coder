@@ -11,6 +11,7 @@ import { cn } from "../../../lib/utils"
 import { trpc } from "../../../lib/trpc"
 import { CopyButton } from "./message-action-buttons"
 import type { AgentMode } from "../atoms"
+import { virtualPlanContentAtomFamily } from "../atoms"
 
 interface AgentPlanSidebarProps {
   chatId: string
@@ -33,31 +34,40 @@ export function AgentPlanSidebar({
 }: AgentPlanSidebarProps) {
   // View mode: rendered markdown or plaintext
   const [viewMode, setViewMode] = useState<"rendered" | "plaintext">("rendered")
+  const virtualPlanAtom = useMemo(
+    () => virtualPlanContentAtomFamily(planPath || ""),
+    [planPath],
+  )
+  const virtualPlan = useAtomValue(virtualPlanAtom)
 
   // Toggle view mode
   const handleToggleViewMode = useCallback(() => {
     setViewMode((prev) => (prev === "rendered" ? "plaintext" : "rendered"))
   }, [])
 
-  // Fetch plan file content using tRPC
-  const { data: planContent, isLoading, error, refetch } = trpc.files.readFile.useQuery(
+  const shouldReadPlanFile = !!planPath && !virtualPlan
+  const { data: filePlanContent, isLoading: isFileLoading, error: fileError, refetch } = trpc.files.readFile.useQuery(
     { filePath: planPath! },
-    { enabled: !!planPath }
+    { enabled: shouldReadPlanFile }
   )
+  const planContent = virtualPlan?.content ?? filePlanContent
+  const isLoading = !virtualPlan && isFileLoading
+  const error = virtualPlan ? null : fileError
 
   // Refetch when trigger changes
   useEffect(() => {
-    if (refetchTrigger && planPath) {
+    if (refetchTrigger && shouldReadPlanFile) {
       refetch()
     }
-  }, [refetchTrigger, planPath, refetch])
+  }, [refetchTrigger, shouldReadPlanFile, refetch])
 
   // Extract plan title from markdown (first H1)
   const planTitle = useMemo(() => {
+    if (virtualPlan?.title) return virtualPlan.title
     if (!planContent) return "Plan"
     const match = planContent.match(/^#\s+(.+)$/m)
     return match ? match[1] : "Plan"
-  }, [planContent])
+  }, [planContent, virtualPlan?.title])
 
   return (
     <div className="flex flex-col h-full bg-tl-background">

@@ -148,6 +148,7 @@ import {
   subChatProviderOverridesAtom,
   suppressInputFocusAtom,
   undoStackAtom,
+  virtualPlanContentAtomFamily,
   workspaceDiffCacheAtomFamily,
   type AgentMode,
   type SelectedCommit
@@ -294,6 +295,194 @@ function waitForStreamingReady(subChatId: string): Promise<void> {
       }
     )
   })
+}
+
+type ApprovedPlanContent = {
+  content: string
+  source?: string
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null
+}
+
+function parseMcpContentJson(value: unknown): any | null {
+  if (!isRecord(value) || !Array.isArray(value.content)) return null
+  const textPart = value.content.find(
+    (item: unknown) => isRecord(item) && typeof item.text === "string",
+  )
+  if (!textPart?.text) return null
+
+  try {
+    return JSON.parse(textPart.text)
+  } catch {
+    return null
+  }
+}
+
+function formatStructuredPlanAsMarkdown(plan: any): string {
+  if (!isRecord(plan)) return ""
+
+  const lines: string[] = []
+  const steps = Array.isArray(plan.steps) ? plan.steps : []
+
+  if (typeof plan.title === "string" && plan.title.trim()) {
+    lines.push(`# ${plan.title.trim()}`)
+  }
+
+  if (typeof plan.summary === "string" && plan.summary.trim()) {
+    lines.push("## Context")
+    lines.push(plan.summary.trim())
+  }
+
+  if (steps.length > 0) {
+    lines.push("## Implementation Steps")
+    lines.push(
+      steps
+        .map((step: any, index: number) => {
+          const title =
+            typeof step?.title === "string" && step.title.trim()
+              ? step.title.trim()
+              : `Step ${index + 1}`
+          const stepLines = [`${index + 1}. ${title}`]
+          if (typeof step?.description === "string" && step.description.trim()) {
+            stepLines.push(`   ${step.description.trim()}`)
+          }
+          if (Array.isArray(step?.files) && step.files.length > 0) {
+            stepLines.push(
+              `   Files: ${step.files.map((file: unknown) => `\`${String(file)}\``).join(", ")}`,
+            )
+          }
+          return stepLines.join("\n")
+        })
+        .join("\n\n"),
+    )
+  }
+
+  return lines.join("\n\n").trim()
+}
+
+function getPlanFromPlanWritePart(part: any): any | null {
+  const candidates = [
+    part?.input?.plan,
+    part?.input?.args?.plan,
+    part?.input?.arguments?.plan,
+    part?.args?.plan,
+    part?.output?.plan,
+    part?.result?.plan,
+    part?.output?.structuredContent?.plan,
+    part?.result?.structuredContent?.plan,
+    parseMcpContentJson(part?.output)?.plan,
+    parseMcpContentJson(part?.result)?.plan,
+  ]
+
+  return candidates.find((plan) => isRecord(plan)) || null
+}
+
+function getExitPlanText(part: any): string | null {
+  const candidates = [
+    part?.output?.plan,
+    part?.result?.plan,
+    part?.input?.plan,
+    part?.output,
+    part?.result,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim()
+    }
+  }
+
+  return null
+}
+
+function getAssistantText(message: any): string {
+  if (!Array.isArray(message?.parts)) return ""
+  return message.parts
+    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .map((part: any) => part.text.trim())
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+function extractApprovedPlanFromMessages(messages: any[]): ApprovedPlanContent | null {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+    const message = messages[messageIndex]
+    if (message?.role !== "assistant" || !Array.isArray(message.parts)) continue
+
+    for (let partIndex = message.parts.length - 1; partIndex >= 0; partIndex--) {
+      const part = message.parts[partIndex]
+
+      if (part?.type === "tool-PlanWrite") {
+        const planMarkdown = formatStructuredPlanAsMarkdown(getPlanFromPlanWritePart(part))
+        if (planMarkdown) {
+          return { content: planMarkdown, source: "PlanWrite" }
+        }
+      }
+
+      if (
+        (part?.type === "tool-Write" || part?.type === "tool-Edit") &&
+        isPlanFile(part.input?.file_path || "")
+      ) {
+        const content =
+          part.type === "tool-Write"
+            ? part.input?.content
+            : part.input?.new_string || part.input?.content
+        if (typeof content === "string" && content.trim()) {
+          return {
+            content: content.trim(),
+            source: part.input?.file_path || "plan file tool",
+          }
+        }
+      }
+
+      if (part?.type === "tool-ExitPlanMode") {
+        const planText = getExitPlanText(part)
+        if (planText) {
+          return { content: planText, source: "ExitPlanMode" }
+        }
+      }
+    }
+
+    const text = getAssistantText(message)
+    const msgModel = message.metadata?.model
+    if (
+      text &&
+      msgModel &&
+      getProviderForModelId(String(msgModel)) === "codex"
+    ) {
+      return { content: text, source: "legacy Codex plan text" }
+    }
+  }
+
+  return null
+}
+
+function buildImplementPlanParts(plan: ApprovedPlanContent | null): any[] {
+  const content = plan?.content.trim()
+  if (!content) return [{ type: "text", text: "Implement plan" }]
+
+  const source = plan.source ? `Plan source: ${plan.source}` : ""
+  const hiddenPlanContent = [
+    "Approved plan for implementation.",
+    "Use this plan text as the source of truth even if it was written by a different provider or model.",
+    source,
+    "",
+    content,
+  ].join("\n")
+
+  return [
+    {
+      type: "text",
+      text: "Implement plan. Use the attached approved plan as the source of truth.",
+    },
+    {
+      type: "file-content",
+      filePath: "approved-plan.md",
+      content: hiddenPlanContent,
+    },
+  ]
 }
 
 // Exploring tools - these get grouped when 2+ consecutive
@@ -3222,43 +3411,97 @@ export const ChatViewInner = memo(function ChatViewInner({
     [],
   )
 
+  const resolveApprovedPlanContent = useCallback(async (): Promise<ApprovedPlanContent | null> => {
+    const planPath = appStore.get(currentPlanPathAtomFamily(subChatId))
+
+    if (planPath) {
+      const virtualPlan = appStore.get(virtualPlanContentAtomFamily(planPath))
+      if (virtualPlan?.content?.trim()) {
+        return {
+          content: virtualPlan.content.trim(),
+          source: virtualPlan.title || planPath,
+        }
+      }
+
+      if (!planPath.startsWith("codex-plan://")) {
+        try {
+          const fileContent = await trpcClient.files.readFile.query({ filePath: planPath })
+          if (fileContent.trim()) {
+            return { content: fileContent.trim(), source: planPath }
+          }
+        } catch (error) {
+          console.warn("[plan-approval] Failed to read plan file:", error)
+        }
+      }
+    }
+
+    return extractApprovedPlanFromMessages(messages)
+  }, [messages, subChatId])
+
   // Deferred "Implement plan" send — fires after transport recreates on approve.
-  const [pendingImplementPlan, setPendingImplementPlan] = useState<string | null>(null)
+  const [pendingImplementPlan, setPendingImplementPlan] = useState<{
+    subChatId: string
+    parts: any[]
+  } | null>(null)
+  const isPlanApproveInFlightRef = useRef(false)
 
   useEffect(() => {
-    if (pendingImplementPlan !== subChatId || isStreaming) return
+    if (pendingImplementPlan?.subChatId !== subChatId || isStreaming) return
+    const parts = pendingImplementPlan.parts
     setPendingImplementPlan(null)
-    sendMessage({ role: "user", parts: [{ type: "text", text: "Implement plan" }] })
+    sendMessage({ role: "user", parts })
   }, [pendingImplementPlan, subChatId, isStreaming, sendMessage])
 
   // Handle plan approval - sends "Implement plan" message and switches to agent mode
-  const handleApprovePlan = useCallback(() => {
-    // Update store mode synchronously BEFORE sending (transport reads from store)
-    useAgentSubChatStore.getState().updateSubChatMode(subChatId, "agent")
+  const handleApprovePlan = useCallback(async () => {
+    if (isPlanApproveInFlightRef.current) return
+    isPlanApproveInFlightRef.current = true
 
-    // Sync mode to database for sidebar indicator (getPendingPlanApprovals)
-    if (!subChatId.startsWith("temp-")) {
-      updateSubChatModeMutation.mutate({ subChatId, mode: "agent" })
+    let planContent: ApprovedPlanContent | null = null
+    try {
+      planContent = await resolveApprovedPlanContent()
+    } catch (error) {
+      console.warn("[plan-approval] Failed to resolve approved plan text:", error)
     }
+    const implementPlanParts = buildImplementPlanParts(planContent)
 
-    // Update atomFamily state (for UI) - this also syncs to store via effect
-    setSubChatMode("agent")
+    try {
+      // Update store mode synchronously BEFORE sending (transport reads from store)
+      useAgentSubChatStore.getState().updateSubChatMode(subChatId, "agent")
 
-    // Autoswitch to the Agent-mode default model and get the resolved provider.
-    const { provider } = applyModeDefaultModel(subChatId, "agent")
+      // Sync mode to database for sidebar indicator (getPendingPlanApprovals)
+      if (!subChatId.startsWith("temp-")) {
+        updateSubChatModeMutation.mutate({ subChatId, mode: "agent" })
+      }
 
-    // Enable auto-scroll and immediately scroll to bottom
-    shouldAutoScrollRef.current = true
-    scrollToBottom()
+      // Update atomFamily state (for UI) - this also syncs to store via effect
+      setSubChatMode("agent")
 
-    // Recreate the transport for the new provider (e.g. plan=Claude → agent=Codex).
-    // This deletes the existing Chat from agentChatStore so getOrCreateChat in ChatView
-    // builds a fresh instance with the correct transport on the next render.
-    onProviderChange?.(subChatId, provider)
+      // Autoswitch to the Agent-mode default model and get the resolved provider.
+      const { provider } = applyModeDefaultModel(subChatId, "agent")
 
-    // Defer the send to after the transport recreates (next render cycle).
-    setPendingImplementPlan(subChatId)
-  }, [subChatId, setSubChatMode, scrollToBottom, updateSubChatModeMutation, onProviderChange])
+      // Enable auto-scroll and immediately scroll to bottom
+      shouldAutoScrollRef.current = true
+      scrollToBottom()
+
+      // Recreate the transport for the new provider (e.g. plan=Claude → agent=Codex).
+      // This deletes the existing Chat from agentChatStore so getOrCreateChat in ChatView
+      // builds a fresh instance with the correct transport on the next render.
+      onProviderChange?.(subChatId, provider)
+
+      // Defer the send to after the transport recreates (next render cycle).
+      setPendingImplementPlan({ subChatId, parts: implementPlanParts })
+    } finally {
+      isPlanApproveInFlightRef.current = false
+    }
+  }, [
+    subChatId,
+    setSubChatMode,
+    scrollToBottom,
+    updateSubChatModeMutation,
+    onProviderChange,
+    resolveApprovedPlanContent,
+  ])
 
   // Handle pending "Build plan" from sidebar
   useEffect(() => {
@@ -4459,7 +4702,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     }
   }
 
-  // Check if there's an unapproved plan (in plan mode with completed ExitPlanMode, Codex PlanWrite, or Codex text plan)
+  // Check if there's an unapproved plan (in plan mode with completed ExitPlanMode, Codex PlanWrite, or legacy Codex text plan)
   const hasUnapprovedPlan = useMemo(() => {
     // If already in agent mode, plan is approved (mode is the source of truth)
     if (subChatMode !== "plan") return false
@@ -4477,24 +4720,54 @@ export const ChatViewInner = memo(function ChatViewInner({
         }
 
         const planWritePart = msg.parts.find(
-          (p: any) =>
-            p.type === "tool-PlanWrite" &&
-            p.output !== undefined &&
-            p.input?.plan?.status === "awaiting_approval"
+          (p: any) => {
+            if (p.type !== "tool-PlanWrite") return false
+            if (p.output === undefined && p.result === undefined) return false
+            const plan = getPlanFromPlanWritePart(p)
+            return Boolean(plan) && (plan.status ?? "awaiting_approval") === "awaiting_approval"
+          }
         )
         if (planWritePart) {
           return true
         }
 
-        // Codex writes plans as text — any Codex assistant response in plan mode is pending
+        const hasAnyPlanWrite = msg.parts.some(
+          (p: any) => p.type === "tool-PlanWrite",
+        )
+        if (hasAnyPlanWrite) {
+          return false
+        }
+
+        const hasPendingAskUserQuestion = msg.parts.some(
+          (p: any) =>
+            p.type === "tool-AskUserQuestion" &&
+            p.input?.questions &&
+            p.state !== "output-available" &&
+            p.state !== "output-error" &&
+            p.state !== "result",
+        )
+        if (hasPendingAskUserQuestion) {
+          return false
+        }
+
+        // Legacy Codex plans were text-only. Keep supporting those, but do not
+        // treat a live AskUserQuestion turn as plan approval.
         const msgModel = (msg as any).metadata?.model
-        if (msgModel && getProviderForModelId(String(msgModel)) === "codex") {
+        const hasTextPlan = msg.parts.some(
+          (p: any) => p.type === "text" && p.text?.trim(),
+        )
+        if (
+          !isStreaming &&
+          msgModel &&
+          getProviderForModelId(String(msgModel)) === "codex" &&
+          hasTextPlan
+        ) {
           return true
         }
       }
     }
     return false
-  }, [messages, subChatMode])
+  }, [messages, subChatMode, isStreaming])
 
   // Keep ref in sync for use in initializeScroll (which runs in useLayoutEffect)
   hasUnapprovedPlanRef.current = hasUnapprovedPlan
@@ -6570,7 +6843,9 @@ Make sure to preserve all functionality from both branches when resolving confli
       return
     }
 
-    // Find last plan file path from active sub-chat only
+    // Find last plan path from active sub-chat only. Claude plans are usually
+    // file-backed; Codex PlanWrite plans are virtual but still need a stable
+    // path so the Details Plan widget and approve handoff can resolve them.
     let lastPlanPath: string | null = null
     const messages = (activeSubChat.messages as any[]) || []
     for (const msg of messages) {
@@ -6578,10 +6853,20 @@ Make sure to preserve all functionality from both branches when resolving confli
       const parts = msg.parts || []
       for (const part of parts) {
         if (
-          part.type === "tool-Write" &&
+          (part.type === "tool-Write" || part.type === "tool-Edit") &&
           isPlanFile(part.input?.file_path || "")
         ) {
           lastPlanPath = part.input.file_path
+        } else if (part.type === "tool-PlanWrite" && part.toolCallId) {
+          const plan = getPlanFromPlanWritePart(part)
+          const planContent = formatStructuredPlanAsMarkdown(plan)
+          if (planContent) {
+            lastPlanPath = `codex-plan://${activeSubChatIdForPlan}/${part.toolCallId}`
+            appStore.set(virtualPlanContentAtomFamily(lastPlanPath), {
+              title: plan?.title || "Plan",
+              content: planContent,
+            })
+          }
         }
       }
     }

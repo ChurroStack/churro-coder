@@ -1,7 +1,7 @@
 "use client"
 
 import { memo, useState, useCallback, useEffect, useMemo, useRef } from "react"
-import { useAtom } from "jotai"
+import { useAtom, useAtomValue } from "jotai"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { cn } from "@/lib/utils"
@@ -9,7 +9,10 @@ import { PlanIcon, ExpandIcon, CollapseIcon, IconSpinner } from "@/components/ui
 import { ChatMarkdownRenderer } from "@/components/chat-markdown-renderer"
 import { trpc } from "@/lib/trpc"
 import { planContentCacheAtomFamily } from "../atoms"
-import type { AgentMode } from "../../agents/atoms"
+import {
+  type AgentMode,
+  virtualPlanContentAtomFamily,
+} from "../../agents/atoms"
 import { useWidgetPanel } from "../../dock"
 import { PromotedToPanelStub } from "./promoted-to-panel-stub"
 
@@ -66,14 +69,26 @@ export const PlanWidget = memo(function PlanWidget({
 
   // Plan content cache to avoid flashing loading state
   const [planCache, setPlanCache] = useAtom(planContentCacheAtomFamily(effectiveChatId))
+  const virtualPlanAtom = useMemo(
+    () => virtualPlanContentAtomFamily(planPath || ""),
+    [planPath],
+  )
+  const virtualPlan = useAtomValue(virtualPlanAtom)
 
   // Fetch plan file content using tRPC
+  const shouldReadPlanFile = !!planPath && !virtualPlan
   const {
-    data: planContent,
-    isLoading,
-    error,
+    data: filePlanContent,
+    isLoading: isFileLoading,
+    error: fileError,
     refetch,
-  } = trpc.files.readFile.useQuery({ filePath: planPath! }, { enabled: !!planPath })
+  } = trpc.files.readFile.useQuery(
+    { filePath: planPath || "" },
+    { enabled: shouldReadPlanFile },
+  )
+  const planContent = virtualPlan?.content ?? filePlanContent
+  const isLoading = !virtualPlan && isFileLoading
+  const error = virtualPlan ? null : fileError
 
   // Update cache when content loads successfully
   useEffect(() => {
@@ -88,10 +103,10 @@ export const PlanWidget = memo(function PlanWidget({
 
   // Refetch when trigger changes
   useEffect(() => {
-    if (refetchTrigger && planPath) {
+    if (refetchTrigger && shouldReadPlanFile) {
       refetch()
     }
-  }, [refetchTrigger, planPath, refetch])
+  }, [refetchTrigger, shouldReadPlanFile, refetch])
 
   // Use cached content while loading new content to prevent flashing
   const displayContent = useMemo(() => {

@@ -1,6 +1,10 @@
-import { createACPProvider, type ACPProvider } from "@mcpc-tech/acp-ai-provider"
+import {
+  acpTools,
+  createACPProvider,
+  type ACPProvider,
+} from "@mcpc-tech/acp-ai-provider"
 import { observable } from "@trpc/server/observable"
-import { streamText, tool } from "ai"
+import { stepCountIs, streamText, tool } from "ai"
 import { eq } from "drizzle-orm"
 import { app } from "electron"
 import { spawn, type ChildProcess } from "node:child_process"
@@ -26,11 +30,52 @@ import {
   type McpToolInfo,
 } from "../../mcp-auth"
 import { publicProcedure, router } from "../index"
+import {
+  clearPendingApprovals,
+  pendingToolApprovals,
+} from "./tool-approvals"
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
   mediaType: z.string(),
   filename: z.string().optional(),
+})
+
+const ASK_USER_QUESTION_TIMEOUT_MS = 60_000
+const QUESTIONS_SKIPPED_MESSAGE = "User skipped questions - proceed with defaults"
+const QUESTIONS_TIMED_OUT_MESSAGE = "Timed out"
+
+const codexQuestionSchema = z.object({
+  question: z.string().min(1),
+  header: z.string().min(1),
+  options: z
+    .array(
+      z.object({
+        label: z.string().min(1),
+        description: z.string().optional(),
+      }),
+    )
+    .min(2),
+  multiSelect: z.boolean().optional(),
+})
+
+const codexPlanStepSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  files: z.array(z.string()).optional(),
+  estimatedComplexity: z.enum(["low", "medium", "high"]).optional(),
+  status: z
+    .enum(["pending", "in_progress", "completed", "skipped"])
+    .optional(),
+})
+
+const codexPlanSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().min(1),
+  summary: z.string().optional(),
+  steps: z.array(codexPlanStepSchema),
+  status: z.literal("awaiting_approval").optional(),
 })
 
 type CodexProviderSession = {
@@ -116,6 +161,7 @@ export function abortAllCodexStreams(): void {
   for (const [subChatId, stream] of activeStreams) {
     console.log(`[codex] Aborting stream ${subChatId} before reload`)
     stream.controller.abort()
+    clearPendingApprovals("Session ended.", subChatId)
   }
   activeStreams.clear()
 }
@@ -1259,6 +1305,478 @@ function buildModelMessageContent(
   return content
 }
 
+function normalizeCodexQuestions(
+  questions: z.infer<typeof codexQuestionSchema>[],
+) {
+  return questions.map((question) => ({
+    question: question.question,
+    header: question.header,
+    options: question.options.map((option) => ({
+      label: option.label,
+      description: option.description || "",
+    })),
+    multiSelect: Boolean(question.multiSelect),
+  }))
+}
+
+function normalizeCodexPlan(plan: z.infer<typeof codexPlanSchema>) {
+  return {
+    ...plan,
+    id: plan.id || `plan-${Date.now()}`,
+    status: "awaiting_approval" as const,
+    steps: plan.steps.map((step, index) => ({
+      ...step,
+      id: step.id || `step-${index + 1}`,
+      status: step.status || "pending",
+    })),
+  }
+}
+
+function toMcpToolResult(result: unknown) {
+  const contentText =
+    typeof result === "string" ? result : JSON.stringify(result)
+
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: contentText,
+      },
+    ],
+  }
+}
+
+function getAssistantText(message: any): string {
+  if (!message || !Array.isArray(message.parts)) return ""
+  return message.parts
+    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .map((part: any) => part.text.trim())
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+function isCodexPlanWritePart(part: any): boolean {
+  const inputToolName =
+    typeof part?.input?.toolName === "string" ? part.input.toolName : ""
+  return (
+    part?.type === "tool-PlanWrite" ||
+    part?.toolName === "PlanWrite" ||
+    inputToolName === "PlanWrite" ||
+    inputToolName.startsWith("PlanWrite ") ||
+    inputToolName.endsWith("/PlanWrite")
+  )
+}
+
+function parseMcpContentJson(value: any): any | null {
+  const content = Array.isArray(value?.content) ? value.content : []
+  const firstText = content.find((item: any) => typeof item?.text === "string")
+  if (!firstText?.text) return null
+
+  try {
+    return JSON.parse(firstText.text)
+  } catch {
+    return null
+  }
+}
+
+function getPlanFromPlanWritePart(part: any): any | null {
+  const candidates = [
+    part?.input?.plan,
+    part?.input?.args?.plan,
+    part?.input?.arguments?.plan,
+    part?.args?.plan,
+    part?.output?.plan,
+    part?.result?.plan,
+    part?.output?.structuredContent?.plan,
+    part?.result?.structuredContent?.plan,
+    parseMcpContentJson(part?.output)?.plan,
+    parseMcpContentJson(part?.result)?.plan,
+  ]
+
+  return candidates.find((plan) => plan && typeof plan === "object") || null
+}
+
+function hasUsableCodexPlanWritePart(message: any): boolean {
+  if (!message || !Array.isArray(message.parts)) return false
+  return message.parts.some((part: any) => {
+    if (!isCodexPlanWritePart(part)) return false
+    if (part.state === "output-error") return false
+    if (part.errorText || part.error) return false
+
+    const plan = getPlanFromPlanWritePart(part)
+    if (!plan) return false
+
+    return part.output !== undefined || part.result !== undefined
+  })
+}
+
+function findPlanFromAnyPlanWritePart(message: any): any | null {
+  if (!message || !Array.isArray(message.parts)) return null
+
+  for (const part of message.parts) {
+    if (!isCodexPlanWritePart(part)) continue
+    const plan = getPlanFromPlanWritePart(part)
+    if (plan) return plan
+  }
+
+  return null
+}
+
+function extractPlanStepTitles(text: string): string[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const steps: string[] = []
+
+  for (const line of lines) {
+    const match = line.match(/^(?:\d+[\).\:-]|\-|\*)\s+(.+)$/)
+    if (!match) continue
+
+    const title = match[1]
+      .replace(/\*\*/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+    if (title.length < 4) continue
+
+    steps.push(title.length > 120 ? `${title.slice(0, 117)}...` : title)
+  }
+
+  return steps.slice(0, 8)
+}
+
+function buildFallbackPlanWritePart(params: {
+  prompt: string
+  text: string
+  plan?: any
+}): any {
+  const now = Date.now()
+  const toolCallId = `codex-planwrite-fallback-${now}-${Math.random().toString(36).slice(2, 8)}`
+  const requestSummary = params.prompt.trim().replace(/\s+/g, " ")
+  const shortRequest =
+    requestSummary.length > 140
+      ? `${requestSummary.slice(0, 137)}...`
+      : requestSummary
+  const stepTitles = extractPlanStepTitles(params.text)
+  const fallbackStepTitles =
+    stepTitles.length > 0
+      ? stepTitles
+      : [
+          "Confirm the existing project structure and constraints",
+          shortRequest
+            ? `Implement the requested change: ${shortRequest}`
+            : "Implement the requested change",
+          "Add the expected interaction, state handling, and edge-case behavior",
+          "Verify the result through the relevant local run or manual check",
+        ]
+
+  const plan = normalizeCodexPlan(
+    params.plan && typeof params.plan === "object"
+      ? {
+          ...params.plan,
+          steps: Array.isArray(params.plan.steps)
+            ? params.plan.steps
+            : fallbackStepTitles.map((title) => ({ title, status: "pending" })),
+        }
+      : {
+          id: `plan-${now}`,
+          title: shortRequest ? `Plan: ${shortRequest}` : "Implementation plan",
+          summary:
+            params.text.trim() ||
+            `Plan for: ${requestSummary || "the requested change"}`,
+          status: "awaiting_approval",
+          steps: fallbackStepTitles.map((title) => ({
+            title,
+            status: "pending",
+          })),
+        },
+  )
+  const output = {
+    success: true,
+    message: "Plan ready for review.",
+    action: "create",
+    plan,
+    synthesized: true,
+  }
+
+  return {
+    type: "tool-PlanWrite",
+    toolCallId,
+    toolName: "PlanWrite",
+    state: "output-available",
+    input: {
+      action: "create",
+      plan,
+    },
+    output,
+    result: output,
+    startedAt: now,
+  }
+}
+
+function ensurePlanWriteForCodexPlanMode(params: {
+  messages: any[]
+  prompt: string
+  fallbackPart: any | null
+}): { messages: any[]; fallbackPart: any | null } {
+  let lastAssistantIndex = -1
+  for (let index = params.messages.length - 1; index >= 0; index--) {
+    if (params.messages[index]?.role === "assistant") {
+      lastAssistantIndex = index
+      break
+    }
+  }
+  if (lastAssistantIndex === -1) {
+    return { messages: params.messages, fallbackPart: params.fallbackPart }
+  }
+
+  const lastAssistant = params.messages[lastAssistantIndex]
+  if (hasUsableCodexPlanWritePart(lastAssistant)) {
+    return { messages: params.messages, fallbackPart: null }
+  }
+
+  const planFromFailedPlanWrite = findPlanFromAnyPlanWritePart(lastAssistant)
+  const fallbackPart =
+    params.fallbackPart ||
+    buildFallbackPlanWritePart({
+      prompt: params.prompt,
+      text: getAssistantText(lastAssistant),
+      plan: planFromFailedPlanWrite,
+    })
+  const updatedAssistant = {
+    ...lastAssistant,
+    parts: [...(lastAssistant.parts || []), fallbackPart],
+  }
+  const messages = [...params.messages]
+  messages[lastAssistantIndex] = updatedAssistant
+
+  return { messages, fallbackPart }
+}
+
+type CodexPlanStreamAccumulator = {
+  currentText: string
+  parts: any[]
+  toolPartsByCallId: Map<string, any>
+}
+
+function createCodexPlanStreamAccumulator(): CodexPlanStreamAccumulator {
+  return {
+    currentText: "",
+    parts: [],
+    toolPartsByCallId: new Map(),
+  }
+}
+
+function flushCodexPlanText(accumulator: CodexPlanStreamAccumulator) {
+  const text = accumulator.currentText.trim()
+  if (text) {
+    accumulator.parts.push({ type: "text", text })
+  }
+  accumulator.currentText = ""
+}
+
+function upsertCodexPlanToolPart(
+  accumulator: CodexPlanStreamAccumulator,
+  chunk: any,
+): any | null {
+  const toolCallId =
+    typeof chunk?.toolCallId === "string" ? chunk.toolCallId : ""
+  if (!toolCallId) return null
+
+  let part = accumulator.toolPartsByCallId.get(toolCallId)
+  if (!part) {
+    const toolName =
+      typeof chunk.toolName === "string" && chunk.toolName.length > 0
+        ? chunk.toolName
+        : "unknown"
+    part = {
+      type: `tool-${toolName}`,
+      toolCallId,
+      toolName,
+      state: "input-streaming",
+      startedAt: Date.now(),
+    }
+    accumulator.toolPartsByCallId.set(toolCallId, part)
+    accumulator.parts.push(part)
+  }
+
+  if (typeof chunk.toolName === "string" && chunk.toolName.length > 0) {
+    part.toolName = chunk.toolName
+    part.type = `tool-${chunk.toolName}`
+  }
+  if (chunk.input !== undefined) {
+    part.input = chunk.input
+  }
+  if (typeof chunk.title === "string" && chunk.title.length > 0) {
+    part.title = chunk.title
+  }
+
+  return part
+}
+
+function accumulateCodexPlanStreamChunk(
+  accumulator: CodexPlanStreamAccumulator,
+  chunk: any,
+) {
+  if (!chunk || typeof chunk !== "object") return
+
+  switch (chunk.type) {
+    case "text-delta":
+      accumulator.currentText += chunk.delta || ""
+      break
+    case "text-end":
+      flushCodexPlanText(accumulator)
+      break
+    case "tool-input-start": {
+      const part = upsertCodexPlanToolPart(accumulator, chunk)
+      if (part) part.state = "input-streaming"
+      break
+    }
+    case "tool-input-available": {
+      const part = upsertCodexPlanToolPart(accumulator, chunk)
+      if (part) part.state = "input-available"
+      break
+    }
+    case "tool-input-error": {
+      const part = upsertCodexPlanToolPart(accumulator, chunk)
+      if (part) {
+        part.state = "input-error"
+        part.errorText = chunk.errorText
+      }
+      break
+    }
+    case "tool-output-available": {
+      const part =
+        typeof chunk.toolCallId === "string"
+          ? accumulator.toolPartsByCallId.get(chunk.toolCallId)
+          : null
+      if (part) {
+        part.state = "output-available"
+        part.output = chunk.output
+        part.result = chunk.output
+      }
+      break
+    }
+    case "tool-output-error": {
+      const part =
+        typeof chunk.toolCallId === "string"
+          ? accumulator.toolPartsByCallId.get(chunk.toolCallId)
+          : null
+      if (part) {
+        part.state = "output-error"
+        part.errorText = chunk.errorText
+      }
+      break
+    }
+    case "tool-output-denied": {
+      const part =
+        typeof chunk.toolCallId === "string"
+          ? accumulator.toolPartsByCallId.get(chunk.toolCallId)
+          : null
+      if (part) {
+        part.state = "output-error"
+        part.errorText = "Tool output denied"
+      }
+      break
+    }
+  }
+}
+
+function buildCodexPlanTools(params: {
+  subChatId: string
+  safeEmit: (chunk: any) => void
+}) {
+  return {
+    AskUserQuestion: tool({
+      description:
+        "Ask the user concise follow-up questions before writing a plan. Use this only for high-impact ambiguity that cannot be resolved by inspecting the project. Provide answer options so the UI can collect the response.",
+      inputSchema: z.object({
+        questions: z.array(codexQuestionSchema).min(1).max(3),
+      }),
+      execute: async (input, options) => {
+        const toolUseId = `${options.toolCallId || "AskUserQuestion"}-${crypto.randomUUID()}`
+        const questions = normalizeCodexQuestions(input.questions)
+
+        params.safeEmit({
+          type: "ask-user-question",
+          toolUseId,
+          questions,
+        })
+
+        const response = await new Promise<{
+          approved: boolean
+          message?: string
+          updatedInput?: unknown
+        }>((resolve) => {
+          const timeoutId = setTimeout(() => {
+            pendingToolApprovals.delete(toolUseId)
+            params.safeEmit({
+              type: "ask-user-question-timeout",
+              toolUseId,
+            })
+            resolve({
+              approved: false,
+              message: QUESTIONS_TIMED_OUT_MESSAGE,
+            })
+          }, ASK_USER_QUESTION_TIMEOUT_MS)
+
+          pendingToolApprovals.set(toolUseId, {
+            subChatId: params.subChatId,
+            resolve: (decision) => {
+              clearTimeout(timeoutId)
+              resolve(decision)
+            },
+          })
+        })
+
+        if (!response.approved) {
+          const result = response.message || QUESTIONS_SKIPPED_MESSAGE
+          params.safeEmit({
+            type: "ask-user-question-result",
+            toolUseId,
+            result,
+          })
+          return toMcpToolResult(result)
+        }
+
+        const answers =
+          typeof response.updatedInput === "object" &&
+          response.updatedInput !== null &&
+          "answers" in response.updatedInput
+            ? (response.updatedInput as { answers?: Record<string, string> })
+                .answers || {}
+            : {}
+        const result = { answers }
+
+        params.safeEmit({
+          type: "ask-user-question-result",
+          toolUseId,
+          result,
+        })
+
+        return toMcpToolResult(result)
+      },
+    }),
+    PlanWrite: tool({
+      description:
+        "Submit the final read-only implementation plan for user review. Call this exactly once when the plan is complete. Do not implement anything.",
+      inputSchema: z.object({
+        action: z.literal("create").optional(),
+        plan: codexPlanSchema,
+      }),
+      execute: async (input) => {
+        const plan = normalizeCodexPlan(input.plan)
+        return toMcpToolResult({
+          success: true,
+          message: "Plan ready for review.",
+          action: input.action || "create",
+          plan,
+        })
+      },
+    }),
+  }
+}
+
 function getOrCreateProvider(params: {
   subChatId: string
   cwd: string
@@ -1623,6 +2141,7 @@ export const codexRouter = router({
         if (existingStream) {
           existingStream.cancelRequested = true
           existingStream.controller.abort()
+          clearPendingApprovals("Session ended.", input.subChatId)
           // Ensure old run cannot continue emitting after supersede.
           cleanupProvider(input.subChatId)
         }
@@ -1812,13 +2331,32 @@ export const codexRouter = router({
             const catchup = computeCatchupBlock(messagesForStream, "codex")
             const planInstruction =
               input.mode === "plan"
-                ? "[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state. Read the codebase as needed, then write a clear numbered implementation plan. End with a sentence saying you are waiting for the user's approval before implementing anything."
+                ? [
+                    "[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.",
+                    "Read the codebase as needed using read-only tools.",
+                    "If any high-impact requirement is ambiguous and cannot be resolved from the repository, call AskUserQuestion with concise multiple-choice follow-up questions before planning.",
+                    "A plan-mode turn is incomplete until PlanWrite succeeds. Do not stop after inspection or status text.",
+                    "When no clarification is needed, immediately call PlanWrite in this same turn.",
+                    "Call PlanWrite exactly once with action \"create\" and plan.status \"awaiting_approval\".",
+                    "PlanWrite input must include a concrete task-specific plan with title, summary, and pending steps. Include step descriptions and files when useful.",
+                    "Do not write the final plan as plain text only, do not call PlanWrite more than once, and do not restate the plan after PlanWrite.",
+                    "After PlanWrite, stop and wait for the user's approval before implementing anything.",
+                  ].join("\n")
                 : ""
             const augmentedPrompt = [planInstruction, catchup, input.prompt]
               .filter((segment): segment is string => Boolean(segment))
               .join("\n\n")
 
             const codexModeId = input.mode === "plan" ? "read-only" : "full-access"
+            const planTools =
+              input.mode === "plan"
+                ? buildCodexPlanTools({
+                    subChatId: input.subChatId,
+                    safeEmit,
+                  })
+                : {}
+            const tools =
+              input.mode === "plan" ? acpTools(planTools) : provider.tools
 
             const result = streamText({
               model: provider.languageModel(selectedModelId, codexModeId),
@@ -1828,9 +2366,77 @@ export const codexRouter = router({
                   content: buildModelMessageContent(augmentedPrompt, input.images),
                 },
               ],
-              tools: { ...(provider.tools ?? {}) },
+              tools,
+              ...(input.mode === "plan"
+                ? { stopWhen: stepCountIs(8) }
+                : {}),
               abortSignal: abortController.signal,
             })
+
+            let planWriteFallbackPart: any | null = null
+            let planWriteFallbackEmitted = false
+            let suppressPlanWriteFallback = false
+            const planStreamAccumulator =
+              input.mode === "plan"
+                ? createCodexPlanStreamAccumulator()
+                : null
+
+            const emitPlanWriteFallbackIfNeeded = () => {
+              if (
+                input.mode !== "plan" ||
+                !planStreamAccumulator ||
+                planWriteFallbackEmitted ||
+                suppressPlanWriteFallback
+              ) {
+                return
+              }
+
+              flushCodexPlanText(planStreamAccumulator)
+              const messagesWithPlanFallback = ensurePlanWriteForCodexPlanMode({
+                messages: [
+                  {
+                    id: "codex-plan-stream-accumulator",
+                    role: "assistant",
+                    parts: planStreamAccumulator.parts,
+                  },
+                ],
+                prompt: input.prompt,
+                fallbackPart: planWriteFallbackPart,
+              })
+
+              planWriteFallbackPart = messagesWithPlanFallback.fallbackPart
+              if (!planWriteFallbackPart) return
+
+              planWriteFallbackEmitted = true
+              safeEmit({
+                type: "tool-input-start",
+                toolCallId: planWriteFallbackPart.toolCallId,
+                toolName: "PlanWrite",
+                providerMetadata: {
+                  custom: {
+                    startedAt: planWriteFallbackPart.startedAt,
+                    synthesized: true,
+                  },
+                },
+              })
+              safeEmit({
+                type: "tool-input-available",
+                toolCallId: planWriteFallbackPart.toolCallId,
+                toolName: "PlanWrite",
+                input: planWriteFallbackPart.input,
+                providerMetadata: {
+                  custom: {
+                    startedAt: planWriteFallbackPart.startedAt,
+                    synthesized: true,
+                  },
+                },
+              })
+              safeEmit({
+                type: "tool-output-available",
+                toolCallId: planWriteFallbackPart.toolCallId,
+                output: planWriteFallbackPart.output,
+              })
+            }
 
             const uiStream = result.toUIMessageStream({
               originalMessages: messagesForStream,
@@ -1860,34 +2466,54 @@ export const codexRouter = router({
 
                 return { model: metadataModel }
               },
-              onFinish: async ({ responseMessage, isContinuation }) => {
+              onFinish: async ({ messages }) => {
                 try {
                   const usageMetadata = await resolveUsageOnce()
-                  const responseWithUsage = usageMetadata
-                    ? {
-                        ...responseMessage,
-                        metadata: {
-                          ...((responseMessage as any)?.metadata || {}),
-                          ...usageMetadata,
-                        },
-                      }
-                    : responseMessage
-                  const cleanedResponseMessage =
-                    cleanAssistantMessageForPersistence(responseWithUsage)
+                  const messagesWithPlanFallback =
+                    input.mode === "plan"
+                      ? ensurePlanWriteForCodexPlanMode({
+                          messages,
+                          prompt: input.prompt,
+                          fallbackPart: planWriteFallbackPart,
+                        })
+                      : { messages, fallbackPart: null }
 
-                  if (!cleanedResponseMessage) {
+                  planWriteFallbackPart = messagesWithPlanFallback.fallbackPart
+
+                  const assistantIndexes = messagesWithPlanFallback.messages
+                    .map((message: any, index: number) =>
+                      message?.role === "assistant" ? index : -1,
+                    )
+                    .filter((index: number) => index !== -1)
+                  const lastAssistantIndex =
+                    assistantIndexes[assistantIndexes.length - 1]
+
+                  const cleanedMessages = messagesWithPlanFallback.messages
+                    .map((message: any, index: number) => {
+                      const shouldAddUsage =
+                        usageMetadata &&
+                        message?.role === "assistant" &&
+                        index === lastAssistantIndex
+                      const messageWithUsage = shouldAddUsage
+                        ? {
+                            ...message,
+                            metadata: {
+                              ...(message.metadata || {}),
+                              ...usageMetadata,
+                            },
+                          }
+                        : message
+
+                      return cleanAssistantMessageForPersistence(messageWithUsage)
+                    })
+                    .filter(Boolean)
+
+                  if (cleanedMessages.length === 0) {
                     persistSubChatMessages(messagesForStream)
                     return
                   }
 
-                  const messagesToPersist = [
-                    ...(isContinuation
-                      ? messagesForStream.slice(0, -1)
-                      : messagesForStream),
-                    cleanedResponseMessage,
-                  ]
-
-                  persistSubChatMessages(messagesToPersist)
+                  persistSubChatMessages(cleanedMessages)
                 } catch (error) {
                   console.error("[codex] Failed to persist messages:", error)
                 }
@@ -1905,6 +2531,7 @@ export const codexRouter = router({
                 const normalized = extractCodexError(value)
 
                 if (isCodexAuthError(normalized)) {
+                  suppressPlanWriteFallback = true
                   safeEmit({ ...value, type: "auth-error", errorText: normalized.message })
                 } else {
                   safeEmit({ ...value, errorText: normalized.message })
@@ -1912,12 +2539,25 @@ export const codexRouter = router({
                 continue
               }
 
+              if (value?.type === "abort") {
+                suppressPlanWriteFallback = true
+              }
+
+              if (planStreamAccumulator) {
+                accumulateCodexPlanStreamChunk(planStreamAccumulator, value)
+              }
+
               if (value?.type === "finish") {
+                emitPlanWriteFallbackIfNeeded()
                 pendingFinishChunk = value
                 continue
               }
 
               safeEmit(value)
+            }
+
+            if (input.mode === "plan") {
+              emitPlanWriteFallbackIfNeeded()
             }
 
             if (pendingFinishChunk) {
@@ -1961,6 +2601,7 @@ export const codexRouter = router({
         return () => {
           isActive = false
           abortController.abort()
+          clearPendingApprovals("Session ended.", input.subChatId)
 
           const activeStream = activeStreams.get(input.subChatId)
           if (activeStream?.runId === input.runId) {
@@ -1989,6 +2630,7 @@ export const codexRouter = router({
 
       activeStream.cancelRequested = true
       activeStream.controller.abort()
+      clearPendingApprovals("Session cancelled.", input.subChatId)
 
       return { cancelled: true, ignoredStale: false }
     }),
@@ -2003,6 +2645,7 @@ export const codexRouter = router({
         activeStream.controller.abort()
         activeStreams.delete(input.subChatId)
       }
+      clearPendingApprovals("Session ended.", input.subChatId)
 
       return { success: true }
     }),

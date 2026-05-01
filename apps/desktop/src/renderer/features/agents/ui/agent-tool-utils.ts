@@ -18,6 +18,7 @@ interface CachedToolState {
   state: string | undefined
   inputJson: string  // JSON stringified input for deep comparison
   outputJson: string // JSON stringified output for deep comparison
+  resultJson: string // JSON stringified result for tools that store output there
 }
 
 const toolStateCache = new Map<string, CachedToolState>()
@@ -34,6 +35,7 @@ function getToolStateSnapshot(part: any): CachedToolState {
     state: part.state,
     inputJson: JSON.stringify(part.input || {}),
     outputJson: JSON.stringify(part.output || {}),
+    resultJson: JSON.stringify(part.result || {}),
   }
 }
 
@@ -49,7 +51,8 @@ function hasToolStateChanged(toolCallId: string, part: any): boolean {
   const changed =
     cached.state !== current.state ||
     cached.inputJson !== current.inputJson ||
-    cached.outputJson !== current.outputJson
+    cached.outputJson !== current.outputJson ||
+    cached.resultJson !== current.resultJson
 
   if (changed) {
     toolStateCache.set(toolCallId, current)
