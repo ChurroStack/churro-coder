@@ -25,8 +25,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../../../components/ui/
 import { cn } from "../../../lib/utils"
 import { useChatAttentionStore } from "../stores/chat-attention-store"
 import {
+  currentPlanPathAtomFamily,
   pendingBuildPlanSubChatIdAtom,
+  planSidebarOpenAtomFamily,
   subChatModeAtomFamily,
+  virtualPlanContentAtomFamily,
 } from "../atoms"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import { getToolStatus } from "./agent-tool-registry"
@@ -72,14 +75,16 @@ function formatPlanAsMarkdown(plan: Plan): string {
   const steps = Array.isArray(plan.steps) ? plan.steps : []
 
   if (plan.title) {
-    lines.push(`## ${plan.title}`)
+    lines.push(`# ${plan.title}`)
   }
 
   if (plan.summary) {
+    lines.push("## Context")
     lines.push(plan.summary)
   }
 
   if (steps.length > 0) {
+    lines.push("## Implementation Steps")
     lines.push(
       steps
         .map((step, index) => {
@@ -111,9 +116,10 @@ export const AgentPlanTool = memo(function AgentPlanTool({
   const { isPending } = getToolStatus(part, chatStatus)
 
   const plan = part.input?.plan
+  const targetSubChatId = subChatId || ""
   const subChatModeAtom = useMemo(
-    () => subChatModeAtomFamily(subChatId || ""),
-    [subChatId],
+    () => subChatModeAtomFamily(targetSubChatId),
+    [targetSubChatId],
   )
   const subChatMode = useAtomValue(subChatModeAtom)
   const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom)
@@ -125,6 +131,28 @@ export const AgentPlanTool = memo(function AgentPlanTool({
     () => (plan ? formatPlanAsMarkdown(plan) : ""),
     [plan],
   )
+  const virtualPlanPath = useMemo(
+    () =>
+      targetSubChatId && part.toolCallId
+        ? `codex-plan://${targetSubChatId}/${part.toolCallId}`
+        : "",
+    [targetSubChatId, part.toolCallId],
+  )
+  const virtualPlanContentAtom = useMemo(
+    () => virtualPlanContentAtomFamily(virtualPlanPath),
+    [virtualPlanPath],
+  )
+  const currentPlanPathAtom = useMemo(
+    () => currentPlanPathAtomFamily(targetSubChatId),
+    [targetSubChatId],
+  )
+  const planSidebarOpenAtom = useMemo(
+    () => planSidebarOpenAtomFamily(targetSubChatId),
+    [targetSubChatId],
+  )
+  const setVirtualPlanContent = useSetAtom(virtualPlanContentAtom)
+  const setCurrentPlanPath = useSetAtom(currentPlanPathAtom)
+  const setIsPlanSidebarOpen = useSetAtom(planSidebarOpenAtom)
 
   const handleApprovePlan = useCallback((event: MouseEvent) => {
     event.stopPropagation()
@@ -143,6 +171,29 @@ export const AgentPlanTool = memo(function AgentPlanTool({
     setTimeout(() => setCopied(false), 2000)
   }, [planContent])
 
+  const syncVirtualPlan = useCallback(() => {
+    if (!virtualPlanPath || !plan || !planContent) return false
+    setVirtualPlanContent({
+      title: plan.title || "Plan",
+      content: planContent,
+    })
+    setCurrentPlanPath(virtualPlanPath)
+    return true
+  }, [
+    plan,
+    planContent,
+    setCurrentPlanPath,
+    setVirtualPlanContent,
+    virtualPlanPath,
+  ])
+
+  const handleOpenSidebar = useCallback((event: MouseEvent) => {
+    event.stopPropagation()
+    if (syncVirtualPlan()) {
+      setIsPlanSidebarOpen(true)
+    }
+  }, [setIsPlanSidebarOpen, syncVirtualPlan])
+
   useEffect(() => {
     if (!subChatId) return
     if (plan?.status === "awaiting_approval") {
@@ -154,6 +205,10 @@ export const AgentPlanTool = memo(function AgentPlanTool({
       useChatAttentionStore.getState().clearAttention(subChatId, "plan-approval")
     }
   }, [subChatId, plan?.status])
+
+  useEffect(() => {
+    syncVirtualPlan()
+  }, [syncVirtualPlan])
 
   if (!plan) {
     return null
@@ -250,13 +305,17 @@ export const AgentPlanTool = memo(function AgentPlanTool({
       </div>
 
       <div className="flex items-center justify-between p-1.5">
-        <span className="px-2 text-xs text-muted-foreground">
-          {plan.status === "awaiting_approval"
-            ? "Awaiting approval"
-            : plan.status === "approved"
-              ? "Approved"
-              : plan.status}
-        </span>
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleOpenSidebar}
+            disabled={!planContent}
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            View plan
+          </Button>
+        </div>
 
         {canApprovePlan && (
           <Button

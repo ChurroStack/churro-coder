@@ -1071,6 +1071,29 @@ export const currentPlanPathAtomFamily = atomFamily((chatId: string) =>
   ),
 )
 
+type VirtualPlanContent = {
+  title?: string
+  content: string
+}
+
+const virtualPlanContentStorageAtom = atom<Record<string, VirtualPlanContent>>({})
+
+export const virtualPlanContentAtomFamily = atomFamily((planPath: string) =>
+  atom(
+    (get) => get(virtualPlanContentStorageAtom)[planPath] ?? null,
+    (get, set, content: VirtualPlanContent | null) => {
+      const current = get(virtualPlanContentStorageAtom)
+      if (content === null) {
+        const rest = { ...current }
+        delete rest[planPath]
+        set(virtualPlanContentStorageAtom, rest)
+        return
+      }
+      set(virtualPlanContentStorageAtom, { ...current, [planPath]: content })
+    },
+  ),
+)
+
 // Per-chat plan edit refetch trigger - incremented when an Edit on a plan file completes
 // Used to trigger sidebar refetch when plan content changes
 const planEditRefetchTriggerStorageAtom = atom<Record<string, number>>({})
