@@ -148,20 +148,9 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   )
   const handleWorkflowAction = useCallback(
     (kind: WorkflowActionKind) => {
-      // "View plan" → open the plan as a full dock panel, matching the
-      // notch's `handleNotchWorkflowAction`. addOrFocus is idempotent.
-      if (kind === "expandPlan") {
-        if (dockApi && activeSubChatId && planPath) {
-          addOrFocus(dockApi, {
-            kind: "plan",
-            data: { chatId: activeSubChatId, planPath },
-          })
-        }
-        return
-      }
       void dispatchWorkflowAction(kind)
     },
-    [dispatchWorkflowAction, dockApi, activeSubChatId, planPath],
+    [dispatchWorkflowAction],
   )
   const handlePrReview = useCallback(() => {
     void dispatchWorkflowAction("reviewPr")

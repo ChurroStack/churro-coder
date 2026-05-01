@@ -25,12 +25,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../../../components/ui/
 import { cn } from "../../../lib/utils"
 import { useChatAttentionStore } from "../stores/chat-attention-store"
 import {
-  currentPlanPathAtomFamily,
   pendingBuildPlanSubChatIdAtom,
-  planSidebarOpenAtomFamily,
   subChatModeAtomFamily,
   virtualPlanContentAtomFamily,
 } from "../atoms"
+import { addOrFocus } from "../../dock/add-or-focus"
+import { useDockApi } from "../../dock/dock-context"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import { getToolStatus } from "./agent-tool-registry"
 import { areToolPropsEqual } from "./agent-tool-utils"
@@ -228,17 +228,8 @@ export const AgentPlanTool = memo(function AgentPlanTool({
     () => virtualPlanContentAtomFamily(virtualPlanPath),
     [virtualPlanPath],
   )
-  const currentPlanPathAtom = useMemo(
-    () => currentPlanPathAtomFamily(targetSubChatId),
-    [targetSubChatId],
-  )
-  const planSidebarOpenAtom = useMemo(
-    () => planSidebarOpenAtomFamily(targetSubChatId),
-    [targetSubChatId],
-  )
   const setVirtualPlanContent = useSetAtom(virtualPlanContentAtom)
-  const setCurrentPlanPath = useSetAtom(currentPlanPathAtom)
-  const setIsPlanSidebarOpen = useSetAtom(planSidebarOpenAtom)
+  const dockApi = useDockApi()
 
   const handleApprovePlan = useCallback((event: MouseEvent) => {
     event.stopPropagation()
@@ -263,22 +254,17 @@ export const AgentPlanTool = memo(function AgentPlanTool({
       title: plan.title || "Plan",
       content: planContent,
     })
-    setCurrentPlanPath(virtualPlanPath)
     return true
-  }, [
-    plan,
-    planContent,
-    setCurrentPlanPath,
-    setVirtualPlanContent,
-    virtualPlanPath,
-  ])
+  }, [plan, planContent, setVirtualPlanContent, virtualPlanPath])
 
-  const handleOpenSidebar = useCallback((event: MouseEvent) => {
+  const handleOpenInDock = useCallback((event: MouseEvent) => {
     event.stopPropagation()
-    if (syncVirtualPlan()) {
-      setIsPlanSidebarOpen(true)
-    }
-  }, [setIsPlanSidebarOpen, syncVirtualPlan])
+    if (!syncVirtualPlan() || !dockApi || !virtualPlanPath) return
+    addOrFocus(dockApi, {
+      kind: "plan",
+      data: { chatId: targetSubChatId, planPath: virtualPlanPath },
+    })
+  }, [dockApi, syncVirtualPlan, targetSubChatId, virtualPlanPath])
 
   useEffect(() => {
     if (!subChatId) return
@@ -395,7 +381,7 @@ export const AgentPlanTool = memo(function AgentPlanTool({
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleOpenSidebar}
+            onClick={handleOpenInDock}
             disabled={!planContent}
             className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
           >

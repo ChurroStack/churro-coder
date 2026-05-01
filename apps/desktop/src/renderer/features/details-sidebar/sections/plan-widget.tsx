@@ -29,8 +29,6 @@ interface PlanWidgetProps {
   mode?: AgentMode
   /** Callback when "Approve" is clicked */
   onApprovePlan?: () => void
-  /** Callback when "View plan" is clicked - opens plan sidebar */
-  onExpandPlan?: () => void
 }
 
 /**
@@ -46,7 +44,6 @@ export const PlanWidget = memo(function PlanWidget({
   refetchTrigger,
   mode = "agent",
   onApprovePlan,
-  onExpandPlan,
 }: PlanWidgetProps) {
   // Use activeSubChatId for fetching if available
   const effectiveChatId = activeSubChatId || chatId
@@ -184,13 +181,7 @@ export const PlanWidget = memo(function PlanWidget({
               size="sm"
               onClick={(e) => {
                 e.stopPropagation()
-                // Prefer dockview panel when the dock is mounted; fall back to
-                // the legacy plan sidebar that ChatView still owns.
-                if (widgetPanel.available && planPath) {
-                  widgetPanel.openAsPanel()
-                } else {
-                  onExpandPlan?.()
-                }
+                if (planPath) widgetPanel.openAsPanel()
               }}
               className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
             >

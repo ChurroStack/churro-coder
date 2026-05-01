@@ -1,6 +1,6 @@
 "use client"
 
-import { useAtom, useAtomValue, useSetAtom } from "jotai"
+import { useAtomValue, useSetAtom } from "jotai"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChatMarkdownRenderer } from "../../../components/chat-markdown-renderer"
 import { Button } from "../../../components/ui/button"
@@ -12,9 +12,10 @@ import { cn } from "../../../lib/utils"
 import {
   currentPlanPathAtomFamily,
   pendingBuildPlanSubChatIdAtom,
-  planSidebarOpenAtomFamily,
   subChatModeAtomFamily,
 } from "../atoms"
+import { addOrFocus } from "../../dock/add-or-focus"
+import { useDockApi } from "../../dock/dock-context"
 import { useAgentSubChatStore } from "../stores/sub-chat-store"
 import { getToolStatus } from "./agent-tool-registry"
 import { areToolPropsEqual } from "./agent-tool-utils"
@@ -37,7 +38,7 @@ interface AgentPlanFileToolProps {
 /**
  * AgentPlanFileTool - Unified component for plan files.
  * Shows plan content during streaming and after completion.
- * Features: expand/collapse, View plan (sidebar), Build button.
+ * Features: expand/collapse, View plan (dock panel), Build button.
  */
 export const AgentPlanFileTool = memo(function AgentPlanFileTool({
   part,
@@ -59,17 +60,12 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
   const topGradientRef = useRef<HTMLDivElement>(null)
   const bottomGradientRef = useRef<HTMLDivElement>(null)
 
-  // Plan sidebar atoms - per subChat
-  const planSidebarOpenAtom = useMemo(
-    () => planSidebarOpenAtomFamily(subChatId),
-    [subChatId],
-  )
   const currentPlanPathAtom = useMemo(
     () => currentPlanPathAtomFamily(subChatId),
     [subChatId],
   )
-  const [, setIsPlanSidebarOpen] = useAtom(planSidebarOpenAtom)
-  const [, setCurrentPlanPath] = useAtom(currentPlanPathAtom)
+  const setCurrentPlanPath = useSetAtom(currentPlanPathAtom)
+  const dockApi = useDockApi()
 
   // Only consider streaming if chat is actively streaming
   const isActivelyStreaming = chatStatus === "streaming" || chatStatus === "submitted"
@@ -138,13 +134,13 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
     setIsExpanded((prev) => !prev)
   }, [])
 
-  // Handle opening plan sidebar
-  const handleOpenSidebar = useCallback(() => {
-    if (filePath) {
-      setCurrentPlanPath(filePath)
-      setIsPlanSidebarOpen(true)
-    }
-  }, [filePath, setCurrentPlanPath, setIsPlanSidebarOpen])
+  const handleOpenInDock = useCallback(() => {
+    if (!filePath || !dockApi) return
+    addOrFocus(dockApi, {
+      kind: "plan",
+      data: { chatId: subChatId, planPath: filePath },
+    })
+  }, [filePath, dockApi, subChatId])
 
   // Handle build plan - triggers via atom, consumed by ChatViewInner
   const handleBuildPlan = useCallback(() => {
@@ -297,7 +293,7 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleOpenSidebar}
+            onClick={handleOpenInDock}
             disabled={!viewPlanEnabled}
             className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
