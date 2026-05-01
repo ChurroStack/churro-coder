@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft, ShieldIcon } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import {
   EyeOpenFilledIcon,
@@ -93,6 +93,11 @@ const ADVANCED_TABS_BASE = [
     id: "plugins" as SettingsTab,
     label: "Plugins",
     icon: PluginFilledIcon,
+  },
+  {
+    id: "sandbox" as SettingsTab,
+    label: "Sandbox",
+    icon: ShieldIcon,
   },
 ]
 

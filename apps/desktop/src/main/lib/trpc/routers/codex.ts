@@ -26,6 +26,7 @@ import {
 } from "../../mcp-auth"
 import { publicProcedure, router } from "../index"
 import { clearPendingApprovals, pendingToolApprovals } from "./tool-approvals"
+import { resolveSandboxPolicy } from "../../sandbox/policy"
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
@@ -1713,12 +1714,24 @@ function buildAppServerInput(
   return input
 }
 
-function buildCodexSandboxPolicy(mode: "plan" | "agent"): any {
+function buildCodexSandboxPolicy(
+  mode: "plan" | "agent",
+  sandboxEnabled: boolean,
+  writableRoots: string[],
+): any {
   if (mode === "plan") {
     return { type: "readOnly" }
   }
-
-  return { type: "dangerFullAccess" }
+  if (!sandboxEnabled) {
+    return { type: "dangerFullAccess" }
+  }
+  return {
+    type: "workspaceWrite",
+    writableRoots,
+    networkAccess: true,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false,
+  }
 }
 
 function buildCodexBaseConfig(params: {
@@ -1750,11 +1763,17 @@ function buildCodexTurnConfig(params: {
   cwd: string
   mode: "plan" | "agent"
   selectedModelId: string
+  sandboxEnabled?: boolean
+  writableRoots?: string[]
 }) {
   return {
     ...buildCodexBaseConfig(params),
     approvalPolicy: "never",
-    sandboxPolicy: buildCodexSandboxPolicy(params.mode),
+    sandboxPolicy: buildCodexSandboxPolicy(
+      params.mode,
+      params.sandboxEnabled ?? false,
+      params.writableRoots ?? [],
+    ),
   }
 }
 
@@ -3366,6 +3385,11 @@ export const codexRouter = router({
               once: true,
             })
 
+            const codexSandboxPolicy = await resolveSandboxPolicy(
+              input.chatId,
+              input.cwd,
+              input.projectPath ?? input.cwd,
+            )
             const turnResult = await client.request(
               "turn/start",
               {
@@ -3375,6 +3399,10 @@ export const codexRouter = router({
                   cwd: input.cwd,
                   mode: input.mode,
                   selectedModelId,
+                  sandboxEnabled: codexSandboxPolicy.enabled,
+                  // Pass the symlink-expanded set so the OS sandbox accepts
+                  // both forms of paths like macOS /tmp <-> /private/tmp.
+                  writableRoots: codexSandboxPolicy.writableRootsExpanded.filter(r => r !== input.cwd),
                 }),
               },
               30_000,
