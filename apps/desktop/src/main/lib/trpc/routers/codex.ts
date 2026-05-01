@@ -2407,6 +2407,17 @@ export const codexRouter = router({
 
               planWriteFallbackEmitted = true
               safeEmit({
+                type: "tool-input-start",
+                toolCallId: planWriteFallbackPart.toolCallId,
+                toolName: "PlanWrite",
+                providerMetadata: {
+                  custom: {
+                    startedAt: planWriteFallbackPart.startedAt,
+                    synthesized: true,
+                  },
+                },
+              })
+              safeEmit({
                 type: "tool-input-available",
                 toolCallId: planWriteFallbackPart.toolCallId,
                 toolName: "PlanWrite",
@@ -2535,9 +2546,6 @@ export const codexRouter = router({
               }
 
               if (value?.type === "finish") {
-                if (value.finishReason === "error") {
-                  sawStreamError = true
-                }
                 emitPlanWriteFallbackIfNeeded()
                 pendingFinishChunk = value
                 continue
