@@ -1,4 +1,4 @@
-# CS Coder
+# Churro Coder
 
 Open-source, fully offline coding agent client. Run Claude Code, Codex, and more — locally, no cloud account needed.
 
@@ -45,7 +45,7 @@ Open-source, fully offline coding agent client. Run Claude Code, Codex, and more
 
 Run agents locally, in worktrees, in background - without touching main branch.
 
-![Worktree Demo](assets/worktree.gif)
+![Worktree Demo](assets/design.png)
 
 - **Git Worktree Isolation** - Each chat session runs in its own isolated worktree
 - **Background Execution** - Run agents in background while you continue working
@@ -59,7 +59,7 @@ Run agents locally, in worktrees, in background - without touching main branch.
 
 Cursor-like UI with diff previews, built-in git client, and the ability to see changes before they land.
 
-![Cursor UI Demo](assets/cursor-ui.gif)
+![Cursor UI Demo](assets/review.png)
 
 - **Diff Previews** - See exactly what changes the agent is making in real-time
 - **Built-in Git Client** - Stage, commit, push to GitHub, and manage branches without leaving the app
@@ -78,7 +78,7 @@ Cursor-like UI with diff previews, built-in git client, and the ability to see c
 
 The agent asks clarifying questions, builds structured plans, and shows clean markdown preview - all before execution.
 
-![Plan Mode Demo](assets/plan-mode.gif)
+![Plan Mode Demo](assets/plan.png)
 
 - **Clarifying Questions** - The agent asks what it needs to know before starting
 - **Structured Plans** - See step-by-step breakdown of what will happen

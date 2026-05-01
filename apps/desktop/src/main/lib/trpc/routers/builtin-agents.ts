@@ -6,7 +6,7 @@ import type { AgentModel } from "./agent-utils"
  * The Claude Code CLI ships built-in subagents, but
  * `@anthropic-ai/claude-agent-sdk` does NOT — the SDK requires every subagent
  * to be declared via `options.agents`. This constant restores parity so that
- * Claude running inside the CS Coder app can invoke the same subagent_types
+ * Claude running inside the Churro Coder app can invoke the same subagent_types
  * (Explore, Plan, general-purpose, etc.) as CLI users.
  *
  * `buildAgentsOption()` in agent-utils.ts seeds this object first, then

@@ -45,7 +45,7 @@ const PROTOCOL = IS_DEV ? "cscode-dev" : "cscode"
 // This ensures dev and prod have separate instance locks
 if (IS_DEV) {
   const { join } = require("path")
-  const devUserData = join(app.getPath("userData"), "..", "CS Coder Dev")
+  const devUserData = join(app.getPath("userData"), "..", "Churro Coder Dev")
   app.setPath("userData", devUserData)
   console.log("[Dev] Using separate userData path:", devUserData)
 }
@@ -177,7 +177,7 @@ const server = createServer((req, res) => {
       if (code && state) {
         handleMcpOAuthCallback(code, state)
         res.writeHead(200, { "Content-Type": "text/html" })
-        res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>CS Coder - MCP Authentication</title></head><body><h1 style="font-family:system-ui;text-align:center;margin-top:40px">MCP Server authenticated — you can close this tab</h1><script>setTimeout(()=>window.close(),1000)</script></body></html>`)
+        res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Churro Coder - MCP Authentication</title></head><body><h1 style="font-family:system-ui;text-align:center;margin-top:40px">MCP Server authenticated — you can close this tab</h1><script>setTimeout(()=>window.close(),1000)</script></body></html>`)
       } else {
         res.writeHead(400, { "Content-Type": "text/plain" })
         res.end("Missing code or state parameter")
@@ -293,7 +293,7 @@ if (gotTheLock) {
       app.setAppUserModelId(IS_DEV ? "com.churrostack.code.dev" : "com.churrostack.code")
     }
 
-    console.log(`[App] Starting CS Coder${IS_DEV ? " (DEV)" : ""}...`)
+    console.log(`[App] Starting Churro Coder${IS_DEV ? " (DEV)" : ""}...`)
 
     // Verify protocol registration after app is ready
     // This helps diagnose first-install issues where the protocol isn't recognized yet
@@ -322,7 +322,7 @@ if (gotTheLock) {
     const codexVersion = readBundledVersion("CODEX_VERSION", "Codex")
 
     app.setAboutPanelOptions({
-      applicationName: "CS Coder",
+      applicationName: "Churro Coder",
       applicationVersion: `${app.getVersion()}\nClaude Code ${claudeCodeVersion} · Codex ${codexVersion}`,
       copyright: "Copyright © 2026 ChurroStack",
     })
@@ -350,7 +350,7 @@ if (gotTheLock) {
           label: app.name,
           submenu: [
             {
-              label: "About CS Coder",
+              label: "About Churro Coder",
               click: () => app.showAboutPanel(),
             },
             // UPDATES-DISABLED: re-enable to restore "Check for Updates..." menu item
@@ -413,7 +413,7 @@ if (gotTheLock) {
                       type: "info",
                       message: "CLI command installed",
                       detail:
-                        "You can now use 'cscode .' in any terminal to open CS Coder in that directory.",
+                        "You can now use 'cscode .' in any terminal to open Churro Coder in that directory.",
                     })
                     buildMenu()
                   } else {

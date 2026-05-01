@@ -4,7 +4,13 @@
 
 Churro Coder is a desktop app for working with AI coding agents (Claude Code, Codex, …) on your own machine. Sub-chats, terminals, file viewers, plans, and diffs are first-class dock panels you can split and rearrange; each chat runs in its own git worktree so the agent can't trample your main branch; everything stays on-device — no login, no cloud sync, no analytics.
 
-![Cursor-like UI demo](apps/desktop/assets/cursor-ui.gif)
+![Cursor-like UI demo](apps/desktop/assets/review.png)
+
+## Highlights
+
+- **Plan → Code → Review → PR workflow.** A first-class stepper for the way most engineers actually ship: the agent drafts a plan, you approve, it codes in an isolated worktree, runs an AI review on the diff, and opens the PR — each phase has its own panel and one-click actions.
+- **Mix Claude and Codex in a single chat.** Route each phase to the model that's best at it — e.g. Claude Opus as architect to design the plan, Codex/GPT to implement it, Claude Opus again to review the outcome. No copy-pasting between tools; one chat orchestrates them and you get the best of every provider.
+- **Spend tracking built in.** See total usage and per-chat cost broken down by provider and model (`usage.png`), so the multi-model workflow above doesn't turn into a billing surprise.
 
 ## Repository layout
 

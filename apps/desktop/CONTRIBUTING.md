@@ -1,4 +1,4 @@
-# Contributing to CS Coder
+# Contributing to Churro Coder
 
 ## Building from Source
 
@@ -13,7 +13,7 @@ bun run package:mac  # Create distributable
 
 ## Open Source
 
-This is CS Coder, an open-source coding agent client. All functionality runs locally — no hosted backend, sign-in, or sync.
+This is Churro Coder, an open-source coding agent client. All functionality runs locally — no hosted backend, sign-in, or sync.
 
 ## Analytics & Telemetry
 

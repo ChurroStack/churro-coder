@@ -10,8 +10,8 @@
  *   node scripts/generate-update-manifest.mjs
  *
  * The script expects ZIP files to exist in the release/ directory:
- *   - CS Coder-{version}-arm64-mac.zip
- *   - CS Coder-{version}-mac.zip
+ *   - Churro Coder-{version}-arm64-mac.zip
+ *   - Churro Coder-{version}-mac.zip
  *
  * Run this after `npm run dist` to generate the manifest files.
  */
@@ -77,8 +77,8 @@ function findReleaseFile(pattern, ext = ".zip") {
  */
 function generateManifest(arch) {
   // electron-builder names files differently:
-  // arm64: CS Coder-{version}-arm64-mac.zip
-  // x64: CS Coder-{version}-mac.zip
+  // arm64: Churro Coder-{version}-arm64-mac.zip
+  // x64: Churro Coder-{version}-mac.zip
   const pattern = arch === "arm64" ? `${version}-arm64-mac` : `${version}-mac`
   const zipPath = findReleaseFile(pattern, ".zip")
 
@@ -248,13 +248,13 @@ console.log("Next steps:")
 console.log("1. Upload the following files to cdn.churrostack.com/releases/desktop/:")
 if (arm64Manifest) {
   console.log(`   - ${prefix}-mac.yml`)
-  console.log(`   - CS Coder-${version}-arm64-mac.zip`)
-  console.log(`   - CS Coder-${version}-arm64.dmg (for manual download)`)
+  console.log(`   - Churro Coder-${version}-arm64-mac.zip`)
+  console.log(`   - Churro Coder-${version}-arm64.dmg (for manual download)`)
 }
 if (x64Manifest) {
   console.log(`   - ${prefix}-mac-x64.yml`)
-  console.log(`   - CS Coder-${version}-mac.zip`)
-  console.log(`   - CS Coder-${version}.dmg (for manual download)`)
+  console.log(`   - Churro Coder-${version}-mac.zip`)
+  console.log(`   - Churro Coder-${version}.dmg (for manual download)`)
 }
 console.log("2. Create a release entry in the admin dashboard")
 console.log("=".repeat(50))
