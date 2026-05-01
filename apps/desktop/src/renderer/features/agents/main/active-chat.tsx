@@ -202,6 +202,7 @@ import { EMPTY_QUEUE, useMessageQueueStore } from "../stores/message-queue-store
 import {
   findRollbackTargetSdkUuidForUserIndex,
   isRollingBackAtom,
+  messageIdsPerChatAtom,
   syncMessagesWithStatusAtom
 } from "../stores/message-store"
 import { clearSubChatRuntimeCaches } from "../stores/sub-chat-runtime-cleanup"
@@ -257,6 +258,42 @@ const selectedSubChatIdsAtom = atom(new Set<string>())
 const selectedTeamIdAtom = atom<string | null>(null)
 // import type { PlanType } from "@/lib/config/subscription-plans"
 type PlanType = string
+
+const EMPTY_PERSISTED_MESSAGES: any[] = []
+
+function parseStoredMessages(rawMessages: unknown): any[] {
+  if (Array.isArray(rawMessages)) return rawMessages
+  if (typeof rawMessages !== "string") return EMPTY_PERSISTED_MESSAGES
+
+  try {
+    const parsed = JSON.parse(rawMessages)
+    return Array.isArray(parsed) ? parsed : EMPTY_PERSISTED_MESSAGES
+  } catch {
+    return EMPTY_PERSISTED_MESSAGES
+  }
+}
+
+function getChatMessages(chat: Chat<any> | null | undefined): any[] {
+  const messages = (chat as any)?.messages
+  return Array.isArray(messages) ? messages : []
+}
+
+function messageIdSignature(messages: any[]): string {
+  return messages.map((message) => String(message?.id ?? "")).join("|")
+}
+
+function shouldRecreateStaleRuntimeChat(
+  runtimeMessages: any[],
+  persistedMessages: any[],
+): boolean {
+  if (persistedMessages.length === 0) return false
+  if (runtimeMessages.length === 0) return true
+  if (persistedMessages.length > runtimeMessages.length) return true
+  return (
+    persistedMessages.length === runtimeMessages.length &&
+    messageIdSignature(persistedMessages) !== messageIdSignature(runtimeMessages)
+  )
+}
 
 // Module-level scroll position cache (per subChatId, session-only)
 // Stores { scrollTop, scrollHeight, wasAtBottom } so we can restore position on tab switch
@@ -2183,9 +2220,11 @@ export const ChatViewInner = memo(function ChatViewInner({
   existingPrUrl,
   isActive = true,
   isSplitPane = false,
+  paneVisible,
   workspaceName,
   workspaceBranch,
   workspaceRepoName,
+  persistedMessages = EMPTY_PERSISTED_MESSAGES,
 }: {
   chat: Chat<any>
   subChatId: string
@@ -2214,13 +2253,15 @@ export const ChatViewInner = memo(function ChatViewInner({
   existingPrUrl?: string | null
   isActive?: boolean
   isSplitPane?: boolean
+  paneVisible?: boolean
   workspaceName?: string | null
   workspaceBranch?: string | null
   workspaceRepoName?: string | null
+  persistedMessages?: any[]
 }) {
   const hasTriggeredRenameRef = useRef(false)
   const hasTriggeredAutoGenerateRef = useRef(false)
-  const isVisiblePane = isActive || isSplitPane
+  const isVisiblePane = paneVisible ?? (isActive || isSplitPane)
 
   // Keep isActive in ref for use in callbacks (avoid stale closures)
   const isVisiblePaneRef = useRef(isVisiblePane)
@@ -2704,6 +2745,33 @@ export const ChatViewInner = memo(function ChatViewInner({
     resume: !!streamId,
     experimental_throttle: 50,  // Throttle updates to reduce re-renders during streaming
   })
+  const persistedMessageCount = persistedMessages.length
+  const shouldUsePersistedMessages =
+    persistedMessageCount > 0 &&
+    (messages.length === 0 ||
+      (status === "ready" && persistedMessageCount > messages.length))
+  const messagesForSync =
+    shouldUsePersistedMessages ? persistedMessages : messages
+  const persistedHydrationSignature = useMemo(
+    () => `${persistedMessageCount}:${messageIdSignature(persistedMessages)}`,
+    [persistedMessageCount, persistedMessages],
+  )
+  const lastPersistedHydrationRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (status !== "ready") return
+    if (persistedMessageCount === 0 || messages.length >= persistedMessageCount) return
+    if (lastPersistedHydrationRef.current === persistedHydrationSignature) return
+    lastPersistedHydrationRef.current = persistedHydrationSignature
+    setMessages(persistedMessages)
+  }, [
+    messages.length,
+    persistedHydrationSignature,
+    persistedMessageCount,
+    persistedMessages,
+    setMessages,
+    status,
+  ])
 
   // Refs for useChat functions to keep callbacks stable across renders
   const sendMessageRef = useRef(sendMessage)
@@ -2716,7 +2784,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Enter sends in an ongoing conversation; Shift+Enter sends in a fresh empty sub-chat.
   // We're already past the chat-loading gate (ChatViewInner only mounts when !isLocalChatLoading),
   // so messages reflects the real state on first render — no flicker between modes.
-  const submitOnEnter = messages.length > 0 || status !== "ready"
+  const submitOnEnter = messagesForSync.length > 0 || status !== "ready"
 
   // Ref for isStreaming to use in callbacks/effects that need fresh value
   const isStreamingRef = useRef(isStreaming)
@@ -3022,15 +3090,15 @@ export const ChatViewInner = memo(function ChatViewInner({
 
   // Memoize the last assistant message to avoid unnecessary recalculations
   const lastAssistantMessage = useMemo(
-    () => messages.findLast((m) => m.role === "assistant"),
-    [messages],
+    () => messagesForSync.findLast((m) => m.role === "assistant"),
+    [messagesForSync],
   )
 
   // Pre-compute token data for ChatInputArea to avoid passing unstable messages array.
   // Prefer the latest assistant metadata that actually includes token/context fields.
   // This keeps the indicator stable while a new assistant message is streaming.
   const messageTokenData = useMemo(() => {
-    const lastAssistantWithTokenData = [...messages].reverse().find((msg) => {
+    const lastAssistantWithTokenData = [...messagesForSync].reverse().find((msg) => {
       if (msg.role !== "assistant" || !msg.metadata) return false
       const metadata = msg.metadata as {
         inputTokens?: number
@@ -3081,7 +3149,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     const contextWindow = metadata?.modelContextWindow
 
     // Keep this tied to rendered messages for memo comparator stability.
-    const messageCount = messages.length
+    const messageCount = messagesForSync.length
 
     return {
       totalInputTokens,
@@ -3090,7 +3158,7 @@ export const ChatViewInner = memo(function ChatViewInner({
       messageCount,
       contextWindow,
     }
-  }, [messages, provider])
+  }, [messagesForSync, provider])
 
   // Track previous streaming state to detect stream stop
   const prevIsStreamingRef = useRef(isStreaming)
@@ -3502,8 +3570,8 @@ export const ChatViewInner = memo(function ChatViewInner({
       }
     }
 
-    return extractApprovedPlanFromMessages(messages)
-  }, [messages, subChatId])
+    return extractApprovedPlanFromMessages(messagesForSync)
+  }, [messagesForSync, subChatId])
 
   // Deferred "Implement plan" send — fires after transport recreates on approve.
   const [pendingImplementPlan, setPendingImplementPlan] = useState<{
@@ -3596,7 +3664,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     }
 
     // Look through messages for PR URLs
-    for (const msg of messages) {
+    for (const msg of messagesForSync) {
       if (msg.role !== "assistant") continue
 
       // Extract text content from message
@@ -3629,7 +3697,7 @@ export const ChatViewInner = memo(function ChatViewInner({
         break // Only process first PR URL found
       }
     }
-  }, [messages, isStreaming, parentChatId, existingPrUrl])
+  }, [messagesForSync, isStreaming, parentChatId, existingPrUrl])
 
   // Track plan Edit completions to trigger sidebar refetch
   const triggerPlanEditRefetch = useSetAtom(
@@ -3640,7 +3708,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   useEffect(() => {
     // Count completed plan Edits
     let completedPlanEdits = 0
-    for (const msg of messages) {
+    for (const msg of messagesForSync) {
       if (msg.role !== "assistant" || !(msg as any).parts) continue
       for (const part of (msg as any).parts as any[]) {
         if (
@@ -3659,10 +3727,10 @@ export const ChatViewInner = memo(function ChatViewInner({
       lastPlanEditCountRef.current = completedPlanEdits
       triggerPlanEditRefetch()
     }
-  }, [messages, triggerPlanEditRefetch])
+  }, [messagesForSync, triggerPlanEditRefetch])
 
   const { changedFiles: changedFilesForSubChat, recomputeChangedFiles } = useChangedFilesTracking(
-    messages,
+    messagesForSync,
     subChatId,
     isStreaming,
     parentChatId,
@@ -3673,7 +3741,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Finds the last assistant message BEFORE this user message, rolls back to it,
   // and inserts the user message text into the input for easy re-sending
   const handleRollback = useCallback(
-    async (userMsg: (typeof messages)[0]) => {
+    async (userMsg: (typeof messagesForSync)[0]) => {
       if (isRollingBack) {
         toast.error("Rollback already in progress")
         return
@@ -3684,7 +3752,7 @@ export const ChatViewInner = memo(function ChatViewInner({
       }
 
       // Find the index of this user message
-      const userMsgIndex = messages.findIndex((m) => m.id === userMsg.id)
+      const userMsgIndex = messagesForSync.findIndex((m) => m.id === userMsg.id)
       if (userMsgIndex === -1) {
         toast.error("Cannot rollback: message not found")
         return
@@ -3692,8 +3760,8 @@ export const ChatViewInner = memo(function ChatViewInner({
 
       const sdkUuid = findRollbackTargetSdkUuidForUserIndex(
         userMsgIndex,
-        messages.length,
-        (index) => messages[index] as any,
+        messagesForSync.length,
+        (index) => messagesForSync[index] as any,
       )
 
       if (!sdkUuid) {
@@ -3853,7 +3921,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     [
       isRollingBack,
       isStreaming,
-      messages,
+      messagesForSync,
       setMessages,
       subChatId,
       recomputeChangedFiles,
@@ -3871,8 +3939,8 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Keep a ref to messages so the fork callback always has the latest
   // without adding `messages` to the dependency array (which would cause
   // frequent re-creations during streaming)
-  const messagesForForkRef = useRef(messages)
-  messagesForForkRef.current = messages
+  const messagesForForkRef = useRef(messagesForSync)
+  messagesForForkRef.current = messagesForSync
   const handleForkFromMessage = useCallback(
     async (messageId: string) => {
       if (isStreaming || isForkingRef.current) return
@@ -4030,7 +4098,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   // IMPORTANT: Skip if there's an active streamId (prevents double-generation on resume)
   useEffect(() => {
     if (
-      messages.length === 1 &&
+      messagesForSync.length === 1 &&
       status === "ready" &&
       !streamId &&
       !hasTriggeredAutoGenerateRef.current
@@ -4184,7 +4252,7 @@ export const ChatViewInner = memo(function ChatViewInner({
         })
       }
     }
-  }, [isVisiblePane, messages, status, subChatId])
+  }, [isVisiblePane, messagesForSync, status, subChatId])
 
   // Scroll to bottom when QueueProcessor auto-sends a queued message.
   // QueueProcessor runs globally and can't access scroll refs, so it
@@ -4221,8 +4289,8 @@ export const ChatViewInner = memo(function ChatViewInner({
   }, [isActive, subChatId, isMobile])
 
   // Refs for handleSend to avoid recreating callback on every messages change
-  const messagesLengthRef = useRef(messages.length)
-  messagesLengthRef.current = messages.length
+  const messagesLengthRef = useRef(messagesForSync.length)
+  messagesLengthRef.current = messagesForSync.length
   const subChatModeRef = useRef(subChatMode)
   subChatModeRef.current = subChatMode
   const imagesRef = useRef(images)
@@ -4775,8 +4843,8 @@ export const ChatViewInner = memo(function ChatViewInner({
     if (subChatMode !== "plan") return false
 
     // Look for completed ExitPlanMode (Claude) or PlanWrite awaiting_approval (Codex widget)
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
+    for (let i = messagesForSync.length - 1; i >= 0; i--) {
+      const msg = messagesForSync[i]
 
       if (msg.role === "assistant" && msg.parts) {
         const exitPlanPart = msg.parts.find(
@@ -4834,7 +4902,7 @@ export const ChatViewInner = memo(function ChatViewInner({
       }
     }
     return false
-  }, [messages, subChatMode, isStreaming])
+  }, [messagesForSync, subChatMode, isStreaming])
 
   // Keep ref in sync for use in initializeScroll (which runs in useLayoutEffect)
   hasUnapprovedPlanRef.current = hasUnapprovedPlan
@@ -4929,11 +4997,43 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Sync messages to Jotai store for isolated rendering.
   // Each ChatViewInner writes to its own per-chat bucket.
   // Only active pane updates legacy global atoms to avoid cross-pane races/churn.
+  // Run after every render because AI SDK can mutate message arrays/parts in
+  // place while streaming. The sync atom does its own per-message change
+  // detection, so this is a render bridge rather than a blind overwrite.
   const syncMessages = useSetAtom(syncMessagesWithStatusAtom)
 
   useLayoutEffect(() => {
-    syncMessages({ messages, status, subChatId, updateGlobal: isActive })
-  }, [messages, status, subChatId, isActive, isSplitPane, syncMessages])
+    syncMessages({ messages: messagesForSync, status, subChatId, updateGlobal: isActive })
+  })
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return
+    if (persistedMessageCount === 0 || messagesForSync.length > 0) return
+
+    const renderedMessageIds = appStore.get(messageIdsPerChatAtom(subChatId))
+    if (renderedMessageIds.length > 0) return
+
+    console.warn("[ChatViewInner] persisted messages are not mounted", {
+      subChatId: subChatId.slice(-8),
+      parentChatId: parentChatId.slice(-8),
+      persistedMessageCount,
+      runtimeMessageCount: messages.length,
+      syncMessageCount: messagesForSync.length,
+      renderedMessageCount: renderedMessageIds.length,
+      status,
+      isActive,
+      isVisiblePane,
+    })
+  }, [
+    subChatId,
+    parentChatId,
+    persistedMessageCount,
+    messages.length,
+    messagesForSync.length,
+    status,
+    isActive,
+    isVisiblePane,
+  ])
 
   // Sync status to global streaming status store for queue processing
   const setStreamingStatus = useStreamingStatusStore((s) => s.setStatus)
@@ -5012,12 +5112,12 @@ export const ChatViewInner = memo(function ChatViewInner({
   const handleContinueWithProvider = useCallback(
     async (targetProvider: "claude-code" | "codex") => {
       if (isStreaming || isContinuingRef.current) return
-      if (!messages || messages.length === 0) return
+      if (!messagesForSync || messagesForSync.length === 0) return
       isContinuingRef.current = true
 
       try {
         // 1. Format current messages as markdown
-        const historyMarkdown = formatHistoryForContext(messages as any)
+        const historyMarkdown = formatHistoryForContext(messagesForSync as any)
 
         // 2. Save to disk via writePastedText endpoint
         const result = await trpcClient.files.writePastedText.mutate({
@@ -5083,7 +5183,7 @@ export const ChatViewInner = memo(function ChatViewInner({
         isContinuingRef.current = false
       }
     },
-    [isStreaming, messages, subChatId, parentChatId, subChatMode, onProviderChange],
+    [isStreaming, messagesForSync, subChatId, parentChatId, subChatMode, onProviderChange],
   )
 
   return (
@@ -5110,7 +5210,7 @@ export const ChatViewInner = memo(function ChatViewInner({
         )}
 
         {/* Chat search bar */}
-        <ChatSearchBar messages={messages} topOffset={searchBarTopOffset} />
+        <ChatSearchBar messages={messagesForSync} topOffset={searchBarTopOffset} />
 
         {/* Chat title - flex above scroll area (desktop only) */}
         {!isMobile && (
@@ -5320,7 +5420,7 @@ export const ChatViewInner = memo(function ChatViewInner({
           hasStackedCards={shouldShowStackedCards}
           subChatId={subChatId}
           isActive={isActive}
-          isSplitPane={isSplitPane}
+          isSplitPane={isSplitPane || (isVisiblePane && !isActive)}
         />
       </div>
     </SearchHighlightProvider>
@@ -5341,6 +5441,9 @@ export function ChatView({
   onOpenTerminal,
   hideHeader = false,
   subChatIdOverride,
+  dockWorkspaceActive = true,
+  dockPanelVisible = true,
+  dockPanelActive = true,
 }: {
   chatId: string
   isSidebarOpen: boolean
@@ -5357,6 +5460,9 @@ export function ChatView({
    *  whatever is currently `activeSubChatId` in the store. Used by
    *  ChatPanel so each dockview tab shows its own sub-chat content. */
   subChatIdOverride?: string
+  dockWorkspaceActive?: boolean
+  dockPanelVisible?: boolean
+  dockPanelActive?: boolean
 }) {
   const [selectedTeamId] = useAtom(selectedTeamIdAtom)
 
@@ -5814,6 +5920,8 @@ export function ChatView({
   // the right-rail widgets / hotkeys (which want the globally-focused chat),
   // but the body of THIS ChatView renders the sub-chat its tab represents.
   const activeSubChatId = subChatIdOverride ?? activeSubChatIdFromStore
+  const isDockPaneActive = dockWorkspaceActive && dockPanelActive
+  const isDockPaneVisible = dockWorkspaceActive && dockPanelVisible
   const [subChatProviderOverrides, setSubChatProviderOverrides] = useAtom(
     subChatProviderOverridesAtom,
   )
@@ -7137,55 +7245,55 @@ Make sure to preserve all functionality from both branches when resolving confli
       const chatSandboxUrl = chatSandboxId ? `https://3003-${chatSandboxId}.e2b.app` : null
       const isRemoteChat = !!(agentChat as any)?.isRemote || !!chatSandboxId
 
-      // Fast path for existing chats. Only inspect messages when a local empty-chat provider override
-      // might require transport recreation.
+      // Find sub-chat data before the runtime fast path. Runtime Chat
+      // instances can be created from optimistic/empty cache entries and then
+      // outlive the eventual persisted messages, so existing chats must be
+      // reconciled against the latest query data before reuse.
+      const subChat = agentSubChats.find((sc) => sc.id === subChatId)
+      const messages = parseStoredMessages(subChat?.messages)
+
       const existing = agentChatStore.get(subChatId)
       if (existing) {
         if (isRemoteChat) return existing
 
-        const overrideProvider = subChatProviderOverrides[subChatId]
-        if (!overrideProvider) return existing
+        const existingMessages = getChatMessages(existing)
+        const existingStatus = (existing as any)?.status
+        const existingIsStreaming =
+          existingStatus === "streaming" ||
+          existingStatus === "submitted" ||
+          (existingStatus == null &&
+            useStreamingStatusStore.getState().isStreaming(subChatId))
+        const existingHasQueue =
+          (useMessageQueueStore.getState().queues[subChatId]?.length ?? 0) > 0
 
-        const existingProvider: "claude-code" | "codex" =
-          (existing as any)?.transport instanceof CodexChatTransport
-            ? "codex"
-            : "claude-code"
-        if (existingProvider === overrideProvider) return existing
+        if (
+          !existingIsStreaming &&
+          !existingHasQueue &&
+          shouldRecreateStaleRuntimeChat(existingMessages, messages)
+        ) {
+          if (process.env.NODE_ENV === "development") {
+            console.warn("[getOrCreateChat] Recreating stale runtime chat", {
+              subChatId: subChatId.slice(-8),
+              persistedMessageCount: messages.length,
+              runtimeMessageCount: existingMessages.length,
+              existingStatus,
+            })
+          }
+          agentChatStore.delete(subChatId)
+        } else {
+          const overrideProvider = subChatProviderOverrides[subChatId]
+          if (!overrideProvider) return existing
 
-        const subChatForOverride = agentSubChats.find((sc) => sc.id === subChatId)
-        const rawExistingMessages = subChatForOverride?.messages
-        const existingMessageCount = Array.isArray(rawExistingMessages)
-          ? rawExistingMessages.length
-          : typeof rawExistingMessages === "string"
-            ? (() => {
-                try {
-                  const parsed = JSON.parse(rawExistingMessages)
-                  return Array.isArray(parsed) ? parsed.length : 0
-                } catch {
-                  return 0
-                }
-              })()
-            : 0
+          const existingProvider: "claude-code" | "codex" =
+            (existing as any)?.transport instanceof CodexChatTransport
+              ? "codex"
+              : "claude-code"
+          if (existingProvider === overrideProvider) return existing
 
-        if (existingMessageCount > 0) return existing
-        agentChatStore.delete(subChatId)
+          if (messages.length > 0) return existing
+          agentChatStore.delete(subChatId)
+        }
       }
-
-      // Find sub-chat data
-      const subChat = agentSubChats.find((sc) => sc.id === subChatId)
-      const rawMessages = subChat?.messages
-      const messages = Array.isArray(rawMessages)
-        ? rawMessages
-        : typeof rawMessages === "string"
-          ? (() => {
-              try {
-                const parsed = JSON.parse(rawMessages)
-                return Array.isArray(parsed) ? parsed : []
-              } catch {
-                return []
-              }
-            })()
-          : []
 
       // Get mode from store metadata (falls back to currentMode)
       const subChatMeta = useAgentSubChatStore
@@ -7267,6 +7375,9 @@ Make sure to preserve all functionality from both branches when resolving confli
           // Sync status to global store for queue processing (even when component unmounted)
           useStreamingStatusStore.getState().setStatus(subChatId, "ready")
           syncFinishedMessagesToChatCache(subChatId, newChat)
+          if (chatProvider === "codex") {
+            void utils.agents.getAgentChat.invalidate({ chatId })
+          }
 
           // Check if this was a manual abort (ESC/Ctrl+C) - skip sound if so
           const wasManuallyAborted =
@@ -7351,8 +7462,10 @@ Make sure to preserve all functionality from both branches when resolving confli
       worktreePath,
       chatId,
       currentMode,
+      agentSubChats,
       inferProviderFromMessages,
       subChatProviderOverrides,
+      utils,
       setSubChatUnseenChanges,
       selectedChatId,
       setUnseenChanges,
@@ -7543,6 +7656,9 @@ Make sure to preserve all functionality from both branches when resolving confli
           // Sync status to global store for queue processing (even when component unmounted)
           useStreamingStatusStore.getState().setStatus(newId, "ready")
           syncFinishedMessagesToChatCache(newId, newChat)
+          if (chatProvider === "codex") {
+            void utils.agents.getAgentChat.invalidate({ chatId })
+          }
 
           // Check if this was a manual abort (ESC/Ctrl+C) - skip sound if so
           const wasManuallyAborted = agentChatStore.wasManuallyAborted(newId)
@@ -8239,6 +8355,8 @@ Make sure to preserve all functionality from both branches when resolving confli
               ) : (() => {
                 const chat = getOrCreateChat(activeSubChatId)
                 const isFirstSubChat = getFirstSubChatId(agentSubChats) === activeSubChatId
+                const activeSubChat = agentSubChats.find((sc) => sc.id === activeSubChatId)
+                const persistedMessages = parseStoredMessages(activeSubChat?.messages)
                 const belongsToWorkspace =
                   agentSubChats.some((sc) => sc.id === activeSubChatId) ||
                   allSubChats.some((sc) => sc.id === activeSubChatId)
@@ -8264,11 +8382,13 @@ Make sure to preserve all functionality from both branches when resolving confli
                       isArchived={isArchived}
                       onRestoreWorkspace={handleRestoreWorkspace}
                       existingPrUrl={agentChat?.prUrl}
-                      isActive={true}
+                      isActive={isDockPaneActive}
                       isSplitPane={false}
+                      paneVisible={isDockPaneVisible}
                       workspaceName={agentChat?.name ?? null}
                       workspaceBranch={agentChat?.branch ?? null}
                       workspaceRepoName={(agentChat as any)?.project?.gitRepo || (agentChat as any)?.project?.name || null}
+                      persistedMessages={persistedMessages}
                     />
                   </div>
                 )

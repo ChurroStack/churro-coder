@@ -94,12 +94,22 @@ function DraggedSubChatPreview({ id }: { id: string }) {
 // Main Component
 export function AgentsContent({
   subChatIdOverride,
+  dockWorkspaceActive = true,
+  dockPanelVisible = true,
+  dockPanelActive = true,
 }: {
   /** When provided, the ChatView mounted below renders this specific
    *  sub-chat regardless of the store's `activeSubChatId`. ChatPanel
    *  passes its own `params.subChatId` so each dockview tab shows its
    *  own conversation. */
   subChatIdOverride?: string
+  /** Dockview shells stay mounted when hidden; only the active workspace
+   *  should write global chat state. */
+  dockWorkspaceActive?: boolean
+  /** True when this panel is the visible tab in its dockview group. */
+  dockPanelVisible?: boolean
+  /** True when this panel is the focused dockview panel. */
+  dockPanelActive?: boolean
 } = {}) {
   const [selectedChatId, setSelectedChatId] = useAtom(selectedAgentChatIdAtom)
   const desktopView = useAtomValue(desktopViewAtom)
@@ -1051,6 +1061,9 @@ export function AgentsContent({
                 selectedTeamName={selectedTeam?.name}
                 selectedTeamImageUrl={selectedTeam?.image_url}
                 subChatIdOverride={subChatIdOverride}
+                dockWorkspaceActive={dockWorkspaceActive}
+                dockPanelVisible={dockPanelVisible}
+                dockPanelActive={dockPanelActive}
               />
             </div>
           ) : null}
