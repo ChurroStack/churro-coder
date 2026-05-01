@@ -51,9 +51,9 @@ export const AgentToolCall = memo(
           </TooltipTrigger>
           <TooltipContent
             side="top"
-            className="px-2 py-1.5 max-w-none flex items-center justify-center"
+            className="px-2 py-1.5 w-fit max-w-[min(420px,calc(100vw-24px))] flex items-center justify-center overflow-hidden"
           >
-            <span className="font-mono text-[10px] text-muted-foreground whitespace-nowrap leading-none">
+            <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground leading-none">
               {tooltipContent}
             </span>
           </TooltipContent>
