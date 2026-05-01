@@ -39,7 +39,7 @@ import {
 } from "../../lib/hooks/use-remote-chats"
 import { usePrefetchLocalChat } from "../../lib/hooks/use-prefetch-local-chat"
 // ArchivePopover import removed — archive history UI is gone.
-import { ChevronDown, MoreHorizontal, Columns3, BarChart3 } from "lucide-react"
+import { Columns3, BarChart3 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 // Desktop: archive is handled inline, not via hook
 // import { DiscordIcon } from "@/components/icons"
@@ -50,16 +50,6 @@ import { useAutoImport } from "../agents/hooks/use-auto-import"
 import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
 import { trpc } from "../../lib/trpc"
 import { toast } from "sonner"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuSeparator,
-} from "../../components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -1141,17 +1131,47 @@ const UsageButton = memo(function UsageButton() {
   )
 })
 
+// Isolated Shortcuts Button - opens settings on the keyboard shortcuts tab
+const ShortcutsButton = memo(function ShortcutsButton() {
+  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom)
+  const setDesktopView = useSetAtom(desktopViewAtom)
+  const setSidebarOpen = useSetAtom(agentsSidebarOpenAtom)
+
+  const shortcutsHotkey = useResolvedHotkeyDisplay("show-shortcuts")
+
+  const handleClick = useCallback(() => {
+    setSettingsActiveTab("keyboard")
+    setDesktopView("settings")
+    setSidebarOpen(true)
+  }, [setSettingsActiveTab, setDesktopView, setSidebarOpen])
+
+  return (
+    <Tooltip delayDuration={500}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={handleClick}
+          className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+        >
+          <KeyboardIcon className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        Shortcuts
+        {shortcutsHotkey && <Kbd>{shortcutsHotkey}</Kbd>}
+      </TooltipContent>
+    </Tooltip>
+  )
+})
+
 // Isolated Archive Section removed — archive history UI is gone.
 
-// Isolated Sidebar Header - contains dropdown, traffic lights, close button
-// Subscribes to dropdown state internally to prevent sidebar re-renders
+// Isolated Sidebar Header - contains traffic lights and close button
 interface SidebarHeaderProps {
   isDesktop: boolean
   isFullscreen: boolean | null
   isMobileFullscreen: boolean
   onToggleSidebar?: () => void
-  setSettingsDialogOpen: (open: boolean) => void
-  setSettingsActiveTab: (tab: string) => void
   handleSidebarMouseEnter: () => void
   handleSidebarMouseLeave: () => void
   closeButtonRef: React.RefObject<HTMLDivElement>
@@ -1162,13 +1182,10 @@ const SidebarHeader = memo(function SidebarHeader({
   isFullscreen,
   isMobileFullscreen,
   onToggleSidebar,
-  setSettingsDialogOpen,
-  setSettingsActiveTab,
   handleSidebarMouseEnter,
   handleSidebarMouseLeave,
   closeButtonRef,
 }: SidebarHeaderProps) {
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const toggleSidebarHotkey = useResolvedHotkeyDisplay("toggle-sidebar")
 
   return (
@@ -1197,73 +1214,17 @@ const SidebarHeader = memo(function SidebarHeader({
 
       <div
         className={cn(
-          "absolute top-2 z-20",
+          "absolute top-2 z-20 flex items-center gap-2 px-1.5 h-6",
           isDesktop && isFullscreen !== true ? "left-[82px]" : "left-2",
           isMobileFullscreen ? "right-2" : "right-10",
         )}
         style={{
-          WebkitAppRegion: "no-drag",
+          WebkitAppRegion: "drag",
         }}
       >
-        <div className="min-w-0">
-          <DropdownMenu
-            open={isDropdownOpen}
-            onOpenChange={setIsDropdownOpen}
-          >
-            <DropdownMenuTrigger asChild>
-              <ButtonCustom
-                variant="ghost"
-                className="h-6 px-1.5 justify-start hover:bg-foreground/10 rounded-md group/team-button max-w-full w-full text-left"
-                suppressHydrationWarning
-              >
-                <div className="flex items-center gap-2 min-w-0 max-w-full w-full">
-                  <div className="flex items-center justify-center flex-shrink-0">
-                    <Logo className="w-6 h-6" />
-                  </div>
-                  <div className="min-w-0 flex-1 overflow-hidden">
-                    <div className="text-sm font-semibold text-foreground truncate">
-                      Coder
-                    </div>
-                  </div>
-                  <ChevronDown
-                    className={cn(
-                      "h-3 text-muted-foreground flex-shrink-0 overflow-hidden",
-                      isDropdownOpen
-                        ? "opacity-100 w-3"
-                        : "opacity-0 w-0 group-hover/team-button:opacity-100 group-hover/team-button:w-3",
-                    )}
-                  />
-                </div>
-              </ButtonCustom>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-52" sideOffset={8}>
-              <DropdownMenuItem
-                className="gap-2"
-                onSelect={() => {
-                  setIsDropdownOpen(false)
-                  setSettingsActiveTab("preferences")
-                  setSettingsDialogOpen(true)
-                }}
-              >
-                <SettingsIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                Settings
-              </DropdownMenuItem>
-
-              {!isMobileFullscreen && (
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setIsDropdownOpen(false)
-                    setSettingsActiveTab("keyboard")
-                    setSettingsDialogOpen(true)
-                  }}
-                  className="gap-2"
-                >
-                  <KeyboardIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="flex-1">Shortcuts</span>
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        <Logo className="w-6 h-6 flex-shrink-0" />
+        <div className="text-sm font-semibold text-foreground truncate">
+          Coder
         </div>
       </div>
 
@@ -1276,7 +1237,7 @@ const SidebarHeader = memo(function SidebarHeader({
             "top-2",
           )}
           style={{
-            opacity: isDropdownOpen ? 1 : 0,
+            opacity: 0,
             WebkitAppRegion: "no-drag",
           }}
         >
@@ -2796,8 +2757,6 @@ export function AgentsSidebar({
         isFullscreen={isFullscreen}
         isMobileFullscreen={isMobileFullscreen}
         onToggleSidebar={onToggleSidebar}
-        setSettingsDialogOpen={setSettingsDialogOpen}
-        setSettingsActiveTab={setSettingsActiveTab}
         handleSidebarMouseEnter={handleSidebarMouseEnter}
         handleSidebarMouseLeave={handleSidebarMouseLeave}
         closeButtonRef={closeButtonRef}
@@ -3130,6 +3089,9 @@ export function AgentsSidebar({
 
                 {/* Usage Button - opens the Usage statistics page */}
                 <UsageButton />
+
+                {/* Shortcuts Button - opens settings on the keyboard tab */}
+                <ShortcutsButton />
               </div>
 
               <div className="flex-1" />
