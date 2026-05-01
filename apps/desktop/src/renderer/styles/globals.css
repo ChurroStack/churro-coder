@@ -423,6 +423,14 @@
   --dv-paneview-active-outline-color: hsl(var(--primary));
 
   --dv-tabs-container-scrollbar-color: hsl(var(--muted-foreground) / 0.5);
+
+  /* Stacking layer for dockview popovers such as the tabs-overflow menu.
+   * dockview-core defines this at 999 on its built-in `.dockview-theme-*`
+   * classes; because we use custom `cs-theme-*` class names, an undefined
+   * value leaves popupService wrappers at `z-index: auto`, painted under
+   * later dockview children because its anchor is prepended to `.dv-dockview`.
+   * Match dockview's default. */
+  --dv-overlay-z-index: 999;
 }
 
 /* Pill-style tabs: inset each tab from the strip with rounded corners so the
@@ -442,6 +450,13 @@
 .cs-theme-light .dv-tab:not(.dv-active-tab):hover,
 .cs-theme-dark .dv-tab:not(.dv-active-tab):hover {
   background-color: hsl(var(--accent) / 0.5);
+}
+
+/* The overflow menu is not a tab strip, so give its container a subtle
+ * outline even though --dv-tab-divider-color stays transparent for pill tabs. */
+.cs-theme-light .dv-tabs-overflow-container,
+.cs-theme-dark .dv-tabs-overflow-container {
+  border-color: hsl(var(--border) / 0.6);
 }
 
 /* Match the tabs' 4px outer inset on the trailing action containers
