@@ -1,6 +1,5 @@
 import type { ChatTransport, UIMessage } from "ai"
 import { toast } from "sonner"
-import { normalizeCodexStreamChunk } from "../../../../shared/codex-tool-normalizer"
 import {
   codexApiKeyAtom,
   codexLoginModalOpenAtom,
@@ -25,7 +24,7 @@ import type { AgentMessageMetadata } from "../ui/agent-message-usage"
 
 type UIMessageChunk = any
 
-type ACPChatTransportConfig = {
+type CodexChatTransportConfig = {
   chatId: string
   subChatId: string
   cwd: string
@@ -40,7 +39,7 @@ type ImageAttachment = {
   filename?: string
 }
 
-// When a sub-chat hits auth-error, force one fresh Codex ACP session on next send.
+// When a sub-chat hits auth-error, force one fresh Codex app-server thread on next send.
 const forceFreshSessionSubChats = new Set<string>()
 const DEFAULT_CODEX_MODEL = "gpt-5.3-codex/high"
 function getStoredCodexCredentials(): {
@@ -109,8 +108,8 @@ function getSelectedCodexModel(subChatId: string): string {
   return `${selectedModel.id}/${normalizedThinking}`
 }
 
-export class ACPChatTransport implements ChatTransport<UIMessage> {
-  constructor(private config: ACPChatTransportConfig) {}
+export class CodexChatTransport implements ChatTransport<UIMessage> {
+  constructor(private config: CodexChatTransportConfig) {}
 
   async sendMessages(options: {
     messages: UIMessage[]
@@ -297,8 +296,7 @@ export class ACPChatTransport implements ChatTransport<UIMessage> {
               }
 
               try {
-                const normalizedChunk = normalizeCodexStreamChunk(chunk) as UIMessageChunk
-                controller.enqueue(normalizedChunk)
+                controller.enqueue(chunk)
               } catch {
                 // Stream already closed
               }

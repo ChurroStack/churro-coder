@@ -204,7 +204,7 @@ const projectChats = db.select().from(chats).where(eq(chats.projectId, id)).all(
 | Components | Radix UI, Lucide icons, Motion, Sonner |
 | State | Jotai, Zustand, React Query |
 | Backend | tRPC (`trpc-electron`), Drizzle ORM, better-sqlite3 |
-| AI | `@anthropic-ai/claude-agent-sdk`, `@zed-industries/codex-acp` (Codex), `@mcpc-tech/acp-ai-provider`, `@modelcontextprotocol/sdk` (MCP) |
+| AI | `@anthropic-ai/claude-agent-sdk`, bundled Codex CLI `app-server`, `@modelcontextprotocol/sdk` (MCP) |
 | Terminal | xterm + addons, node-pty |
 | Package Manager | bun (Nx wraps it from the monorepo root) |
 
@@ -339,20 +339,20 @@ Users can switch between Claude and Codex mid-conversation within the same sub-c
 
 ### Catch-up mechanism
 
-When the active provider differs from the one that produced recent turns, a `[CATCHUP]` block is prepended to the outgoing prompt so the new provider has context. **The block is sent to the SDK/ACP only — it is never persisted to the DB.**
+When the active provider differs from the one that produced recent turns, a `[CATCHUP]` block is prepended to the outgoing prompt so the new provider has context. **The block is sent to the live provider only — it is never persisted to the DB.**
 
 Key files:
 - `src/shared/provider-from-model.ts` — `getProviderForModelId(modelId)` classifies any model ID as `"claude-code" | "codex"`. Import this from both main and renderer; do NOT duplicate the logic.
 - `src/main/lib/multi-provider/catchup.ts` — pure `computeCatchupBlock(messages, provider, options?)`. Call it with the full `messagesForStream` array (including the trailing user message being sent); it strips the trailing user before searching for the provider boundary. Pass `{ forceFullHistory: true }` when the session is known to be fresh/expired.
 - `src/main/lib/trpc/routers/claude.ts` — catch-up wired just before `queryOptions` assembly. Proactively checks if the session JSONL file exists; if missing, clears `resumeSessionId` and sets `isSessionFresh = true` so `forceFullHistory` fires.
-- `src/main/lib/trpc/routers/codex.ts` — catch-up wired just before the `streamText` call.
+- `src/main/lib/trpc/routers/codex.ts` — catch-up wired just before `turn/start`.
 
 ### Critical invariants — do not break
 
 - **Boundary search excludes the trailing user message.** The trailing Codex user message (with `metadata.model = "gpt-5.4/high"`) would otherwise be found first and set `boundaryIdx` to the last position, making the catch-up window empty.
-- **`getLastSessionId` in the Codex router only returns Codex session IDs.** It filters to assistant messages where `getProviderForModelId(metadata.model) === "codex"`. Without this filter, a Claude session UUID gets passed to the ACP server as `existingSessionId` → `Resource not found` (-32002).
-- **The Codex router ignores `input.sessionId` from the renderer.** The renderer reads `sessionId` from the last AI SDK assistant message, which after a Claude turn is a Claude UUID. The router uses `getLastSessionId(existingMessages)` (DB-resident) as the sole source of truth.
-- **Codex ACP model IDs use `"baseModel/thinkingLevel"` format** (e.g. `"gpt-5.4/high"`). This composite string is the full model identifier for the ACP layer — do NOT strip the suffix before calling `provider.languageModel(selectedModelId)`.
+- **`getLastSessionId` in the Codex router only returns Codex thread IDs.** It filters to assistant messages where `getProviderForModelId(metadata.model) === "codex"` so Claude session UUIDs are not passed to app-server `thread/resume`.
+- **The Codex router treats `input.sessionId` as a fallback only.** The renderer reads `sessionId` from the last AI SDK assistant message, which after a Claude turn can be a Claude UUID. Prefer the in-process `subChatId -> threadId` map, then DB-resident `getLastSessionId(existingMessages)`.
+- **Codex UI model IDs use `"baseModel/thinkingLevel"` format** (e.g. `"gpt-5.4/high"`). Split this into `model` and `effort` when calling app-server.
 
 ### Codex cost computation
 

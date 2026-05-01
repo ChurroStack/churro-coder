@@ -17,10 +17,19 @@ interface MessagePart {
 interface Message {
   role: string
   parts?: MessagePart[]
+  metadata?: {
+    changedFiles?: Array<{
+      filePath?: string
+      additions?: number
+      deletions?: number
+      status?: string
+    }>
+  }
 }
 
 /**
- * Custom hook to track changed files from Edit/Write tool calls in a sub-chat
+ * Custom hook to track changed files from Edit/Write tool calls and Codex
+ * app-server git attribution metadata in a sub-chat
  * Extracts file paths and calculates diff stats from message history
  * Only recalculates after streaming ends (not during streaming)
  */
@@ -126,13 +135,27 @@ export function useChangedFilesTracking(
           displayPath: string
         }
       >()
+      const attributedFiles = new Map<string, SubChatFileChange>()
 
       for (const msg of inputMessages) {
         if (msg.role !== "assistant") continue
+
+        for (const changedFile of msg.metadata?.changedFiles || []) {
+          const filePath = changedFile.filePath
+          if (!filePath || isSessionFile(filePath)) continue
+          attributedFiles.set(filePath, {
+            filePath,
+            displayPath: getDisplayPath(filePath),
+            additions: Math.max(0, changedFile.additions || 0),
+            deletions: Math.max(0, changedFile.deletions || 0),
+          })
+        }
+
         for (const part of msg.parts || []) {
           if (part.type === "tool-Edit" || part.type === "tool-Write") {
             const filePath = part.input?.file_path
             if (!filePath) continue
+            if (attributedFiles.has(filePath)) continue
 
           // Skip session/plan files stored in local app storage
           if (isSessionFile(filePath)) continue
@@ -158,8 +181,9 @@ export function useChangedFilesTracking(
       }
 
       // Calculate NET diff from original to current state
-      const result: SubChatFileChange[] = []
+      const result: SubChatFileChange[] = [...attributedFiles.values()]
       for (const [filePath, state] of fileStates) {
+        if (attributedFiles.has(filePath)) continue
         const originalContent = state.originalContent || ""
 
         // Skip if file returned to original state (net change = 0)

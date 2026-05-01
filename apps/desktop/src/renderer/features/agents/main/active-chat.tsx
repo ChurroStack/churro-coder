@@ -169,7 +169,7 @@ import { useHaptic } from "../hooks/use-haptic"
 import { usePastedTextFiles, type PastedTextFile } from "../hooks/use-pasted-text-files"
 import { useTextContextSelection } from "../hooks/use-text-context-selection"
 import { useToggleFocusOnCmdEsc } from "../hooks/use-toggle-focus-on-cmd-esc"
-import { ACPChatTransport } from "../lib/acp-chat-transport"
+import { CodexChatTransport } from "../lib/codex-chat-transport"
 import { formatHistoryForContext } from "../lib/export-chat"
 import {
   clearSubChatDraft,
@@ -7074,7 +7074,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         if (!overrideProvider) return existing
 
         const existingProvider: "claude-code" | "codex" =
-          (existing as any)?.transport instanceof ACPChatTransport
+          (existing as any)?.transport instanceof CodexChatTransport
             ? "codex"
             : "claude-code"
         if (existingProvider === overrideProvider) return existing
@@ -7130,7 +7130,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         worktreePath: worktreePath ? "exists" : "none",
       })
 
-      let transport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | null = null
+      let transport: IPCChatTransport | RemoteChatTransport | CodexChatTransport | null = null
 
       if (isRemoteChat && chatSandboxUrl) {
         // Remote sandbox chat: use HTTP SSE transport
@@ -7151,8 +7151,8 @@ Make sure to preserve all functionality from both branches when resolving confli
         })
       } else if (worktreePath) {
         if (chatProvider === "codex") {
-          console.log("[getOrCreateChat] Using ACPChatTransport", { provider: chatProvider })
-          transport = new ACPChatTransport({
+          console.log("[getOrCreateChat] Using CodexChatTransport", { provider: chatProvider })
+          transport = new CodexChatTransport({
             chatId,
             subChatId,
             cwd: worktreePath,
@@ -7412,7 +7412,7 @@ Make sure to preserve all functionality from both branches when resolving confli
     })
 
     const chatProvider = newSubChatProvider
-    let newSubChatTransport: IPCChatTransport | RemoteChatTransport | ACPChatTransport | null = null
+    let newSubChatTransport: IPCChatTransport | RemoteChatTransport | CodexChatTransport | null = null
 
     if (isNewSubChatRemote && newSubChatSandboxUrl) {
       // Remote sandbox chat: use HTTP SSE transport
@@ -7429,8 +7429,8 @@ Make sure to preserve all functionality from both branches when resolving confli
       })
     } else if (worktreePath) {
       if (chatProvider === "codex") {
-        console.log("[createNewSubChat] Using ACPChatTransport", { provider: chatProvider })
-        newSubChatTransport = new ACPChatTransport({
+        console.log("[createNewSubChat] Using CodexChatTransport", { provider: chatProvider })
+        newSubChatTransport = new CodexChatTransport({
           chatId,
           subChatId: newId,
           cwd: worktreePath,

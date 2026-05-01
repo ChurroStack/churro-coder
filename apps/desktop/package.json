@@ -31,7 +31,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "ts:check": "tsgo --noEmit",
-    "postinstall": "node -e \"if(!process.env.VERCEL){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\" && node scripts/patch-electron-dev.mjs && node scripts/patch-acp-ai-provider.mjs"
+    "postinstall": "node -e \"if(!process.env.VERCEL){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\" && node scripts/patch-electron-dev.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.14",
@@ -41,7 +41,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@git-diff-view/react": "^0.0.35",
     "@git-diff-view/shiki": "^0.0.36",
-    "@mcpc-tech/acp-ai-provider": "0.3.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@monaco-editor/react": "^4.7.0",
     "@pierre/diffs": "1.1.0-beta.18",
@@ -74,7 +73,6 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/addon-webgl": "^0.19.0",
-    "@zed-industries/codex-acp": "0.12.0",
     "ai": "^6.0.14",
     "async-mutex": "^0.5.0",
     "better-sqlite3": "^12.6.2",
@@ -183,9 +181,7 @@
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
       "node_modules/node-pty/**/*",
-      "node_modules/@anthropic-ai/claude-agent-sdk/**/*",
-      "node_modules/@zed-industries/codex-acp/**/*",
-      "node_modules/@zed-industries/codex-acp-*/**/*"
+      "node_modules/@anthropic-ai/claude-agent-sdk/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
