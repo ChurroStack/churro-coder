@@ -1154,12 +1154,15 @@ export const chatsRouter = router({
    * Update sub-chat mode
    */
   updateSubChatMode: publicProcedure
-    .input(z.object({ id: z.string(), mode: z.enum(["plan", "agent"]) }))
+    .input(z.object({ id: z.string(), mode: z.enum(["plan", "agent"]), exitPlan: z.boolean().optional() }))
     .mutation(({ input }) => {
       const db = getDatabase()
       return db
         .update(subChats)
-        .set({ mode: input.mode })
+        .set({
+          mode: input.mode,
+          ...(input.exitPlan ? { sessionId: null, sessionMode: null } : {}),
+        })
         .where(eq(subChats.id, input.id))
         .returning()
         .get()

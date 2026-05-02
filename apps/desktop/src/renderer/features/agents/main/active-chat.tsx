@@ -3606,9 +3606,11 @@ export const ChatViewInner = memo(function ChatViewInner({
       // visibly late and risks the wrong provider being used during the async gap.
       useAgentSubChatStore.getState().updateSubChatMode(subChatId, "agent")
 
-      // Sync mode to database for sidebar indicator (getPendingPlanApprovals)
+      // Sync mode to database — null out sessionId/sessionMode so the server
+      // starts a fresh session in agent mode instead of resuming the plan session.
+      // Await so the DB write lands before we schedule the deferred send.
       if (!subChatId.startsWith("temp-")) {
-        updateSubChatModeMutation.mutate({ subChatId, mode: "agent" })
+        await updateSubChatModeMutation.mutateAsync({ subChatId, mode: "agent", exitPlan: true })
       }
 
       // Update atomFamily state (for UI) - this also syncs to store via effect

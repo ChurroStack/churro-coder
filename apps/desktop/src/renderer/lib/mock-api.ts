@@ -321,10 +321,13 @@ export const api = {
           onError: (err) => opts?.onError?.(err),
         })
         return {
-          mutate: (args?: { subChatId: string; mode: "plan" | "agent" }) => {
+          mutate: (args?: { subChatId: string; mode: "plan" | "agent"; exitPlan?: boolean }) => {
             if (args?.subChatId && args?.mode) {
-              mutation.mutate({ id: args.subChatId, mode: args.mode })
+              mutation.mutate({ id: args.subChatId, mode: args.mode, exitPlan: args.exitPlan })
             }
+          },
+          mutateAsync: async (args: { subChatId: string; mode: "plan" | "agent"; exitPlan?: boolean }) => {
+            return mutation.mutateAsync({ id: args.subChatId, mode: args.mode, exitPlan: args.exitPlan })
           },
           isPending: mutation.isPending,
         }
