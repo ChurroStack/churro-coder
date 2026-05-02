@@ -165,6 +165,28 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const selectedModelId = appStore.get(subChatModelIdAtomFamily(this.config.subChatId))
     const modelString = MODEL_ID_MAP[selectedModelId] || MODEL_ID_MAP["opus"]
 
+    // Diagnostic: catch the case where a Codex thread UUID leaks into the Claude transport
+    const lastAssistantModel = metadata?.model
+    const sessionLooksLikeCodexThread =
+      typeof sessionId === "string" &&
+      typeof lastAssistantModel === "string" &&
+      (lastAssistantModel.toLowerCase().includes("codex") ||
+        lastAssistantModel.toLowerCase().startsWith("gpt-"))
+    if (sessionLooksLikeCodexThread) {
+      console.warn(
+        `[SD] R:CODEX-SESSION-LEAK sub=${this.config.subChatId.slice(-8)} ` +
+        `sessionId=${sessionId?.slice(-8)} lastAssistantModel=${lastAssistantModel} ` +
+        `→ Claude will be passed a Codex thread UUID and will fail to resume`,
+      )
+    }
+    console.log(
+      `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
+      `provider=claude-code mode=${currentMode} ` +
+      `sessionIdShort=${sessionId?.slice(-8) ?? "none"} ` +
+      `lastAssistantModel=${lastAssistantModel ?? "none"} ` +
+      `selectedModelId=${selectedModelId} modelString=${modelString}`,
+    )
+
     const storedCustomConfig = appStore.get(
       customClaudeConfigAtom,
     ) as CustomClaudeConfig

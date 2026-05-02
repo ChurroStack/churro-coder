@@ -3544,10 +3544,17 @@ export const ChatViewInner = memo(function ChatViewInner({
 
   const resolveApprovedPlanContent = useCallback(async (): Promise<ApprovedPlanContent | null> => {
     const planPath = appStore.get(currentPlanPathAtomFamily(subChatId))
+    const virtualPlan = planPath ? appStore.get(virtualPlanContentAtomFamily(planPath)) : null
+    console.log(
+      `[PLAN] resolve:start sub=${subChatId.slice(-8)} ` +
+      `planPath=${planPath ?? "null"} ` +
+      `hasVirtualPlan=${!!virtualPlan?.content} ` +
+      `virtualPlanBytes=${virtualPlan?.content?.length ?? 0}`,
+    )
 
     if (planPath) {
-      const virtualPlan = appStore.get(virtualPlanContentAtomFamily(planPath))
       if (virtualPlan?.content?.trim()) {
+        console.log(`[PLAN] resolve:from-virtual sub=${subChatId.slice(-8)} bytes=${virtualPlan.content.length}`)
         return {
           content: virtualPlan.content.trim(),
           source: virtualPlan.title || planPath,
@@ -3558,6 +3565,7 @@ export const ChatViewInner = memo(function ChatViewInner({
         try {
           const fileContent = await trpcClient.files.readFile.query({ filePath: planPath })
           if (fileContent.trim()) {
+            console.log(`[PLAN] resolve:from-file sub=${subChatId.slice(-8)} bytes=${fileContent.length}`)
             return { content: fileContent.trim(), source: planPath }
           }
         } catch (error) {
@@ -3566,7 +3574,12 @@ export const ChatViewInner = memo(function ChatViewInner({
       }
     }
 
-    return extractApprovedPlanFromMessages(messagesForSync)
+    const fromMessages = extractApprovedPlanFromMessages(messagesForSync)
+    console.log(
+      `[PLAN] resolve:from-messages sub=${subChatId.slice(-8)} ` +
+      `found=${!!fromMessages} bytes=${fromMessages?.content?.length ?? 0}`,
+    )
+    return fromMessages
   }, [messagesForSync, subChatId])
 
   // Deferred "Implement plan" send — fires after transport recreates on approve.
@@ -3601,6 +3614,12 @@ export const ChatViewInner = memo(function ChatViewInner({
             ? "codex"
             : "claude-code")
         : (appStore.get(subChatProviderOverridesAtom)[subChatId] ?? "claude-code")
+      console.log(
+        `[PLAN] approve:start sub=${subChatId.slice(-8)} ` +
+        `previousProvider=${previousProvider} ` +
+        `existingTransport=${existingChat ? ((existingChat as any)?.transport?.constructor?.name ?? "unknown") : "none"} ` +
+        `currentMode=${useAgentSubChatStore.getState().subChats[subChatId]?.mode ?? "unknown"}`,
+      )
 
       // Switch mode and model synchronously BEFORE any await. The transport reads
       // the model atom at send-time; yielding first causes the chat input to flip
@@ -3619,12 +3638,19 @@ export const ChatViewInner = memo(function ChatViewInner({
 
       // Autoswitch to the Agent-mode default model and get the resolved provider.
       const { provider } = applyModeDefaultModel(subChatId, "agent")
+      console.log(
+        `[PLAN] approve:model-applied sub=${subChatId.slice(-8)} ` +
+        `newProvider=${provider} ` +
+        `newModel=${appStore.get(subChatModelIdAtomFamily(subChatId))} ` +
+        `crossProvider=${previousProvider !== provider}`,
+      )
 
       if (previousProvider === provider) {
         // Same provider (Claude→Claude or Codex→Codex): keep the existing transport so
         // the SDK's native plan→default permission-mode transition fires naturally on the
         // next query. Tearing it down here orphans in-flight TodoWrite/Task tool events.
         // The SDK already has the plan in session history — no file attachment needed.
+        console.log(`[PLAN] approve:same-provider sub=${subChatId.slice(-8)} reusing transport`)
         shouldAutoScrollRef.current = true
         scrollToBottom()
         setPendingImplementPlan({
@@ -3645,6 +3671,11 @@ export const ChatViewInner = memo(function ChatViewInner({
       } catch (error) {
         console.warn("[plan-approval] Failed to resolve approved plan text:", error)
       }
+      console.log(
+        `[PLAN] approve:cross-provider sub=${subChatId.slice(-8)} ` +
+        `from=${previousProvider} to=${provider} planContentSource=${planContent?.source ?? "null"} ` +
+        `planContentBytes=${planContent?.content?.length ?? 0}`,
+      )
       const implementPlanParts = buildImplementPlanParts(planContent)
 
       // Enable auto-scroll and defer the send to after the transport recreates.
@@ -7017,15 +7048,27 @@ Make sure to preserve all functionality from both branches when resolving confli
       }
     }
 
+    console.log(
+      `[PLAN] auto-detect sub=${activeSubChatIdForPlan?.slice(-8) ?? "none"} ` +
+      `lastPlanPath=${lastPlanPath ?? "null"} ` +
+      `isCodexPlan=${lastPlanPath?.startsWith("codex-plan://") ?? false} ` +
+      `messageCount=${messages.length}`,
+    )
     setCurrentPlanPath(lastPlanPath)
   }, [agentSubChats, activeSubChatIdForPlan, setCurrentPlanPath])
 
   const inferProviderFromMessages = useCallback(
     (subChatId?: string): "claude-code" | "codex" => {
-      if (!subChatId) return "claude-code"
+      if (!subChatId) {
+        console.log(`[PLAN] infer-provider sub=none result=claude-code reason=no-subchat`)
+        return "claude-code"
+      }
 
       const override = subChatProviderOverrides[subChatId]
-      if (override) return override
+      if (override) {
+        console.log(`[PLAN] infer-provider sub=${subChatId.slice(-8)} result=${override} reason=override`)
+        return override
+      }
 
       const subChat = ((agentChat as any)?.subChats || []).find(
         (sc: any) => sc?.id === subChatId,
@@ -7052,10 +7095,17 @@ Make sure to preserve all functionality from both branches when resolving confli
           normalizedModel.includes("codex") ||
           normalizedModel.startsWith("gpt-")
         ) {
+          console.log(
+            `[PLAN] infer-provider sub=${subChatId.slice(-8)} result=codex reason=message-model model=${model} role=${message.role}`,
+          )
           return "codex"
         }
       }
 
+      console.log(
+        `[PLAN] infer-provider sub=${subChatId.slice(-8)} result=claude-code ` +
+        `reason=no-codex-marker scannedMessages=${messages.length}`,
+      )
       return "claude-code"
     },
     [agentChat, subChatProviderOverrides],

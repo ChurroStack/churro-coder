@@ -137,6 +137,15 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     const selectedModel = getSelectedCodexModel(this.config.subChatId)
     const enableTasks = appStore.get(enableTasksAtom)
 
+    const lastAssistantModel = (metadata as any)?.model
+    console.log(
+      `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
+      `provider=codex mode=${currentMode} ` +
+      `sessionIdShort=${sessionId?.slice(-8) ?? "none"} ` +
+      `lastAssistantModel=${lastAssistantModel ?? "none"} ` +
+      `selectedModel=${selectedModel}`,
+    )
+
     return new ReadableStream({
       start: (controller) => {
         const runId = crypto.randomUUID()

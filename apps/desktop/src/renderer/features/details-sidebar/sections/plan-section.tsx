@@ -39,8 +39,11 @@ export const PlanSection = memo(function PlanSection({
   )
   const virtualPlan = useAtomValue(virtualPlanAtom)
 
+  // Codex plans live in `virtualPlanContentAtomFamily` only — they have no
+  // on-disk backing. Skip the readFile fetch so we don't ENOENT on the URI.
+  const isCodexPlan = !!planPath && planPath.startsWith("codex-plan://")
   // Fetch plan file content using tRPC
-  const shouldReadPlanFile = !!planPath && !virtualPlan
+  const shouldReadPlanFile = !!planPath && !virtualPlan && !isCodexPlan
   const {
     data: filePlanContent,
     isLoading: isFileLoading,
@@ -51,8 +54,18 @@ export const PlanSection = memo(function PlanSection({
     { enabled: shouldReadPlanFile },
   )
   const planContent = virtualPlan?.content ?? filePlanContent
-  const isLoading = !virtualPlan && isFileLoading
+  const isLoading = !virtualPlan && !isCodexPlan && isFileLoading
   const error = virtualPlan ? null : fileError
+
+  useEffect(() => {
+    if (!planPath) return
+    console.log(
+      `[PLAN] widget=plan-section planPath=${planPath} ` +
+      `isCodexPlan=${isCodexPlan} hasVirtualPlan=${!!virtualPlan} ` +
+      `hasCachedContent=${!!planCache?.content} shouldReadPlanFile=${shouldReadPlanFile} ` +
+      `chatId=${chatId.slice(-8)}`,
+    )
+  }, [planPath, isCodexPlan, virtualPlan, planCache?.content, shouldReadPlanFile, chatId])
 
   // Update cache when content loads successfully
   useEffect(() => {
