@@ -20,7 +20,11 @@ import {
   getProviderForModelId,
   type Provider,
 } from "../../../../shared/provider-from-model"
-import { CODEX_MODELS, coerceCodexThinking } from "./models"
+import {
+  CODEX_MODELS,
+  coerceCodexThinking,
+  type CodexThinkingLevel,
+} from "./models"
 export type { Provider }
 export { getProviderForModelId }
 export type ModeContext = AgentMode | "review"
@@ -76,6 +80,32 @@ export function setSubChatModel(subChatId: string, modelId: string): Provider {
   // shortly after the switch pick the same provider by default.
   appStore.set(lastSelectedAgentIdAtom, provider)
   return provider
+}
+
+export type FormSelection = {
+  provider: Provider
+  claudeModelId: string
+  claudeThinking: ClaudeThinkingPreference
+  codexModelId: string
+  codexThinking: CodexThinkingLevel
+}
+
+/**
+ * Bind the new-chat-form's exact selection to a freshly-created sub-chat.
+ * Call synchronously in createChatMutation's onSuccess — before any await —
+ * so the chat input reflects the form's choice and the right transport is wired up.
+ */
+export function applyFormSelectionToSubChat(
+  subChatId: string,
+  selection: FormSelection,
+): void {
+  if (selection.provider === "codex") {
+    setSubChatModel(subChatId, selection.codexModelId)
+    appStore.set(subChatCodexThinkingAtomFamily(subChatId), selection.codexThinking)
+  } else {
+    setSubChatModel(subChatId, selection.claudeModelId)
+    appStore.set(subChatClaudeThinkingAtomFamily(subChatId), selection.claudeThinking)
+  }
 }
 
 export function applyModeDefaultModel(

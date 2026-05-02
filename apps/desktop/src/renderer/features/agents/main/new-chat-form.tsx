@@ -51,6 +51,7 @@ import {
   defaultPlanModeThinkingAtom,
 } from "../atoms"
 import {
+  applyFormSelectionToSubChat,
   applyModeDefaultModel,
   getDefaultModelForMode,
   getDefaultThinkingForMode,
@@ -1221,6 +1222,26 @@ export function NewChatForm({
 
   const trpcUtils = trpc.useUtils()
 
+  // Snapshot of the form's current model/thinking selection for both submit
+  // paths. Captured synchronously before mutate() so onSuccess applies what
+  // the user actually saw at submit time, even if state changes later.
+  const getFormSelection = useCallback(
+    () => ({
+      provider: selectedAgent.id as "claude-code" | "codex",
+      claudeModelId: selectedModel?.id ?? "opus",
+      claudeThinking: selectedClaudeThinking,
+      codexModelId: selectedCodexModel.id,
+      codexThinking: selectedCodexThinking,
+    }),
+    [
+      selectedAgent.id,
+      selectedModel?.id,
+      selectedClaudeThinking,
+      selectedCodexModel.id,
+      selectedCodexThinking,
+    ],
+  )
+
   const handleSend = useCallback(async () => {
     // Get value from uncontrolled editor
     let message = editorRef.current?.getValue() || ""
@@ -1350,6 +1371,10 @@ export function NewChatForm({
       }
     }
 
+    // Capture form selection synchronously before any await so the closure
+    // holds the values the user actually saw in the form at submit time.
+    const formSelection = getFormSelection()
+
     // Create chat with selected project, branch, and initial message
     createChatMutation.mutate(
       {
@@ -1364,14 +1389,17 @@ export function NewChatForm({
         useWorktree: workMode === "worktree",
         mode: agentMode,
       },
-      isReviewSend
-        ? {
-            onSuccess: (data) => {
-              const newSubChatId = data.subChats?.[0]?.id
-              if (newSubChatId) applyModeDefaultModel(newSubChatId, "review")
-            },
+      {
+        onSuccess: (data) => {
+          const newSubChatId = data.subChats?.[0]?.id
+          if (!newSubChatId) return
+          if (isReviewSend) {
+            applyModeDefaultModel(newSubChatId, "review")
+          } else {
+            applyFormSelectionToSubChat(newSubChatId, formSelection)
           }
-        : undefined,
+        },
+      },
     )
     // Editor, images, files, and pasted texts are cleared in onSuccess callback
   }, [
@@ -1387,6 +1415,7 @@ export function NewChatForm({
     pastedTexts,
     selectedChatModel,
     agentMode,
+    getFormSelection,
     trpcUtils,
   ])
 
@@ -1396,10 +1425,13 @@ export function NewChatForm({
     const readyImages = images.filter((i) => !i.isLoading && i.url)
     const readyFiles = files.filter((f) => !f.isLoading)
     const hasDraftContent = text.length > 0 || readyImages.length > 0 || readyFiles.length > 0
+    // Capture form selection before the mutation (same ordering invariant as handleApprovePlan)
+    const formSelection = getFormSelection()
     createChatMutation.mutate(
       {
         projectId: selectedProject.id,
         name: text ? text.slice(0, 50) : "New chat",
+        model: selectedChatModel,
         useWorktree: workMode === "worktree",
         baseBranch: workMode === "worktree" ? selectedBranch || undefined : undefined,
         branchType: workMode === "worktree" ? selectedBranchType : undefined,
@@ -1407,8 +1439,13 @@ export function NewChatForm({
       },
       {
         onSuccess: async (data) => {
-          if (hasDraftContent && data.subChats?.[0]?.id) {
-            await saveSubChatDraftWithAttachments(data.id, data.subChats[0].id, text, {
+          const newSubChatId = data.subChats?.[0]?.id
+          if (newSubChatId) {
+            // Apply form selection synchronously before any await
+            applyFormSelectionToSubChat(newSubChatId, formSelection)
+          }
+          if (hasDraftContent && newSubChatId) {
+            await saveSubChatDraftWithAttachments(data.id, newSubChatId, text, {
               images: readyImages,
               files: readyFiles,
             })
@@ -1425,6 +1462,8 @@ export function NewChatForm({
     selectedBranch,
     selectedBranchType,
     agentMode,
+    selectedChatModel,
+    getFormSelection,
     createChatMutation,
   ])
 

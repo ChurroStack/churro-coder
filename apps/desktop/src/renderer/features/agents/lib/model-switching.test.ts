@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import type { FormSelection } from "./model-switching"
 
 // atoms/index.ts uses atomWithWindowStorage which accesses window.localStorage during init.
 // Mock window-storage to use plain atoms so the test runs in a node environment.
@@ -33,6 +34,7 @@ import {
   lastSelectedCodexThinkingAtom,
 } from "../atoms"
 import {
+  applyFormSelectionToSubChat,
   applyModeDefaultModel,
   getDefaultModelForMode,
   getDefaultThinkingForMode,
@@ -277,6 +279,75 @@ describe("applyModeDefaultModel — return value", () => {
   })
 })
 
+describe("applyFormSelectionToSubChat — Claude path", () => {
+  test("sets claude model atom and thinking, provider = claude-code", () => {
+    const id = nextSubChatId()
+    const selection: FormSelection = {
+      provider: "claude-code",
+      claudeModelId: "opus[1m]",
+      claudeThinking: "xhigh",
+      codexModelId: "gpt-5.4",
+      codexThinking: "medium",
+    }
+
+    applyFormSelectionToSubChat(id, selection)
+
+    expect(appStore.get(subChatModelIdAtomFamily(id))).toBe("opus[1m]")
+    expect(appStore.get(subChatClaudeThinkingAtomFamily(id))).toBe("xhigh")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("claude-code")
+  })
+
+  test("does not write the codex model atom for a Claude selection", () => {
+    const id = nextSubChatId()
+    const before = appStore.get(subChatCodexModelIdAtomFamily(id))
+    const selection: FormSelection = {
+      provider: "claude-code",
+      claudeModelId: "sonnet",
+      claudeThinking: "off",
+      codexModelId: "gpt-5.4",
+      codexThinking: "high",
+    }
+
+    applyFormSelectionToSubChat(id, selection)
+
+    expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe(before)
+  })
+})
+
+describe("applyFormSelectionToSubChat — Codex path", () => {
+  test("sets codex model atom and thinking, provider = codex", () => {
+    const id = nextSubChatId()
+    const selection: FormSelection = {
+      provider: "codex",
+      claudeModelId: "opus",
+      claudeThinking: "high",
+      codexModelId: "gpt-5.4",
+      codexThinking: "medium",
+    }
+
+    applyFormSelectionToSubChat(id, selection)
+
+    expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe("gpt-5.4")
+    expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe("medium")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("codex")
+  })
+
+  test("does not set the claude model atom to the codex model ID", () => {
+    const id = nextSubChatId()
+    const selection: FormSelection = {
+      provider: "codex",
+      claudeModelId: "opus",
+      claudeThinking: "high",
+      codexModelId: "gpt-5.4",
+      codexThinking: "high",
+    }
+
+    applyFormSelectionToSubChat(id, selection)
+
+    expect(appStore.get(subChatModelIdAtomFamily(id))).not.toBe("gpt-5.4")
+  })
+})
+
 // Source-inspection guard for the AGENTS.md "Model-switch ordering" invariant.
 // The unit tests above prove applyModeDefaultModel does the right thing when
 // called — but they cannot catch a regression that simply moves the call back
@@ -316,6 +387,47 @@ describe("handleApprovePlan — call-ordering regression", () => {
     expect(
       providerAt < awaitAt,
       "onProviderChange must fire before await so transport recreates with the new provider before the message is sent",
+    ).toBe(true)
+  })
+})
+
+// Source-inspection guard for new-chat-form's submit-time model binding.
+// Ensures applyFormSelectionToSubChat is called in both handleSend's onSuccess
+// and handleOpen's onSuccess, and that in handleOpen it precedes any await.
+describe("new-chat-form — applyFormSelectionToSubChat call-ordering regression", () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const formPath = resolve(here, "../main/new-chat-form.tsx")
+
+  test("applyFormSelectionToSubChat is called in handleSend's onSuccess", () => {
+    const src = readFileSync(formPath, "utf-8")
+
+    const sendStart = src.indexOf("const handleSend = useCallback(async")
+    expect(sendStart, "handleSend not found in new-chat-form.tsx").toBeGreaterThan(-1)
+    const sendEnd = src.indexOf("}, [", sendStart)
+    const sendBody = src.slice(sendStart, sendEnd)
+
+    expect(
+      sendBody.includes("applyFormSelectionToSubChat"),
+      "applyFormSelectionToSubChat missing from handleSend — model/thinking won't be applied to new chats",
+    ).toBe(true)
+  })
+
+  test("applyFormSelectionToSubChat is called in handleOpen's onSuccess before any await", () => {
+    const src = readFileSync(formPath, "utf-8")
+
+    const openStart = src.indexOf("const handleOpen = useCallback(async")
+    expect(openStart, "handleOpen not found in new-chat-form.tsx").toBeGreaterThan(-1)
+    const openEnd = src.indexOf("}, [", openStart)
+    const openBody = src.slice(openStart, openEnd)
+
+    const applyAt = openBody.indexOf("applyFormSelectionToSubChat")
+    const awaitAt = openBody.indexOf("await saveSubChatDraftWithAttachments")
+
+    expect(applyAt, "applyFormSelectionToSubChat missing from handleOpen").toBeGreaterThanOrEqual(0)
+    expect(awaitAt, "await saveSubChatDraftWithAttachments missing from handleOpen").toBeGreaterThanOrEqual(0)
+    expect(
+      applyAt < awaitAt,
+      "applyFormSelectionToSubChat must run before await saveSubChatDraftWithAttachments — model-switch ordering invariant",
     ).toBe(true)
   })
 })
