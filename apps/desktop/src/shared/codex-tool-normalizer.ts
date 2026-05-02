@@ -120,9 +120,27 @@ function toCanonicalToolState(state: unknown): string | undefined {
   return typeof state === "string" ? state : undefined
 }
 
+const ACP_NATIVE_TOOL_NAMES = new Set([
+  "AskUserQuestion",
+  "PlanWrite",
+  "TodoWrite",
+  "TaskCreate",
+  "TaskUpdate",
+  "TaskList",
+  "TaskGet",
+])
+
 function parseCodexToolDescriptor(rawToolName: string): CodexToolDescriptor | null {
   const normalizedName = rawToolName.trim()
   if (!normalizedName) return null
+
+  const MCP_ACP_PREFIX = "mcp__acp-ai-sdk-tools__"
+  if (normalizedName.startsWith(MCP_ACP_PREFIX)) {
+    const tool = normalizedName.slice(MCP_ACP_PREFIX.length)
+    if (ACP_NATIVE_TOOL_NAMES.has(tool)) {
+      return { canonicalToolName: tool, detail: "", isMcp: false }
+    }
+  }
 
   if (normalizedName.startsWith("Tool:")) {
     const payload = normalizedName.slice("Tool:".length).trim()
@@ -136,7 +154,7 @@ function parseCodexToolDescriptor(rawToolName: string): CodexToolDescriptor | nu
 
     if (
       serverName === "acp-ai-sdk-tools" &&
-      (rawToolName === "AskUserQuestion" || rawToolName === "PlanWrite")
+      ACP_NATIVE_TOOL_NAMES.has(rawToolName)
     ) {
       return {
         canonicalToolName: rawToolName,
