@@ -199,6 +199,60 @@ describe("applyModeDefaultModel — Codex path (#32 regression)", () => {
   })
 })
 
+describe("applyModeDefaultModel — agent mode", () => {
+  test("agent with Claude model → sets Claude atoms, provider = claude-code", () => {
+    const id = nextSubChatId()
+    appStore.set(defaultAgentModeModelAtom, "haiku")
+    appStore.set(defaultAgentModeThinkingAtom, "off")
+
+    const result = applyModeDefaultModel(id, "agent")
+
+    expect(result.modelId).toBe("haiku")
+    expect(result.provider).toBe("claude-code")
+    expect(appStore.get(subChatModelIdAtomFamily(id))).toBe("haiku")
+    expect(appStore.get(subChatClaudeThinkingAtomFamily(id))).toBe("off")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("claude-code")
+  })
+
+  test("agent with Codex model → sets Codex atoms, provider = codex", () => {
+    const id = nextSubChatId()
+    appStore.set(defaultAgentModeModelAtom, "gpt-5.4")
+    appStore.set(defaultAgentModeThinkingAtom, "medium")
+
+    const result = applyModeDefaultModel(id, "agent")
+
+    expect(result.modelId).toBe("gpt-5.4")
+    expect(result.provider).toBe("codex")
+    expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe("gpt-5.4")
+    expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe("medium")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("codex")
+  })
+
+  test("agent with Codex model → Claude model atom NOT set to the Codex model ID", () => {
+    const id = nextSubChatId()
+    appStore.set(defaultAgentModeModelAtom, "gpt-5.4")
+
+    applyModeDefaultModel(id, "agent")
+
+    expect(appStore.get(subChatModelIdAtomFamily(id))).not.toBe("gpt-5.4")
+  })
+
+  test("plan=Claude then agent=Codex → provider override switches to codex", () => {
+    const id = nextSubChatId()
+    appStore.set(defaultPlanModeModelAtom, "opus[1m]")
+    appStore.set(defaultAgentModeModelAtom, "gpt-5.4")
+
+    applyModeDefaultModel(id, "plan")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("claude-code")
+
+    applyModeDefaultModel(id, "agent")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("codex")
+    expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe("gpt-5.4")
+    // Claude model atom retains the plan-phase value, not the Codex ID
+    expect(appStore.get(subChatModelIdAtomFamily(id))).toBe("opus[1m]")
+  })
+})
+
 describe("applyModeDefaultModel — return value", () => {
   test("returns { modelId, provider } synchronously", () => {
     const id = nextSubChatId()
