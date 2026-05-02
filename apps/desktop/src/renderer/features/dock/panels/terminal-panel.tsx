@@ -86,6 +86,7 @@ export function TerminalPanel({ params, api }: IDockviewPanelProps<TerminalPanel
           paneId={params.paneId}
           cwd={params.cwd}
           workspaceId={params.workspaceId}
+          initialCommands={params.initialCommands}
           initialCwd={params.cwd}
         />
       </motion.div>

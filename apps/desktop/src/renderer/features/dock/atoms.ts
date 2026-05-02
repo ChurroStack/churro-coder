@@ -53,6 +53,9 @@ export interface TerminalPanelEntity {
   cwd: string
   /** Persistence scope id (usually the same as chatId for local chats). */
   workspaceId: string
+  /** Shell commands sent to the PTY immediately after it spawns. Used by
+   *  script terminals to run their command on open. */
+  initialCommands?: string[]
 }
 export interface FilePanelEntity {
   absolutePath: string

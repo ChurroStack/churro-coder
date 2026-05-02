@@ -69,6 +69,7 @@ export function ClaudeLoginModal({
   )
   const urlOpenedRef = useRef(false)
   const didAutoStartForOpenRef = useRef(false)
+  const autoCompletedRef = useRef(false)
 
   // tRPC mutations
   const startAuthMutation = trpc.claudeCode.startAuth.useMutation()
@@ -94,14 +95,22 @@ export function ClaudeLoginModal({
   const shouldOfferExistingToken =
     open && checkedExistingToken && hasExistingToken && !ignoredExistingToken
 
-  // Poll for OAuth URL
+  // Poll for OAuth URL and — once the browser is open — for subprocess completion
   const pollStatusQuery = trpc.claudeCode.pollStatus.useQuery(
     {
-      sandboxUrl: flowState.step === "waiting_url" ? flowState.sandboxUrl : "",
-      sessionId: flowState.step === "waiting_url" ? flowState.sessionId : "",
+      sandboxUrl:
+        flowState.step === "waiting_url" || flowState.step === "has_url"
+          ? flowState.sandboxUrl
+          : "",
+      sessionId:
+        flowState.step === "waiting_url" || flowState.step === "has_url"
+          ? flowState.sessionId
+          : "",
     },
     {
-      enabled: flowState.step === "waiting_url",
+      enabled:
+        flowState.step === "waiting_url" ||
+        (flowState.step === "has_url" && urlOpened),
       refetchInterval: 1500,
     }
   )
@@ -131,6 +140,22 @@ export function ClaudeLoginModal({
     }
   }, [pollStatusQuery.data, flowState])
 
+  // Auto-close when the CLI subprocess completes the OAuth flow autonomously.
+  // This fires when the subprocess's local HTTP server receives the browser
+  // redirect and session.status flips to "success" — no code paste required.
+  useEffect(() => {
+    if (
+      flowState.step === "has_url" &&
+      urlOpened &&
+      !autoCompletedRef.current &&
+      pollStatusQuery.data?.state === "success"
+    ) {
+      autoCompletedRef.current = true
+      handleAuthSuccess()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollStatusQuery.data?.state, flowState.step, urlOpened])
+
   // Open URL in browser when ready (after user clicked Connect)
   useEffect(() => {
     if (
@@ -157,6 +182,7 @@ export function ClaudeLoginModal({
       setExistingTokenError(null)
       urlOpenedRef.current = false
       didAutoStartForOpenRef.current = false
+      autoCompletedRef.current = false
       // Clear pending retry if modal closed without success (user cancelled)
       // Note: We don't clear here because success handler sets readyToRetry=true first
     }
@@ -476,11 +502,18 @@ export function ClaudeLoginModal({
               flowState.step === "has_url" ||
               flowState.step === "submitting") && (
               <div className="space-y-4">
+                {/* Polling indicator while waiting for the browser redirect */}
+                {urlOpened && !authCode && !isSubmitting && (
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <IconSpinner className="h-4 w-4 shrink-0" />
+                    <span>Waiting for browser authorization…</span>
+                  </div>
+                )}
                 <Input
                   value={authCode}
                   onChange={handleCodeChange}
                   onKeyDown={handleKeyDown}
-                  placeholder="Paste your authentication code here..."
+                  placeholder="Or paste your authentication code here..."
                   className="font-mono text-center"
                   autoFocus
                   disabled={isSubmitting}

@@ -1576,7 +1576,7 @@ export const claudeRouter = router({
             // mode (system prompt, plan-mode instructions in JSONL). Layering a new
             // permissionMode on top of the resume call does not override that context.
             // Force a brand-new session so the new mode takes full effect.
-            if (shouldForceFreshSessionOnModeChange({ resumeSessionId, existingSessionMode, inputMode: input.mode })) {
+            if (shouldForceFreshSessionOnModeChange({ resumeSessionId, existingSessionId, existingSessionMode, inputMode: input.mode })) {
               console.log(
                 `[claude] Mode changed (${existingSessionMode}→${input.mode}) - forcing fresh session`,
               )

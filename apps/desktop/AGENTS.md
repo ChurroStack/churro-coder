@@ -270,8 +270,8 @@ To simulate a clean install (wipe database, settings):
 
 ```bash
 # Clear all app data (database, settings)
-rm -rf ~/Library/Application\ Support/CS\ Coder\ Dev/  # Dev mode
-rm -rf ~/Library/Application\ Support/CS\ Coder/        # Production
+rm -rf ~/Library/Application\ Support/Churro\ Coder\ Dev/  # Dev mode
+rm -rf ~/Library/Application\ Support/Churro\ Coder/        # Production
 
 # Run in dev mode with clean state
 bun run dev

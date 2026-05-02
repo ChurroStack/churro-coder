@@ -1,0 +1,16 @@
+{
+  "setup-worktree": [
+    "pnpm install",
+    "cd apps/desktop && bun install && bun run claude:download && bun run codex:download"
+  ],
+  "scripts": [
+    { "name": "desktop-dev", "command": "pnpm exec nx run desktop:dev" },
+    { "name": "gateway-dev", "command": "pnpm exec nx run gateway:run" },
+    { "name": "daemon-dev", "command": "pnpm exec nx run daemon:serve" },
+    { "name": "build", "command": "pnpm exec nx run-many -t build" },
+    { "name": "test", "command": "pnpm exec nx run-many -t test" },
+    { "name": "test-affected", "command": "pnpm exec nx affected -t test" },
+    { "name": "lint", "command": "pnpm exec nx run-many -t lint" },
+    { "name": "graph", "command": "pnpm exec nx graph" }
+  ]
+}

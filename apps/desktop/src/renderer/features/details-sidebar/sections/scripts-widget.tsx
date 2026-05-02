@@ -1,10 +1,11 @@
 "use client"
 
 import { memo, useCallback, useMemo } from "react"
-import { useAtom, useSetAtom } from "jotai"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import { Play, Square, Settings2 } from "lucide-react"
 import { trpc } from "../../../lib/trpc"
 import { cn } from "../../../lib/utils"
+import { newPanelPlacementAtom } from "../../../lib/atoms"
 import {
   terminalsAtom,
   activeTerminalIdAtom,
@@ -15,6 +16,8 @@ import {
   getScriptTerminalId,
 } from "../../terminal/utils"
 import type { TerminalInstance } from "../../terminal/types"
+import { useDockApi } from "../../dock/dock-context"
+import { addOrFocus, resolvePlacementOpts } from "../../dock/add-or-focus"
 
 const SESSION_POLL_INTERVAL_MS = 2000
 
@@ -106,7 +109,7 @@ const ScriptRow = memo(function ScriptRow({
 export const ScriptsWidget = memo(function ScriptsWidget({
   chatId,
   projectId,
-  worktreePath: _worktreePath,
+  worktreePath,
   scopeKey,
   onOpenSettings,
 }: ScriptsWidgetProps) {
@@ -125,6 +128,8 @@ export const ScriptsWidget = memo(function ScriptsWidget({
   const setTerminalSidebarOpen = useSetAtom(
     terminalSidebarOpenAtomFamily(chatId),
   )
+  const dockApi = useDockApi()
+  const placement = useAtomValue(newPanelPlacementAtom)
   const killMutation = trpc.terminal.kill.useMutation()
 
   const tabsForScope = allTerminals[scopeKey] ?? []
@@ -151,9 +156,31 @@ export const ScriptsWidget = memo(function ScriptsWidget({
         return { ...prev, [scopeKey]: [...list, next] }
       })
       setAllActiveIds((prev) => ({ ...prev, [scopeKey]: id }))
-      setTerminalSidebarOpen(true)
+
+      if (dockApi) {
+        addOrFocus(
+          dockApi,
+          {
+            kind: "terminal",
+            data: {
+              paneId,
+              name: scriptName,
+              // Use scopeKey as chatId so TerminalPanel resolves the terminal
+              // from allTerminals[scopeKey] (where script terminals are stored)
+              // and cleanup in DockShell removes from the correct list.
+              chatId: scopeKey,
+              cwd: worktreePath,
+              workspaceId: chatId,
+              initialCommands: [command],
+            },
+          },
+          resolvePlacementOpts(dockApi, placement, true, undefined),
+        )
+      } else {
+        setTerminalSidebarOpen(true)
+      }
     },
-    [scopeKey, setAllTerminals, setAllActiveIds, setTerminalSidebarOpen],
+    [scopeKey, worktreePath, chatId, setAllTerminals, setAllActiveIds, dockApi, placement, setTerminalSidebarOpen],
   )
 
   const handleStop = useCallback(
@@ -161,6 +188,12 @@ export const ScriptsWidget = memo(function ScriptsWidget({
       const paneId = getScriptPaneId(scopeKey, scriptName)
       // Best-effort kill; harmless if the pty is already dead.
       killMutation.mutate({ paneId })
+
+      // Close the dockview panel so re-clicking Play spawns a fresh terminal
+      // rather than focusing the stale dead one. DockShell's onDidRemovePanel
+      // will also remove from allTerminals, making the setAllTerminals below
+      // a no-op, which is fine.
+      dockApi?.getPanel(`terminal:${paneId}`)?.api.close()
 
       setAllTerminals((prev) => {
         const list = prev[scopeKey] ?? []
@@ -178,7 +211,7 @@ export const ScriptsWidget = memo(function ScriptsWidget({
         return { ...prev, [scopeKey]: fallback }
       })
     },
-    [scopeKey, killMutation, setAllTerminals, setAllActiveIds, allTerminals],
+    [scopeKey, dockApi, killMutation, setAllTerminals, setAllActiveIds, allTerminals],
   )
 
   if (!projectId) {
