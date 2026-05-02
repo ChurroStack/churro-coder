@@ -1,5 +1,6 @@
 {
   "name": "cscode-desktop",
+  "productName": "Churro Coder",
   "version": "1.0.0-aletc1",
   "private": true,
   "description": "Churro Coder - UI for parallel work with AI agents",
