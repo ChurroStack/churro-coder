@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { getProviderForModelId } from "../../../../shared/provider-from-model"
-import { BrowserWindow } from "electron"
+import { BrowserWindow, safeStorage } from "electron"
 import * as fs from "fs/promises"
 import * as path from "path"
 import simpleGit from "simple-git"
@@ -11,7 +11,7 @@ import {
   trackWorkspaceCreated,
   trackWorkspaceDeleted,
 } from "../../analytics"
-import { chats, getDatabase, projects, subChats } from "../../db"
+import { anthropicAccounts, anthropicSettings, chats, claudeCodeCredentials, getDatabase, projects, subChats } from "../../db"
 import { computeFileStatsFromMessages } from "../../file-stats"
 import {
   createWorktreeForChat,
@@ -167,38 +167,162 @@ Title:`
   }
 }
 
-/**
- * Generate commit message using local Ollama model
- * Used for commit message generation in offline mode
- * @param diff - The diff text
- * @param fileCount - Number of files changed
- * @param additions - Lines added
- * @param deletions - Lines deleted
- * @param model - Optional model to use (if not provided, uses recommended model)
- */
+function decryptStoredToken(encrypted: string): string {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return Buffer.from(encrypted, "base64").toString("utf-8")
+  }
+  return safeStorage.decryptString(Buffer.from(encrypted, "base64"))
+}
+
+function getActiveOAuthToken(): string | null {
+  try {
+    const db = getDatabase()
+    const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, "singleton")).get()
+    if (settings?.activeAccountId) {
+      const account = db.select().from(anthropicAccounts).where(eq(anthropicAccounts.id, settings.activeAccountId)).get()
+      if (account?.oauthToken) return decryptStoredToken(account.oauthToken)
+    }
+    const legacy = db.select().from(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, "default")).get()
+    if (legacy?.oauthToken) return decryptStoredToken(legacy.oauthToken)
+    return null
+  } catch {
+    return null
+  }
+}
+
+async function generateCommitMessageWithClaude(
+  diff: string,
+  fileCount: number,
+  additions: number,
+  deletions: number,
+  existingTitle?: string
+): Promise<{ title: string; description: string } | null> {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    const oauthToken = apiKey ? null : getActiveOAuthToken()
+    if (!apiKey && !oauthToken) return null
+
+    const authHeaders: Record<string, string> = apiKey
+      ? { "x-api-key": apiKey }
+      : { "Authorization": `Bearer ${oauthToken}` }
+
+    let userPrompt: string
+    if (existingTitle) {
+      userPrompt = `Write a concise git commit description body for a commit titled: "${existingTitle}"
+
+The description should explain WHY the change was made (1-4 sentences). Do NOT repeat the title. Do NOT include the title in the output.
+
+Changes: ${fileCount} files, +${additions}/-${deletions} lines
+
+Diff (truncated):
+${diff.slice(0, 3000)}
+
+Output only the description body text, no title, no prefix:`
+    } else {
+      userPrompt = `Generate a git commit message for these changes. Return a JSON object with "title" (conventional commit format, ≤72 chars) and "description" (1-4 sentences explaining WHY, not what).
+
+Types: feat, fix, docs, style, refactor, test, chore
+
+Changes: ${fileCount} files, +${additions}/-${deletions} lines
+
+Diff (truncated):
+${diff.slice(0, 3000)}
+
+Return only valid JSON, no markdown, no explanation. Example: {"title":"feat: add user auth","description":"Implements JWT-based authentication to replace the existing session system. Reduces server memory usage and enables stateless horizontal scaling."}`
+    }
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 400,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+      signal: AbortSignal.timeout(15000),
+    })
+
+    if (!response.ok) {
+      console.error("[Claude] Commit message generation failed:", response.status)
+      return null
+    }
+
+    const data = await response.json()
+    const text = data.content?.[0]?.text?.trim()
+    if (!text) return null
+
+    if (existingTitle) {
+      const description = text.replace(/^description:\s*/i, "").trim()
+      return { title: existingTitle, description }
+    }
+
+    // Parse JSON response
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        const title = (parsed.title ?? "").slice(0, 72).trim()
+        const description = (parsed.description ?? "").trim()
+        if (title) return { title, description }
+      }
+    } catch {
+      // JSON parse failed — fall back to line-split
+    }
+
+    // Fallback: first line = title, rest = description
+    const lines = text.split("\n").map((l: string) => l.trim()).filter(Boolean)
+    const title = (lines[0] ?? "").slice(0, 72)
+    const description = lines.slice(1).join("\n").trim()
+    return title ? { title, description } : null
+  } catch (error) {
+    console.error("[Claude] Commit message generation error:", error)
+    return null
+  }
+}
+
 async function generateCommitMessageWithOllama(
   diff: string,
   fileCount: number,
   additions: number,
   deletions: number,
-  model?: string | null
-): Promise<string | null> {
+  model?: string | null,
+  existingTitle?: string
+): Promise<{ title: string; description: string } | null> {
   try {
     const ollamaStatus = await checkOllamaStatus()
     if (!ollamaStatus.available) {
       return null
     }
 
-    // Use provided model, or recommended, or first available
     const modelToUse = model || ollamaStatus.recommendedModel || ollamaStatus.models[0]
     if (!modelToUse) {
       console.error("[Ollama] No model available")
       return null
     }
 
-    const prompt = `Generate a conventional commit message for these changes. Use format: type: short description
+    let prompt: string
+    if (existingTitle) {
+      prompt = `Write a concise git commit description body for a commit titled: "${existingTitle}"
 
-Types: feat (new feature), fix (bug fix), docs, style, refactor, test, chore
+The description should explain WHY the change was made (1-4 sentences). Do NOT repeat the title. Output only the description body.
+
+Changes: ${fileCount} files, +${additions}/-${deletions} lines
+
+Diff (truncated):
+${diff.slice(0, 3000)}
+
+Description:`
+    } else {
+      prompt = `Generate a git commit message for these changes.
+
+Line 1: conventional commit title (format: type: short description, ≤72 chars)
+Types: feat, fix, docs, style, refactor, test, chore
+Line 2: blank
+Lines 3+: 1-4 sentences explaining WHY the change was made
 
 Changes: ${fileCount} files, +${additions}/-${deletions} lines
 
@@ -206,6 +330,7 @@ Diff (truncated):
 ${diff.slice(0, 3000)}
 
 Commit message:`
+    }
 
     const response = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
@@ -214,10 +339,7 @@ Commit message:`
         model: modelToUse,
         prompt,
         stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 50,
-        },
+        options: { temperature: 0.3, num_predict: 300 },
       }),
     })
 
@@ -228,14 +350,26 @@ Commit message:`
 
     const data = await response.json()
     const result = data.response?.trim()
-    if (result) {
-      // Clean up - get just the first line
-      const firstLine = result.split("\n")[0]?.trim()
-      if (firstLine && firstLine.length > 0 && firstLine.length < 100) {
-        return firstLine
-      }
+    if (!result) return null
+
+    if (existingTitle) {
+      const description = result.replace(/^description:\s*/i, "").trim()
+      return { title: existingTitle, description }
     }
-    return null
+
+    // Parse: first non-empty line = title, remainder after blank = description
+    const lines = result.split("\n")
+    const titleLine = lines[0]?.trim() ?? ""
+    if (!titleLine || titleLine.length >= 100) return null
+
+    const descLines = lines.slice(1).filter((l: string, i: number, arr: string[]) => {
+      // skip the first blank line separator
+      if (i === 0 && !l.trim()) return false
+      return true
+    })
+    const description = descLines.join("\n").trim()
+
+    return { title: titleLine, description }
   } catch (error) {
     console.error("[Ollama] Generate commit message error:", error)
     return null
@@ -1296,131 +1430,113 @@ export const chatsRouter = router({
       return response
     }),
 
-  /**
-   * Generate a commit message using AI based on the diff
-   * @param chatId - The chat ID to get worktree path from
-   * @param filePaths - Optional list of file paths to generate message for (if not provided, uses all changed files)
-   * @param ollamaModel - Optional Ollama model for offline generation
-   */
   generateCommitMessage: publicProcedure
     .input(z.object({
       chatId: z.string(),
       filePaths: z.array(z.string()).optional(),
-      ollamaModel: z.string().nullish(), // Optional model for offline mode
+      ollamaModel: z.string().nullish(),
+      existingTitle: z.string().optional(),
+      useOllamaFallback: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get()
 
       if (!chat?.worktreePath) {
         throw new Error("No worktree path")
       }
 
-      // Get the diff to understand what changed
-      const result = await getWorktreeDiff(
-        chat.worktreePath,
-        chat.baseBranch ?? undefined,
-      )
-
+      const result = await getWorktreeDiff(chat.worktreePath, chat.baseBranch ?? undefined)
       if (!result.success || !result.diff) {
         throw new Error("Failed to get diff")
       }
 
-      // Parse diff to get file list
       let files = splitUnifiedDiffByFile(result.diff)
 
-      // Filter to only selected files if filePaths provided
       if (input.filePaths && input.filePaths.length > 0) {
         const selectedPaths = new Set(input.filePaths)
         files = files.filter((f) => {
           const filePath = f.newPath !== "/dev/null" ? f.newPath : f.oldPath
-          // Match by exact path or by path suffix (handle different path formats)
           return selectedPaths.has(filePath) ||
             [...selectedPaths].some(sp => filePath.endsWith(sp) || sp.endsWith(filePath))
         })
-        console.log(`[generateCommitMessage] Filtered ${files.length} files from ${input.filePaths.length} selected paths`)
       }
 
       if (files.length === 0) {
         throw new Error("No changes to commit")
       }
 
-      // Build filtered diff text for API (only selected files)
       const filteredDiff = files.map(f => f.diffText).join('\n')
       const additions = files.reduce((sum, f) => sum + f.additions, 0)
       const deletions = files.reduce((sum, f) => sum + f.deletions, 0)
 
-      // Try Ollama first (local LLM)
-      const ollamaMessage = await generateCommitMessageWithOllama(
-        filteredDiff,
-        files.length,
-        additions,
-        deletions,
-        input.ollamaModel
+      // 1. Try Claude (primary AI)
+      const claudeResult = await generateCommitMessageWithClaude(
+        filteredDiff, files.length, additions, deletions, input.existingTitle
       )
-      if (ollamaMessage) {
-        console.log("[generateCommitMessage] Generated via Ollama:", ollamaMessage)
-        return { message: ollamaMessage }
+      if (claudeResult) {
+        console.log("[generateCommitMessage] Generated via Claude, provider: claude")
+        return { title: claudeResult.title, description: claudeResult.description, provider: "claude" as const }
       }
 
-      // Fallback: Generate commit message with conventional commits style
-      const fileNames = files.map((f) => {
-        const filePath = f.newPath !== "/dev/null" ? f.newPath : f.oldPath
-        // Note: Git diff paths always use forward slashes
-        return path.posix.basename(filePath) || filePath
-      })
+      // 2. Try Ollama (fallback, only when enabled)
+      if (input.useOllamaFallback) {
+        const ollamaResult = await generateCommitMessageWithOllama(
+          filteredDiff, files.length, additions, deletions, input.ollamaModel, input.existingTitle
+        )
+        if (ollamaResult) {
+          console.log("[generateCommitMessage] Generated via Ollama, provider: ollama")
+          return { title: ollamaResult.title, description: ollamaResult.description, provider: "ollama" as const }
+        }
+      }
 
-      // Detect commit type from file changes
+      // 3. Heuristic fallback — always succeeds
+      const allPaths = files.map((f) => f.newPath !== "/dev/null" ? f.newPath : f.oldPath)
+      const fileNames = allPaths.map(p => path.posix.basename(p) || p)
+
       const hasNewFiles = files.some((f) => f.oldPath === "/dev/null")
       const hasDeletedFiles = files.some((f) => f.newPath === "/dev/null")
       const hasOnlyDeletions = files.every((f) => f.additions === 0 && f.deletions > 0)
-
-      // Detect type from file paths
-      const allPaths = files.map((f) => f.newPath !== "/dev/null" ? f.newPath : f.oldPath)
       const hasTestFiles = allPaths.some((p) => p.includes("test") || p.includes("spec"))
       const hasDocFiles = allPaths.some((p) => p.endsWith(".md") || p.includes("doc"))
       const hasConfigFiles = allPaths.some((p) =>
-        p.includes("config") ||
-        p.endsWith(".json") ||
-        p.endsWith(".yaml") ||
-        p.endsWith(".yml") ||
-        p.endsWith(".toml")
+        p.includes("config") || p.endsWith(".json") || p.endsWith(".yaml") ||
+        p.endsWith(".yml") || p.endsWith(".toml")
       )
 
-      // Determine commit type prefix
       let prefix = "chore"
-      if (hasNewFiles && !hasDeletedFiles) {
-        prefix = "feat"
-      } else if (hasOnlyDeletions) {
-        prefix = "chore"
-      } else if (hasTestFiles && !hasDocFiles && !hasConfigFiles) {
-        prefix = "test"
-      } else if (hasDocFiles && !hasTestFiles && !hasConfigFiles) {
-        prefix = "docs"
-      } else if (allPaths.some((p) => p.includes("fix") || p.includes("bug"))) {
-        prefix = "fix"
-      } else if (files.length > 0 && files.every((f) => f.additions > 0 || f.deletions > 0)) {
-        // Default to fix for modifications (most common case)
-        prefix = "fix"
-      }
+      if (hasNewFiles && !hasDeletedFiles) prefix = "feat"
+      else if (hasOnlyDeletions) prefix = "chore"
+      else if (hasTestFiles && !hasDocFiles && !hasConfigFiles) prefix = "test"
+      else if (hasDocFiles && !hasTestFiles && !hasConfigFiles) prefix = "docs"
+      else if (allPaths.some((p) => p.includes("fix") || p.includes("bug"))) prefix = "fix"
+      else if (files.every((f) => f.additions > 0 || f.deletions > 0)) prefix = "fix"
 
       const uniqueFileNames = [...new Set(fileNames)]
-      let message: string
-
-      if (uniqueFileNames.length === 1) {
-        message = `${prefix}: update ${uniqueFileNames[0]}`
+      let heuristicTitle: string
+      if (input.existingTitle) {
+        heuristicTitle = input.existingTitle
+      } else if (uniqueFileNames.length === 1) {
+        heuristicTitle = `${prefix}: update ${uniqueFileNames[0]}`
       } else if (uniqueFileNames.length <= 3) {
-        message = `${prefix}: update ${uniqueFileNames.join(", ")}`
+        heuristicTitle = `${prefix}: update ${uniqueFileNames.join(", ")}`
       } else {
-        message = `${prefix}: update ${uniqueFileNames.length} files`
+        heuristicTitle = `${prefix}: update ${uniqueFileNames.length} files`
       }
 
-      console.log("[generateCommitMessage] Generated fallback message:", message)
-      return { message }
+      // Build per-file description (skip if user already provided the title — their intent is clear)
+      let heuristicDescription = ""
+      if (!input.existingTitle) {
+        const descLines = files.slice(0, 8).map((f) => {
+          const p = f.newPath !== "/dev/null" ? f.newPath : f.oldPath
+          return `- ${p}: +${f.additions} / -${f.deletions}`
+        })
+        if (files.length > 8) descLines.push(`- …and ${files.length - 8} more`)
+        heuristicDescription = descLines.join("\n")
+      }
+
+      console.log("[generateCommitMessage] Generated via heuristic")
+      return { title: heuristicTitle, description: heuristicDescription, provider: "heuristic" as const }
     }),
 
   /**

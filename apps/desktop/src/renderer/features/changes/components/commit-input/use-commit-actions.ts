@@ -3,10 +3,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { toast } from "sonner";
 import { trpc } from "../../../../lib/trpc";
-import { selectedOllamaModelAtom } from "../../../../lib/atoms";
+import { selectedOllamaModelAtom, showOfflineModeFeaturesAtom } from "../../../../lib/atoms";
 
 interface CommitActionInput {
-	message?: string;
+	title?: string;
+	description?: string;
 	filePaths?: string[];
 }
 
@@ -15,7 +16,7 @@ interface UseCommitActionsOptions {
 	chatId?: string;
 	onRefresh?: () => void;
 	onCommitSuccess?: () => void;
-	onMessageGenerated?: (message: string) => void;
+	onMessageGenerated?: (msg: { title: string; description: string }) => void;
 }
 
 export function useCommitActions({
@@ -28,6 +29,7 @@ export function useCommitActions({
 	const [isGenerating, setIsGenerating] = useState(false);
 	const queryClient = useQueryClient();
 	const selectedOllamaModel = useAtomValue(selectedOllamaModelAtom);
+	const useOllamaFallback = useAtomValue(showOfflineModeFeaturesAtom);
 
 	const handleSuccess = useCallback(() => {
 		queryClient.invalidateQueries({ queryKey: [["changes", "getStatus"]] });
@@ -39,37 +41,44 @@ export function useCommitActions({
 		toast.error(`Commit failed: ${error.message ?? "Unknown error"}`);
 	}, []);
 
-	// AI commit message generation
 	const generateCommitMutation = trpc.chats.generateCommitMessage.useMutation();
-
-	// Use atomic commit when we have selected files (safer, single operation)
 	const atomicCommitMutation = trpc.changes.atomicCommit.useMutation();
-
-	// Fallback to regular commit for staged changes
 	const commitMutation = trpc.changes.commit.useMutation();
 
 	const commit = useCallback(
-		async ({ message, filePaths }: CommitActionInput): Promise<boolean> => {
+		async ({ title, description, filePaths }: CommitActionInput): Promise<boolean> => {
 			if (!worktreePath) {
 				toast.error("Worktree path is required");
 				return false;
 			}
 
-			let commitMessage = message?.trim() ?? "";
-			console.log("[CommitActions] commit called, commitMessage:", commitMessage, "chatId:", chatId);
+			let commitTitle = title?.trim() ?? "";
+			let commitDescription = description?.trim() ?? "";
 
-			if (!commitMessage && chatId) {
-				console.log("[CommitActions] No message, generating with AI for files:", filePaths);
+			const needsTitle = !commitTitle && !!chatId;
+			const needsDescription = !commitDescription && !!chatId;
+
+			if ((needsTitle || needsDescription) && chatId) {
+				console.log("[CommitActions] Generating with AI — needsTitle:", needsTitle, "needsDescription:", needsDescription);
 				setIsGenerating(true);
 				try {
 					const result = await generateCommitMutation.mutateAsync({
 						chatId,
 						filePaths,
 						ollamaModel: selectedOllamaModel,
+						existingTitle: needsTitle ? undefined : commitTitle,
+						useOllamaFallback,
 					});
-					console.log("[CommitActions] AI generated message:", result.message);
-					commitMessage = result.message;
-					onMessageGenerated?.(result.message);
+					console.log("[CommitActions] AI generated:", result.title, "provider:", result.provider);
+
+					if (needsTitle) {
+						commitTitle = result.title;
+						commitDescription = result.description;
+					} else {
+						// Only description was missing — keep user's title
+						commitDescription = result.description;
+					}
+					onMessageGenerated?.({ title: commitTitle, description: commitDescription });
 				} catch (error) {
 					console.error("[CommitActions] Failed to generate message:", error);
 					toast.error("Failed to generate commit message");
@@ -79,18 +88,18 @@ export function useCommitActions({
 				}
 			}
 
-			if (!commitMessage) {
+			if (!commitTitle) {
 				toast.error("Please enter a commit message");
 				return false;
 			}
 
+			const commitMessage = commitDescription
+				? `${commitTitle}\n\n${commitDescription}`
+				: commitTitle;
+
 			try {
 				if (filePaths && filePaths.length > 0) {
-					await atomicCommitMutation.mutateAsync({
-						worktreePath,
-						filePaths,
-						message: commitMessage,
-					});
+					await atomicCommitMutation.mutateAsync({ worktreePath, filePaths, message: commitMessage });
 				} else {
 					await commitMutation.mutateAsync({ worktreePath, message: commitMessage });
 				}
@@ -106,6 +115,7 @@ export function useCommitActions({
 			chatId,
 			generateCommitMutation,
 			selectedOllamaModel,
+			useOllamaFallback,
 			onMessageGenerated,
 			atomicCommitMutation,
 			commitMutation,
