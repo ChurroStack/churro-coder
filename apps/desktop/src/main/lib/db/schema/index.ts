@@ -79,6 +79,7 @@ export const subChats = sqliteTable("sub_chats", {
     .notNull()
     .references(() => chats.id, { onDelete: "cascade" }),
   sessionId: text("session_id"), // Claude SDK session ID for resume
+  sessionMode: text("session_mode"), // "plan" | "agent" — mode the active sessionId was started with
   streamId: text("stream_id"), // Track in-progress streams
   mode: text("mode").notNull().default("agent"), // "plan" | "agent"
   messages: text("messages").notNull().default("[]"), // JSON array
