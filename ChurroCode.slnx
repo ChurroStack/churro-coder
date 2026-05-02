@@ -2,5 +2,6 @@
   <Folder Name="/apps/" />
   <Folder Name="/apps/gateway/">
     <Project Path="apps/gateway/Gateway.csproj" />
+    <Project Path="apps/gateway/Gateway.Tests/Gateway.Tests.csproj" />
   </Folder>
 </Solution>

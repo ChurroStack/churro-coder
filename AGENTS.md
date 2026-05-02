@@ -70,11 +70,38 @@ dotnet sln ChurroCode.slnx add <new-project>.csproj   # register new .NET projec
 cd apps/daemon
 go run .                       # run with default args
 go run . --version             # show version + GOOS/GOARCH
-go test ./...                  # run tests (none yet)
+go test ./...                  # run tests
 go mod tidy                    # after adding imports
 # When adding new Go modules under apps/ or libs/, register them in the root go.work:
 #   go work use ./apps/<new-module>
 ```
+
+## Running tests
+
+### Aggregate (all three apps)
+```bash
+pnpm exec nx run-many -t test          # run every test target; second run is cached
+pnpm exec nx affected -t test          # run only tests affected by local changes
+```
+
+### Per-app
+| App | Command | Runner | Test files |
+|---|---|---|---|
+| desktop | `pnpm exec nx run desktop:test` (or `cd apps/desktop && bun run test`) | Vitest 3 | `src/**/*.test.ts` co-located next to source |
+| gateway | `pnpm exec nx run gateway:test` (or `dotnet test apps/gateway/Gateway.Tests/Gateway.Tests.csproj`) | xUnit + `WebApplicationFactory` | `apps/gateway/Gateway.Tests/` |
+| daemon  | `pnpm exec nx run daemon:test` (or `cd apps/daemon && go test ./...`) | `go test` | `apps/daemon/*_test.go` |
+
+### Desktop test details
+Tests run in a Node.js environment (no Electron, no real SQLite). A `vitest.setup.ts` stubs `localStorage` so atoms that use `atomWithStorage({ getOnInit: true })` work in Node. Tests that need a DOM add `// @vitest-environment jsdom` at the top of the file.
+
+```bash
+cd apps/desktop
+bun run test              # one-shot run (used by CI and nx)
+bun run test:watch        # watch mode for local development
+```
+
+### CI
+GitHub Actions runs tests on every PR via the existing `.github/workflows/ci.yml` workflow (`nx run-many -t test`). The desktop `bun install` step sets `SKIP_ELECTRON_REBUILD=1` so native-module compilation is skipped in the Linux runner.
 
 ## Adding a new project
 

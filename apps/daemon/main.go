@@ -9,12 +9,16 @@ import (
 
 const version = "0.0.1"
 
+func versionString() string {
+	return fmt.Sprintf("churro-code daemon %s (%s/%s)", version, runtime.GOOS, runtime.GOARCH)
+}
+
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("churro-code daemon %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
+		fmt.Println(versionString())
 		return
 	}
 

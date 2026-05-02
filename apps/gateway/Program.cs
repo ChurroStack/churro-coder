@@ -12,3 +12,5 @@ if (app.Environment.IsDevelopment())
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "churro-code-gateway" }));
 
 app.Run();
+
+public partial class Program { }

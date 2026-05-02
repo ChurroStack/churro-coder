@@ -25,6 +25,9 @@ npm-debug.log*
 .env
 .env.local
 
+# Test coverage output
+coverage/
+
 # electron-vite temp files
 electron.vite.config.*.mjs
 

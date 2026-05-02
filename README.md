@@ -68,6 +68,30 @@ For platform installers (DMG / NSIS / AppImage / DEB) and the full release pipel
 
 `pnpm` lives at the repo root and drives Nx + plugins. **Bun manages `apps/desktop` exclusively** — `pnpm-workspace.yaml` deliberately excludes that path. Don't run `pnpm install` inside `apps/desktop`; the two package managers will fight over the lockfile. This split is intentional, not a migration in progress.
 
+## Testing
+
+```bash
+# Run all test suites (Vitest + xUnit + go test), Nx-cached
+pnpm exec nx run-many -t test
+
+# Run only tests affected by your local changes
+pnpm exec nx affected -t test
+```
+
+| App | Runner | How to run directly |
+|-----|--------|---------------------|
+| `apps/desktop` | Vitest | `cd apps/desktop && bun run test` |
+| `apps/gateway` | xUnit (`WebApplicationFactory`) | `dotnet test apps/gateway/Gateway.Tests/Gateway.Tests.csproj` |
+| `apps/daemon` | `go test` | `cd apps/daemon && go test ./...` |
+
+Desktop tests run in Node.js (no Electron). Tests that need a DOM add `// @vitest-environment jsdom` at the top of the file. See [`AGENTS.md#running-tests`](AGENTS.md#running-tests) for more details.
+
+To generate an HTML coverage report for the desktop suite:
+
+```bash
+cd apps/desktop && bun run test --coverage && open coverage/index.html
+```
+
 ## CI
 
 GitHub Actions runs `nx run-many -t build lint test` on every PR to `main` (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Wire the **`CI / Build & check`** check into a branch protection rule / ruleset to gate merges.
