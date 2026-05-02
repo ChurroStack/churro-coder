@@ -195,12 +195,46 @@ function getActiveOAuthToken(): string | null {
   }
 }
 
+function buildChatContextFromMessages(db: ReturnType<typeof getDatabase>, chatId: string): string | undefined {
+  try {
+    const rows = db.select({ messages: subChats.messages })
+      .from(subChats)
+      .where(eq(subChats.chatId, chatId))
+      .all()
+
+    const userTexts: string[] = []
+    for (const row of rows) {
+      let msgs: Array<{ role: string; parts?: Array<{ type: string; text?: string }> }>
+      try { msgs = JSON.parse(row.messages) } catch { continue }
+      for (const msg of msgs) {
+        if (msg.role !== "user") continue
+        const text = msg.parts
+          ?.filter(p => p.type === "text" && p.text)
+          .map(p => p.text!)
+          .join(" ")
+          .trim()
+        if (text) userTexts.push(text)
+      }
+    }
+
+    if (userTexts.length === 0) return undefined
+    // Take the last 4 user messages, cap each at 300 chars to stay concise
+    return userTexts
+      .slice(-4)
+      .map(t => t.slice(0, 300))
+      .join("\n")
+  } catch {
+    return undefined
+  }
+}
+
 async function generateCommitMessageWithClaude(
   diff: string,
   fileCount: number,
   additions: number,
   deletions: number,
-  existingTitle?: string
+  existingTitle?: string,
+  chatContext?: string
 ): Promise<{ title: string; description: string } | null> {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -211,29 +245,37 @@ async function generateCommitMessageWithClaude(
       ? { "x-api-key": apiKey }
       : { "Authorization": `Bearer ${oauthToken}` }
 
+    const contextBlock = chatContext
+      ? `Task context (what the developer was working on):\n${chatContext}\n\n`
+      : ""
+
     let userPrompt: string
     if (existingTitle) {
-      userPrompt = `Write a concise git commit description body for a commit titled: "${existingTitle}"
+      userPrompt = `Write a commit description body for: "${existingTitle}"
 
-The description should explain WHY the change was made (1-4 sentences). Do NOT repeat the title. Do NOT include the title in the output.
+Describe the functional impact in 2-4 sentences — what changed from a user/business perspective and why it was needed. Do NOT repeat the title. Write for someone skimming git log, not reading the diff.
 
-Changes: ${fileCount} files, +${additions}/-${deletions} lines
+${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
 
-Diff (truncated):
-${diff.slice(0, 3000)}
+Diff:
+${diff.slice(0, 6000)}
 
-Output only the description body text, no title, no prefix:`
+Output only the description text, no title, no prefix:`
     } else {
-      userPrompt = `Generate a git commit message for these changes. Return a JSON object with "title" (conventional commit format, ≤72 chars) and "description" (1-4 sentences explaining WHY, not what).
+      userPrompt = `Generate a git commit message for these changes. Return a JSON object with "title" and "description" fields.
+
+Rules:
+- "title": conventional commit format (≤72 chars). Be specific and concrete — name the feature, fix, or component. Use plain English.
+- "description": 2-4 sentences for a developer reading git log. Describe what changed from a user/business perspective, why it was needed, and any notable trade-offs. Avoid restating the title or listing file names.
 
 Types: feat, fix, docs, style, refactor, test, chore
 
-Changes: ${fileCount} files, +${additions}/-${deletions} lines
+${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
 
-Diff (truncated):
-${diff.slice(0, 3000)}
+Diff:
+${diff.slice(0, 6000)}
 
-Return only valid JSON, no markdown, no explanation. Example: {"title":"feat: add user auth","description":"Implements JWT-based authentication to replace the existing session system. Reduces server memory usage and enables stateless horizontal scaling."}`
+Return only valid JSON, no markdown. Example: {"title":"feat: add OAuth login via GitHub","description":"Replaces the email/password form with GitHub OAuth to reduce signup friction. Uses the existing session table; no schema changes needed. The redirect URI is configured per-environment via .env."}`
     }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -273,7 +315,8 @@ async function generateCommitMessageWithOllama(
   additions: number,
   deletions: number,
   model?: string | null,
-  existingTitle?: string
+  existingTitle?: string,
+  chatContext?: string
 ): Promise<{ title: string; description: string } | null> {
   try {
     const ollamaStatus = await checkOllamaStatus()
@@ -287,30 +330,34 @@ async function generateCommitMessageWithOllama(
       return null
     }
 
+    const contextBlock = chatContext
+      ? `Task context (what the developer was working on):\n${chatContext}\n\n`
+      : ""
+
     let prompt: string
     if (existingTitle) {
-      prompt = `Write a concise git commit description body for a commit titled: "${existingTitle}"
+      prompt = `Write a commit description body for: "${existingTitle}"
 
-The description should explain WHY the change was made (1-4 sentences). Do NOT repeat the title. Output only the description body.
+Describe the functional impact in 2-4 sentences — what changed from a user/business perspective and why it was needed. Do NOT repeat the title.
 
-Changes: ${fileCount} files, +${additions}/-${deletions} lines
+${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
 
-Diff (truncated):
-${diff.slice(0, 3000)}
+Diff:
+${diff.slice(0, 6000)}
 
 Description:`
     } else {
       prompt = `Generate a git commit message for these changes.
 
-Line 1: conventional commit title (format: type: short description, ≤72 chars)
+Line 1: conventional commit title (type: concrete description, ≤72 chars). Be specific — name the feature or fix.
 Types: feat, fix, docs, style, refactor, test, chore
 Line 2: blank
-Lines 3+: 1-4 sentences explaining WHY the change was made
+Lines 3+: 2-4 sentences describing the functional impact from a user/business perspective and why it was needed. Do not list file names.
 
-Changes: ${fileCount} files, +${additions}/-${deletions} lines
+${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
 
-Diff (truncated):
-${diff.slice(0, 3000)}
+Diff:
+${diff.slice(0, 6000)}
 
 Commit message:`
     }
@@ -1488,9 +1535,12 @@ export const chatsRouter = router({
       const additions = files.reduce((sum, f) => sum + f.additions, 0)
       const deletions = files.reduce((sum, f) => sum + f.deletions, 0)
 
+      // Build chat context from recent user messages so the AI understands the task intent
+      const chatContext = buildChatContextFromMessages(db, input.chatId)
+
       // 1. Try Claude (primary AI)
       const claudeResult = await generateCommitMessageWithClaude(
-        filteredDiff, files.length, additions, deletions, input.existingTitle
+        filteredDiff, files.length, additions, deletions, input.existingTitle, chatContext
       )
       if (claudeResult) {
         console.log("[generateCommitMessage] Generated via Claude, provider: claude")
@@ -1500,7 +1550,7 @@ export const chatsRouter = router({
       // 2. Try Ollama (fallback, only when enabled)
       if (input.useOllamaFallback) {
         const ollamaResult = await generateCommitMessageWithOllama(
-          filteredDiff, files.length, additions, deletions, input.ollamaModel, input.existingTitle
+          filteredDiff, files.length, additions, deletions, input.ollamaModel, input.existingTitle, chatContext
         )
         if (ollamaResult) {
           console.log("[generateCommitMessage] Generated via Ollama, provider: ollama")

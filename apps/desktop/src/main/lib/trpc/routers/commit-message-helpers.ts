@@ -108,15 +108,23 @@ export function buildHeuristicCommitMessage(
 		title = `${prefix}: update ${uniqueFileNames.length} files`
 	}
 
-	// Build per-file bullet list; skip when user already provided the intent via existingTitle
+	// Build a human-readable description; skip when user already provided the intent via existingTitle
 	let description = ""
 	if (!existingTitle) {
-		const descLines = files.slice(0, 8).map((f) => {
-			const p = f.newPath !== "/dev/null" ? f.newPath : f.oldPath
-			return `- ${p}: +${f.additions} / -${f.deletions}`
-		})
-		if (files.length > 8) descLines.push(`- …and ${files.length - 8} more`)
-		description = descLines.join("\n")
+		const totalAdditions = files.reduce((n, f) => n + f.additions, 0)
+		const totalDeletions = files.reduce((n, f) => n + f.deletions, 0)
+		const parts: string[] = []
+
+		if (hasNewFiles && !hasDeletedFiles) {
+			parts.push(`Added ${files.length === 1 ? uniqueFileNames[0] ?? "new file" : `${files.length} new files`}.`)
+		} else if (hasOnlyDeletions) {
+			parts.push(`Removed ${files.length === 1 ? uniqueFileNames[0] ?? "file" : `${files.length} files`}.`)
+		} else {
+			parts.push(`Updated ${files.length === 1 ? uniqueFileNames[0] ?? "file" : `${files.length} files`}.`)
+		}
+
+		parts.push(`${totalAdditions} line${totalAdditions === 1 ? "" : "s"} added, ${totalDeletions} removed.`)
+		description = parts.join(" ")
 	}
 
 	return { title, description }
