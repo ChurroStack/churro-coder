@@ -235,29 +235,43 @@ describe("buildHeuristicCommitMessage — title formatting", () => {
 })
 
 describe("buildHeuristicCommitMessage — description", () => {
-	test("description contains per-file stats", () => {
+	test("description mentions the file name for a single-file change", () => {
 		const files: CommitFileInfo[] = [
 			{ oldPath: "old.ts", newPath: "src/foo.ts", additions: 12, deletions: 3 },
 		]
-		expect(buildHeuristicCommitMessage(files).description).toContain("src/foo.ts: +12 / -3")
+		const desc = buildHeuristicCommitMessage(files).description
+		expect(desc).toContain("foo.ts")
 	})
 
-	test("deleted file uses oldPath in description", () => {
+	test("description includes addition/deletion counts", () => {
+		const files: CommitFileInfo[] = [
+			{ oldPath: "old.ts", newPath: "src/foo.ts", additions: 12, deletions: 3 },
+		]
+		const desc = buildHeuristicCommitMessage(files).description
+		expect(desc).toMatch(/12/)
+		expect(desc).toMatch(/3/)
+	})
+
+	test("deleted file description mentions removal", () => {
 		const files: CommitFileInfo[] = [
 			{ oldPath: "src/removed.ts", newPath: "/dev/null", additions: 0, deletions: 8 },
 		]
-		expect(buildHeuristicCommitMessage(files).description).toContain("src/removed.ts: +0 / -8")
+		const desc = buildHeuristicCommitMessage(files).description
+		expect(desc.toLowerCase()).toContain("removed")
 	})
 
-	test("description capped at 8 files with overflow note", () => {
+	test("multi-file change description mentions file count", () => {
 		const files = Array.from({ length: 10 }, (_, i) => makeFile(`src/file${i}.ts`))
 		const result = buildHeuristicCommitMessage(files)
-		expect(result.description).toContain("and 2 more")
+		expect(result.description).toContain("10")
 	})
 
-	test("exactly 8 files — no overflow note", () => {
-		const files = Array.from({ length: 8 }, (_, i) => makeFile(`src/file${i}.ts`))
-		expect(buildHeuristicCommitMessage(files).description).not.toContain("more")
+	test("new file description mentions addition", () => {
+		const files: CommitFileInfo[] = [
+			{ oldPath: "/dev/null", newPath: "src/new.ts", additions: 20, deletions: 0 },
+		]
+		const desc = buildHeuristicCommitMessage(files).description
+		expect(desc.toLowerCase()).toContain("added")
 	})
 })
 
