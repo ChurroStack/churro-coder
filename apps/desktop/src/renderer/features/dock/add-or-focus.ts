@@ -86,9 +86,16 @@ export function addOrFocus(
   if (opts.floating) {
     options.floating = true
   } else if (opts.splitDirection && reference) {
+    // Dockview uses "above"/"below" for vertical splits, not "up"/"down".
+    const dir =
+      opts.splitDirection === "down"
+        ? "below"
+        : opts.splitDirection === "up"
+          ? "above"
+          : opts.splitDirection
     options.position = {
       referencePanel: reference.id,
-      direction: opts.splitDirection,
+      direction: dir,
     }
   } else if (opts.referenceGroup) {
     options.position = { referenceGroup: opts.referenceGroup }
