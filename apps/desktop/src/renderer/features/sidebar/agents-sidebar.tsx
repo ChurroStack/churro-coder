@@ -77,7 +77,6 @@ import {
   TrashIcon,
   QuestionCircleIcon,
   QuestionIcon,
-  KeyboardIcon,
   CloudIcon,
   GitPullRequestFilledIcon,
 } from "../../components/ui/icons"
@@ -1129,39 +1128,6 @@ const UsageButton = memo(function UsageButton() {
         </button>
       </TooltipTrigger>
       <TooltipContent>Usage</TooltipContent>
-    </Tooltip>
-  )
-})
-
-// Isolated Shortcuts Button - opens settings on the keyboard shortcuts tab
-const ShortcutsButton = memo(function ShortcutsButton() {
-  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom)
-  const setDesktopView = useSetAtom(desktopViewAtom)
-  const setSidebarOpen = useSetAtom(agentsSidebarOpenAtom)
-
-  const shortcutsHotkey = useResolvedHotkeyDisplay("show-shortcuts")
-
-  const handleClick = useCallback(() => {
-    setSettingsActiveTab("keyboard")
-    setDesktopView("settings")
-    setSidebarOpen(true)
-  }, [setSettingsActiveTab, setDesktopView, setSidebarOpen])
-
-  return (
-    <Tooltip delayDuration={500}>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={handleClick}
-          className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
-        >
-          <KeyboardIcon className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        Shortcuts
-        {shortcutsHotkey && <Kbd>{shortcutsHotkey}</Kbd>}
-      </TooltipContent>
     </Tooltip>
   )
 })
@@ -3098,8 +3064,6 @@ export function AgentsSidebar({
                 {/* Usage Button - opens the Usage statistics page */}
                 <UsageButton />
 
-                {/* Shortcuts Button - opens settings on the keyboard tab */}
-                <ShortcutsButton />
               </div>
 
               <div className="flex-1" />
