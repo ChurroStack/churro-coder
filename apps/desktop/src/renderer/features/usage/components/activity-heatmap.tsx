@@ -1,6 +1,7 @@
 import { useMemo } from "react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../../components/ui/tooltip"
 import { cn } from "../../../lib/utils"
-import { formatCompact, formatShortDate } from "../lib/format"
+import { formatFull, formatShortDate } from "../lib/format"
 
 export type HeatmapCell = {
   date: string
@@ -66,20 +67,23 @@ export function ActivityHeatmap({ cells, className }: Props) {
             const y = c.dayOfWeek * (CELL + GAP)
             const opacity = level === 0 ? 0.08 : 0.2 + level * 0.2
             return (
-              <rect
-                key={`${c.date}-${c.weekIndex}-${c.dayOfWeek}`}
-                x={x}
-                y={y}
-                width={CELL}
-                height={CELL}
-                rx={2}
-                className="fill-foreground"
-                opacity={opacity}
-              >
-                <title>
-                  {formatShortDate(c.date)} — {formatCompact(c.totalTokens)} tokens
-                </title>
-              </rect>
+              <Tooltip key={`${c.date}-${c.weekIndex}-${c.dayOfWeek}`}>
+                <TooltipTrigger asChild>
+                  <rect
+                    x={x}
+                    y={y}
+                    width={CELL}
+                    height={CELL}
+                    rx={2}
+                    className="fill-foreground"
+                    opacity={opacity}
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <div className="font-medium">{formatShortDate(c.date)}</div>
+                  <div>{formatFull(c.totalTokens)} tokens</div>
+                </TooltipContent>
+              </Tooltip>
             )
           })}
         </svg>

@@ -1,6 +1,7 @@
 import { useMemo } from "react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../../components/ui/tooltip"
 import { cn } from "../../../lib/utils"
-import { formatShortDate, formatUSD } from "../lib/format"
+import { formatFull, formatShortDate, formatUSD } from "../lib/format"
 
 export type DailyBucket = {
   date: string
@@ -47,24 +48,28 @@ export function DailyCostChart({ daily, className }: Props) {
           aria-label="Daily cost bar chart"
         >
           {daily.map((d, i) => {
-            const h = max > 0 ? Math.max(BAR_MIN, (d.costUSD / max) * HEIGHT) : 0
+            const h = max > 0 && d.costUSD > 0 ? Math.max(BAR_MIN, (d.costUSD / max) * HEIGHT) : BAR_MIN
             const x = LEFT_PAD + i * (barWidth + BAR_GAP)
             const y = HEIGHT - h
             return (
-              <rect
-                key={d.date}
-                x={x}
-                y={y}
-                width={barWidth}
-                height={h}
-                rx={1.5}
-                className="fill-foreground"
-                opacity={d.costUSD > 0 ? 0.9 : 0.1}
-              >
-                <title>
-                  {formatShortDate(d.date)} — {formatUSD(d.costUSD)}
-                </title>
-              </rect>
+              <Tooltip key={d.date}>
+                <TooltipTrigger asChild>
+                  <rect
+                    x={x}
+                    y={y}
+                    width={barWidth}
+                    height={h}
+                    rx={1.5}
+                    className="fill-foreground"
+                    opacity={d.costUSD > 0 ? 0.9 : 0.1}
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <div className="font-medium">{formatShortDate(d.date)}</div>
+                  <div>{formatUSD(d.costUSD)}</div>
+                  <div>{formatFull(d.totalTokens)} tokens</div>
+                </TooltipContent>
+              </Tooltip>
             )
           })}
           {tickIndices.map((i) => {

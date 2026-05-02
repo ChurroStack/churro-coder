@@ -23,6 +23,12 @@ export function formatUSD(n: number, opts: { compact?: boolean } = {}): string {
   return `$${n.toFixed(2)}`
 }
 
+export function formatUSDPerMTok(n: number): string {
+  if (!Number.isFinite(n)) return "$0"
+  if (Number.isInteger(n)) return `$${n}`
+  return `$${n.toFixed(3).replace(/\.?0+$/, "")}`
+}
+
 /** "Apr 17" style short label for axis ticks. */
 export function formatShortDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`)

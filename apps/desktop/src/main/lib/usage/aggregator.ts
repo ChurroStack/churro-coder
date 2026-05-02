@@ -1,4 +1,5 @@
 import { costForTokens, displayNameFor, priceFor } from "./pricing"
+import type { ModelRates } from "./pricing"
 import type { UsageEntry, UsagePeriod, UsageSourceFilter } from "./types"
 
 export type UsageTotals = {
@@ -30,6 +31,7 @@ export type ModelBreakdown = {
   totalTokens: number
   costUSD: number
   priced: boolean
+  rates: ModelRates | null
 }
 
 export type HeatmapCell = {
@@ -176,6 +178,7 @@ export function aggregate(
       totalTokens: 0,
       costUSD: 0,
       priced: pricing !== null,
+      rates: pricing?.rates ?? null,
     }
     existing.totalTokens += entryTokens
     existing.costUSD += cost ?? 0
