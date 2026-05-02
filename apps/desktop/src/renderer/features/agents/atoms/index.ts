@@ -445,7 +445,7 @@ export const subChatClaudeThinkingAtomFamily = atomFamily((subChatId: string) =>
 )
 
 // Storage for all sub-chat modes (persisted per subChatId)
-const subChatModesStorageAtom = atomWithStorage<Record<string, AgentMode>>(
+export const subChatModesStorageAtom = atomWithStorage<Record<string, AgentMode>>(
   "agents:subChatModes",
   {},
   undefined,

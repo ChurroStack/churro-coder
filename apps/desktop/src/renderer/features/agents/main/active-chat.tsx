@@ -144,6 +144,7 @@ import {
   subChatCodexThinkingAtomFamily,
   subChatModelIdAtomFamily,
   subChatModeAtomFamily,
+  subChatModesStorageAtom,
   subChatProviderOverridesAtom,
   suppressInputFocusAtom,
   undoStackAtom,
@@ -3604,6 +3605,9 @@ export const ChatViewInner = memo(function ChatViewInner({
       // Switch mode and model synchronously BEFORE any await. The transport reads
       // the model atom at send-time; yielding first causes the chat input to flip
       // visibly late and risks the wrong provider being used during the async gap.
+      // setSubChatMode writes subChatModesStorageAtom so the hydration guard below
+      // will see a defined entry and not let a stale refetch clobber it back to "plan".
+      setSubChatMode("agent")
       useAgentSubChatStore.getState().updateSubChatMode(subChatId, "agent")
 
       // Sync mode to database — null out sessionId/sessionMode so the server
@@ -3612,9 +3616,6 @@ export const ChatViewInner = memo(function ChatViewInner({
       if (!subChatId.startsWith("temp-")) {
         await updateSubChatModeMutation.mutateAsync({ subChatId, mode: "agent", exitPlan: true })
       }
-
-      // Update atomFamily state (for UI) - this also syncs to store via effect
-      setSubChatMode("agent")
 
       // Autoswitch to the Agent-mode default model and get the resolved provider.
       const { provider } = applyModeDefaultModel(subChatId, "agent")
@@ -6947,10 +6948,12 @@ Make sure to preserve all functionality from both branches when resolving confli
 
     freshState.setAllSubChats(allSubChats)
 
-    // Initialize atomFamily mode for each sub-chat from database
-    // This ensures new chats with mode="plan" use the correct mode
+    // Initialize atomFamily mode for each sub-chat from database — but only when the
+    // storage atom has no entry yet. A stale refetch arriving after handleApprovePlan
+    // has already written "agent" must not clobber the in-memory mode back to "plan".
+    const knownModes = appStore.get(subChatModesStorageAtom)
     for (const sc of dbSubChats) {
-      if (sc.mode) {
+      if (sc.mode && knownModes[sc.id] === undefined) {
         appStore.set(subChatModeAtomFamily(sc.id), sc.mode)
       }
     }
