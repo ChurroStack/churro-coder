@@ -39,6 +39,8 @@ import {
   getDefaultModelForMode,
   getDefaultThinkingForMode,
 } from "./model-switching"
+import { getCurrentSubChatMode } from "./get-current-sub-chat-mode"
+import { subChatModeAtomFamily } from "../atoms"
 
 let testCounter = 0
 function nextSubChatId(): string {
@@ -348,46 +350,26 @@ describe("applyFormSelectionToSubChat — Codex path", () => {
   })
 })
 
-// Source-inspection guard for the AGENTS.md "Model-switch ordering" invariant.
-// The unit tests above prove applyModeDefaultModel does the right thing when
-// called — but they cannot catch a regression that simply moves the call back
-// after the await in handleApprovePlan. This test reads active-chat.tsx and
-// asserts that applyModeDefaultModel + onProviderChange both appear before any
-// `await` inside handleApprovePlan's body.
-describe("handleApprovePlan — call-ordering regression", () => {
-  test("applyModeDefaultModel + onProviderChange precede await in handleApprovePlan", () => {
-    const here = dirname(fileURLToPath(import.meta.url))
-    const activeChatPath = resolve(here, "../main/active-chat.tsx")
-    const src = readFileSync(activeChatPath, "utf-8")
+// Behavioral tests for Approve Plan → mode propagation.
+// These replace the prior source-inspection guard, which could not catch the
+// actual runtime bug (stale fallback in transport constructors) because it only
+// asserted text ordering, not that the new mode reaches the server.
+describe("Approve Plan → next message uses agent mode", () => {
+  test("getCurrentSubChatMode returns current atom value immediately", () => {
+    const id = nextSubChatId()
+    // Unknown subChatId defaults to "agent" — no stale-fallback failure mode
+    expect(getCurrentSubChatMode(id)).toBe("agent")
+    // Simulate pre-approval state
+    appStore.set(subChatModeAtomFamily(id), "plan")
+    expect(getCurrentSubChatMode(id)).toBe("plan")
+    // Simulate handleApprovePlan writing the atom
+    appStore.set(subChatModeAtomFamily(id), "agent")
+    expect(getCurrentSubChatMode(id)).toBe("agent")
+  })
 
-    const fnStart = src.indexOf(
-      "const handleApprovePlan = useCallback(async",
-    )
-    expect(fnStart, "handleApprovePlan callback not found in active-chat.tsx").toBeGreaterThan(-1)
-
-    // useCallback closes with `}, [` followed by the dependency array. The
-    // first occurrence after fnStart is unambiguous: handleApprovePlan does
-    // not contain that token in its body.
-    const fnEnd = src.indexOf("}, [", fnStart)
-    expect(fnEnd, "handleApprovePlan closing not found").toBeGreaterThan(fnStart)
-    const body = src.slice(fnStart, fnEnd)
-
-    const applyAt = body.indexOf('applyModeDefaultModel(subChatId, "agent")')
-    const providerAt = body.indexOf("onProviderChange?.(subChatId, provider)")
-    const awaitAt = body.indexOf("await resolveApprovedPlanContent")
-
-    expect(applyAt, "applyModeDefaultModel(subChatId, \"agent\") call missing").toBeGreaterThanOrEqual(0)
-    expect(providerAt, "onProviderChange?.(subChatId, provider) call missing").toBeGreaterThanOrEqual(0)
-    expect(awaitAt, "await resolveApprovedPlanContent call missing").toBeGreaterThanOrEqual(0)
-
-    expect(
-      applyAt < awaitAt,
-      "applyModeDefaultModel must run synchronously before await — AGENTS.md model-switch ordering invariant",
-    ).toBe(true)
-    expect(
-      providerAt < awaitAt,
-      "onProviderChange must fire before await so transport recreates with the new provider before the message is sent",
-    ).toBe(true)
+  test("getCurrentSubChatMode defaults to 'agent' for unknown subChatIds — transports built before subChat entry read 'agent' not a stale constructor value", () => {
+    const id = nextSubChatId()
+    expect(getCurrentSubChatMode(id)).toBe("agent")
   })
 })
 

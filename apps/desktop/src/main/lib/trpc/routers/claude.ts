@@ -845,7 +845,7 @@ export const claudeRouter = router({
         // Shared sessionId for cleanup to save on abort
         let currentSessionId: string | null = null
         console.log(
-          `[SD] M:START sub=${subId} stream=${streamId.slice(-8)} mode=${input.mode}`,
+          `[SD] M:START sub=${subId} stream=${streamId.slice(-8)} mode=${input.mode} session=${input.sessionId?.slice(-8) ?? "none"}`,
         )
 
         // Track if observable is still active (not unsubscribed)

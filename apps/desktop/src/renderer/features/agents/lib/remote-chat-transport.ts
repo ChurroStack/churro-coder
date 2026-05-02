@@ -1,5 +1,6 @@
 import type { ChatTransport, UIMessage } from "ai"
 import { toast } from "sonner"
+import { getCurrentSubChatMode } from "./get-current-sub-chat-mode"
 
 // Cache the API base URL (fetched once from main process)
 let cachedApiBase: string | null = null
@@ -19,7 +20,6 @@ type RemoteChatTransportConfig = {
   subChatId: string
   subChatName: string
   sandboxUrl: string
-  mode: "plan" | "agent"
   model?: string // Claude model ID (e.g., "claude-sonnet-4-6")
 }
 
@@ -51,12 +51,13 @@ export class RemoteChatTransport implements ChatTransport<UIMessage> {
 
     const streamId = generateStreamId()
     const subId = this.config.subChatId.slice(-8)
+    const currentMode = getCurrentSubChatMode(this.config.subChatId)
     console.log(`[RemoteTransport] START`, {
       streamId,
       subId,
       chatId: this.config.chatId,
       sandboxUrl: this.config.sandboxUrl,
-      mode: this.config.mode,
+      mode: currentMode,
       model: this.config.model || "default",
       messageCount: options.messages.length,
     })
@@ -67,7 +68,7 @@ export class RemoteChatTransport implements ChatTransport<UIMessage> {
       "parent-chat-id": this.config.chatId,
       "sub-chat-id": this.config.subChatId,
       "sub-chat-name": encodeURIComponent(this.config.subChatName),
-      "sub-chat-mode": this.config.mode,
+      "sub-chat-mode": currentMode,
     }
     if (this.config.model) {
       headers["x-model"] = this.config.model
