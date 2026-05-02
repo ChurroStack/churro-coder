@@ -3578,16 +3578,10 @@ export const ChatViewInner = memo(function ChatViewInner({
     if (isPlanApproveInFlightRef.current) return
     isPlanApproveInFlightRef.current = true
 
-    let planContent: ApprovedPlanContent | null = null
     try {
-      planContent = await resolveApprovedPlanContent()
-    } catch (error) {
-      console.warn("[plan-approval] Failed to resolve approved plan text:", error)
-    }
-    const implementPlanParts = buildImplementPlanParts(planContent)
-
-    try {
-      // Update store mode synchronously BEFORE sending (transport reads from store)
+      // Switch mode and model synchronously BEFORE any await. The transport reads
+      // the model atom at send-time; yielding first causes the chat input to flip
+      // visibly late and risks the wrong provider being used during the async gap.
       useAgentSubChatStore.getState().updateSubChatMode(subChatId, "agent")
 
       // Sync mode to database for sidebar indicator (getPendingPlanApprovals)
@@ -3601,16 +3595,23 @@ export const ChatViewInner = memo(function ChatViewInner({
       // Autoswitch to the Agent-mode default model and get the resolved provider.
       const { provider } = applyModeDefaultModel(subChatId, "agent")
 
-      // Enable auto-scroll and immediately scroll to bottom
-      shouldAutoScrollRef.current = true
-      scrollToBottom()
-
       // Recreate the transport for the new provider (e.g. plan=Claude → agent=Codex).
       // This deletes the existing Chat from agentChatStore so getOrCreateChat in ChatView
       // builds a fresh instance with the correct transport on the next render.
       onProviderChange?.(subChatId, provider)
 
-      // Defer the send to after the transport recreates (next render cycle).
+      // Resolve plan content async (only needed for message body, not for transport).
+      let planContent: ApprovedPlanContent | null = null
+      try {
+        planContent = await resolveApprovedPlanContent()
+      } catch (error) {
+        console.warn("[plan-approval] Failed to resolve approved plan text:", error)
+      }
+      const implementPlanParts = buildImplementPlanParts(planContent)
+
+      // Enable auto-scroll and defer the send to after the transport recreates.
+      shouldAutoScrollRef.current = true
+      scrollToBottom()
       setPendingImplementPlan({ subChatId, parts: implementPlanParts })
     } finally {
       isPlanApproveInFlightRef.current = false

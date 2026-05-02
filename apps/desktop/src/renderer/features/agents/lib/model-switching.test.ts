@@ -1,4 +1,7 @@
 import { describe, test, expect, beforeEach, vi } from "vitest"
+import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 // atoms/index.ts uses atomWithWindowStorage which accesses window.localStorage during init.
 // Mock window-storage to use plain atoms so the test runs in a node environment.
@@ -199,6 +202,60 @@ describe("applyModeDefaultModel — Codex path (#32 regression)", () => {
   })
 })
 
+describe("applyModeDefaultModel — agent mode", () => {
+  test("agent with Claude model → sets Claude atoms, provider = claude-code", () => {
+    const id = nextSubChatId()
+    appStore.set(defaultAgentModeModelAtom, "haiku")
+    appStore.set(defaultAgentModeThinkingAtom, "off")
+
+    const result = applyModeDefaultModel(id, "agent")
+
+    expect(result.modelId).toBe("haiku")
+    expect(result.provider).toBe("claude-code")
+    expect(appStore.get(subChatModelIdAtomFamily(id))).toBe("haiku")
+    expect(appStore.get(subChatClaudeThinkingAtomFamily(id))).toBe("off")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("claude-code")
+  })
+
+  test("agent with Codex model → sets Codex atoms, provider = codex", () => {
+    const id = nextSubChatId()
+    appStore.set(defaultAgentModeModelAtom, "gpt-5.4")
+    appStore.set(defaultAgentModeThinkingAtom, "medium")
+
+    const result = applyModeDefaultModel(id, "agent")
+
+    expect(result.modelId).toBe("gpt-5.4")
+    expect(result.provider).toBe("codex")
+    expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe("gpt-5.4")
+    expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe("medium")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("codex")
+  })
+
+  test("agent with Codex model → Claude model atom NOT set to the Codex model ID", () => {
+    const id = nextSubChatId()
+    appStore.set(defaultAgentModeModelAtom, "gpt-5.4")
+
+    applyModeDefaultModel(id, "agent")
+
+    expect(appStore.get(subChatModelIdAtomFamily(id))).not.toBe("gpt-5.4")
+  })
+
+  test("plan=Claude then agent=Codex → provider override switches to codex", () => {
+    const id = nextSubChatId()
+    appStore.set(defaultPlanModeModelAtom, "opus[1m]")
+    appStore.set(defaultAgentModeModelAtom, "gpt-5.4")
+
+    applyModeDefaultModel(id, "plan")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("claude-code")
+
+    applyModeDefaultModel(id, "agent")
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe("codex")
+    expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe("gpt-5.4")
+    // Claude model atom retains the plan-phase value, not the Codex ID
+    expect(appStore.get(subChatModelIdAtomFamily(id))).toBe("opus[1m]")
+  })
+})
+
 describe("applyModeDefaultModel — return value", () => {
   test("returns { modelId, provider } synchronously", () => {
     const id = nextSubChatId()
@@ -217,5 +274,48 @@ describe("applyModeDefaultModel — return value", () => {
     const result = applyModeDefaultModel(id, "agent")
 
     expect(result).toEqual({ modelId: "gpt-5.4", provider: "codex" })
+  })
+})
+
+// Source-inspection guard for the AGENTS.md "Model-switch ordering" invariant.
+// The unit tests above prove applyModeDefaultModel does the right thing when
+// called — but they cannot catch a regression that simply moves the call back
+// after the await in handleApprovePlan. This test reads active-chat.tsx and
+// asserts that applyModeDefaultModel + onProviderChange both appear before any
+// `await` inside handleApprovePlan's body.
+describe("handleApprovePlan — call-ordering regression", () => {
+  test("applyModeDefaultModel + onProviderChange precede await in handleApprovePlan", () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const activeChatPath = resolve(here, "../main/active-chat.tsx")
+    const src = readFileSync(activeChatPath, "utf-8")
+
+    const fnStart = src.indexOf(
+      "const handleApprovePlan = useCallback(async",
+    )
+    expect(fnStart, "handleApprovePlan callback not found in active-chat.tsx").toBeGreaterThan(-1)
+
+    // useCallback closes with `}, [` followed by the dependency array. The
+    // first occurrence after fnStart is unambiguous: handleApprovePlan does
+    // not contain that token in its body.
+    const fnEnd = src.indexOf("}, [", fnStart)
+    expect(fnEnd, "handleApprovePlan closing not found").toBeGreaterThan(fnStart)
+    const body = src.slice(fnStart, fnEnd)
+
+    const applyAt = body.indexOf('applyModeDefaultModel(subChatId, "agent")')
+    const providerAt = body.indexOf("onProviderChange?.(subChatId, provider)")
+    const awaitAt = body.indexOf("await resolveApprovedPlanContent")
+
+    expect(applyAt, "applyModeDefaultModel(subChatId, \"agent\") call missing").toBeGreaterThanOrEqual(0)
+    expect(providerAt, "onProviderChange?.(subChatId, provider) call missing").toBeGreaterThanOrEqual(0)
+    expect(awaitAt, "await resolveApprovedPlanContent call missing").toBeGreaterThanOrEqual(0)
+
+    expect(
+      applyAt < awaitAt,
+      "applyModeDefaultModel must run synchronously before await — AGENTS.md model-switch ordering invariant",
+    ).toBe(true)
+    expect(
+      providerAt < awaitAt,
+      "onProviderChange must fire before await so transport recreates with the new provider before the message is sent",
+    ).toBe(true)
   })
 })
