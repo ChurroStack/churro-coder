@@ -79,6 +79,9 @@ jobs:
           SKIP_ELECTRON_REBUILD: "1"
         run: bun install --frozen-lockfile
 
+      - name: Restore .NET deps
+        run: pnpm exec nx run-many -t restore
+
       - name: Build (all projects)
         run: pnpm exec nx run-many -t build
 
