@@ -3582,12 +3582,15 @@ export const ChatViewInner = memo(function ChatViewInner({
       // Capture the planner's provider BEFORE any state writes. applyModeDefaultModel
       // overwrites subChatProviderOverrideAtomFamily as a side-effect, so we must
       // snapshot it first. Uses the same transport-instanceof pattern as getOrCreateChat.
+      // Falls back to the atom store directly (module-level, no temporal-dead-zone risk)
+      // so we don't need to reference the inferProviderFromMessages useCallback which is
+      // declared later in the component.
       const existingChat = agentChatStore.get(subChatId)
       const previousProvider: "claude-code" | "codex" = existingChat
         ? ((existingChat as any)?.transport instanceof CodexChatTransport
             ? "codex"
             : "claude-code")
-        : inferProviderFromMessages(subChatId)
+        : (appStore.get(subChatProviderOverridesAtom)[subChatId] ?? "claude-code")
 
       // Switch mode and model synchronously BEFORE any await. The transport reads
       // the model atom at send-time; yielding first causes the chat input to flip
@@ -3646,7 +3649,6 @@ export const ChatViewInner = memo(function ChatViewInner({
     updateSubChatModeMutation,
     onProviderChange,
     resolveApprovedPlanContent,
-    inferProviderFromMessages,
   ])
 
   // Handle pending "Build plan" from sidebar
