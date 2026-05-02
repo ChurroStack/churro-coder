@@ -1074,6 +1074,8 @@ function buildCodexProviderEnv(authConfig?: { apiKey: string }): Record<string, 
     }
   }
 
+  env.CLAUDE_CODE_ENABLE_TASKS = "true"
+
   const apiKey = authConfig?.apiKey?.trim()
   if (!apiKey) {
     return env
@@ -2912,6 +2914,7 @@ export const codexRouter = router({
         sessionId: z.string().optional(),
         forceNewSession: z.boolean().optional(),
         images: z.array(imageAttachmentSchema).optional(),
+        enableTasks: z.boolean().optional(),
         authConfig: z
           .object({
             apiKey: z.string().min(1),

@@ -5,6 +5,7 @@ import {
   codexLoginModalOpenAtom,
   codexOnboardingAuthMethodAtom,
   codexOnboardingCompletedAtom,
+  enableTasksAtom,
   normalizeCodexApiKey,
   sessionInfoAtom,
 } from "../../../lib/atoms"
@@ -139,6 +140,7 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     }
     const codexApiKey = normalizeCodexApiKey(appStore.get(codexApiKeyAtom))
     const selectedModel = getSelectedCodexModel(this.config.subChatId)
+    const enableTasks = appStore.get(enableTasksAtom)
 
     return new ReadableStream({
       start: (controller) => {
@@ -175,6 +177,7 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
             ...(sessionId ? { sessionId } : {}),
             ...(forceNewSession ? { forceNewSession: true } : {}),
             ...(images.length > 0 ? { images } : {}),
+            enableTasks: enableTasks !== false,
             ...(codexApiKey
               ? {
                   authConfig: {

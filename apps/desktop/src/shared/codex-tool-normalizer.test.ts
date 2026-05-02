@@ -161,3 +161,42 @@ describe("normalizeCodexStreamChunk", () => {
     expect(result.toolName).toBe("Edit")
   })
 })
+
+describe("normalizeCodexToolPart — acp-ai-sdk-tools task tools (Tool: prefix path)", () => {
+  for (const toolName of [
+    "TodoWrite",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskList",
+    "TaskGet",
+  ]) {
+    test(`Tool:acp-ai-sdk-tools/${toolName} → tool-${toolName}`, () => {
+      const part = {
+        type: `tool-${toolName}`,
+        toolName: `Tool:acp-ai-sdk-tools/${toolName}`,
+      }
+      const result = normalizeCodexToolPart(part) as any
+      expect(result.type).toBe(`tool-${toolName}`)
+    })
+  }
+})
+
+describe("normalizeCodexStreamChunk — mcp__acp-ai-sdk-tools__ task tools", () => {
+  for (const toolName of [
+    "TodoWrite",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskList",
+    "TaskGet",
+  ]) {
+    test(`tool-input-start with mcp__acp-ai-sdk-tools__${toolName} → toolName = ${toolName}`, () => {
+      const chunk = {
+        type: "tool-input-start",
+        toolName: `mcp__acp-ai-sdk-tools__${toolName}`,
+        toolCallId: "call-task",
+      }
+      const result = normalizeCodexStreamChunk(chunk) as any
+      expect(result.toolName).toBe(toolName)
+    })
+  }
+})
