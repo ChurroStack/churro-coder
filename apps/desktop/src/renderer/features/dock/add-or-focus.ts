@@ -22,8 +22,12 @@ export interface AddOrFocusOptions {
 
 /**
  * Converts a user-configured placement preference into AddOrFocusOptions.
- * "smart": if only 1 group exists, split (terminal → down, others → right);
- *          otherwise tab into the source group.
+ * "smart":
+ *   - terminals always go to the bottom (split down, or tab into an existing
+ *     terminal group so they cluster rather than stacking new splits)
+ *   - other panels: split right in single-group, tab into source in multi-group
+ * Splits are anchored to sourceGroup.activePanel so they work even when
+ * api.activePanel is momentarily undefined (layout restore, focus shifts).
  */
 export function resolvePlacementOpts(
   api: DockviewApi,
@@ -32,14 +36,28 @@ export function resolvePlacementOpts(
   sourceGroup?: DockviewGroupPanel,
 ): AddOrFocusOptions {
   if (placement === "smart") {
+    if (isTerminal) {
+      const existingTerminal = api.panels.find((p) => p.id.startsWith("terminal:"))
+      if (existingTerminal) return { referenceGroup: existingTerminal.group }
+      return {
+        splitDirection: "down",
+        referencePanelId: sourceGroup?.activePanel?.id,
+      }
+    }
     const isSingleGroup = api.groups.length <= 1
     if (isSingleGroup) {
-      return { splitDirection: isTerminal ? "down" : "right" }
+      return {
+        splitDirection: "right",
+        referencePanelId: sourceGroup?.activePanel?.id,
+      }
     }
     return { referenceGroup: sourceGroup }
   }
   if (placement === "tab") return { referenceGroup: sourceGroup }
-  return { splitDirection: placement.replace("split-", "") as "right" | "down" | "left" }
+  return {
+    splitDirection: placement.replace("split-", "") as "right" | "down" | "left",
+    referencePanelId: sourceGroup?.activePanel?.id,
+  }
 }
 
 export function addOrFocus(
@@ -68,9 +86,16 @@ export function addOrFocus(
   if (opts.floating) {
     options.floating = true
   } else if (opts.splitDirection && reference) {
+    // Dockview uses "above"/"below" for vertical splits, not "up"/"down".
+    const dir =
+      opts.splitDirection === "down"
+        ? "below"
+        : opts.splitDirection === "up"
+          ? "above"
+          : opts.splitDirection
     options.position = {
       referencePanel: reference.id,
-      direction: opts.splitDirection,
+      direction: dir,
     }
   } else if (opts.referenceGroup) {
     options.position = { referenceGroup: opts.referenceGroup }
