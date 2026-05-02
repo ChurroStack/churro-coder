@@ -3579,6 +3579,16 @@ export const ChatViewInner = memo(function ChatViewInner({
     isPlanApproveInFlightRef.current = true
 
     try {
+      // Capture the planner's provider BEFORE any state writes. applyModeDefaultModel
+      // overwrites subChatProviderOverrideAtomFamily as a side-effect, so we must
+      // snapshot it first. Uses the same transport-instanceof pattern as getOrCreateChat.
+      const existingChat = agentChatStore.get(subChatId)
+      const previousProvider: "claude-code" | "codex" = existingChat
+        ? ((existingChat as any)?.transport instanceof CodexChatTransport
+            ? "codex"
+            : "claude-code")
+        : inferProviderFromMessages(subChatId)
+
       // Switch mode and model synchronously BEFORE any await. The transport reads
       // the model atom at send-time; yielding first causes the chat input to flip
       // visibly late and risks the wrong provider being used during the async gap.
@@ -3595,9 +3605,22 @@ export const ChatViewInner = memo(function ChatViewInner({
       // Autoswitch to the Agent-mode default model and get the resolved provider.
       const { provider } = applyModeDefaultModel(subChatId, "agent")
 
-      // Recreate the transport for the new provider (e.g. plan=Claude → agent=Codex).
-      // This deletes the existing Chat from agentChatStore so getOrCreateChat in ChatView
-      // builds a fresh instance with the correct transport on the next render.
+      if (previousProvider === provider) {
+        // Same provider (Claude→Claude or Codex→Codex): keep the existing transport so
+        // the SDK's native plan→default permission-mode transition fires naturally on the
+        // next query. Tearing it down here orphans in-flight TodoWrite/Task tool events.
+        // The SDK already has the plan in session history — no file attachment needed.
+        shouldAutoScrollRef.current = true
+        scrollToBottom()
+        setPendingImplementPlan({
+          subChatId,
+          parts: [{ type: "text", text: "Implement plan" }],
+        })
+        return
+      }
+
+      // Cross-provider (Claude↔Codex): recreate the transport for the new provider and
+      // resend the plan as a hidden file-content attachment so the new provider has context.
       onProviderChange?.(subChatId, provider)
 
       // Resolve plan content async (only needed for message body, not for transport).
@@ -3623,6 +3646,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     updateSubChatModeMutation,
     onProviderChange,
     resolveApprovedPlanContent,
+    inferProviderFromMessages,
   ])
 
   // Handle pending "Build plan" from sidebar
