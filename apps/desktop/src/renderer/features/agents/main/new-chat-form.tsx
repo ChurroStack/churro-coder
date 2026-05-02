@@ -2,7 +2,7 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { AlignJustify, Plus } from "lucide-react"
+import { AlignJustify, FolderOpen, Plus } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Button } from "../../../components/ui/button"
@@ -132,6 +132,7 @@ import {
   deleteNewChatDraft,
   markDraftVisible,
   saveNewChatDraftWithAttachments,
+  saveSubChatDraftWithAttachments,
   getNewChatDraftFull,
   type DraftProject,
 } from "../lib/drafts"
@@ -267,6 +268,22 @@ export function NewChatForm({
     setAgentMode(getNextMode)
   }, [])
   const [workMode, setWorkMode] = useAtom(lastSelectedWorkModeAtom)
+
+  // Detect existing Local-mode workspace for the selected project.
+  // Used to enforce one-Local-per-repo and show the conflict hint.
+  const { data: projectChatList } = trpc.chats.list.useQuery(
+    { projectId: validatedProject?.id ?? "" },
+    { enabled: !!validatedProject?.id && workMode === "local" },
+  )
+  const existingLocalChat = useMemo(() => {
+    if (!validatedProject || workMode !== "local") return null
+    return (
+      projectChatList?.find(
+        (c) => c.worktreePath === validatedProject.path,
+      ) ?? null
+    )
+  }, [projectChatList, validatedProject, workMode])
+
   const debugMode = useAtomValue(agentsDebugModeAtom)
   const customClaudeConfig = useAtomValue(customClaudeConfigAtom)
   const normalizedCustomClaudeConfig =
@@ -1214,7 +1231,7 @@ export function NewChatForm({
     const hasFiles = files.filter((f) => !f.isLoading).length > 0
     const hasPastedTexts = pastedTexts.length > 0
 
-    if ((!hasText && !hasImages && !hasFiles && !hasPastedTexts) || !selectedProject) {
+    if ((!hasText && !hasImages && !hasFiles && !hasPastedTexts) || !selectedProject || existingLocalChat) {
       return
     }
 
@@ -1371,6 +1388,44 @@ export function NewChatForm({
     selectedChatModel,
     agentMode,
     trpcUtils,
+  ])
+
+  const handleOpen = useCallback(async () => {
+    if (!selectedProject || existingLocalChat) return
+    const text = (editorRef.current?.getValue() || "").trim()
+    const readyImages = images.filter((i) => !i.isLoading && i.url)
+    const readyFiles = files.filter((f) => !f.isLoading)
+    const hasDraftContent = text.length > 0 || readyImages.length > 0 || readyFiles.length > 0
+    createChatMutation.mutate(
+      {
+        projectId: selectedProject.id,
+        name: text ? text.slice(0, 50) : "New chat",
+        useWorktree: workMode === "worktree",
+        baseBranch: workMode === "worktree" ? selectedBranch || undefined : undefined,
+        branchType: workMode === "worktree" ? selectedBranchType : undefined,
+        mode: agentMode,
+      },
+      {
+        onSuccess: async (data) => {
+          if (hasDraftContent && data.subChats?.[0]?.id) {
+            await saveSubChatDraftWithAttachments(data.id, data.subChats[0].id, text, {
+              images: readyImages,
+              files: readyFiles,
+            })
+          }
+        },
+      },
+    )
+  }, [
+    selectedProject,
+    existingLocalChat,
+    images,
+    files,
+    workMode,
+    selectedBranch,
+    selectedBranchType,
+    agentMode,
+    createChatMutation,
   ])
 
   const handleMentionSelect = useCallback((mention: FileMentionOption) => {
@@ -2141,7 +2196,7 @@ export function NewChatForm({
                             createChatMutation.isPending || isUploading
                           }
                           disabled={Boolean(
-                            !hasContent || !selectedProject || isUploading,
+                            !hasContent || !selectedProject || isUploading || existingLocalChat,
                           )}
                           onClick={handleSend}
                           mode={agentMode}
@@ -2314,6 +2369,25 @@ export function NewChatForm({
                     </Popover>
                   )}
 
+                  {/* Open workspace button — creates an empty chat without requiring a prompt */}
+                  {validatedProject && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto h-7 px-2 gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 flex-shrink-0"
+                      onClick={handleOpen}
+                      disabled={
+                        createChatMutation.isPending ||
+                        Boolean(existingLocalChat) ||
+                        (workMode === "worktree" && !selectedBranch && !branchesQuery.data?.defaultBranch)
+                      }
+                      title={existingLocalChat ? `A Local workspace is already open for ${validatedProject.name}` : "Open workspace without a prompt"}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      Open
+                    </Button>
+                  )}
+
                   {/* Create Branch Dialog */}
                   {validatedProject && (
                     <CreateBranchDialog
@@ -2330,6 +2404,21 @@ export function NewChatForm({
                     />
                   )}
                 </div>
+
+                {/* Local workspace conflict hint */}
+                {existingLocalChat && validatedProject && (
+                  <div className="flex items-center gap-1 mt-1 ml-[5px] text-xs text-amber-600 dark:text-amber-500">
+                    <span>
+                      A Local workspace is already open for <strong>{validatedProject.name}</strong>.
+                    </span>
+                    <button
+                      className="underline hover:no-underline ml-0.5 transition-opacity hover:opacity-80"
+                      onClick={() => setSelectedChatId(existingLocalChat.id)}
+                    >
+                      Go to it →
+                    </button>
+                  </div>
+                )}
 
                 {/* Worktree config banner - moved to corner banner below */}
 
