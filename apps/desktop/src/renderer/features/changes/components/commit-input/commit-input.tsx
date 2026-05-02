@@ -40,27 +40,17 @@ export function CommitInput({
 			setDescription("");
 			onCommitSuccess?.();
 		},
-		onMessageGenerated: (message) => setSummary(message),
+		onMessageGenerated: ({ title, description: desc }) => {
+			setSummary(title);
+			setDescription(desc);
+		},
 	});
 
-	// Build full commit message from summary and description
-	const getCommitMessage = () => {
-		const trimmedSummary = summary.trim();
-		const trimmedDescription = description.trim();
-		if (trimmedDescription) {
-			return `${trimmedSummary}\n\n${trimmedDescription}`;
-		}
-		return trimmedSummary;
-	};
-
-	// Can commit if files are selected (will auto-generate message if needed)
 	const canCommit = hasStagedChanges;
 
 	const handleCommit = async () => {
 		if (!canCommit) return;
-
-		const commitMessage = getCommitMessage();
-		await commit({ message: commitMessage, filePaths: selectedFilePaths });
+		await commit({ title: summary, description, filePaths: selectedFilePaths });
 	};
 
 	// Build dynamic commit label
@@ -76,7 +66,8 @@ export function CommitInput({
 
 	const getTooltip = () => {
 		if (!hasStagedChanges) return "No staged changes";
-		if (!summary.trim()) return "AI will generate commit message";
+		if (!summary.trim()) return "AI will generate title and description";
+		if (!description.trim()) return "AI will generate description";
 		return "Commit staged changes";
 	};
 
