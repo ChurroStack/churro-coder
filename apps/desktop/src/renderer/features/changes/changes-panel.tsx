@@ -44,6 +44,8 @@ interface ChangesPanelProps {
 	onActiveTabChange?: (tab: "changes" | "history") => void;
 	/** Number of commits ahead of upstream (for unpushed indicator) */
 	pushCount?: number;
+	/** Number of commits ahead of base branch (for workspace-commit highlight) */
+	aheadOfBase?: number;
 }
 
 export function ChangesPanel({
@@ -64,6 +66,7 @@ export function ChangesPanel({
 	onCommitFileSelect,
 	onActiveTabChange,
 	pushCount,
+	aheadOfBase,
 }: ChangesPanelProps) {
 	if (!worktreePath) {
 		return (
@@ -93,6 +96,7 @@ export function ChangesPanel({
 				onCommitFileSelect={onCommitFileSelect}
 				onActiveTabChange={onActiveTabChange}
 				pushCount={pushCount}
+				aheadOfBase={aheadOfBase}
 			/>
 		</div>
 	);
