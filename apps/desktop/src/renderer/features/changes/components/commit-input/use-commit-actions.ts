@@ -4,6 +4,7 @@ import { useAtomValue } from "jotai";
 import { toast } from "sonner";
 import { trpc } from "../../../../lib/trpc";
 import { selectedOllamaModelAtom, showOfflineModeFeaturesAtom } from "../../../../lib/atoms";
+import { getCommitGenerationNeeds, buildFinalCommitMessage } from "./commit-message-utils";
 
 interface CommitActionInput {
 	title?: string;
@@ -55,10 +56,11 @@ export function useCommitActions({
 			let commitTitle = title?.trim() ?? "";
 			let commitDescription = description?.trim() ?? "";
 
-			const needsTitle = !commitTitle && !!chatId;
-			const needsDescription = !commitDescription && !!chatId;
+			const { needsTitle, needsDescription, shouldGenerate } = getCommitGenerationNeeds(
+				commitTitle, commitDescription, chatId
+			);
 
-			if ((needsTitle || needsDescription) && chatId) {
+			if (shouldGenerate && chatId) {
 				console.log("[CommitActions] Generating with AI — needsTitle:", needsTitle, "needsDescription:", needsDescription);
 				setIsGenerating(true);
 				try {
@@ -75,7 +77,6 @@ export function useCommitActions({
 						commitTitle = result.title;
 						commitDescription = result.description;
 					} else {
-						// Only description was missing — keep user's title
 						commitDescription = result.description;
 					}
 					onMessageGenerated?.({ title: commitTitle, description: commitDescription });
@@ -93,9 +94,7 @@ export function useCommitActions({
 				return false;
 			}
 
-			const commitMessage = commitDescription
-				? `${commitTitle}\n\n${commitDescription}`
-				: commitTitle;
+			const commitMessage = buildFinalCommitMessage(commitTitle, commitDescription);
 
 			try {
 				if (filePaths && filePaths.length > 0) {

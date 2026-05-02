@@ -34,6 +34,11 @@ import { checkOllamaStatus } from "../../ollama"
 import { terminalManager } from "../../terminal/manager"
 import { publicProcedure, router } from "../index"
 import { abortClaudeSessionsForSubChats } from "./claude"
+import {
+  parseClaudeCommitResponse,
+  parseOllamaCommitResponse,
+  buildHeuristicCommitMessage,
+} from "./commit-message-helpers"
 
 type WorktreeSetupFailurePayload = {
   kind: "create-failed" | "setup-failed"
@@ -255,29 +260,7 @@ Return only valid JSON, no markdown, no explanation. Example: {"title":"feat: ad
     const text = data.content?.[0]?.text?.trim()
     if (!text) return null
 
-    if (existingTitle) {
-      const description = text.replace(/^description:\s*/i, "").trim()
-      return { title: existingTitle, description }
-    }
-
-    // Parse JSON response
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        const title = (parsed.title ?? "").slice(0, 72).trim()
-        const description = (parsed.description ?? "").trim()
-        if (title) return { title, description }
-      }
-    } catch {
-      // JSON parse failed — fall back to line-split
-    }
-
-    // Fallback: first line = title, rest = description
-    const lines = text.split("\n").map((l: string) => l.trim()).filter(Boolean)
-    const title = (lines[0] ?? "").slice(0, 72)
-    const description = lines.slice(1).join("\n").trim()
-    return title ? { title, description } : null
+    return parseClaudeCommitResponse(text, existingTitle)
   } catch (error) {
     console.error("[Claude] Commit message generation error:", error)
     return null
@@ -352,24 +335,7 @@ Commit message:`
     const result = data.response?.trim()
     if (!result) return null
 
-    if (existingTitle) {
-      const description = result.replace(/^description:\s*/i, "").trim()
-      return { title: existingTitle, description }
-    }
-
-    // Parse: first non-empty line = title, remainder after blank = description
-    const lines = result.split("\n")
-    const titleLine = lines[0]?.trim() ?? ""
-    if (!titleLine || titleLine.length >= 100) return null
-
-    const descLines = lines.slice(1).filter((l: string, i: number, arr: string[]) => {
-      // skip the first blank line separator
-      if (i === 0 && !l.trim()) return false
-      return true
-    })
-    const description = descLines.join("\n").trim()
-
-    return { title: titleLine, description }
+    return parseOllamaCommitResponse(result, existingTitle)
   } catch (error) {
     console.error("[Ollama] Generate commit message error:", error)
     return null
@@ -1491,52 +1457,10 @@ export const chatsRouter = router({
       }
 
       // 3. Heuristic fallback — always succeeds
-      const allPaths = files.map((f) => f.newPath !== "/dev/null" ? f.newPath : f.oldPath)
-      const fileNames = allPaths.map(p => path.posix.basename(p) || p)
-
-      const hasNewFiles = files.some((f) => f.oldPath === "/dev/null")
-      const hasDeletedFiles = files.some((f) => f.newPath === "/dev/null")
-      const hasOnlyDeletions = files.every((f) => f.additions === 0 && f.deletions > 0)
-      const hasTestFiles = allPaths.some((p) => p.includes("test") || p.includes("spec"))
-      const hasDocFiles = allPaths.some((p) => p.endsWith(".md") || p.includes("doc"))
-      const hasConfigFiles = allPaths.some((p) =>
-        p.includes("config") || p.endsWith(".json") || p.endsWith(".yaml") ||
-        p.endsWith(".yml") || p.endsWith(".toml")
-      )
-
-      let prefix = "chore"
-      if (hasNewFiles && !hasDeletedFiles) prefix = "feat"
-      else if (hasOnlyDeletions) prefix = "chore"
-      else if (hasTestFiles && !hasDocFiles && !hasConfigFiles) prefix = "test"
-      else if (hasDocFiles && !hasTestFiles && !hasConfigFiles) prefix = "docs"
-      else if (allPaths.some((p) => p.includes("fix") || p.includes("bug"))) prefix = "fix"
-      else if (files.every((f) => f.additions > 0 || f.deletions > 0)) prefix = "fix"
-
-      const uniqueFileNames = [...new Set(fileNames)]
-      let heuristicTitle: string
-      if (input.existingTitle) {
-        heuristicTitle = input.existingTitle
-      } else if (uniqueFileNames.length === 1) {
-        heuristicTitle = `${prefix}: update ${uniqueFileNames[0]}`
-      } else if (uniqueFileNames.length <= 3) {
-        heuristicTitle = `${prefix}: update ${uniqueFileNames.join(", ")}`
-      } else {
-        heuristicTitle = `${prefix}: update ${uniqueFileNames.length} files`
-      }
-
-      // Build per-file description (skip if user already provided the title — their intent is clear)
-      let heuristicDescription = ""
-      if (!input.existingTitle) {
-        const descLines = files.slice(0, 8).map((f) => {
-          const p = f.newPath !== "/dev/null" ? f.newPath : f.oldPath
-          return `- ${p}: +${f.additions} / -${f.deletions}`
-        })
-        if (files.length > 8) descLines.push(`- …and ${files.length - 8} more`)
-        heuristicDescription = descLines.join("\n")
-      }
+      const heuristic = buildHeuristicCommitMessage(files, input.existingTitle)
 
       console.log("[generateCommitMessage] Generated via heuristic")
-      return { title: heuristicTitle, description: heuristicDescription, provider: "heuristic" as const }
+      return { title: heuristic.title, description: heuristic.description, provider: "heuristic" as const }
     }),
 
   /**
