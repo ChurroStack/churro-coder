@@ -78,6 +78,36 @@ export function setSubChatModel(subChatId: string, modelId: string): Provider {
   return provider
 }
 
+export type FormSelection = {
+  provider: Provider
+  claudeModelId: string
+  claudeThinking: ClaudeThinkingPreference
+  codexModelId: string
+  codexThinking: string
+}
+
+/**
+ * Bind the new-chat-form's exact selection to a freshly-created sub-chat.
+ * Call synchronously in createChatMutation's onSuccess — before any await —
+ * so the chat input reflects the form's choice and the right transport is wired up.
+ */
+export function applyFormSelectionToSubChat(
+  subChatId: string,
+  selection: FormSelection,
+): void {
+  if (selection.provider === "codex") {
+    appStore.set(subChatCodexModelIdAtomFamily(subChatId), selection.codexModelId)
+    appStore.set(subChatProviderOverrideAtomFamily(subChatId), "codex")
+    appStore.set(lastSelectedAgentIdAtom, "codex")
+    appStore.set(subChatCodexThinkingAtomFamily(subChatId), selection.codexThinking)
+  } else {
+    appStore.set(subChatModelIdAtomFamily(subChatId), selection.claudeModelId)
+    appStore.set(subChatProviderOverrideAtomFamily(subChatId), "claude-code")
+    appStore.set(lastSelectedAgentIdAtom, "claude-code")
+    appStore.set(subChatClaudeThinkingAtomFamily(subChatId), selection.claudeThinking)
+  }
+}
+
 export function applyModeDefaultModel(
   subChatId: string,
   mode: ModeContext,
