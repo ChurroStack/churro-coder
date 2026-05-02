@@ -75,6 +75,8 @@ jobs:
       - name: Install desktop deps (bun)
         if: steps.cache-desktop.outputs.cache-hit != 'true'
         working-directory: apps/desktop
+        env:
+          SKIP_ELECTRON_REBUILD: "1"
         run: bun install --frozen-lockfile
 
       - name: Build (all projects)

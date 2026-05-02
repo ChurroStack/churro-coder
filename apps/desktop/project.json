@@ -48,6 +48,16 @@
         "cwd": "apps/desktop",
         "command": "bun run dist"
       }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "^production"],
+      "outputs": ["{projectRoot}/coverage"],
+      "options": {
+        "cwd": "apps/desktop",
+        "command": "bun run test"
+      }
     }
   }
 }
