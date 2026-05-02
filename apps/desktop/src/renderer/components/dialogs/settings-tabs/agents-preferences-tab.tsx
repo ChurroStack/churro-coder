@@ -10,10 +10,23 @@ import {
   notifyWhenFocusedAtom,
   soundNotificationsEnabledAtom,
   preferredEditorAtom,
+  visibleDockLaunchButtonsAtom,
+  DOCK_LAUNCH_REGISTRY,
+  visibleSidebarToggleButtonsAtom,
+  SIDEBAR_TOGGLE_REGISTRY,
+  newPanelPlacementAtom,
   type AgentMode,
   type AutoAdvanceTarget,
   type CtrlTabTarget,
+  type DockLaunchButtonId,
+  type SidebarToggleButtonId,
+  type NewPanelPlacement,
 } from "../../../lib/atoms"
+import {
+  defaultWidgetVisibilityAtom,
+  WIDGET_REGISTRY,
+  type WidgetId,
+} from "../../../features/details-sidebar/atoms"
 import {
   defaultAgentModeModelAtom,
   defaultAgentModeThinkingAtom,
@@ -136,6 +149,7 @@ import {
 } from "../../ui/dropdown-menu"
 import { ChevronDown } from "lucide-react"
 import { Switch } from "../../ui/switch"
+import { Checkbox } from "../../ui/checkbox"
 import { trpc } from "../../../lib/trpc"
 
 // Hook to detect narrow screen
@@ -188,6 +202,10 @@ export function AgentsPreferencesTab() {
   const [ctrlTabTarget, setCtrlTabTarget] = useAtom(ctrlTabTargetAtom)
   const [autoAdvanceTarget, setAutoAdvanceTarget] = useAtom(autoAdvanceTargetAtom)
   const [defaultAgentMode, setDefaultAgentMode] = useAtom(defaultAgentModeAtom)
+  const [panelPlacement, setPanelPlacement] = useAtom(newPanelPlacementAtom)
+  const [visibleDockButtons, setVisibleDockButtons] = useAtom(visibleDockLaunchButtonsAtom)
+  const [visibleSidebarToggles, setVisibleSidebarToggles] = useAtom(visibleSidebarToggleButtonsAtom)
+  const [defaultWidgets, setDefaultWidgets] = useAtom(defaultWidgetVisibilityAtom)
   const [defaultPlanModel, setDefaultPlanModel] = useAtom(defaultPlanModeModelAtom)
   const [defaultAgentModel, setDefaultAgentModel] = useAtom(
     defaultAgentModeModelAtom,
@@ -664,6 +682,135 @@ export function AgentsPreferencesTab() {
           />
         </div>
       </div> */}
+
+      {/* Panel Placement */}
+      <div className="bg-background rounded-lg border border-border overflow-hidden">
+        <div className="flex items-center justify-between p-4">
+          <div className="flex flex-col space-y-1">
+            <span className="text-sm font-medium text-foreground">
+              New Panel Placement
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Where new panels open when you click Chat, Plan, Changes, etc.
+            </span>
+          </div>
+          <Select
+            value={panelPlacement}
+            onValueChange={(value: NewPanelPlacement) => setPanelPlacement(value)}
+          >
+            <SelectTrigger className="w-auto px-2">
+              <span className="text-xs">
+                {panelPlacement === "smart"
+                  ? "Smart"
+                  : panelPlacement === "tab"
+                    ? "Always Tab"
+                    : panelPlacement === "split-right"
+                      ? "Split Right"
+                      : panelPlacement === "split-down"
+                        ? "Split Below"
+                        : "Split Left"}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="smart">Smart</SelectItem>
+              <SelectItem value="tab">Always Tab</SelectItem>
+              <SelectItem value="split-right">Split Right</SelectItem>
+              <SelectItem value="split-down">Split Below</SelectItem>
+              <SelectItem value="split-left">Split Left</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Dock Header Buttons — launch panels */}
+      <div className="bg-background rounded-lg border border-border overflow-hidden">
+        <div className="p-4 border-b border-border">
+          <span className="text-sm font-medium text-foreground">Dock Header Buttons</span>
+          <p className="text-xs text-muted-foreground mt-1">
+            Icon buttons in the dockview toolbar that open new panels. Unchecked buttons move to the [+] menu.
+          </p>
+        </div>
+        <div className="p-4">
+          <div className="space-y-2.5">
+            {DOCK_LAUNCH_REGISTRY.map((btn) => (
+              <label key={btn.id} className="flex items-center gap-2.5 cursor-pointer">
+                <Checkbox
+                  checked={visibleDockButtons.includes(btn.id as DockLaunchButtonId)}
+                  onCheckedChange={() => {
+                    const id = btn.id as DockLaunchButtonId
+                    setVisibleDockButtons(
+                      visibleDockButtons.includes(id)
+                        ? visibleDockButtons.filter((b) => b !== id)
+                        : [...visibleDockButtons, id],
+                    )
+                  }}
+                />
+                <span className="text-xs text-foreground">{btn.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Sidebar Widget Toggles — show/hide widgets */}
+      <div className="bg-background rounded-lg border border-border overflow-hidden">
+        <div className="p-4 border-b border-border">
+          <span className="text-sm font-medium text-foreground">Sidebar Widget Toggles</span>
+          <p className="text-xs text-muted-foreground mt-1">
+            Icon buttons in the sidebar header that show or hide individual widgets.
+          </p>
+        </div>
+        <div className="p-4">
+          <div className="space-y-2.5">
+            {SIDEBAR_TOGGLE_REGISTRY.map((btn) => (
+              <label key={btn.id} className="flex items-center gap-2.5 cursor-pointer">
+                <Checkbox
+                  checked={visibleSidebarToggles.includes(btn.id as SidebarToggleButtonId)}
+                  onCheckedChange={() => {
+                    const id = btn.id as SidebarToggleButtonId
+                    setVisibleSidebarToggles(
+                      visibleSidebarToggles.includes(id)
+                        ? visibleSidebarToggles.filter((b) => b !== id)
+                        : [...visibleSidebarToggles, id],
+                    )
+                  }}
+                />
+                <span className="text-xs text-foreground">{btn.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Default Visible Widgets */}
+      <div className="bg-background rounded-lg border border-border overflow-hidden">
+        <div className="p-4 border-b border-border">
+          <span className="text-sm font-medium text-foreground">Default Visible Widgets</span>
+          <p className="text-xs text-muted-foreground mt-1">
+            Which widgets appear in the sidebar for new workspaces. Existing workspaces keep their current settings.
+          </p>
+        </div>
+        <div className="p-4">
+          <div className="space-y-2.5">
+            {WIDGET_REGISTRY.map((widget) => (
+              <label key={widget.id} className="flex items-center gap-2.5 cursor-pointer">
+                <Checkbox
+                  checked={defaultWidgets.includes(widget.id as WidgetId)}
+                  onCheckedChange={() => {
+                    const id = widget.id as WidgetId
+                    setDefaultWidgets(
+                      defaultWidgets.includes(id)
+                        ? defaultWidgets.filter((w) => w !== id)
+                        : [...defaultWidgets, id],
+                    )
+                  }}
+                />
+                <span className="text-xs text-foreground">{widget.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

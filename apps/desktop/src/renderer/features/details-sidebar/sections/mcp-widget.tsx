@@ -87,13 +87,7 @@ export const McpWidget = memo(function McpWidget() {
   }, [sessionInfo?.tools, sessionInfo?.mcpServers])
 
   if (!sessionInfo?.mcpServers || sessionInfo.mcpServers.length === 0) {
-    return (
-      <div className="px-2 py-2">
-        <div className="text-xs text-muted-foreground">
-          No MCP servers configured
-        </div>
-      </div>
-    )
+    return null
   }
 
   const toggleServer = (name: string) => {

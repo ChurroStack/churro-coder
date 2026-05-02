@@ -4,9 +4,9 @@ import {
   FileDiff,
   RotateCcw,
   MessageSquare,
-  Terminal as TerminalIcon,
+  Terminal,
 } from "lucide-react"
-import { useAtom } from "jotai"
+import { useAtom, useAtomValue } from "jotai"
 import type { IDockviewHeaderActionsProps } from "dockview-react"
 import { Button } from "../../components/ui/button"
 import {
@@ -25,46 +25,76 @@ import { Kbd } from "../../components/ui/kbd"
 import { IconOpenSidebarRight } from "../../components/ui/icons"
 import { useResolvedHotkeyDisplay } from "../../lib/hotkeys"
 import { detailsSidebarOpenAtom } from "../details-sidebar/atoms"
+import { visibleDockLaunchButtonsAtom } from "../../lib/atoms"
 import { usePanelActions } from "./use-panel-actions"
 
 /**
- * Group-header actions on the right side of the dockview tab strip — one set
- * per group so users can target a specific group when adding panels. Holds
- * the quick-launch icons (Chat, Terminal) and the [+] dropdown ("the rest":
- * Files Tree, Search, Plan, Changes, Reset Layout).
- *
- * Icon buttons match the existing app-wide pattern (h-6 w-6, h-4 w-4 icon)
- * used by the chats sidebar so all top-row buttons line up.
+ * Group-header actions on the right side of the dockview tab strip.
+ * Launch icons are user-configurable via visibleDockLaunchButtonsAtom;
+ * hidden buttons fall back to the [+] dropdown.
  */
 export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
-  // `props.group` is the group whose tab strip rendered this button bar —
-  // pass it through so each [+]/Chat/Terminal click adds panels into *that*
-  // group instead of dockview's globally-active group.
   const actions = usePanelActions(props.group)
   const [isDetailsOpen, setIsDetailsOpen] = useAtom(detailsSidebarOpenAtom)
   const toggleDetailsHotkey = useResolvedHotkeyDisplay("toggle-details")
+  const visibleButtons = useAtomValue(visibleDockLaunchButtonsAtom)
+
+  const showNewChat       = visibleButtons.includes("newChat")
+  const showToggle        = visibleButtons.includes("toggleDetails")
+  const showPlanIcon      = visibleButtons.includes("openPlan")
+  const showChangesIcon   = visibleButtons.includes("openChanges")
+  const showTerminalIcon  = visibleButtons.includes("newTerminal")
+
+  // Buttons hidden from the icon row that overflow into the Plus menu
+  const menuPlan     = !showPlanIcon
+  const menuChanges  = !showChangesIcon
+  const menuTerminal = !showTerminalIcon
 
   return (
     <div
       className="flex items-center h-full px-1 gap-0.5"
-      style={{
-        WebkitAppRegion: "no-drag",
-      }}
+      style={{ WebkitAppRegion: "no-drag" }}
     >
-      <HeaderIconButton
-        tooltip="New chat"
-        ariaLabel="New chat"
-        icon={<MessageSquare className="h-4 w-4" />}
-        disabled={!actions.canNewSubChat}
-        onClick={actions.newSubChat}
-      />
-      <HeaderIconButton
-        tooltip="New terminal"
-        ariaLabel="New terminal"
-        icon={<TerminalIcon className="h-4 w-4" />}
-        disabled={!actions.canOpenTerminal}
-        onClick={actions.openTerminal}
-      />
+      {showNewChat && (
+        <HeaderIconButton
+          tooltip="New chat"
+          ariaLabel="New chat"
+          icon={<MessageSquare className="h-4 w-4" />}
+          disabled={!actions.canNewSubChat}
+          onClick={actions.newSubChat}
+        />
+      )}
+
+      {showPlanIcon && (
+        <HeaderIconButton
+          tooltip="Show plan"
+          ariaLabel="Show plan"
+          icon={<FileText className="h-4 w-4" />}
+          disabled={!actions.canOpenPlan}
+          onClick={actions.openPlan}
+        />
+      )}
+
+      {showChangesIcon && (
+        <HeaderIconButton
+          tooltip="Show changes"
+          ariaLabel="Show changes"
+          icon={<FileDiff className="h-4 w-4" />}
+          disabled={!actions.canOpenDiff}
+          onClick={actions.openDiff}
+        />
+      )}
+
+      {showTerminalIcon && (
+        <HeaderIconButton
+          tooltip="New terminal"
+          ariaLabel="New terminal"
+          icon={<Terminal className="h-4 w-4" />}
+          disabled={!actions.canOpenTerminal}
+          onClick={actions.openTerminal}
+        />
+      )}
+
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -82,45 +112,61 @@ export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
           <TooltipContent side="bottom">Open a panel</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem
-            disabled={!actions.canOpenPlan}
-            onClick={actions.openPlan}
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            Show Plan
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!actions.canOpenDiff}
-            onClick={actions.openDiff}
-          >
-            <FileDiff className="h-4 w-4 mr-2" />
-            Show Changes
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          {menuTerminal && (
+            <DropdownMenuItem
+              disabled={!actions.canOpenTerminal}
+              onClick={actions.openTerminal}
+            >
+              <Terminal className="h-4 w-4 mr-2" />
+              New Terminal
+            </DropdownMenuItem>
+          )}
+          {menuPlan && (
+            <DropdownMenuItem
+              disabled={!actions.canOpenPlan}
+              onClick={actions.openPlan}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Show Plan
+            </DropdownMenuItem>
+          )}
+          {menuChanges && (
+            <DropdownMenuItem
+              disabled={!actions.canOpenDiff}
+              onClick={actions.openDiff}
+            >
+              <FileDiff className="h-4 w-4 mr-2" />
+              Show Changes
+            </DropdownMenuItem>
+          )}
+          {(menuTerminal || menuPlan || menuChanges) && <DropdownMenuSeparator />}
           <DropdownMenuItem onClick={actions.resetLayout}>
             <RotateCcw className="h-4 w-4 mr-2" />
             Reset layout
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={isDetailsOpen ? "Hide details" : "View details"}
-            onClick={() => setIsDetailsOpen(!isDetailsOpen)}
-            data-active={isDetailsOpen}
-            className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md text-muted-foreground hover:text-foreground data-[active=true]:bg-foreground/10 data-[active=true]:text-foreground"
-          >
-            <IconOpenSidebarRight className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {isDetailsOpen ? "Hide details" : "View details"}
-          {toggleDetailsHotkey && <Kbd>{toggleDetailsHotkey}</Kbd>}
-        </TooltipContent>
-      </Tooltip>
+
+      {showToggle && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={isDetailsOpen ? "Hide details" : "View details"}
+              onClick={() => setIsDetailsOpen(!isDetailsOpen)}
+              data-active={isDetailsOpen}
+              className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md text-muted-foreground hover:text-foreground data-[active=true]:bg-foreground/10 data-[active=true]:text-foreground"
+            >
+              <IconOpenSidebarRight className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {isDetailsOpen ? "Hide details" : "View details"}
+            {toggleDetailsHotkey && <Kbd>{toggleDetailsHotkey}</Kbd>}
+          </TooltipContent>
+        </Tooltip>
+      )}
     </div>
   )
 }

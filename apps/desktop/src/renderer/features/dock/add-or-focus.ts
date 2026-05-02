@@ -4,6 +4,7 @@ import type {
   DockviewGroupPanel,
 } from "dockview-react"
 import { panelIdFor, panelTitleFor, type PanelEntity } from "./atoms"
+import type { NewPanelPlacement } from "../../lib/atoms"
 
 export interface AddOrFocusOptions {
   splitDirection?: "right" | "down" | "left" | "up"
@@ -17,6 +18,28 @@ export interface AddOrFocusOptions {
    * clicked, instead of landing on whichever group is globally active.
    */
   referenceGroup?: DockviewGroupPanel
+}
+
+/**
+ * Converts a user-configured placement preference into AddOrFocusOptions.
+ * "smart": if only 1 group exists, split (terminal → down, others → right);
+ *          otherwise tab into the source group.
+ */
+export function resolvePlacementOpts(
+  api: DockviewApi,
+  placement: NewPanelPlacement,
+  isTerminal: boolean,
+  sourceGroup?: DockviewGroupPanel,
+): AddOrFocusOptions {
+  if (placement === "smart") {
+    const isSingleGroup = api.groups.length <= 1
+    if (isSingleGroup) {
+      return { splitDirection: isTerminal ? "down" : "right" }
+    }
+    return { referenceGroup: sourceGroup }
+  }
+  if (placement === "tab") return { referenceGroup: sourceGroup }
+  return { splitDirection: placement.replace("split-", "") as "right" | "down" | "left" }
 }
 
 export function addOrFocus(

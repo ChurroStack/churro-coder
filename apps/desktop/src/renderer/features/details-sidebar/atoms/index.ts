@@ -39,16 +39,27 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
   { id: "scripts", label: "Scripts", icon: PlayCircle, canExpand: false, defaultVisible: false },
   { id: "terminal", label: "Terminal", icon: Terminal, canExpand: true, defaultVisible: false },
   { id: "diff", label: "Changes", icon: FileDiff, canExpand: true, defaultVisible: true },
-  { id: "mcp", label: "MCP Servers", icon: OriginalMCPIcon as unknown as LucideIcon, canExpand: false, defaultVisible: true },
+  { id: "mcp", label: "MCP Servers", icon: OriginalMCPIcon as unknown as LucideIcon, canExpand: false, defaultVisible: false },
 ]
 
-// Helper to get default visible widgets
-const DEFAULT_VISIBLE_WIDGETS: WidgetId[] = WIDGET_REGISTRY
+// Helper to get default visible widgets (used as initial value for the user-configurable default)
+export const DEFAULT_VISIBLE_WIDGETS: WidgetId[] = WIDGET_REGISTRY
   .filter((w) => w.defaultVisible)
   .map((w) => w.id)
 
 // Default widget order (all widgets)
 const DEFAULT_WIDGET_ORDER: WidgetId[] = WIDGET_REGISTRY.map((w) => w.id)
+
+// ============================================================================
+// Global Default Widget Visibility (user-configurable, applies to new workspaces)
+// ============================================================================
+
+export const defaultWidgetVisibilityAtom = atomWithStorage<WidgetId[]>(
+  "overview:defaultWidgetVisibility",
+  DEFAULT_VISIBLE_WIDGETS,
+  undefined,
+  { getOnInit: true },
+)
 
 // ============================================================================
 // Widget Visibility (per workspace)
@@ -64,7 +75,7 @@ const widgetVisibilityStorageAtom = atomWithStorage<Record<string, WidgetId[]>>(
 export const widgetVisibilityAtomFamily = atomFamily((workspaceId: string) =>
   atom(
     (get) =>
-      get(widgetVisibilityStorageAtom)[workspaceId] ?? DEFAULT_VISIBLE_WIDGETS,
+      get(widgetVisibilityStorageAtom)[workspaceId] ?? get(defaultWidgetVisibilityAtom),
     (get, set, visibleWidgets: WidgetId[]) => {
       const current = get(widgetVisibilityStorageAtom)
       set(widgetVisibilityStorageAtom, {

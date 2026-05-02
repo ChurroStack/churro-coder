@@ -78,7 +78,7 @@ import { QueueProcessor } from "../agents/components/queue-processor"
 const SIDEBAR_MIN_WIDTH = 230
 const SIDEBAR_MAX_WIDTH = 600
 const SIDEBAR_DEFAULT_WIDTH = 240
-const DETAILS_RAIL_MIN_WIDTH = 310
+const DETAILS_RAIL_MIN_WIDTH = 340
 const DETAILS_RAIL_MAX_WIDTH = 700
 const DETAILS_RAIL_DEFAULT_WIDTH = 460
 
