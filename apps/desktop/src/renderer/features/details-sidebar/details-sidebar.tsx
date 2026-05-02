@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { ArrowUpRight, TerminalSquare, Box, ListTodo, GitPullRequest, Activity, Info, Folder, Search, PlayCircle, Workflow } from "lucide-react"
+import { ArrowUpRight, TerminalSquare, Box, ListTodo, GitPullRequest, Activity, Info, Folder, Search, PlayCircle, Workflow, Terminal as TerminalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -54,6 +54,9 @@ import {
   agentsSettingsDialogOpenAtom,
   agentsSettingsDialogActiveTabAtom,
   selectedProjectAtom,
+  visibleSidebarToggleButtonsAtom,
+  SIDEBAR_TOGGLE_REGISTRY,
+  sessionInfoAtom,
 } from "@/lib/atoms"
 
 // ============================================================================
@@ -258,6 +261,12 @@ export function DetailsSidebar({
   // Active tab state (Details / Files)
   const [activeTab, setActiveTab] = useAtom(detailsSidebarTabAtom)
 
+  // Sidebar widget toggle buttons configuration
+  const visibleSidebarToggles = useAtomValue(visibleSidebarToggleButtonsAtom)
+
+  // Session info — used to auto-hide MCP widget when no servers are active
+  const sessionInfo = useAtomValue(sessionInfoAtom)
+
   // Files tab ref for header actions
   const filesTabRef = useRef<FilesTabHandle>(null)
   const [filesAllExpanded, setFilesAllExpanded] = useState(false)
@@ -320,6 +329,18 @@ export function DetailsSidebar({
     [chatId],
   )
   const [widgetOrder, setWidgetOrder] = useAtom(widgetOrderAtom)
+
+  // Toggle a widget's visibility on/off
+  const toggleWidgetVisibility = useCallback(
+    (widgetId: WidgetId) => {
+      setVisibleWidgets(
+        visibleWidgets.includes(widgetId)
+          ? visibleWidgets.filter((w) => w !== widgetId)
+          : [...visibleWidgets, widgetId],
+      )
+    },
+    [visibleWidgets, setVisibleWidgets],
+  )
 
   // One-time migration per chat: inject "status" into pre-existing saved arrays
   // that were persisted before this widget existed. New chats get the defaults
@@ -457,7 +478,35 @@ export function DetailsSidebar({
 
           {/* Right-side header actions */}
           {activeTab === "details" ? (
-            <WidgetSettingsPopup workspaceId={chatId} isRemoteChat={isRemoteChat} />
+            <div className="flex items-center gap-0.5">
+              {SIDEBAR_TOGGLE_REGISTRY
+                .filter((btn) => visibleSidebarToggles.includes(btn.id))
+                .map((btn) => {
+                  const wId = btn.widgetId as WidgetId
+                  const isActive = visibleWidgets.includes(wId)
+                  const Icon = btn.id === "terminal" ? TerminalIcon : PlayCircle
+                  return (
+                    <Tooltip key={btn.id}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={isActive ? `Hide ${btn.label}` : `Show ${btn.label}`}
+                          onClick={() => toggleWidgetVisibility(wId)}
+                          data-active={isActive}
+                          className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md text-muted-foreground hover:text-foreground data-[active=true]:text-foreground data-[active=true]:bg-foreground/10"
+                        >
+                          <Icon className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        {isActive ? `Hide ${btn.label}` : `Show ${btn.label}`}
+                      </TooltipContent>
+                    </Tooltip>
+                  )
+                })}
+              <WidgetSettingsPopup workspaceId={chatId} isRemoteChat={isRemoteChat} />
+            </div>
           ) : activeTab === "files" ? (
             <div className="flex items-center gap-0.5">
               <Tooltip>
@@ -587,6 +636,7 @@ export function DetailsSidebar({
                 )
 
               case "mcp":
+                if (!sessionInfo?.mcpServers || sessionInfo.mcpServers.length === 0) return null
                 return (
                   <WidgetCard
                     key="mcp"

@@ -914,3 +914,87 @@ export const mcpApprovalDialogOpenAtom = atom<boolean>(false)
 
 // Pending MCP approvals to show in the dialog
 export const pendingMcpApprovalsAtom = atom<PendingMcpApproval[]>([])
+
+// ============================================
+// DOCK HEADER LAUNCH BUTTONS
+// Icon buttons in the dockview tab-strip that launch panels.
+// Unchecked buttons move to the [+] dropdown instead of disappearing.
+// ============================================
+
+export type DockLaunchButtonId =
+  | "newChat"
+  | "toggleDetails"
+  | "openPlan"
+  | "openChanges"
+  | "newTerminal"
+
+export interface DockLaunchButtonDef {
+  id: DockLaunchButtonId
+  label: string
+  defaultVisible: boolean
+}
+
+export const DOCK_LAUNCH_REGISTRY: DockLaunchButtonDef[] = [
+  { id: "newChat",       label: "New Chat",       defaultVisible: true  },
+  { id: "toggleDetails", label: "Toggle Details", defaultVisible: true  },
+  { id: "openPlan",      label: "Show Plan",      defaultVisible: false },
+  { id: "openChanges",   label: "Show Changes",   defaultVisible: false },
+  { id: "newTerminal",   label: "New Terminal",   defaultVisible: false },
+]
+
+const DEFAULT_DOCK_LAUNCH_BUTTONS: DockLaunchButtonId[] = DOCK_LAUNCH_REGISTRY
+  .filter((b) => b.defaultVisible)
+  .map((b) => b.id)
+
+export const visibleDockLaunchButtonsAtom = atomWithStorage<DockLaunchButtonId[]>(
+  "preferences:visible-dock-launch-buttons",
+  DEFAULT_DOCK_LAUNCH_BUTTONS,
+  undefined,
+  { getOnInit: true },
+)
+
+// ============================================
+// SIDEBAR WIDGET TOGGLE BUTTONS
+// Icon buttons in the details-sidebar header that show/hide individual widgets.
+// Each button toggles a widget's visibility in the sidebar.
+// ============================================
+
+export type SidebarToggleButtonId =
+  | "terminal"
+  | "scripts"
+
+export interface SidebarToggleButtonDef {
+  id: SidebarToggleButtonId
+  label: string
+  widgetId: string
+  defaultVisible: boolean
+}
+
+export const SIDEBAR_TOGGLE_REGISTRY: SidebarToggleButtonDef[] = [
+  { id: "terminal", label: "Terminal", widgetId: "terminal", defaultVisible: true  },
+  { id: "scripts",  label: "Scripts",  widgetId: "scripts",  defaultVisible: false },
+]
+
+const DEFAULT_SIDEBAR_TOGGLE_BUTTONS: SidebarToggleButtonId[] = SIDEBAR_TOGGLE_REGISTRY
+  .filter((b) => b.defaultVisible)
+  .map((b) => b.id)
+
+export const visibleSidebarToggleButtonsAtom = atomWithStorage<SidebarToggleButtonId[]>(
+  "preferences:visible-sidebar-toggle-buttons",
+  DEFAULT_SIDEBAR_TOGGLE_BUTTONS,
+  undefined,
+  { getOnInit: true },
+)
+
+// ============================================
+// PANEL PLACEMENT SETTING
+// ============================================
+
+export type NewPanelPlacement = "smart" | "tab" | "split-right" | "split-down" | "split-left"
+
+export const newPanelPlacementAtom = atomWithStorage<NewPanelPlacement>(
+  "preferences:new-panel-placement",
+  "smart",
+  undefined,
+  { getOnInit: true },
+)

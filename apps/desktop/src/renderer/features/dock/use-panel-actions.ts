@@ -6,7 +6,7 @@ import {
   selectedAgentChatIdAtom,
   currentPlanPathAtomFamily,
 } from "../agents/atoms"
-import { defaultAgentModeAtom } from "../../lib/atoms"
+import { defaultAgentModeAtom, newPanelPlacementAtom } from "../../lib/atoms"
 import { useAgentSubChatStore } from "../agents/stores/sub-chat-store"
 import {
   terminalsAtom,
@@ -20,7 +20,7 @@ import {
 } from "../terminal/utils"
 import { trpc } from "../../lib/trpc"
 import { useDockApi } from "./dock-context"
-import { addOrFocus } from "./add-or-focus"
+import { addOrFocus, resolvePlacementOpts } from "./add-or-focus"
 import { layoutStorageKey } from "./persistence"
 import type { TerminalInstance } from "../terminal/types"
 
@@ -77,6 +77,7 @@ export function usePanelActions(
   const setActiveTerminalIds = useSetAtom(activeTerminalIdAtom)
   const allTerminals = useAtomValue(terminalsAtom)
   const defaultMode = useAtomValue(defaultAgentModeAtom)
+  const placement = useAtomValue(newPanelPlacementAtom)
   const utils = trpc.useUtils()
   const createSubChat = trpc.chats.createSubChat.useMutation()
 
@@ -171,7 +172,7 @@ export function usePanelActions(
         kind: "terminal",
         data: { paneId, name, chatId, cwd: worktreePath, workspaceId: chatId },
       },
-      { referenceGroup: sourceGroup },
+      resolvePlacementOpts(dockApi, placement, true, sourceGroup),
     )
   }, [
     dockApi,
@@ -182,6 +183,7 @@ export function usePanelActions(
     setTerminals,
     setActiveTerminalIds,
     sourceGroup,
+    placement,
   ])
 
   const openPlan = useCallback(() => {
@@ -193,36 +195,36 @@ export function usePanelActions(
         kind: "plan",
         data: { chatId: effectiveChatId, planPath },
       },
-      { referenceGroup: sourceGroup },
+      resolvePlacementOpts(dockApi, placement, false, sourceGroup),
     )
-  }, [dockApi, chatId, planPath, activeSubChatId, sourceGroup])
+  }, [dockApi, chatId, planPath, activeSubChatId, sourceGroup, placement])
 
   const openDiff = useCallback(() => {
     if (!dockApi || !chatId) return
     addOrFocus(
       dockApi,
       { kind: "diff", data: { chatId } },
-      { referenceGroup: sourceGroup },
+      resolvePlacementOpts(dockApi, placement, false, sourceGroup),
     )
-  }, [dockApi, chatId, sourceGroup])
+  }, [dockApi, chatId, sourceGroup, placement])
 
   const openSearch = useCallback(() => {
     if (!dockApi || !projectId) return
     addOrFocus(
       dockApi,
       { kind: "search", data: { projectId } },
-      { referenceGroup: sourceGroup },
+      resolvePlacementOpts(dockApi, placement, false, sourceGroup),
     )
-  }, [dockApi, projectId, sourceGroup])
+  }, [dockApi, projectId, sourceGroup, placement])
 
   const openFilesTree = useCallback(() => {
     if (!dockApi || !projectId) return
     addOrFocus(
       dockApi,
       { kind: "files-tree", data: { projectId } },
-      { referenceGroup: sourceGroup },
+      resolvePlacementOpts(dockApi, placement, false, sourceGroup),
     )
-  }, [dockApi, projectId, sourceGroup])
+  }, [dockApi, projectId, sourceGroup, placement])
 
   const resetLayout = useCallback(() => {
     try {
