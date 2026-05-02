@@ -31,6 +31,7 @@ import {
 } from "../../agents/utils/pr-message"
 import { usePRStatus } from "../../../hooks/usePRStatus"
 import { trpc, trpcClient } from "../../../lib/trpc"
+import { computeSubChatFiles } from "../../agents/hooks/use-changed-files-tracking"
 import type {
   ChangeCategory,
   ChangedFile,
@@ -123,20 +124,40 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       { enabled: !!worktreePath, staleTime: 5_000 },
     )
 
-  const { data: agentChat } = trpc.agents.getAgentChat.useQuery(
-    { chatId } as { chatId: string },
-    { enabled: !!chatId },
-  )
-
   // Build filter items from sub-chat metadata + the per-sub-chat tracked-file
   // map. Only include sub-chats with at least one tracked file so the toggle
   // and popover stay relevant.
+  //
+  // Priority: subChatFilesAtom (kept fresh by SubChatFilesTracker / streaming)
+  // falls back to computing directly from persisted messages so the count is
+  // correct even when the chat panel was never opened in this session.
   const subChatFiles = useAtomValue(subChatFilesAtom)
   const subChatsForFilter = useMemo(() => {
-    const subs = (agentChat as any)?.subChats ?? []
+    const subs = chat?.subChats ?? []
     return subs
-      .map((sc: { id: string; name?: string | null }) => {
-        const files = subChatFiles.get(sc.id) ?? []
+      .map((sc: { id: string; name?: string | null; messages?: unknown }) => {
+        const atomFiles = subChatFiles.get(sc.id)
+        if (atomFiles !== undefined) {
+          return {
+            id: sc.id,
+            name: sc.name ?? "Conversation",
+            filePaths: atomFiles.map((f) => f.filePath),
+            fileCount: atomFiles.length,
+          }
+        }
+        // Atom not yet seeded — parse messages from DB directly.
+        const rawMessages = sc.messages
+        const messages: unknown[] = (() => {
+          if (Array.isArray(rawMessages)) return rawMessages
+          if (typeof rawMessages !== "string") return []
+          if (
+            !rawMessages.includes("tool-Edit") &&
+            !rawMessages.includes("tool-Write") &&
+            !rawMessages.includes("changedFiles")
+          ) return []
+          try { return JSON.parse(rawMessages) } catch { return [] }
+        })()
+        const files = computeSubChatFiles(messages as any[], worktreePath ?? undefined)
         return {
           id: sc.id,
           name: sc.name ?? "Conversation",
@@ -145,7 +166,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
         }
       })
       .filter((item: { fileCount: number }) => item.fileCount > 0)
-  }, [agentChat, subChatFiles])
+  }, [chat, subChatFiles, worktreePath])
 
   // Active sub-chat — drives the Scoped/All toggle. The store's chatId is
   // set when the user navigates into a chat; for the dockview-promoted panel
@@ -488,6 +509,7 @@ Make sure to preserve all functionality from both branches when resolving confli
             onDiscardSuccess={handleCommitOrDiscardSuccess}
             onCreatePr={handleCreatePrDirect}
             pushCount={gitStatus?.pushCount ?? 0}
+            aheadOfBase={gitStatus?.ahead ?? 0}
           />
         </div>
         {/* Right: line-by-line diff for the selected file */}

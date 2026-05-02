@@ -33,6 +33,8 @@ interface HistoryViewProps {
 	onCommitSelect?: (commit: CommitInfo | null) => void;
 	onFileSelect?: (file: ChangedFile, commitHash: string) => void;
 	pushCount?: number;
+	/** Commits ahead of the base/default branch — these are workspace-specific and not yet merged */
+	aheadOfBase?: number;
 }
 
 export const HistoryView = memo(function HistoryView({
@@ -42,6 +44,7 @@ export const HistoryView = memo(function HistoryView({
 	onCommitSelect,
 	onFileSelect,
 	pushCount,
+	aheadOfBase,
 }: HistoryViewProps) {
 	const { data: commits, isLoading, refetch: refetchHistory } = trpc.changes.getHistory.useQuery(
 		{ worktreePath, limit: 50 },
@@ -154,6 +157,7 @@ export const HistoryView = memo(function HistoryView({
 						commit={commit}
 						isSelected={selectedCommitHash === commit.hash}
 						isUnpushed={index < (pushCount || 0)}
+						isAheadOfBase={aheadOfBase !== undefined && aheadOfBase > 0 && index < aheadOfBase}
 						onClick={() => handleCommitClick(commit)}
 					/>
 				))}
@@ -187,11 +191,14 @@ const HistoryCommitItem = memo(function HistoryCommitItem({
 	commit,
 	isSelected,
 	isUnpushed,
+	isAheadOfBase,
 	onClick,
 }: {
 	commit: CommitInfo;
 	isSelected: boolean;
 	isUnpushed?: boolean;
+	/** True when this commit is on the current branch but not yet merged into the base branch */
+	isAheadOfBase?: boolean;
 	onClick: () => void;
 }) {
 	const timeAgo = useMemo(
@@ -226,6 +233,7 @@ const HistoryCommitItem = memo(function HistoryCommitItem({
 						"flex items-center gap-2 px-2 py-2 cursor-pointer transition-colors",
 						"hover:bg-muted/50 border-b border-border/30 last:border-b-0",
 						isSelected && "bg-muted",
+						isAheadOfBase && "border-l-2 border-primary/60 pl-1.5",
 					)}
 					onClick={onClick}
 				>

@@ -271,6 +271,8 @@ interface ChangesViewProps {
 	onActiveTabChange?: (tab: "changes" | "history") => void;
 	/** Number of commits ahead of upstream (for unpushed indicator) */
 	pushCount?: number;
+	/** Number of commits ahead of the base/default branch (for workspace highlight) */
+	aheadOfBase?: number;
 }
 
 export function ChangesView({
@@ -291,6 +293,7 @@ export function ChangesView({
 	onCommitFileSelect,
 	onActiveTabChange,
 	pushCount,
+	aheadOfBase,
 }: ChangesViewProps) {
 	useFileChangeListener(worktreePath);
 
@@ -1117,6 +1120,7 @@ export function ChangesView({
 							onCommitSelect={onCommitSelect}
 							onFileSelect={onCommitFileSelect}
 							pushCount={pushCount}
+							aheadOfBase={aheadOfBase}
 						/>
 					</TabsContent>
 				</Tabs>
