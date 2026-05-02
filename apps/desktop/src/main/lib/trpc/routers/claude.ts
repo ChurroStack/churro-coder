@@ -46,6 +46,7 @@ import { fetchOAuthMetadata, getMcpBaseUrl } from "../../oauth"
 import { discoverPluginMcpServers } from "../../plugins"
 import { publicProcedure, router } from "../index"
 import { buildAgentsOption } from "./agent-utils"
+import { shouldForceFreshSessionOnModeChange } from "./claude-mode-change"
 import {
   resolveSandboxPolicy,
   pathIsInsideAny,
@@ -991,6 +992,7 @@ export const claudeRouter = router({
 
             const existingMessages = JSON.parse(existing?.messages || "[]")
             const existingSessionId = existing?.sessionId || null
+            const existingSessionMode = existing?.sessionMode || null
 
             // Get resumeSessionAt UUID only if shouldResume flag was set (by rollbackToMessage)
             // or shouldForkResume flag was set (by forkSubChat)
@@ -1542,6 +1544,9 @@ export const claudeRouter = router({
             let resumeSessionId =
               input.sessionId || existingSessionId || undefined
 
+            // Used by forceFreshSession below — set true when mode changed between turns.
+            let modeChangedSession = false
+
             // Proactively validate the session JSONL file exists before trying to
             // resume. If the file is missing (deleted, expired, or wrong cwd), clear
             // resumeSessionId now so we start fresh and avoid the SESSION_EXPIRED
@@ -1564,6 +1569,23 @@ export const claudeRouter = router({
                 .where(eq(subChats.id, input.subChatId))
                 .run()
               resumeSessionId = undefined
+            }
+
+            // If the active session was started with a different mode than this turn
+            // requests, the resumed session's CLI-side state still encodes the old
+            // mode (system prompt, plan-mode instructions in JSONL). Layering a new
+            // permissionMode on top of the resume call does not override that context.
+            // Force a brand-new session so the new mode takes full effect.
+            if (shouldForceFreshSessionOnModeChange({ resumeSessionId, existingSessionMode, inputMode: input.mode })) {
+              console.log(
+                `[claude] Mode changed (${existingSessionMode}→${input.mode}) - forcing fresh session`,
+              )
+              db.update(subChats)
+                .set({ sessionId: null, sessionMode: null })
+                .where(eq(subChats.id, input.subChatId))
+                .run()
+              resumeSessionId = undefined
+              modeChangedSession = true
             }
 
             // When there is no session to resume but prior messages exist, the session
@@ -2193,11 +2215,11 @@ ${prompt}
             // Tracks the session ID to attempt resume with. Cleared to undefined
             // on a SESSION_EXPIRED silent retry so the next iteration starts fresh.
             let currentSessionId: string | undefined = resumeSessionId
-            // After an expiry-driven retry we want a truly fresh session — not
-            // `continue: true`, which the CLI uses to pick up the most recent
-            // local conversation in cwd (whose .jsonl still references the
-            // expired session ID).
-            let forceFreshSession = false
+            // After an expiry-driven retry (or a mode change) we want a truly
+            // fresh session — not `continue: true`, which the CLI uses to pick
+            // up the most recent local conversation in cwd (whose .jsonl still
+            // references the old session).
+            let forceFreshSession = modeChangedSession
 
             // resume is mutually exclusive with continue (SDK contract). Recompute
             // every iteration because currentSessionId may flip after expiry.
@@ -2963,6 +2985,7 @@ ${prompt}
                     messages: finalJson,
                     ...computeFileStatsFromMessages(finalJson),
                     sessionId: savedSessionId,
+                    sessionMode: savedSessionId ? input.mode : null,
                     streamId: null,
                     updatedAt: new Date(),
                   })
@@ -2974,6 +2997,7 @@ ${prompt}
               db.update(subChats)
                 .set({
                   sessionId: savedSessionId,
+                  sessionMode: savedSessionId ? input.mode : null,
                   streamId: null,
                   updatedAt: new Date(),
                 })
