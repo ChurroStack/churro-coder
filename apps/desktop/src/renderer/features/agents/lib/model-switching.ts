@@ -20,7 +20,11 @@ import {
   getProviderForModelId,
   type Provider,
 } from "../../../../shared/provider-from-model"
-import { CODEX_MODELS, coerceCodexThinking } from "./models"
+import {
+  CODEX_MODELS,
+  coerceCodexThinking,
+  type CodexThinkingLevel,
+} from "./models"
 export type { Provider }
 export { getProviderForModelId }
 export type ModeContext = AgentMode | "review"
@@ -83,7 +87,7 @@ export type FormSelection = {
   claudeModelId: string
   claudeThinking: ClaudeThinkingPreference
   codexModelId: string
-  codexThinking: string
+  codexThinking: CodexThinkingLevel
 }
 
 /**
@@ -96,14 +100,10 @@ export function applyFormSelectionToSubChat(
   selection: FormSelection,
 ): void {
   if (selection.provider === "codex") {
-    appStore.set(subChatCodexModelIdAtomFamily(subChatId), selection.codexModelId)
-    appStore.set(subChatProviderOverrideAtomFamily(subChatId), "codex")
-    appStore.set(lastSelectedAgentIdAtom, "codex")
+    setSubChatModel(subChatId, selection.codexModelId)
     appStore.set(subChatCodexThinkingAtomFamily(subChatId), selection.codexThinking)
   } else {
-    appStore.set(subChatModelIdAtomFamily(subChatId), selection.claudeModelId)
-    appStore.set(subChatProviderOverrideAtomFamily(subChatId), "claude-code")
-    appStore.set(lastSelectedAgentIdAtom, "claude-code")
+    setSubChatModel(subChatId, selection.claudeModelId)
     appStore.set(subChatClaudeThinkingAtomFamily(subChatId), selection.claudeThinking)
   }
 }

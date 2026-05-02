@@ -1222,6 +1222,26 @@ export function NewChatForm({
 
   const trpcUtils = trpc.useUtils()
 
+  // Snapshot of the form's current model/thinking selection for both submit
+  // paths. Captured synchronously before mutate() so onSuccess applies what
+  // the user actually saw at submit time, even if state changes later.
+  const getFormSelection = useCallback(
+    () => ({
+      provider: selectedAgent.id as "claude-code" | "codex",
+      claudeModelId: selectedModel?.id ?? "opus",
+      claudeThinking: selectedClaudeThinking,
+      codexModelId: selectedCodexModel.id,
+      codexThinking: selectedCodexThinking,
+    }),
+    [
+      selectedAgent.id,
+      selectedModel?.id,
+      selectedClaudeThinking,
+      selectedCodexModel.id,
+      selectedCodexThinking,
+    ],
+  )
+
   const handleSend = useCallback(async () => {
     // Get value from uncontrolled editor
     let message = editorRef.current?.getValue() || ""
@@ -1353,13 +1373,7 @@ export function NewChatForm({
 
     // Capture form selection synchronously before any await so the closure
     // holds the values the user actually saw in the form at submit time.
-    const formSelection = {
-      provider: selectedAgent.id as "claude-code" | "codex",
-      claudeModelId: selectedModel?.id ?? "opus",
-      claudeThinking: selectedClaudeThinking,
-      codexModelId: selectedCodexModel.id,
-      codexThinking: selectedCodexThinking,
-    }
+    const formSelection = getFormSelection()
 
     // Create chat with selected project, branch, and initial message
     createChatMutation.mutate(
@@ -1401,11 +1415,7 @@ export function NewChatForm({
     pastedTexts,
     selectedChatModel,
     agentMode,
-    selectedAgent.id,
-    selectedModel?.id,
-    selectedClaudeThinking,
-    selectedCodexModel.id,
-    selectedCodexThinking,
+    getFormSelection,
     trpcUtils,
   ])
 
@@ -1416,13 +1426,7 @@ export function NewChatForm({
     const readyFiles = files.filter((f) => !f.isLoading)
     const hasDraftContent = text.length > 0 || readyImages.length > 0 || readyFiles.length > 0
     // Capture form selection before the mutation (same ordering invariant as handleApprovePlan)
-    const formSelection = {
-      provider: selectedAgent.id as "claude-code" | "codex",
-      claudeModelId: selectedModel?.id ?? "opus",
-      claudeThinking: selectedClaudeThinking,
-      codexModelId: selectedCodexModel.id,
-      codexThinking: selectedCodexThinking,
-    }
+    const formSelection = getFormSelection()
     createChatMutation.mutate(
       {
         projectId: selectedProject.id,
@@ -1459,11 +1463,7 @@ export function NewChatForm({
     selectedBranchType,
     agentMode,
     selectedChatModel,
-    selectedAgent.id,
-    selectedModel?.id,
-    selectedClaudeThinking,
-    selectedCodexModel.id,
-    selectedCodexThinking,
+    getFormSelection,
     createChatMutation,
   ])
 
