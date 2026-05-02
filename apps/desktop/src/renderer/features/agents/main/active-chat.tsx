@@ -7220,12 +7220,6 @@ Make sure to preserve all functionality from both branches when resolving confli
         }
       }
 
-      // Get mode from store metadata (falls back to currentMode)
-      const subChatMeta = useAgentSubChatStore
-        .getState()
-        .allSubChats.find((sc) => sc.id === subChatId)
-      const subChatMode = subChatMeta?.mode || currentMode
-
       const chatProvider = inferProviderFromMessages(subChatId)
 
       console.log("[getOrCreateChat] Transport selection", {
@@ -7252,7 +7246,6 @@ Make sure to preserve all functionality from both branches when resolving confli
           subChatId,
           subChatName,
           sandboxUrl: chatSandboxUrl,
-          mode: subChatMode,
           model: modelString,
         })
       } else if (worktreePath) {
@@ -7263,7 +7256,6 @@ Make sure to preserve all functionality from both branches when resolving confli
             subChatId,
             cwd: worktreePath,
             projectPath,
-            mode: subChatMode,
             provider: "codex",
           })
         } else {
@@ -7273,7 +7265,6 @@ Make sure to preserve all functionality from both branches when resolving confli
             subChatId,
             cwd: worktreePath,
             projectPath,
-            mode: subChatMode,
           })
         }
       }
@@ -7386,7 +7377,6 @@ Make sure to preserve all functionality from both branches when resolving confli
       chatWorkingDir,
       worktreePath,
       chatId,
-      currentMode,
       agentSubChats,
       inferProviderFromMessages,
       subChatProviderOverrides,

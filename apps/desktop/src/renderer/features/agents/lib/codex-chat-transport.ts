@@ -20,7 +20,7 @@ import {
   subChatCodexThinkingAtomFamily,
 } from "../atoms"
 import { CODEX_MODELS, type CodexThinkingLevel } from "./models"
-import { useAgentSubChatStore } from "../stores/sub-chat-store"
+import { getCurrentSubChatMode } from "./get-current-sub-chat-mode"
 import type { AgentMessageMetadata } from "../ui/agent-message-usage"
 
 type UIMessageChunk = any
@@ -30,7 +30,6 @@ type CodexChatTransportConfig = {
   subChatId: string
   cwd: string
   projectPath?: string
-  mode: "plan" | "agent"
   provider: "codex"
 }
 
@@ -129,11 +128,7 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     const metadata = lastAssistant?.metadata as AgentMessageMetadata | undefined
     const sessionId = metadata?.sessionId
 
-    const currentMode =
-      useAgentSubChatStore
-        .getState()
-        .allSubChats.find((subChat) => subChat.id === this.config.subChatId)
-        ?.mode || this.config.mode
+    const currentMode = getCurrentSubChatMode(this.config.subChatId)
     const forceNewSession = forceFreshSessionSubChats.has(this.config.subChatId)
     if (forceNewSession) {
       forceFreshSessionSubChats.delete(this.config.subChatId)

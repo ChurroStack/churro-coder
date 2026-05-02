@@ -26,7 +26,7 @@ import {
   subChatModelIdAtomFamily,
 } from "../atoms"
 import { setSubChatModel } from "./model-switching"
-import { useAgentSubChatStore } from "../stores/sub-chat-store"
+import { getCurrentSubChatMode } from "./get-current-sub-chat-mode"
 import type { AgentMessageMetadata } from "../ui/agent-message-usage"
 
 // Error categories and their user-friendly messages
@@ -120,7 +120,6 @@ type IPCChatTransportConfig = {
   subChatId: string
   cwd: string
   projectPath?: string // Original project path for MCP config lookup (when using worktrees)
-  mode: "plan" | "agent"
   model?: string
 }
 
@@ -178,11 +177,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const autoOfflineMode = appStore.get(autoOfflineModeAtom)
     const offlineModeEnabled = showOfflineFeatures && autoOfflineMode
 
-    const currentMode =
-      useAgentSubChatStore
-        .getState()
-        .allSubChats.find((subChat) => subChat.id === this.config.subChatId)
-        ?.mode || this.config.mode
+    const currentMode = getCurrentSubChatMode(this.config.subChatId)
 
     // Stream debug logging
     const subId = this.config.subChatId.slice(-8)
