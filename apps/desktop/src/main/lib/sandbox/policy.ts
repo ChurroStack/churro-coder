@@ -191,6 +191,9 @@ function buildWritableRoots(
       path.join(home, ".local", "share", "pnpm"),
       path.join(home, ".bun"),
       path.join(home, "go", "pkg", "mod"),
+      path.join(home, ".deno"),
+      path.join(home, ".asdf"),
+      path.join(home, ".local", "share", "mise"),
     )
     if (process.platform === "darwin") {
       roots.push(path.join(home, "Library", "Caches"))

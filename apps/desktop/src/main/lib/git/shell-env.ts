@@ -120,11 +120,17 @@ export async function getShellEnvironment(): Promise<Record<string, string>> {
 		// -l: login shell (sources .zprofile/.profile for PATH setup)
 		// -c: execute command
 		// Avoids -i (interactive) to skip TTY prompts and reduce latency
-		const { stdout } = await execFileAsync(shell, ["-lc", "env"], {
+		// Also source the interactive rc file so tools like bun that write
+		// their PATH export to .zshrc (not .zprofile) are found.
+		const home = os.homedir();
+		const shellName = path.basename(shell);
+		const rcFile = shellName === "bash" ? "~/.bashrc" : "~/.zshrc";
+		const shellCmd = `[ -f ${rcFile} ] && source ${rcFile} 2>/dev/null; env`;
+		const { stdout } = await execFileAsync(shell, ["-lc", shellCmd], {
 			timeout: 10_000,
 			env: {
 				...process.env,
-				HOME: os.homedir(),
+				HOME: home,
 			},
 		});
 
@@ -136,6 +142,25 @@ export async function getShellEnvironment(): Promise<Record<string, string>> {
 				const value = line.substring(idx + 1);
 				env[key] = value;
 			}
+		}
+
+		// Safety-net for tools that only export to .zshrc/.bashrc. No-ops when
+		// the rc-file source above already captured them.
+		const safetyPaths = [
+			path.join(home, ".bun", "bin"),
+			path.join(home, ".deno", "bin"),
+			path.join(home, ".local", "bin"),
+			path.join(home, ".asdf", "bin"),
+			path.join(home, ".asdf", "shims"),
+			"/opt/homebrew/bin",
+			"/opt/homebrew/sbin",
+			"/usr/local/bin",
+		];
+		const currentPaths = (env.PATH ?? "").split(":").filter(Boolean);
+		const currentSet = new Set(currentPaths);
+		const extra = safetyPaths.filter((p) => !currentSet.has(p));
+		if (extra.length > 0) {
+			env.PATH = [...extra, ...currentPaths].join(":");
 		}
 
 		cachedEnv = env;
