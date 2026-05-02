@@ -500,9 +500,18 @@ function extractApprovedPlanFromMessages(messages: any[]): ApprovedPlanContent |
   return null
 }
 
+// Provider-agnostic instruction asking the model to surface its task-tracking
+// tool (TodoWrite for Claude, Task* for Codex) so the renderer's task widget
+// has events to display. Without this, Sonnet often skips TodoWrite for
+// "single deliverable" tasks even when the plan has many distinct steps.
+const IMPLEMENT_PLAN_TASK_TRACKING_INSTRUCTION =
+  "Track progress through each plan step using your task-management tool: open a task list at the start and update each item's status (pending → in_progress → completed) as you work."
+
+const IMPLEMENT_PLAN_BASE_TEXT = `Implement plan. ${IMPLEMENT_PLAN_TASK_TRACKING_INSTRUCTION}`
+
 function buildImplementPlanParts(plan: ApprovedPlanContent | null): any[] {
   const content = plan?.content.trim()
-  if (!content) return [{ type: "text", text: "Implement plan" }]
+  if (!content) return [{ type: "text", text: IMPLEMENT_PLAN_BASE_TEXT }]
 
   const source = plan.source ? `Plan source: ${plan.source}` : ""
   const hiddenPlanContent = [
@@ -516,7 +525,7 @@ function buildImplementPlanParts(plan: ApprovedPlanContent | null): any[] {
   return [
     {
       type: "text",
-      text: "Implement plan. Use the attached approved plan as the source of truth.",
+      text: `${IMPLEMENT_PLAN_BASE_TEXT} Use the attached approved plan as the source of truth.`,
     },
     {
       type: "file-content",
@@ -3617,7 +3626,7 @@ export const ChatViewInner = memo(function ChatViewInner({
         scrollToBottom()
         setPendingImplementPlan({
           subChatId,
-          parts: [{ type: "text", text: "Implement plan" }],
+          parts: [{ type: "text", text: IMPLEMENT_PLAN_BASE_TEXT }],
         })
         return
       }
