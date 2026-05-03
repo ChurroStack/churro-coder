@@ -38,6 +38,7 @@ export function AgentsArchivePopover({
   const [internalOpen, setInternalOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useAtom(archiveSearchQueryAtom)
   const [confirmDeleteChat, setConfirmDeleteChat] = useState<{ id: string; name: string | null } | null>(null)
+  const [confirmClearAll, setConfirmClearAll] = useState(false)
 
   const open = controlledOpen ?? internalOpen
   const setOpen = controlledOnOpenChange ?? setInternalOpen
@@ -99,7 +100,7 @@ export function AgentsArchivePopover({
             {archivedChats.length > 0 && (
               <button
                 type="button"
-                onClick={() => deleteAllMutation.mutate()}
+                onClick={() => setConfirmClearAll(true)}
                 disabled={deleteAllMutation.isPending}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
               >
@@ -201,6 +202,34 @@ export function AgentsArchivePopover({
               }}
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmClearAll}
+        onOpenChange={setConfirmClearAll}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all archived workspaces?</AlertDialogTitle>
+            <AlertDialogDescription>
+              All {archivedChats.length} archived workspace
+              {archivedChats.length === 1 ? "" : "s"} will be deleted forever, along
+              {" "}with their worktrees on disk. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                deleteAllMutation.mutate()
+                setConfirmClearAll(false)
+              }}
+            >
+              Clear all
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
