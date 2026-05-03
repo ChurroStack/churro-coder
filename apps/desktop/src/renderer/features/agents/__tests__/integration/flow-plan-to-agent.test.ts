@@ -187,12 +187,13 @@ describe("L4 integration — single-flight (PR #51)", () => {
     })
 
     // Hold the persist promise open so the first call is mid-flight when the
-    // second arrives.
-    let persistResolve: (() => void) | null = null
+    // second arrives. Container ref so TS sees the assignment across the
+    // async Promise callback.
+    const resolver: { fn: (() => void) | null } = { fn: null }
     deps.persistMode = async (input) => {
       orchestration.persistCalls.push(input)
       await new Promise<void>((res) => {
-        persistResolve = res
+        resolver.fn = res
       })
     }
 
@@ -203,7 +204,7 @@ describe("L4 integration — single-flight (PR #51)", () => {
     expect(second.ok).toBe(false)
     expect(second.reason).toBe("in-flight")
 
-    persistResolve?.()
+    resolver.fn?.()
     const firstResult = await first
     expect(firstResult.ok).toBe(true)
 

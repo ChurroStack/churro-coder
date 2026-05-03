@@ -80,9 +80,11 @@ describe("toggleMode — happy path call ordering (PR #36)", () => {
   })
 
   test("setMode and applyDefaultModel resolve before persistMode is awaited", async () => {
-    let persistResolve: (() => void) | null = null
+    // Container ref — see chat-send-service.test.ts for the rationale (TS
+    // can't narrow `let` assignments inside async Promise callbacks).
+    const resolver: { fn: (() => void) | null } = { fn: null }
     const persistDone = new Promise<void>((res) => {
-      persistResolve = res
+      resolver.fn = res
     })
 
     const { deps, calls } = makeDeps("plan", {
@@ -102,7 +104,7 @@ describe("toggleMode — happy path call ordering (PR #36)", () => {
     expect(fns).toContain("persistMode-enter")
     expect(fns).not.toContain("persistMode-exit")
 
-    persistResolve?.()
+    resolver.fn?.()
     await flow
   })
 })
@@ -173,7 +175,7 @@ describe("toggleMode — provider change notification", () => {
     const notifyProviderChange = vi.fn()
     const { deps } = makeDeps("plan", {
       notifyProviderChange,
-      applyDefaultModel: vi.fn(() => ({ modelId: "gpt-5.4", provider: "codex" })),
+      applyDefaultModel: vi.fn((_id: string, _mode: "plan" | "agent" | "review") => ({ modelId: "gpt-5.4", provider: "codex" as ProviderId })),
     })
     const result = await toggleMode("sub-1", "agent", deps)
     expect(notifyProviderChange).toHaveBeenCalledWith("sub-1", "codex")

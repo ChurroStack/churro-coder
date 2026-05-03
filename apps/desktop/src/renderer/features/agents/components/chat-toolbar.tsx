@@ -15,8 +15,13 @@ export interface ChatToolbarProps {
   subChatName: string
   workspaceRepoName: string | null
   workspaceBranch: string | null
-  /** Called when the user renames the sub-chat via the title editor. */
-  onRenameSubChat: (newName: string) => void
+  /**
+   * Called when the user renames the sub-chat via the title editor. The
+   * renderer's `handleRenameSubChat` is async (rename mutation), and
+   * `ChatTitleEditor.onSave` requires `Promise<void>` — so this prop is
+   * typed strictly as a Promise-returning function.
+   */
+  onRenameSubChat: (newName: string) => Promise<void>
 }
 
 /**

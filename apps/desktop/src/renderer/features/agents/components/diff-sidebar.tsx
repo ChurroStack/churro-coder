@@ -151,7 +151,15 @@ export interface DiffSidebarContentProps {
   diffContent: string | null
   parsedFileDiffs: unknown
   prefetchedFileContents: Record<string, string> | undefined
-  setDiffCollapseState: (state: Map<string, boolean>) => void
+  /**
+   * AgentDiffView emits `{ allCollapsed, allExpanded }` snapshots whenever
+   * the per-file expansion state changes. The renderer uses this to drive
+   * the "expand all" / "collapse all" header buttons. (The original
+   * inline definition typed this as `Map<string, boolean>` which never
+   * matched the runtime shape — a latent bug fixed during the Phase 3
+   * extraction.)
+   */
+  setDiffCollapseState: (state: { allCollapsed: boolean; allExpanded: boolean }) => void
   diffViewRef: React.RefObject<{ expandAll: () => void; collapseAll: () => void; getViewedCount: () => number; markAllViewed: () => void; markAllUnviewed: () => void } | null>
   agentChat: { prUrl?: string; prNumber?: number } | null | undefined
   sidebarWidth: number
@@ -422,15 +430,15 @@ const DiffSidebarContent = memo(function DiffSidebarContent({
             <AgentDiffView
               ref={diffViewRef as React.RefObject<AgentDiffViewRef | null>}
               chatId={chatId}
-              sandboxId={sandboxId}
+              sandboxId={sandboxId ?? ""}
               worktreePath={worktreePath || undefined}
-              repository={repository}
+              repository={repository ? `${repository.owner}/${repository.name}` : undefined}
               onStatsChange={setDiffStats}
               initialDiff={effectiveDiff}
               initialParsedFiles={effectiveParsedFiles}
               prefetchedFileContents={effectivePrefetchedContents}
               showFooter={false}
-              onCollapsedStateChange={setDiffCollapseState as any}
+              onCollapsedStateChange={setDiffCollapseState}
               onSelectNextFile={handleSelectNextFile}
               onViewedCountChange={handleViewedCountChange}
               initialSelectedFile={initialSelectedFile}
@@ -547,15 +555,15 @@ const DiffSidebarContent = memo(function DiffSidebarContent({
           <AgentDiffView
             ref={diffViewRef as React.RefObject<AgentDiffViewRef | null>}
             chatId={chatId}
-            sandboxId={sandboxId}
+            sandboxId={sandboxId ?? ""}
             worktreePath={worktreePath || undefined}
-            repository={repository}
+            repository={repository ? `${repository.owner}/${repository.name}` : undefined}
             onStatsChange={setDiffStats}
             initialDiff={effectiveDiff}
             initialParsedFiles={effectiveParsedFiles}
             prefetchedFileContents={effectivePrefetchedContents}
             showFooter={true}
-            onCollapsedStateChange={setDiffCollapseState as any}
+            onCollapsedStateChange={setDiffCollapseState}
             onSelectNextFile={handleSelectNextFile}
             onViewedCountChange={handleViewedCountChange}
             initialSelectedFile={initialSelectedFile}

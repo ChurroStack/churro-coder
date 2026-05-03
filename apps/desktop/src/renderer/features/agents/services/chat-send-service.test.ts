@@ -87,13 +87,16 @@ describe("sendPendingMessage — clear-before-await invariant", () => {
   test("clearPending runs even before sendMessage starts (synchronous)", async () => {
     const order: string[] = []
     const clear = vi.fn(() => order.push("clear"))
-    let sendResolve: (() => void) | null = null
+    // Container ref so the assignment inside the async Promise callback is
+    // observable by TS at the call site (a bare `let` would be narrowed to
+    // `null` because TS can't see across the async boundary).
+    const resolver: { fn: (() => void) | null } = { fn: null }
     const deps: SendDeps = {
       sendMessage: vi.fn(
         () =>
           new Promise<void>((res) => {
             order.push("send-start")
-            sendResolve = () => {
+            resolver.fn = () => {
               order.push("send-end")
               res()
             }
@@ -104,7 +107,7 @@ describe("sendPendingMessage — clear-before-await invariant", () => {
     const flow = sendPendingMessage("sub-1", { subChatId: "sub-1", text: "x" }, clear, deps)
     await new Promise((r) => setTimeout(r, 0))
     expect(order).toEqual(["clear", "send-start"])
-    sendResolve?.()
+    resolver.fn?.()
     await flow
     expect(order).toEqual(["clear", "send-start", "send-end"])
   })

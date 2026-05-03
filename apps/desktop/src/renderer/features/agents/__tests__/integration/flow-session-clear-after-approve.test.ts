@@ -83,9 +83,9 @@ describe("L4 integration — session clear via persistMode exitPlan flag (PR #45
     appStore.set(subChatModeAtomFamily(subChatId), "plan")
 
     const events: string[] = []
-    let persistResolve: (() => void) | null = null
+    const resolver: { fn: (() => void) | null } = { fn: null }
     const persistGate = new Promise<void>((res) => {
-      persistResolve = res
+      resolver.fn = res
     })
 
     const deps: PlanApprovalDeps = {
@@ -117,7 +117,7 @@ describe("L4 integration — session clear via persistMode exitPlan flag (PR #45
     expect(events).toEqual(["persistMode-enter"])
     expect(events).not.toContain("scheduleDeferredSend")
 
-    persistResolve?.()
+    resolver.fn?.()
     await flow
 
     expect(events).toEqual([

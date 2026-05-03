@@ -63,6 +63,10 @@ function makeDeps(subChatId: string): {
       states.set(id, state)
     },
     setMode: (id, mode) => {
+      // ChatMode is "plan" | "agent" | "review"; the persisted atom only
+      // accepts AgentMode ("plan" | "agent"). Review is transient and
+      // never reaches setMode in toggleMode flows.
+      if (mode === "review") return
       appStore.set(subChatModeAtomFamily(id), mode)
     },
     applyDefaultModel: (id, mode) => {

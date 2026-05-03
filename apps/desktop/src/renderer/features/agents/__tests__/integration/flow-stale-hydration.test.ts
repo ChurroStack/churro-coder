@@ -65,6 +65,8 @@ function makeDeps(subChatId: string, initialMode: "plan" | "agent" = "plan"): {
     },
     setMode: (id, mode) => {
       setModeCalls.push({ subChatId: id, mode })
+      // ChatMode → AgentMode narrowing (review is transient, never persisted).
+      if (mode === "review") return
       appStore.set(subChatModeAtomFamily(id), mode)
     },
     applyDefaultModel: (id, mode) => {
