@@ -245,7 +245,7 @@ Pinned at `tailwindcss@^3.4.17`. Do **not** add Tailwind v4 syntax to CSS files 
 - `src/renderer/features/dock/use-panel-actions.ts` - Single source of truth for "open a panel" flows
 
 **Renderer — chat**
-- `src/renderer/features/agents/main/active-chat.tsx` - ChatView (~8.0k LOC after the Phase 3 dead-code purge; Phase 2 services landed but not yet wired in — see "Refactor playbook" + "Phase 3 wiring contract" below)
+- `src/renderer/features/agents/main/active-chat.tsx` - ChatView (~7.1k LOC after the Phase 3 cuts — diff-sidebar module + chat-toolbar + terminal-bottom-mount + the three earlier component cuts removed ~1600 LOC of UI code from this file; Phase 2 services landed but not yet wired in — see "Refactor playbook" + "Phase 3 wiring contract" below)
 - `src/renderer/features/agents/atoms/index.ts` - Agent UI state atoms (incl. the `pendingXxxMessageAtom` family)
 - `src/renderer/features/agents/stores/sub-chat-store.ts` - Per-workspace `openSubChatIds` / `activeSubChatId`
 - `src/renderer/features/agents/lib/agents-actions.ts` - Hotkey-driven action handlers
@@ -261,6 +261,9 @@ Pinned at `tailwindcss@^3.4.17`. Do **not** add Tailwind v4 syntax to CSS files 
 - `src/renderer/features/agents/components/message-group.tsx` - User-message-height measurement + `content-visibility: auto` perf wrapper, extracted from `active-chat.tsx` in Phase 3
 - `src/renderer/features/agents/components/scroll-to-bottom-button.tsx` - Sticky scroll-to-bottom button with isolated scroll listener (RAF-throttled), extracted in Phase 3
 - `src/renderer/features/agents/components/split-pane-inline-close.tsx` - Persistent close button for split-pane chats, extracted in Phase 3
+- `src/renderer/features/agents/components/chat-toolbar.tsx` - Title row + workspace subtitle (chat header), extracted in Phase 3
+- `src/renderer/features/agents/components/terminal-bottom-mount.tsx` - Bottom-panel mount for `TerminalBottomPanelContent`, extracted in Phase 3
+- `src/renderer/features/agents/components/diff-sidebar.tsx` - Diff-sidebar module: `DiffStateProvider` + `DiffSidebarRenderer` + the internal `DiffSidebarContent`/`CommitFileItem` + `useDiffState` context. ~900 LOC moved out of `active-chat.tsx` in one cohesive surgery
 
 **Testing**
 - `vitest.config.ts` - Test config (node env default; per-file `// @vitest-environment jsdom` for component tests). Pure modules + service modules go in the `coverage.include` array
@@ -340,13 +343,21 @@ The `release` script chains `build → package:mac → dist:manifest → upload-
 
 ## Current Status
 
-**Done (this branch — Phase 2 services + L4 integration battery + Phase 3 first cuts):**
+**Done (this branch — Phase 2 services + L4 integration battery + Phase 3 complete):**
 - Four services in `src/renderer/features/agents/services/`: `plan-approval-service`, `mode-switch-service`, `chat-send-service`, `transport-factory`. Each composes the corresponding pure machine with injected side-effect deps so the orchestration is testable end-to-end without React/jotai/tRPC.
 - 68 L2 service tests across 4 files — encode invariants from PRs #36 / #38 / #40 / #44 / #45 / #51 / #52. See the bug-cluster regression matrix below.
 - 19 L4 integration tests in `src/renderer/features/agents/__tests__/integration/`: `flow-plan-to-agent`, `flow-cross-provider-approve`, `flow-mode-toggle-mid-stream`, `flow-stale-hydration`, `flow-session-clear-after-approve`.
-- **Phase 3 first cuts** (3 components extracted from `active-chat.tsx`): `MessageGroup` → `components/message-group.tsx`, `SplitPaneInlineClose` → `components/split-pane-inline-close.tsx`, `ScrollToBottomButton` → `components/scroll-to-bottom-button.tsx`. 15 L3 component tests (jsdom + RTL) cover them.
-- **Dead-code purged from `active-chat.tsx`**: `CopyButton`, `PlayButton` (with `PlayButtonState` / `PLAYBACK_SPEEDS` / `PlaybackSpeed` types), `CollapsibleSteps`, and the unused `ttsPlaybackRate` state were all dead code — the live versions live in `ui/message-action-buttons.tsx` and `main/assistant-message-item.tsx`. Removing them shrunk the file by ~650 LOC and let us drop `apiFetch`, `useHaptic`, `motion`, `AnimatePresence`, `ListTree`, `ArrowDown`, `XIcon`, `CopyIcon`, `CheckIcon`, `VolumeIcon`, `PauseIcon`, `CollapseIcon`, `ExpandIcon`, and `TerminalSquare` imports.
-- `vitest.config.ts` `coverage.include` extended for the four service modules + the three new component modules.
+- **Phase 3 complete** — all extractable components moved out of `active-chat.tsx`:
+  - `MessageGroup` → `components/message-group.tsx`
+  - `SplitPaneInlineClose` → `components/split-pane-inline-close.tsx`
+  - `ScrollToBottomButton` → `components/scroll-to-bottom-button.tsx`
+  - `ChatToolbar` → `components/chat-toolbar.tsx`
+  - `TerminalBottomMount` → `components/terminal-bottom-mount.tsx`
+  - **`diff-sidebar` module** → `components/diff-sidebar.tsx` — bundled `DiffStateProvider`, `DiffSidebarRenderer`, `DiffSidebarContent`, `CommitFileItem`, and the `useDiffState` context (~900 LOC moved as one cohesive surgery).
+  - 15 L3 component tests (jsdom + RTL) for the simpler ones.
+- **Phase 3 closed entries** — `streaming-status-indicator`, `pending-files-strip`, `chat-input-bar`, `chat-message-list`, `empty-state`, and `plan-panel-inline` from the original playbook had no extractable block in `active-chat.tsx` because they were already extracted (`AgentSendButton`, `ChatInputArea`, `IsolatedMessagesSection`) or the playbook entry was speculative.
+- **Dead-code purged from `active-chat.tsx`**: `CopyButton`, `PlayButton` (with `PlayButtonState` / `PLAYBACK_SPEEDS` / `PlaybackSpeed` types), `CollapsibleSteps`, and the unused `ttsPlaybackRate` state were all dead code — the live versions live in `ui/message-action-buttons.tsx` and `main/assistant-message-item.tsx`. Removing them + the Phase 3 cuts shrunk the file from 8730 → 7117 LOC (~1600 LOC removed) and let us drop ~24 now-unused imports.
+- `vitest.config.ts` `coverage.include` extended for the four service modules + the three new component modules with tests.
 - AGENTS.md gained a maintenance plan, a bug-cluster regression matrix, a Phase 3 wiring contract (service-by-service deps wiring guide), and a Phase 3 component extraction order.
 - `bun run build` clean. 444/444 tests pass.
 
@@ -374,7 +385,7 @@ The `release` script chains `build → package:mac → dist:manifest → upload-
 - Diff panel: ChangesPanel + AgentDiffView + DiffSidebarHeader, with Review / Create PR / Merge / Fix-conflicts wired.
 
 **Known limitations / deferred:**
-- `active-chat.tsx` is now ~8.0k LOC after the Phase 3 dead-code purge. Phase 2 services are landed but not yet wired in (gated on runtime UI verification). The remaining Phase 3 component cuts (`chat-toolbar`, `chat-input-bar`, `chat-message-list`, `diff-sidebar-renderer`, `empty-state`, `terminal-bottom-mount`, `pending-files-strip`, `plan-panel-inline`) are higher-risk and similarly gated.
+- `active-chat.tsx` is now ~7.1k LOC after the full Phase 3 component pass. Every entry in the Phase 3 component table is either landed or closed (already extracted upstream / no extractable block existed). Phase 2 services are landed but not yet wired in — that's the next reduction lever, gated on runtime UI verification per CLAUDE.md.
 - Mobile branch (`agents-content.tsx if (isMobile)`) still uses legacy `TerminalSidebar` / `KanbanView` dispatch — unaudited against the dockview changes.
 - Display-mode atoms (`terminalDisplayModeAtom`, `diffViewDisplayModeAtom`, `fileViewerDisplayModeAtom` + `*SidebarOpenAtomFamily` siblings) are vestigial but still consumed by `changes-view.tsx` / `agent-diff-view.tsx` / `git-activity-badges.tsx` / `agent-plan-file-tool.tsx` / mobile `terminal-sidebar.tsx`. Removal is a 7-file follow-up.
 - `chats.listArchived` / `chats.restore` / `chats.deleteAllArchived` were removed; Cmd+Z workspace undo is a no-op (sub-chat undo still works). The `archived_at` column remains in the schema and is filtered out by `chats.list`.
@@ -636,17 +647,17 @@ When wiring, **do not** add new branches in `active-chat.tsx` for cases the serv
 | 0a | `message-group` | ✅ landed | User-message-height measurement + `content-visibility: auto` perf wrapper | extracted | `children`, `isLastGroup` |
 | 0b | `split-pane-inline-close` | ✅ landed | Close button for split-pane chats | extracted | `subChatId` |
 | 0c | `scroll-to-bottom-button` | ✅ landed | Sticky scroll-to-bottom with isolated scroll listener | extracted | `containerRef`, `onScrollToBottom`, `isActive`, `isSplitPane`, `subChatId` |
-| 1 | `streaming-status-indicator` | pending | Spinner + Stop / Regenerate buttons; reads `useChat` status | inline status block + `handleStop` | `status`, `stop`, `regenerate`, `agentChatStore` (for `setManuallyAborted`) |
-| 2 | `chat-toolbar` | pending | Top bar: title editor, mode selector, model selector entry, traffic-light spacer | top of return tree | `subChatId`, `chatId`, `subChatMode`, `setSubChatMode` (now via `mode-switch-service`) |
-| 3 | `plan-panel-inline` | pending | The inline plan widget that approval renders before the dock panel split | mid-tree, search "PlanWidget" | `currentPlanPath`, `agentFinishedTickAtomFamily`, `pendingBuildPlanSubChatIdAtom` |
-| 4 | `pending-files-strip` | pending | Strip of attached images + pasted-text chips above the input | input area top | `useAgentsFileUpload`, `usePastedTextFiles` |
-| 5 | `chat-input-bar` | pending | Editor + mode/model selectors + send button. Already partially extracted as `chat-input-area.tsx`. Finish the seam: input bar should NOT subscribe to `subChatModelIdAtomFamily` directly (that was the PR #52 oscillation cause) — derive `selectedModel` from a single useMemo over the atom. | `chat-input-area.tsx` | `editorRef`, `subChatId`, `quickCommentState`, `inputHasContent` |
-| 6 | `chat-message-list` | pending | Virtualized message list + scroll-to-bottom + auto-rename trigger | mid-tree, ~3000–6000 LOC | `messagesForSync`, `useChangedFilesTracking`, `scrollToBottom`, `chatContainerRef` |
-| 7 | `diff-sidebar-renderer` | pending | The inline diff sidebar (DiffSidebarContent + peek dialog + full-page view) | `1830–2200`, `1389–1514` | `selectedDiffFilePathAtom`, `filteredDiffFilesAtom`, `agentsChangesPanelWidthAtom`, `agentsChangesPanelCollapsedAtom`, `chatId`, `subChatId` |
-| 8 | `empty-state` | pending | Welcome card + prompt suggestions when `messagesForSync.length === 0` | conditional render | `chat`, `worktreePath`, `defaultPlanModeModelAtom`/etc. for prompt examples |
-| 9 | `terminal-bottom-mount` | pending | The conditional `<TerminalBottomPanelContent>` mount block | `8705–8725` | `terminalDisplayMode`, `terminalBottomHeightAtom`, `worktreePath` |
+| 1 | `streaming-status-indicator` | n/a — already lives inside `AgentSendButton` | The `AgentSendButton` component already owns the spinner/Stop/Regenerate UI; there is no separate inline status block in `active-chat.tsx` to extract. Closed. | — | — |
+| 2 | `chat-toolbar` | ✅ landed | Title editor + workspace subtitle | extracted | `subChatId`, `subChatName`, `isMobile`, `isSubChatsSidebarOpen`, `isSplitPane`, `workspaceRepoName`, `workspaceBranch`, `onRenameSubChat` |
+| 3 | `plan-panel-inline` | n/a — no inline plan widget renders in `active-chat.tsx`; the Plan UI lives in the right rail (DetailsRail) and as a dock panel, both already extracted. Closed. | — | — | — |
+| 4 | `pending-files-strip` | n/a — lives inside the already-extracted `ChatInputArea` (chat-input-area.tsx). Closed. | — | — | — |
+| 5 | `chat-input-bar` | ✅ already extracted as `chat-input-area.tsx` (pre-Phase 3). The `selectedModel` derivation invariant from PR #52 is already in place there. | n/a | n/a |
+| 6 | `chat-message-list` | ✅ already extracted as `IsolatedMessagesSection` (`agents/main/isolated-messages-section.tsx`). `ChatViewInner` mounts it via the `MessageGroupWrapper={MessageGroup}` prop. | n/a | n/a |
+| 7 | `diff-sidebar-renderer` | ✅ landed | Combined `DiffStateProvider` + `DiffSidebarRenderer` + internal `DiffSidebarContent` + `CommitFileItem` + context into one module: `components/diff-sidebar.tsx` (~900 LOC). | extracted | exported as `DiffSidebarRenderer`, `DiffStateProvider`, `useDiffState` |
+| 8 | `empty-state` | n/a — there is no inline empty-state JSX block in `active-chat.tsx`; the empty-message handling lives in `IsolatedMessagesSection`. Closed. | — | — | — |
+| 9 | `terminal-bottom-mount` | ✅ landed | Bottom-panel mount wrapping `TerminalBottomPanelContent` | extracted | `displayMode`, `worktreePath`, `isOpen`, `isMobileFullscreen`, `chatId`, `terminalScopeKey`, `toggleTerminalHotkey`, `onClose` |
 
-Components 1–4 + 8–9 are the safe cuts — they have minimal closure into parent state. 5–7 carry refs and atom subscriptions; treat them as the higher-risk batch and extract last.
+**Phase 3 status**: every entry in this table is now resolved — landed, already extracted upstream, or closed because no inline block exists in `active-chat.tsx`. The remaining ~7.1k LOC of `active-chat.tsx` is orchestration (atom subscriptions, effects, `useChat` wiring, callbacks for the imported components). The next reduction lever is wiring the Phase 2 services in (replacing the imperative blocks the services already encode).
 
 **Audit before extracting**: when picking a candidate, `git grep` for the symbol name across `src/renderer/features/agents/` first. The Phase 3 audit revealed that `CopyButton`, `PlayButton`, and `CollapsibleSteps` were already exported from `ui/message-action-buttons.tsx` and `main/assistant-message-item.tsx` respectively — the copies in `active-chat.tsx` were dead code. Removing them was the right move, not extracting yet another duplicate.
 
