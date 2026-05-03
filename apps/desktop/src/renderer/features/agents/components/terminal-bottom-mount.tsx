@@ -8,8 +8,9 @@ export interface TerminalBottomMountProps {
   /**
    * Render the bottom panel only when `displayMode === "bottom"`. The renderer
    * passes the current display-mode value; the component renders null otherwise.
+   * Accepts the broader "side-peek" / "bottom" union (matches `TerminalDisplayMode`).
    */
-  displayMode: "side" | "bottom"
+  displayMode: "side-peek" | "bottom"
   worktreePath: string | null
   isOpen: boolean
   isMobileFullscreen: boolean

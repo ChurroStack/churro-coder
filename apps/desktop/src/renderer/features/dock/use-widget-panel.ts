@@ -75,7 +75,7 @@ export function useWidgetPanel(
       id: panelId,
       component: kind,
       title: panelTitleFor(entity),
-      params: entity.data as Record<string, unknown>,
+      params: entity.data as unknown as Record<string, unknown>,
     })
     setMap((prev) => ({ ...prev, [mutexKey]: panelId }))
   }, [api, kind, panelId, mutexKey, entity, setMap])

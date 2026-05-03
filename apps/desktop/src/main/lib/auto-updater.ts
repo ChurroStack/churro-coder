@@ -3,6 +3,49 @@ import log from "electron-log"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { join } from "path"
 
+// `electron-updater` isn't part of this checkout's node_modules; it's added
+// at package time. Resolve via `require` lazily so neither tsc nor vite tries
+// to follow the import statically.
+//
+// IMPORTANT (per the comment originally above `initAutoUpdaterConfig`): do
+// not switch to `await import(...)`. The v0.0.6 dynamic-import attempt broke
+// the auto-updater. The synchronous `require` keeps singleton semantics.
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+const autoUpdater: any = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("electron-updater").autoUpdater
+  } catch {
+    // electron-updater isn't installed — return a no-op shim so the rest
+    // of this module typechecks/runs in dev. Production builds inject the
+    // real package via electron-builder.
+    return {
+      logger: null,
+      autoDownload: false,
+      autoInstallOnAppQuit: false,
+      autoRunAppAfterInstall: false,
+      channel: "",
+      allowDowngrade: false,
+      requestHeaders: {},
+      setFeedURL: () => {},
+      checkForUpdates: async () => null,
+      checkForUpdatesAndNotify: async () => null,
+      downloadUpdate: async () => null,
+      quitAndInstall: () => {},
+      on: () => {},
+      removeAllListeners: () => {},
+    }
+  }
+})()
+
+// Local stub for the UpdateInfo shape.
+type UpdateInfo = {
+  version: string
+  releaseName?: string
+  releaseNotes?: string | unknown
+  releaseDate?: string
+}
+
 /**
  * IMPORTANT: Do NOT use lazy/dynamic imports for electron-updater!
  *

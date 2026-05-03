@@ -1,6 +1,6 @@
 import type { MCPServer, MCPServerStatus, MessageMetadata, SubagentInfo, UIMessageChunk } from "./types";
 
-export function createTransformer(options?: { isUsingOllama?: boolean }) {
+export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMessageUuid?: boolean }) {
   const isUsingOllama = options?.isUsingOllama === true
   let textId: string | null = null
   let textStarted = false
@@ -114,14 +114,17 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
         }
       }
 
-      // Emit complete tool call with accumulated input
+      // Emit complete tool call with accumulated input.
+      // `providerMetadata` is a renderer-side annotation we attach to the
+      // standard chunk shape — the SDK's UIMessageChunk doesn't list it,
+      // so cast through unknown.
       yield {
         type: "tool-input-available",
         toolCallId: currentToolCallId,
         toolName: currentToolName || "unknown",
         input: parsedInput,
         providerMetadata: { custom: { startedAt: startedAtFor(currentToolCallId) } },
-      }
+      } as unknown as UIMessageChunk
       currentToolCallId = null
       currentToolName = null
       currentToolOriginalId = null
@@ -205,7 +208,7 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
         yield {
           type: "tool-input-start",
           toolCallId: currentToolCallId,
-          toolName: currentToolName,
+          toolName: currentToolName ?? "unknown",
         }
       }
 
@@ -380,7 +383,7 @@ export function createTransformer(options?: { isUsingOllama?: boolean }) {
             toolName: block.name,
             input: block.input,
             providerMetadata: { custom: { startedAt: startedAtFor(compositeId) } },
-          }
+          } as unknown as UIMessageChunk
         }
       }
     }

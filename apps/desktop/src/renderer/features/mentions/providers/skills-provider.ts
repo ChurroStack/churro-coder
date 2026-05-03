@@ -21,7 +21,8 @@ import {
 export interface SkillData {
   name: string
   description: string
-  source: "user" | "project"
+  // skills.listEnabled may return "plugin"-sourced skills — accept all three.
+  source: "user" | "project" | "plugin"
   path: string
 }
 

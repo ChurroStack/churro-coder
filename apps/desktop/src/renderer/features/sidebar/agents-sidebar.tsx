@@ -1004,7 +1004,7 @@ const ChatListSection = React.memo(function ChatListSection({
               gitOwner={gitOwner}
               gitProvider={gitProvider}
               stats={stats ?? undefined}
-              prNumber={chat.prNumber}
+              prNumber={(chat as { prNumber?: number | null }).prNumber ?? null}
               selectedChatIdsSize={selectedChatIds.size}
               canShowPinOption={canShowPinOption}
               areAllSelectedPinned={areAllSelectedPinned}
@@ -1188,8 +1188,10 @@ interface SidebarHeaderProps {
   isMobileFullscreen: boolean
   onToggleSidebar?: () => void
   handleSidebarMouseEnter: () => void
-  handleSidebarMouseLeave: () => void
-  closeButtonRef: React.RefObject<HTMLDivElement>
+  // Caller passes a `(e: React.MouseEvent) => void`; the header doesn't use
+  // the event but accept the wider type so TS doesn't reject the wiring.
+  handleSidebarMouseLeave: (e?: React.MouseEvent) => void
+  closeButtonRef: React.RefObject<HTMLDivElement | null>
 }
 
 const SidebarHeader = memo(function SidebarHeader({
@@ -2578,7 +2580,8 @@ export function AgentsSidebar({
     updateSidebarHoverUI(true)
   }, [updateSidebarHoverUI])
 
-  const handleSidebarMouseLeave = useCallback((e: React.MouseEvent) => {
+  const handleSidebarMouseLeave = useCallback((e?: React.MouseEvent) => {
+    if (!e) return
     // Electron's drag region (WebkitAppRegion: "drag") returns a non-HTMLElement
     // object as relatedTarget. We preserve hover state in this case so the
     // traffic lights remain visible when hovering over the drag area.

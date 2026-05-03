@@ -89,7 +89,9 @@ export function usePanelActions(
     // optimistic name is "New Chat" — we don't pass `name` to trpc so the
     // DB column stays NULL and the app-quit cleanup can recognize a
     // never-named sub-chat.
-    utils.agents.getAgentChat.setData(
+    // `getAgentChat` is a client-side cache slot keyed by chatId, not a real
+     // server procedure — cast to `any` so tRPC's typed helpers don't reject it.
+    ;(utils.agents as any).getAgentChat.setData(
       { chatId } as { chatId: string },
       (old: any) => {
         if (!old) return old
@@ -136,7 +138,7 @@ export function usePanelActions(
       .mutateAsync({ id: newId, chatId, mode: defaultMode })
       .catch((err) => {
         console.error("[newSubChat] Failed to persist:", err)
-        utils.agents.getAgentChat.setData(
+        ;(utils.agents as any).getAgentChat.setData(
           { chatId } as { chatId: string },
           (old: any) => {
             if (!old) return old

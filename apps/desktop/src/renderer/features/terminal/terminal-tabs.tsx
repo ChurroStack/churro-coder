@@ -86,7 +86,7 @@ const TerminalTab = memo(
     const [editValue, setEditValue] = useState(terminal.name)
     const inputRef = useRef<HTMLInputElement>(null)
 
-    const handleClick = useCallback(() => {
+    const handleClick = useCallback((_e?: unknown) => {
       if (!isEditing) {
         onSelect(terminal.id)
       }

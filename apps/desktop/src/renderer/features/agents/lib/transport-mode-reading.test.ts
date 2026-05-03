@@ -192,7 +192,7 @@ describe("RemoteChatTransport mode propagation — regression guard for the neve
     })
 
     expect(streamFetch).toHaveBeenCalledTimes(1)
-    const [, , options] = streamFetch.mock.calls[0] as [
+    const [, , options] = streamFetch.mock.calls[0] as unknown as [
       string,
       string,
       { headers: Record<string, string> },
@@ -228,7 +228,7 @@ describe("RemoteChatTransport mode propagation — regression guard for the neve
       ],
     })
 
-    const [, , options] = streamFetch.mock.calls[0] as [
+    const [, , options] = streamFetch.mock.calls[0] as unknown as [
       string,
       string,
       { headers: Record<string, string> },

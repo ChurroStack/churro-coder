@@ -30,7 +30,9 @@ export interface AgentData {
   tools?: string[]
   disallowedTools?: string[]
   model?: AgentModel
-  source: "user" | "project"
+  // The backend `agents.listEnabled` query returns "user" | "project" | "plugin"
+  // — accept all three even though the picker UI only renders the first two.
+  source: "user" | "project" | "plugin"
   path: string
 }
 

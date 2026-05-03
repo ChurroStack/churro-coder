@@ -49,9 +49,12 @@ function GitHubAvatar({
 interface AgentChatCardProps {
   chat: {
     id: string
-    name: string
-    meta: any
-    sandbox_id: string | null
+    // Accept the renderer's tRPC row shape (`name: string | null`,
+    // `projectId: string | null`) plus the legacy fields used in tests/fixtures.
+    name: string | null
+    projectId?: string | null
+    meta?: unknown
+    sandbox_id?: string | null
     branch?: string | null
   }
   isSelected: boolean

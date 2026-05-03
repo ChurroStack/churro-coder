@@ -3,8 +3,12 @@ export interface PrContext {
   baseBranch: string
   uncommittedCount: number
   hasUpstream: boolean
-  /** Git host provider for this workspace. Null/undefined → treat as GitHub. */
-  provider?: "github" | "azure" | null
+  /**
+   * Git host provider for this workspace. The string variant comes from the
+   * tRPC context query (untyped column); the narrowed `"github" | "azure"`
+   * variant comes from internal call sites. Null/undefined → treat as GitHub.
+   */
+  provider?: string | null
   /** Populated when provider === "azure" so the agent can target the right org/project/repo. */
   azure?: {
     organization: string

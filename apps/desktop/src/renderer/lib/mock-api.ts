@@ -456,10 +456,15 @@ export const api = {
       },
     }
   },
-  // Stubs for features not needed in desktop
+  // Stubs for features not needed in desktop. Each useQuery accepts the same
+  // (input, opts) shape as the real tRPC hook so the call sites typecheck.
   teams: {
-    getUserTeams: { useQuery: () => ({ data: [], isLoading: false }) },
-    getTeam: { useQuery: () => ({ data: null, isLoading: false }) },
+    getUserTeams: {
+      useQuery: (_input?: AnyObj, _opts?: AnyObj) => ({ data: [], isLoading: false }),
+    },
+    getTeam: {
+      useQuery: (_input?: AnyObj, _opts?: AnyObj) => ({ data: null, isLoading: false }),
+    },
     updateTeam: {
       useMutation: () => ({
         mutate: () => {},

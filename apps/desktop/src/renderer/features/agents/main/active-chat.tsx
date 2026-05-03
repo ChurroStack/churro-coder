@@ -500,7 +500,7 @@ const IMPLEMENT_PLAN_BASE_TEXT = `Implement plan. ${IMPLEMENT_PLAN_TASK_TRACKING
 
 function buildImplementPlanParts(plan: ApprovedPlanContent | null): any[] {
   const content = plan?.content.trim()
-  if (!content) return [{ type: "text", text: IMPLEMENT_PLAN_BASE_TEXT }]
+  if (!plan || !content) return [{ type: "text", text: IMPLEMENT_PLAN_BASE_TEXT }]
 
   const source = plan.source ? `Plan source: ${plan.source}` : ""
   const hiddenPlanContent = [
@@ -2457,7 +2457,10 @@ export const ChatViewInner = memo(function ChatViewInner({
         store.addToAllSubChats({
           id: newSubChat.id,
           name: newSubChat.name || "Fork",
-          created_at: newSubChat.created_at || new Date().toISOString(),
+          created_at:
+            (newSubChat as { created_at?: string }).created_at
+            ?? newSubChat.createdAt?.toISOString()
+            ?? new Date().toISOString(),
           mode: newMode,
         })
 
@@ -3266,7 +3269,7 @@ export const ChatViewInner = memo(function ChatViewInner({
           type: "data-file" as const,
           data: {
             url: f.url,
-            mediaType: f.mediaType,
+            mediaType: (f as { mediaType?: string }).mediaType,
             filename: f.filename,
             size: f.size,
           },
@@ -3708,8 +3711,8 @@ export const ChatViewInner = memo(function ChatViewInner({
           isSplitPane={isSplitPane}
           subChatId={subChatId}
           subChatName={subChatName}
-          workspaceRepoName={workspaceRepoName}
-          workspaceBranch={workspaceBranch}
+          workspaceRepoName={workspaceRepoName ?? null}
+          workspaceBranch={workspaceBranch ?? null}
           onRenameSubChat={handleRenameSubChat}
         />
 
@@ -4905,7 +4908,7 @@ export function ChatView({
         let rawDiff: string | null = null
         const response = await fetch(`/api/agents/sandbox/${sandboxId}/diff`)
         if (!response.ok) {
-          setDiffStats((prev) => ({ ...prev, isLoading: false }))
+          setDiffStats((prev: typeof diffStats) => ({ ...prev, isLoading: false }))
           return
         }
         const data = await response.json()
@@ -4953,7 +4956,7 @@ export function ChatView({
       }
     } catch (error) {
       console.error("[fetchDiffStats] Error:", error)
-      setDiffStats((prev) => ({ ...prev, isLoading: false }))
+      setDiffStats((prev: typeof diffStats) => ({ ...prev, isLoading: false }))
     } finally {
       console.log("[fetchDiffStats] Done")
       isFetchingDiffRef.current = false
@@ -5578,11 +5581,15 @@ Make sure to preserve all functionality from both branches when resolving confli
           ? server.status
           : "failed"
 
+      const serverAny = server as typeof server & {
+        serverInfo?: { name: string; version: string; icons?: { src: string }[] }
+        error?: string
+      }
       mcpServers.push({
         name: server.name,
         status,
-        ...(server.serverInfo ? { serverInfo: server.serverInfo } : {}),
-        ...(server.error ? { error: server.error } : {}),
+        ...(serverAny.serverInfo ? { serverInfo: serverAny.serverInfo } : {}),
+        ...(serverAny.error ? { error: serverAny.error } : {}),
       })
 
       for (const tool of Array.isArray(server.tools) ? server.tools : []) {
@@ -6025,7 +6032,6 @@ Make sure to preserve all functionality from both branches when resolving confli
         subChatId: newId,
         subChatName: "New Chat",
         sandboxUrl: newSubChatSandboxUrl,
-        mode: subChatMode,
         model: modelString,
       })
     } else if (worktreePath) {
@@ -6036,7 +6042,6 @@ Make sure to preserve all functionality from both branches when resolving confli
           subChatId: newId,
           cwd: worktreePath,
           projectPath,
-          mode: newSubChatMode,
           provider: "codex",
         })
       } else {
@@ -6046,7 +6051,6 @@ Make sure to preserve all functionality from both branches when resolving confli
           subChatId: newId,
           cwd: worktreePath,
           projectPath,
-          mode: newSubChatMode,
         })
       }
     }
@@ -6162,7 +6166,7 @@ Make sure to preserve all functionality from both branches when resolving confli
     notifyAgentComplete,
     syncFinishedMessagesToChatCache,
     pruneIfDetachedAndIdle,
-    agentChat?.isRemote,
+    (agentChat as { isRemote?: boolean } | null | undefined)?.isRemote,
     agentChat?.name,
   ])
 
@@ -6475,11 +6479,12 @@ Make sure to preserve all functionality from both branches when resolving confli
           useAgentSubChatStore
             .getState()
             .updateSubChatName(subChatIdToUpdate, name)
-          // Also update query cache so init effect doesn't overwrite
-          utils.agents.getAgentChat.setData({ chatId }, (old) => {
+          // Also update query cache so init effect doesn't overwrite.
+          // `getAgentChat` is a client-only cache slot, not a real procedure.
+          ;(utils.agents as any).getAgentChat.setData({ chatId }, (old: any) => {
             if (!old) return old
             const existsInCache = old.subChats.some(
-              (sc) => sc.id === subChatIdToUpdate,
+              (sc: { id: string }) => sc.id === subChatIdToUpdate,
             )
             if (!existsInCache) {
               // Sub-chat not in cache yet (DB save still in flight) - add it
@@ -6502,7 +6507,7 @@ Make sure to preserve all functionality from both branches when resolving confli
             }
             return {
               ...old,
-              subChats: old.subChats.map((sc) =>
+              subChats: old.subChats.map((sc: { id: string }) =>
                 sc.id === subChatIdToUpdate ? { ...sc, name } : sc,
               ),
             }
@@ -6511,19 +6516,19 @@ Make sure to preserve all functionality from both branches when resolving confli
         updateChatName: (chatIdToUpdate, name) => {
           // Optimistic update for sidebar (list query)
           // On desktop, selectedTeamId is always null, so we update unconditionally
-          utils.agents.getAgentChats.setData(
+          ;(utils.agents as any).getAgentChats.setData(
             { teamId: selectedTeamId },
-            (old) => {
+            (old: any) => {
               if (!old) return old
-              return old.map((c) =>
+              return old.map((c: { id: string }) =>
                 c.id === chatIdToUpdate ? { ...c, name } : c,
               )
             },
           )
           // Optimistic update for header (single chat query)
-          utils.agents.getAgentChat.setData(
+          ;(utils.agents as any).getAgentChat.setData(
             { chatId: chatIdToUpdate },
-            (old) => {
+            (old: any) => {
               if (!old) return old
               return { ...old, name }
             },
@@ -6904,8 +6909,15 @@ Make sure to preserve all functionality from both branches when resolving confli
             <DiffSidebarRenderer
               worktreePath={worktreePath}
               chatId={chatId}
-              sandboxId={sandboxId}
-              repository={repository}
+              sandboxId={sandboxId ?? null}
+              repository={
+                repository
+                  ? (() => {
+                      const [owner, name] = repository.split("/")
+                      return owner && name ? { owner, name } : null
+                    })()
+                  : null
+              }
               diffStats={diffStats}
               diffContent={diffContent}
               parsedFileDiffs={parsedFileDiffs}
@@ -6913,7 +6925,7 @@ Make sure to preserve all functionality from both branches when resolving confli
               setDiffCollapseState={setDiffCollapseState}
               diffViewRef={diffViewRef}
               diffSidebarRef={diffSidebarRef}
-              agentChat={agentChat}
+              agentChat={agentChat as { prUrl?: string; prNumber?: number } | null | undefined}
               branchData={branchData}
               gitStatus={gitStatus}
               isGitStatusLoading={isGitStatusLoading}
@@ -6938,8 +6950,8 @@ Make sure to preserve all functionality from both branches when resolving confli
               setDiffMode={setDiffMode}
               handleMarkAllViewed={handleMarkAllViewed}
               handleMarkAllUnviewed={handleMarkAllUnviewed}
-              isDesktop={isDesktop}
-              isFullscreen={isFullscreen}
+              isDesktop={!!isDesktop}
+              isFullscreen={!!isFullscreen}
               setDiffDisplayMode={setDiffDisplayMode}
               handleCommitToPr={handleCommitToPr}
               isCommittingToPr={isCommittingToPr}

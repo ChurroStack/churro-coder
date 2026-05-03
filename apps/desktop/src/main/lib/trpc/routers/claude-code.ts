@@ -289,7 +289,11 @@ export const claudeCodeRouter = router({
       )
       await Promise.race([session.done, timeout])
 
-      if (session.status !== "success") {
+      // Re-read status fresh — the CLI subprocess may have flipped it during
+      // the await above. TS narrowed the original `session.status` from the
+      // earlier branches; a typed re-read breaks that narrow.
+      const finalStatus: string = session.status
+      if (finalStatus !== "success") {
         throw new Error(session.error ?? "Authentication failed")
       }
 

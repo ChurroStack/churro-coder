@@ -78,7 +78,7 @@ interface SearchFileMatch {
   matches: SearchLineMatch[]
 }
 
-interface SearchBatch {
+export interface SearchBatch {
   files: SearchFileMatch[]
   totalMatches: number
   scannedFiles: number

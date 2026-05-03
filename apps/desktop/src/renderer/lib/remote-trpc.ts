@@ -1,10 +1,18 @@
 /**
- * tRPC client for remote web backend (legacy; remote calls are disabled)
- * Uses signedFetch via IPC for authentication (no CORS issues)
+ * tRPC client for remote web backend (legacy; remote calls are disabled).
+ *
+ * The `web/server/api/root` module was removed when the remote web backend
+ * was retired. The renderer still imports `remoteTrpc` from a few legacy
+ * call sites; we expose `remoteTrpc` as `any` so they keep compiling.
+ * The procedures throw at runtime (signedFetch hits a stub URL).
  */
 import { createTRPCClient, httpLink } from "@trpc/client"
-import type { AppRouter } from "../../../../web/server/api/root"
 import SuperJSON from "superjson"
+
+// AppRouter type intentionally typed as `any` — the real backend type
+// `web/server/api/root` is no longer part of this checkout.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AppRouter = any
 
 // Placeholder URL - actual base is fetched dynamically from main process
 const TRPC_PLACEHOLDER = "/__dynamic__/api/trpc"
@@ -53,10 +61,13 @@ const signedFetch: typeof fetch = async (input, init) => {
 }
 
 /**
- * tRPC client connected to web backend
- * Fully typed, handles superjson automatically
+ * tRPC client connected to web backend.
+ * Typed as `any` because the real `AppRouter` type from `web/server/api/root`
+ * was removed when the remote backend was retired. Legacy call sites keep
+ * compiling; they throw at runtime via `signedFetch`'s stub URL.
  */
-export const remoteTrpc = createTRPCClient<AppRouter>({
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const remoteTrpc: any = createTRPCClient<AppRouter>({
   links: [
     httpLink({
       url: TRPC_PLACEHOLDER,

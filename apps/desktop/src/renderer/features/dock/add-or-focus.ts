@@ -79,7 +79,7 @@ export function addOrFocus(
   const options: AddPanelOptions = {
     id,
     component: entity.kind,
-    params: entity.data as Record<string, unknown>,
+    params: entity.data as unknown as Record<string, unknown>,
     title,
   }
 

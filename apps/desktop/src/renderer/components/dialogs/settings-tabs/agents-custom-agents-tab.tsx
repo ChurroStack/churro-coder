@@ -21,7 +21,10 @@ interface FileAgent {
   tools?: string[]
   disallowedTools?: string[]
   model?: "sonnet" | "opus" | "haiku" | "inherit"
-  source: "user" | "project"
+  // Tolerate the "plugin" source even though only "user"/"project" agents
+  // are editable from this tab — narrowing in the AgentDetail panel below
+  // filters them.
+  source: "user" | "project" | "plugin"
   path: string
 }
 
@@ -381,7 +384,10 @@ export function AgentsCustomAgentsTab() {
         model: data.model,
         tools: agent.tools,
         disallowedTools: agent.disallowedTools,
-        source: agent.source,
+        // Plugin-sourced agents aren't editable from this tab; the
+        // dropdown only allows selecting "user"/"project". Cast for the
+        // mutation input which doesn't accept "plugin".
+        source: agent.source as "user" | "project",
         cwd: selectedProject?.path,
       })
       toast.success("Agent saved", { description: agent.name })

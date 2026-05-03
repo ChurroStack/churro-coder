@@ -9,13 +9,17 @@ import { AgentChatCard } from "./agent-chat-card"
 
 interface AgentsQuickSwitchDialogProps {
   isOpen: boolean
+  // Accept the actual chat row shape from `trpc.chats.list` so callers
+  // don't need to map. The legacy `meta` / `sandbox_id` / `updated_at`
+  // fields are tolerated as optional.
   chats: Array<{
     id: string
-    name: string
-    meta: any
-    sandbox_id: string | null
-    updated_at: Date
-    projectId: string
+    name: string | null
+    projectId: string | null
+    updatedAt?: Date | null
+    meta?: unknown
+    sandbox_id?: string | null
+    updated_at?: Date | string | null
   }>
   selectedIndex: number
   projectsMap: Map<string, { gitOwner?: string | null; gitProvider?: string | null; gitRepo?: string | null; name: string }>
@@ -67,7 +71,7 @@ export function AgentsQuickSwitchDialog({
                     {chats.map((chat, index) => {
                       const isSelected = index === selectedIndex
                       const isLoading = loadingChatIds.has(chat.id)
-                      const project = projectsMap.get(chat.projectId)
+                      const project = chat.projectId ? projectsMap.get(chat.projectId) : undefined
 
                       return (
                         <AgentChatCard

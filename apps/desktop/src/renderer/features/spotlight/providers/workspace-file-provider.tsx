@@ -54,6 +54,10 @@ export function useWorkspaceFileProvider(
   const trimmedQuery = debounced.trim()
   const shouldSearch = enabled && !!worktreePath && trimmedQuery.length > 0
 
+  // `keepPreviousData: true` was the v4 API; in v5 it became `placeholderData:
+  // keepPreviousData`. The tRPC react-query wrapper here doesn't expose either
+  // shape uniformly, so we drop the option — `staleTime: 5s` already smooths
+  // out flicker for the spotlight provider's typing rate.
   const { data, isFetching, isError } = trpc.files.search.useQuery(
     {
       projectPath: worktreePath ?? "",
@@ -63,7 +67,6 @@ export function useWorkspaceFileProvider(
     },
     {
       enabled: shouldSearch,
-      keepPreviousData: true,
       staleTime: 5_000,
     },
   )

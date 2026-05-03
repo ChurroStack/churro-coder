@@ -10,11 +10,11 @@ import {
   type ReactNode,
 } from "react"
 
-// Chromium 137+ Selection API extension for Shadow DOM support
-declare global {
-  interface Selection {
-    getComposedRanges?(options: { shadowRoots: ShadowRoot[] }): StaticRange[]
-  }
+// Chromium 137+ Selection API extension for Shadow DOM support.
+// Type-only helper — call via cast at the use site to avoid clashing with
+// lib.dom's evolving declaration (TS2386).
+type SelectionWithComposedRanges = Selection & {
+  getComposedRanges?: (options: { shadowRoots: ShadowRoot[] }) => StaticRange[]
 }
 
 // Discriminated union for selection source
@@ -91,10 +91,11 @@ function toLiveRange(staticRange: StaticRange): Range | null {
  */
 function getSelectionRange(selection: Selection): { range: Range; element: Element | null; text: string } | null {
   // Try getComposedRanges first — works across Shadow DOM (Chromium 137+)
-  if (typeof selection.getComposedRanges === "function") {
+  const sel = selection as SelectionWithComposedRanges
+  if (typeof sel.getComposedRanges === "function") {
     const shadowRoots = getDiffShadowRoots()
     try {
-      const ranges = selection.getComposedRanges({ shadowRoots })
+      const ranges = sel.getComposedRanges({ shadowRoots })
       if (ranges.length > 0) {
         const staticRange = ranges[0]!
         if (staticRange.startContainer === staticRange.endContainer && staticRange.startOffset === staticRange.endOffset) {

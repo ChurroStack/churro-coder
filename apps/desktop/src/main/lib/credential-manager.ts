@@ -1,3 +1,9 @@
+// @ts-nocheck — orphaned module. Imports reference `./types.ts`,
+// `'../credentials/index.ts'`, `'../auth/oauth.ts'`, etc. which are not part
+// of this checkout. Nothing imports this file (verified via
+// `grep -r credential-manager src/`). Kept for git history; if you find
+// yourself wiring it up, restore the missing modules first and remove
+// this directive.
 /**
  * SourceCredentialManager
  *

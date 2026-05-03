@@ -129,22 +129,25 @@ interface ResolvedGitDirs {
 }
 
 function resolveGitDirsForSandbox(cwd: string): ResolvedGitDirs {
-  const opts = {
+  // Annotate as `Parameters<typeof execSync>[1]` so the call-site
+  // overload resolves cleanly (the inline literal would otherwise be
+  // narrowed to a tuple-encoded shape that doesn't match any overload).
+  const opts: Parameters<typeof execSync>[1] = {
     cwd,
-    stdio: ["ignore", "pipe", "ignore"] as const,
-    encoding: "utf8" as const,
+    stdio: ["ignore", "pipe", "ignore"],
+    encoding: "utf8",
     timeout: 2_000,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
   }
   let gitDir: string | null = null
   let commonDir: string | null = null
   try {
-    gitDir = execSync("git rev-parse --absolute-git-dir", opts).trim() || null
+    gitDir = String(execSync("git rev-parse --absolute-git-dir", opts)).trim() || null
   } catch {
     return { gitDir: null, commonDir: null }
   }
   try {
-    const raw = execSync("git rev-parse --git-common-dir", opts).trim()
+    const raw = String(execSync("git rev-parse --git-common-dir", opts)).trim()
     // --git-common-dir has no --absolute variant; resolve relative output against cwd.
     commonDir = raw ? path.resolve(cwd, raw) : null
   } catch {

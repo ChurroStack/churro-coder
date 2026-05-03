@@ -824,8 +824,19 @@ export function NewChatForm({
   useToggleFocusOnCmdEsc(editorRef)
 
   // Fetch repos from team
-  // Desktop: no remote repos, we use local projects
-  const reposData = { repositories: [] }
+  // Desktop: no remote repos, we use local projects.
+  // The `repositories` array is always empty on desktop, but we annotate
+  // the row shape so the consumer code (filters by sandbox_status, renders
+  // pushed_at, etc.) typechecks. Web build re-uses these renderer files
+  // and populates this from a tRPC query.
+  type RemoteRepoRow = {
+    id: string
+    name: string
+    full_name: string
+    sandbox_status: string
+    pushed_at?: string | null
+  }
+  const reposData: { repositories: RemoteRepoRow[] } = { repositories: [] }
   const isLoadingRepos = false
 
   // Memoize repos arrays to prevent useEffect from running on every keystroke
@@ -894,7 +905,7 @@ export function NewChatForm({
         id: firstRepo.id,
         name: firstRepo.name,
         full_name: firstRepo.full_name,
-        sandbox_status: firstRepo.sandbox_status,
+        sandbox_status: firstRepo.sandbox_status as "error" | "in_progress" | "ready" | "not_setup",
       })
     }
 

@@ -420,8 +420,7 @@ export function Terminal({
 
       // Get file paths (Electron exposes webUtils)
       const paths = files.map((file) => {
-        // @ts-expect-error - Electron's webUtils API
-        return window.webUtils?.getPathForFile?.(file) || file.name
+        return (window as unknown as { webUtils?: { getPathForFile?: (f: File) => string } }).webUtils?.getPathForFile?.(file) || file.name
       })
       const text = shellEscapePaths(paths)
 

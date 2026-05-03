@@ -1497,8 +1497,11 @@ export const claudeRouter = router({
             }
 
             // Build final env - only add OAuth token if we have one AND no existing API config
-            // Existing CLI config takes precedence over OAuth
-            const finalEnv = {
+            // Existing CLI config takes precedence over OAuth.
+            // Annotated as a wider record so logging/spreading the optional
+            // ANTHROPIC_* fields (which may flow through from `claudeEnv`)
+            // doesn't fight TypeScript's narrowed inference.
+            const finalEnv: Record<string, string | undefined> = {
               ...claudeEnv,
               ...(claudeCodeToken &&
                 !hasExistingApiConfig && {
@@ -1576,7 +1579,7 @@ export const claudeRouter = router({
             // mode (system prompt, plan-mode instructions in JSONL). Layering a new
             // permissionMode on top of the resume call does not override that context.
             // Force a brand-new session so the new mode takes full effect.
-            if (shouldForceFreshSessionOnModeChange({ resumeSessionId, existingSessionId, existingSessionMode, inputMode: input.mode })) {
+            if (shouldForceFreshSessionOnModeChange({ resumeSessionId, existingSessionId, existingSessionMode: existingSessionMode as "agent" | "plan" | null, inputMode: input.mode })) {
               console.log(
                 `[claude] Mode changed (${existingSessionMode}→${input.mode}) - forcing fresh session`,
               )
@@ -2159,12 +2162,15 @@ ${prompt}
                         askToolPart.result = errorMessage
                         askToolPart.state = "result"
                       }
-                      // Emit result to frontend so it updates in real-time
+                      // Emit result to frontend so it updates in real-time.
+                      // `ask-user-question-result` is a renderer-side custom
+                      // chunk type, not part of the AI SDK's UIMessageChunk
+                      // union — cast through unknown.
                       safeEmit({
                         type: "ask-user-question-result",
                         toolUseId: toolUseID,
                         result: errorMessage,
-                      } as UIMessageChunk)
+                      } as unknown as UIMessageChunk)
                       return {
                         behavior: "deny",
                         message: errorMessage,
@@ -2178,12 +2184,13 @@ ${prompt}
                       askToolPart.result = answerResult
                       askToolPart.state = "result"
                     }
-                    // Emit result to frontend so it updates in real-time
+                    // Emit result to frontend so it updates in real-time.
+                    // Custom renderer chunk type — cast through unknown.
                     safeEmit({
                       type: "ask-user-question-result",
                       toolUseId: toolUseID,
                       result: answerResult,
-                    } as UIMessageChunk)
+                    } as unknown as UIMessageChunk)
                     return {
                       behavior: "allow",
                       updatedInput: response.updatedInput,
@@ -2266,10 +2273,14 @@ ${prompt}
               // Reflect the latest currentSessionId into queryOptions before the run.
               applySessionMode()
 
-              // 5. Run Claude SDK
+              // 5. Run Claude SDK.
+              // queryOptions has accumulated extra renderer-specific fields
+              // (`effort`, `prompt: AsyncIterable<any>`, etc.) that don't match
+              // the SDK's narrower Options shape. The runtime accepts them; cast
+              // through any to silence the strict surface mismatch.
               let stream
               try {
-                stream = claudeQuery(queryOptions)
+                stream = claudeQuery(queryOptions as Parameters<typeof claudeQuery>[0])
               } catch (queryError) {
                 console.error(
                   "[CLAUDE] ✗ Failed to create SDK query:",

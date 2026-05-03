@@ -1,7 +1,17 @@
 import { EventEmitter } from "events";
 
-// Chokidar is ESM-only, so we need to dynamically import it
-type FSWatcher = Awaited<ReturnType<typeof import("chokidar")>>["FSWatcher"] extends new () => infer T ? T : never;
+// Chokidar is ESM-only and dynamically imported.
+// We don't use the package's typed `FSWatcher` here because pulling it through
+// `Awaited<ReturnType<typeof import("chokidar")>>` doesn't satisfy
+// TypeScript's `(...args: any) => any` constraint for the namespace import.
+// This local minimal shape is what we actually consume — `on(event, cb)`
+// for "add"/"change"/"unlink" and `close()`.
+type FSWatcher = {
+  // chokidar event listeners accept either a path (add/change/unlink) or an
+  // Error (error). We widen the listener arg to `unknown` so both are accepted.
+  on(event: string, listener: (arg: never) => void): FSWatcher
+  close(): Promise<void>
+}
 
 // Simple debounce implementation to avoid lodash-es dependency in main process
 function debounce<T extends (...args: unknown[]) => unknown>(
