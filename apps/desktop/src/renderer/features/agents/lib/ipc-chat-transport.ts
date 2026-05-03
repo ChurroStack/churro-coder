@@ -165,28 +165,6 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const selectedModelId = appStore.get(subChatModelIdAtomFamily(this.config.subChatId))
     const modelString = MODEL_ID_MAP[selectedModelId] || MODEL_ID_MAP["opus"]
 
-    // Diagnostic: catch the case where a Codex thread UUID leaks into the Claude transport
-    const lastAssistantModel = metadata?.model
-    const sessionLooksLikeCodexThread =
-      typeof sessionId === "string" &&
-      typeof lastAssistantModel === "string" &&
-      (lastAssistantModel.toLowerCase().includes("codex") ||
-        lastAssistantModel.toLowerCase().startsWith("gpt-"))
-    if (sessionLooksLikeCodexThread) {
-      console.warn(
-        `[SD] R:CODEX-SESSION-LEAK sub=${this.config.subChatId.slice(-8)} ` +
-        `sessionId=${sessionId?.slice(-8)} lastAssistantModel=${lastAssistantModel} ` +
-        `→ Claude will be passed a Codex thread UUID and will fail to resume`,
-      )
-    }
-    console.log(
-      `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
-      `provider=claude-code mode=${currentMode} ` +
-      `sessionIdShort=${sessionId?.slice(-8) ?? "none"} ` +
-      `lastAssistantModel=${lastAssistantModel ?? "none"} ` +
-      `selectedModelId=${selectedModelId} modelString=${modelString}`,
-    )
-
     const storedCustomConfig = appStore.get(
       customClaudeConfigAtom,
     ) as CustomClaudeConfig
@@ -200,6 +178,31 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const offlineModeEnabled = showOfflineFeatures && autoOfflineMode
 
     const currentMode = getCurrentSubChatMode(this.config.subChatId)
+
+    // Drop Codex thread UUIDs before they reach the Claude router — main handles
+    // missing sessions gracefully via catch-up, but passing a foreign ID causes
+    // an existsSync miss, log noise, and a redundant fresh-session round-trip.
+    const lastAssistantModel = metadata?.model
+    const sessionLooksLikeCodexThread =
+      typeof sessionId === "string" &&
+      typeof lastAssistantModel === "string" &&
+      (lastAssistantModel.toLowerCase().includes("codex") ||
+        lastAssistantModel.toLowerCase().startsWith("gpt-"))
+
+    const claudeSessionId = sessionLooksLikeCodexThread ? undefined : sessionId
+    if (sessionLooksLikeCodexThread) {
+      console.warn(
+        `[SD] R:CODEX-SESSION-DROP sub=${this.config.subChatId.slice(-8)} ` +
+        `lastAssistantModel=${lastAssistantModel} → dropping leaked Codex thread UUID`,
+      )
+    }
+    console.log(
+      `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
+      `provider=claude-code mode=${currentMode} ` +
+      `sessionIdShort=${claudeSessionId?.slice(-8) ?? "none"} ` +
+      `lastAssistantModel=${lastAssistantModel ?? "none"} ` +
+      `selectedModelId=${selectedModelId} modelString=${modelString}`,
+    )
 
     // Stream debug logging
     const subId = this.config.subChatId.slice(-8)
@@ -217,7 +220,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
             cwd: this.config.cwd,
             projectPath: this.config.projectPath, // Original project path for MCP config lookup
             mode: currentMode,
-            sessionId,
+            sessionId: claudeSessionId,
             ...(effort && { effort }),
             ...(modelString && { model: modelString }),
             ...(customConfig && { customConfig }),

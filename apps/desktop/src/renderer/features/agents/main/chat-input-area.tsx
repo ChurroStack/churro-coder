@@ -494,27 +494,29 @@ export const ChatInputArea = memo(function ChatInputArea({
   const setLastSelectedCodexThinking = useSetAtom(lastSelectedCodexThinkingAtom)
   const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom)
   const availableModels = useAvailableModels()
-  const [selectedModel, setSelectedModel] = useState(
+  // selectedModel is DERIVED from the per-subChat atom — single source of truth.
+  // Previously this was useState + two useEffects (atom→state and state→atom). When
+  // applyModeDefaultModel wrote a new value to the atom but local state still held
+  // the previous value, the two effects pushed different values and oscillated
+  // forever (atom="sonnet" + state="opus" → next render atom="opus" + state="sonnet"
+  // → ...). Deriving fixes this by making the atom the only source of truth.
+  const selectedModel = useMemo(
     () =>
       availableModels.models.find((m) => m.id === selectedSubChatModelId) ||
       availableModels.models[0],
+    [availableModels.models, selectedSubChatModelId],
   )
 
-  // Sync selectedModel when per-subChat atom value changes (e.g., after localStorage hydration)
-  useEffect(() => {
-    const model = availableModels.models.find((m) => m.id === selectedSubChatModelId)
-    if (model && model.id !== selectedModel.id) {
-      setSelectedModel(model)
-    }
-  }, [availableModels.models, selectedModel.id, selectedSubChatModelId])
-
-  // Materialize the resolved Claude model into per-subChat storage once mounted.
-  // This prevents later global default changes from affecting existing sub-chats.
+  // Materialize the resolved Claude model into per-subChat storage if the atom
+  // value isn't a known model (or is empty). This prevents later global default
+  // changes from affecting existing sub-chats. Guarded against the no-op case so
+  // the effect is idempotent.
   useEffect(() => {
     if (provider !== "claude-code") return
     if (!selectedModel?.id) return
+    if (selectedModel.id === selectedSubChatModelId) return
     setSelectedSubChatModelId(selectedModel.id)
-  }, [provider, selectedModel?.id, setSelectedSubChatModelId])
+  }, [provider, selectedModel?.id, selectedSubChatModelId, setSelectedSubChatModelId])
 
   const storedCodexApiKey = useAtomValue(codexApiKeyAtom)
   const hasAppCodexApiKey = Boolean(normalizeCodexApiKey(storedCodexApiKey))
@@ -1636,7 +1638,6 @@ export const ChatInputArea = memo(function ChatInputArea({
                             availableModels.models.find((item) => item.id === modelId) ||
                             availableModels.models[0]
                           if (!model) return
-                          setSelectedModel(model)
                           setSelectedSubChatModelId(model.id)
                           setLastSelectedModelId(model.id)
                         },

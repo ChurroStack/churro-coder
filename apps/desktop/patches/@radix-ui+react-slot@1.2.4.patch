@@ -1,0 +1,46 @@
+diff --git a/dist/index.js b/dist/index.js
+index 1234567..abcdefg 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -85,10 +85,12 @@ function createSlotClone(ownerName) {
+     if (isLazyComponent(children) && typeof use === "function") {
+       children = use(children._payload);
+     }
+-    if (React.isValidElement(children)) {
+-      const childrenRef = getElementRef(children);
+-      const props2 = mergeProps(slotProps, children.props);
++    const childrenRef = React.isValidElement(children) ? getElementRef(children) : null;
++    const composedRef = React.useCallback((0, import_react_compose_refs.composeRefs)(forwardedRef, childrenRef), [forwardedRef, childrenRef]);
++    if (React.isValidElement(children)) {
++      const props2 = mergeProps(slotProps, children.props);
+       if (children.type !== React.Fragment) {
+-        props2.ref = forwardedRef ? (0, import_react_compose_refs.composeRefs)(forwardedRef, childrenRef) : childrenRef;
++        props2.ref = forwardedRef ? composedRef : childrenRef;
+       }
+       return React.cloneElement(children, props2);
+     }
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 1234567..abcdefg 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -44,10 +44,13 @@ function createSlotClone(ownerName) {
+     if (isLazyComponent(children) && typeof use === "function") {
+       children = use(children._payload);
+     }
+-    if (React.isValidElement(children)) {
+-      const childrenRef = getElementRef(children);
+-      const props2 = mergeProps(slotProps, children.props);
++    const childrenRef = React.isValidElement(children) ? getElementRef(children) : null;
++    // Stabilize the composed ref. Without this, composeRefs() produces a new function on
++    // every render. React 19 treats a changed ref callback as a ref update — calling
++    // cleanup (ref(null)) then setup (ref(node)) — which floods setState and triggers
++    // "Maximum update depth exceeded" when this component re-renders rapidly.
++    const composedRef = React.useCallback(composeRefs(forwardedRef, childrenRef), [forwardedRef, childrenRef]);
++    if (React.isValidElement(children)) {
++      const props2 = mergeProps(slotProps, children.props);
+       if (children.type !== React.Fragment) {
+-        props2.ref = forwardedRef ? composeRefs(forwardedRef, childrenRef) : childrenRef;
++        props2.ref = forwardedRef ? composedRef : childrenRef;
+       }
+       return React.cloneElement(children, props2);
+     }

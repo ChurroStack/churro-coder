@@ -299,6 +299,10 @@ const scrollPositionCache = new Map<
 const mountedChatViewInnerCounts = new Map<string, number>()
 const pendingSubChatCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+// Module-scope: prevents two ChatViewInner instances from running handleApprovePlan
+// in parallel for the same subChatId (e.g. legacy active-chat mount + dockview ChatPanel).
+const planApproveInFlight = new Set<string>()
+
 function clearRuntimeCachesForSubChat(subChatId: string) {
   clearSubChatRuntimeCaches(subChatId)
   scrollPositionCache.delete(subChatId)
@@ -3587,7 +3591,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     subChatId: string
     parts: any[]
   } | null>(null)
-  const isPlanApproveInFlightRef = useRef(false)
+  // isPlanApproveInFlightRef removed — replaced by module-level planApproveInFlight Set below
 
   useEffect(() => {
     if (pendingImplementPlan?.subChatId !== subChatId || isStreaming) return
@@ -3598,8 +3602,8 @@ export const ChatViewInner = memo(function ChatViewInner({
 
   // Handle plan approval - sends "Implement plan" message and switches to agent mode
   const handleApprovePlan = useCallback(async () => {
-    if (isPlanApproveInFlightRef.current) return
-    isPlanApproveInFlightRef.current = true
+    if (planApproveInFlight.has(subChatId)) return
+    planApproveInFlight.add(subChatId)
 
     try {
       // Capture the planner's provider BEFORE any state writes. applyModeDefaultModel
@@ -3618,7 +3622,7 @@ export const ChatViewInner = memo(function ChatViewInner({
         `[PLAN] approve:start sub=${subChatId.slice(-8)} ` +
         `previousProvider=${previousProvider} ` +
         `existingTransport=${existingChat ? ((existingChat as any)?.transport?.constructor?.name ?? "unknown") : "none"} ` +
-        `currentMode=${useAgentSubChatStore.getState().subChats[subChatId]?.mode ?? "unknown"}`,
+        `currentMode=${appStore.get(subChatModeAtomFamily(subChatId)) ?? "unknown"}`,
       )
 
       // Switch mode and model synchronously BEFORE any await. The transport reads
@@ -3683,7 +3687,7 @@ export const ChatViewInner = memo(function ChatViewInner({
       scrollToBottom()
       setPendingImplementPlan({ subChatId, parts: implementPlanParts })
     } finally {
-      isPlanApproveInFlightRef.current = false
+      planApproveInFlight.delete(subChatId)
     }
   }, [
     subChatId,
@@ -3694,13 +3698,17 @@ export const ChatViewInner = memo(function ChatViewInner({
     resolveApprovedPlanContent,
   ])
 
-  // Handle pending "Build plan" from sidebar
+  // Handle pending "Build plan" from sidebar / plan-tool Approve button.
+  // `pendingBuildPlanSubChatIdAtom` is module-global. ChatViewInner is mounted
+  // from BOTH the legacy active-chat layout (active-chat.tsx) and the
+  // dockview ChatPanel (chat-panel.tsx → AgentsContent → ChatView). Without
+  // `isActive`, multiple mounts for the same subChatId all dispatch
+  // handleApprovePlan from the same atom write, which races the cross-provider
+  // transport teardown/recreation and crashes the renderer.
   useEffect(() => {
-    // Only trigger if this is the target sub-chat and we're active
-    if (pendingBuildPlanSubChatId === subChatId && isActive) {
-      setPendingBuildPlanSubChatId(null) // Clear immediately to prevent double-trigger
-      handleApprovePlan()
-    }
+    if (pendingBuildPlanSubChatId !== subChatId || !isActive) return
+    setPendingBuildPlanSubChatId(null)
+    handleApprovePlan()
   }, [pendingBuildPlanSubChatId, subChatId, isActive, setPendingBuildPlanSubChatId, handleApprovePlan])
 
   // Detect PR URLs in assistant messages and store them
