@@ -131,6 +131,10 @@ import {
   type AgentMode,
 } from "../atoms"
 import { BUILTIN_SLASH_COMMANDS } from "../commands"
+import {
+  sendPendingMessage,
+  type PendingMessage,
+} from "../services/chat-send-service"
 import { ConfirmDeleteDialog } from "../../../components/confirm-delete-dialog"
 import { AgentSendButton } from "../components/agent-send-button"
 import { ChatToolbar } from "../components/chat-toolbar"
@@ -1399,95 +1403,100 @@ export const ChatViewInner = memo(function ChatViewInner({
     [dispatchWorkflowAction],
   )
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Pending-message effects — wired through the chat-send service.
+  //
+  // Each `pendingXxxMessageAtom` carries `{ subChatId, message }` (or `parts`
+  // for the implement-plan case). The service `sendPendingMessage` enforces:
+  //   - subChatId match (only the right mount fires)
+  //   - idle gate (`isStreaming === false`)
+  //   - clear-before-await (so a re-render between read and `await` can't
+  //     double-fire the same prompt — the recurring bug `chat-send-service.ts`
+  //     was created to lock down)
+  //
+  // We expose a thin `sendPending` wrapper that injects the renderer's
+  // sendMessage / isStreaming and normalizes the atom shape (`message` →
+  // `text`). Each effect then becomes a uniform 3-line call. PR keeps its
+  // post-send side effects (clearing the optimistic `isCreatingPr` flag,
+  // focusing the sub-chat) by passing an `onSent` callback.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  const sendPending = useCallback(
+    async (
+      atomValue: { subChatId: string; message?: string; parts?: unknown[] } | null,
+      clearAtom: () => void,
+      onSent?: () => void,
+    ) => {
+      const normalized: PendingMessage | null = atomValue
+        ? {
+            subChatId: atomValue.subChatId,
+            text: atomValue.message,
+            parts: atomValue.parts,
+          }
+        : null
+      const result = await sendPendingMessage(subChatId, normalized, clearAtom, {
+        sendMessage: (msg) =>
+          sendMessage(msg as Parameters<typeof sendMessage>[0]),
+        isStreaming: () => isStreaming,
+      })
+      if (result.sent) onSent?.()
+    },
+    [subChatId, sendMessage, isStreaming],
+  )
+
   // Watch for pending PR message and send it
   const [pendingPrMessage, setPendingPrMessage] = useAtom(pendingPrMessageAtom)
-
   useEffect(() => {
-    if (pendingPrMessage?.subChatId === subChatId && !isStreaming) {
-      // Clear the pending message immediately to prevent double-sending
-      setPendingPrMessage(null)
-
-      // Send the message to Claude
-      sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: pendingPrMessage.message }],
-      })
-
-      // Reset creating PR state after message is sent
-      setIsCreatingPr(false)
-
-      // Ensure the target sub-chat is focused after sending
-      const store = useAgentSubChatStore.getState()
-      store.addToOpenSubChats(subChatId)
-      store.setActiveSubChat(subChatId)
-    }
-  }, [pendingPrMessage, isStreaming, sendMessage, setPendingPrMessage, setIsCreatingPr, subChatId])
+    void sendPending(
+      pendingPrMessage,
+      () => setPendingPrMessage(null),
+      () => {
+        setIsCreatingPr(false)
+        const store = useAgentSubChatStore.getState()
+        store.addToOpenSubChats(subChatId)
+        store.setActiveSubChat(subChatId)
+      },
+    )
+  }, [pendingPrMessage, sendPending, setPendingPrMessage, setIsCreatingPr, subChatId])
 
   // Watch for pending Review message and send it
   const [pendingReviewMessage, setPendingReviewMessage] = useAtom(
     pendingReviewMessageAtom,
   )
-
   useEffect(() => {
-    if (pendingReviewMessage?.subChatId === subChatId && !isStreaming) {
-      // Clear the pending message immediately to prevent double-sending
-      setPendingReviewMessage(null)
-
-      // Send the message to Claude
-      sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: pendingReviewMessage.message }],
-      })
-    }
-  }, [pendingReviewMessage, isStreaming, sendMessage, setPendingReviewMessage, subChatId])
+    void sendPending(pendingReviewMessage, () => setPendingReviewMessage(null))
+  }, [pendingReviewMessage, sendPending, setPendingReviewMessage])
 
   // Watch for pending conflict resolution message and send it
   const [pendingConflictMessage, setPendingConflictMessage] = useAtom(
     pendingConflictResolutionMessageAtom,
   )
-
   useEffect(() => {
-    if (pendingConflictMessage?.subChatId === subChatId && !isStreaming) {
-      // Clear the pending message immediately to prevent double-sending
-      setPendingConflictMessage(null)
-
-      // Send the message to Claude
-      sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: pendingConflictMessage.message }],
-      })
-    }
-  }, [pendingConflictMessage, isStreaming, sendMessage, setPendingConflictMessage, subChatId])
+    void sendPending(pendingConflictMessage, () => setPendingConflictMessage(null))
+  }, [pendingConflictMessage, sendPending, setPendingConflictMessage])
 
   // Watch for pending merge-base message and send it (Status widget action)
   const [pendingMergeBaseMessage, setPendingMergeBaseMessage] = useAtom(
     pendingMergeBaseMessageAtom,
   )
-
   useEffect(() => {
-    if (pendingMergeBaseMessage?.subChatId === subChatId && !isStreaming) {
-      setPendingMergeBaseMessage(null)
-      sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: pendingMergeBaseMessage.message }],
-      })
-    }
-  }, [pendingMergeBaseMessage, isStreaming, sendMessage, setPendingMergeBaseMessage, subChatId])
+    void sendPending(pendingMergeBaseMessage, () =>
+      setPendingMergeBaseMessage(null),
+    )
+  }, [pendingMergeBaseMessage, sendPending, setPendingMergeBaseMessage])
 
-  // Watch for pending Continue message and send it
+  // Watch for pending Continue message and send it. The atom carries a flag
+  // shape (`{ subChatId, ts }`) rather than a message body — the body is the
+  // literal string "Continue", so we override `message` here.
   const [pendingContinueMessage, setPendingContinueMessage] = useAtom(
     pendingContinueMessageAtom,
   )
-
   useEffect(() => {
-    if (pendingContinueMessage?.subChatId === subChatId && !isStreaming) {
-      setPendingContinueMessage(null)
-      sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: "Continue" }],
-      })
-    }
-  }, [pendingContinueMessage, isStreaming, sendMessage, setPendingContinueMessage, subChatId])
+    const synthesized = pendingContinueMessage
+      ? { subChatId: pendingContinueMessage.subChatId, message: "Continue" }
+      : null
+    void sendPending(synthesized, () => setPendingContinueMessage(null))
+  }, [pendingContinueMessage, sendPending, setPendingContinueMessage])
 
   // Handle pending "Build plan" from sidebar (atom - effect is defined after handleApprovePlan)
   const [pendingBuildPlanSubChatId, setPendingBuildPlanSubChatId] = useAtom(
@@ -2019,12 +2028,12 @@ export const ChatViewInner = memo(function ChatViewInner({
   } | null>(null)
   // isPlanApproveInFlightRef removed — replaced by module-level planApproveInFlight Set below
 
+  // Deferred "Implement plan" send — uses `parts` (pre-built by the plan
+  // approval flow) instead of plain text, but otherwise follows the same
+  // gate-and-clear-before-await pattern as the other pending atoms.
   useEffect(() => {
-    if (pendingImplementPlan?.subChatId !== subChatId || isStreaming) return
-    const parts = pendingImplementPlan.parts
-    setPendingImplementPlan(null)
-    sendMessage({ role: "user", parts })
-  }, [pendingImplementPlan, subChatId, isStreaming, sendMessage])
+    void sendPending(pendingImplementPlan, () => setPendingImplementPlan(null))
+  }, [pendingImplementPlan, sendPending])
 
   // Handle plan approval - sends "Implement plan" message and switches to agent mode
   const handleApprovePlan = useCallback(async () => {
