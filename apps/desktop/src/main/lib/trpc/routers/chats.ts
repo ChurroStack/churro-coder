@@ -640,6 +640,14 @@ export const chatsRouter = router({
         useWorktree: input.useWorktree,
       })
 
+      const initialModel = input.model ?? null
+      const initialProvider =
+        typeof initialModel === "string" &&
+        (initialModel.toLowerCase().includes("codex") || initialModel.toLowerCase().startsWith("gpt-"))
+          ? "codex"
+          : "claude-code"
+      console.log(`[chats.create] initialModel=${initialModel ?? "none"} expectedProvider=${initialProvider} mode=${input.mode}`)
+
       console.log("[chats.create] returning:", response)
       return response
     }),

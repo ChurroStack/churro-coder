@@ -341,7 +341,13 @@ export const filesRouter = router({
     .input(z.object({ filePath: z.string() }))
     .query(async ({ input }) => {
       const { filePath } = input
-
+      const isUri = /^[a-z][a-z0-9+.-]*:\/\//i.test(filePath)
+      console.log(`[files] readFile filePath=${filePath} isUri=${isUri}`)
+      if (isUri) {
+        const err = `files.readFile expects a filesystem path, got URI: ${filePath}`
+        console.error(`[files] REJECTED ${err}`)
+        throw new Error(err)
+      }
       try {
         const content = await readFile(filePath, "utf-8")
         return content

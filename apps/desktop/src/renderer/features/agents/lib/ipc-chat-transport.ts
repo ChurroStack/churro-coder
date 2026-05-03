@@ -179,6 +179,31 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
 
     const currentMode = getCurrentSubChatMode(this.config.subChatId)
 
+    // Drop Codex thread UUIDs before they reach the Claude router — main handles
+    // missing sessions gracefully via catch-up, but passing a foreign ID causes
+    // an existsSync miss, log noise, and a redundant fresh-session round-trip.
+    const lastAssistantModel = metadata?.model
+    const sessionLooksLikeCodexThread =
+      typeof sessionId === "string" &&
+      typeof lastAssistantModel === "string" &&
+      (lastAssistantModel.toLowerCase().includes("codex") ||
+        lastAssistantModel.toLowerCase().startsWith("gpt-"))
+
+    const claudeSessionId = sessionLooksLikeCodexThread ? undefined : sessionId
+    if (sessionLooksLikeCodexThread) {
+      console.warn(
+        `[SD] R:CODEX-SESSION-DROP sub=${this.config.subChatId.slice(-8)} ` +
+        `lastAssistantModel=${lastAssistantModel} → dropping leaked Codex thread UUID`,
+      )
+    }
+    console.log(
+      `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
+      `provider=claude-code mode=${currentMode} ` +
+      `sessionIdShort=${claudeSessionId?.slice(-8) ?? "none"} ` +
+      `lastAssistantModel=${lastAssistantModel ?? "none"} ` +
+      `selectedModelId=${selectedModelId} modelString=${modelString}`,
+    )
+
     // Stream debug logging
     const subId = this.config.subChatId.slice(-8)
     let chunkCount = 0
@@ -195,7 +220,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
             cwd: this.config.cwd,
             projectPath: this.config.projectPath, // Original project path for MCP config lookup
             mode: currentMode,
-            sessionId,
+            sessionId: claudeSessionId,
             ...(effort && { effort }),
             ...(modelString && { model: modelString }),
             ...(customConfig && { customConfig }),

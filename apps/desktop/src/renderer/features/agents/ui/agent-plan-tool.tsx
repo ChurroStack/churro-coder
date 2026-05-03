@@ -310,26 +310,24 @@ export const AgentPlanTool = memo(function AgentPlanTool({
 
           {planContent && (
             <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleCopy}
-                  className="group p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95"
-                >
-                  <div className="relative w-3.5 h-3.5">
-                    <CopyIcon
-                      className={cn(
-                        "absolute inset-0 w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out",
-                        copied ? "opacity-0 scale-50" : "opacity-100 scale-100",
-                      )}
-                    />
-                    <CheckIcon
-                      className={cn(
-                        "absolute inset-0 w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out",
-                        copied ? "opacity-100 scale-100" : "opacity-0 scale-50",
-                      )}
-                    />
-                  </div>
-                </button>
+              <TooltipTrigger
+                onClick={handleCopy}
+                className="group p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95"
+              >
+                <div className="relative w-3.5 h-3.5">
+                  <CopyIcon
+                    className={cn(
+                      "absolute inset-0 w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out",
+                      copied ? "opacity-0 scale-50" : "opacity-100 scale-100",
+                    )}
+                  />
+                  <CheckIcon
+                    className={cn(
+                      "absolute inset-0 w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out",
+                      copied ? "opacity-100 scale-100" : "opacity-0 scale-50",
+                    )}
+                  />
+                </div>
               </TooltipTrigger>
               <TooltipContent side="top" showArrow={false}>
                 Copy plan

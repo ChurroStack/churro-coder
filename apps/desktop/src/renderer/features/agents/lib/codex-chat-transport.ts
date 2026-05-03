@@ -14,6 +14,7 @@ import { trpcClient } from "../../../lib/trpc"
 import {
   askUserQuestionResultsAtom,
   expiredUserQuestionsAtom,
+  MODEL_ID_MAP,
   pendingAuthRetryMessageAtom,
   pendingUserQuestionsAtom,
   subChatCodexModelIdAtomFamily,
@@ -137,6 +138,32 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     const selectedModel = getSelectedCodexModel(this.config.subChatId)
     const enableTasks = appStore.get(enableTasksAtom)
 
+    const lastAssistantModel = (metadata as any)?.model
+
+    // Drop Claude session UUIDs before they reach the Codex router — the Codex
+    // router's getLastSessionId already filters to Codex-only thread IDs, but
+    // passing a Claude UUID as input.sessionId bypasses that filter.
+    const sessionLooksLikeClaude =
+      typeof sessionId === "string" &&
+      typeof lastAssistantModel === "string" &&
+      lastAssistantModel in MODEL_ID_MAP
+
+    const codexSessionId = sessionLooksLikeClaude ? undefined : sessionId
+    if (sessionLooksLikeClaude) {
+      console.warn(
+        `[SD] R:CLAUDE-SESSION-DROP sub=${this.config.subChatId.slice(-8)} ` +
+        `lastAssistantModel=${lastAssistantModel} → dropping leaked Claude session UUID`,
+      )
+    }
+
+    console.log(
+      `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
+      `provider=codex mode=${currentMode} ` +
+      `sessionIdShort=${codexSessionId?.slice(-8) ?? "none"} ` +
+      `lastAssistantModel=${lastAssistantModel ?? "none"} ` +
+      `selectedModel=${selectedModel}`,
+    )
+
     return new ReadableStream({
       start: (controller) => {
         const runId = crypto.randomUUID()
@@ -169,7 +196,7 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               : {}),
             model: selectedModel,
             mode: currentMode,
-            ...(sessionId ? { sessionId } : {}),
+            ...(codexSessionId ? { sessionId: codexSessionId } : {}),
             ...(forceNewSession ? { forceNewSession: true } : {}),
             ...(images.length > 0 ? { images } : {}),
             enableTasks: enableTasks !== false,
