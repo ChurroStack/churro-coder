@@ -384,7 +384,18 @@ The `release` script chains `build → package:mac → dist:manifest → upload-
 - System-view overlay for Settings / Usage / Kanban / Automations / Inbox / New Workspace.
 - Diff panel: ChangesPanel + AgentDiffView + DiffSidebarHeader, with Review / Create PR / Merge / Fix-conflicts wired.
 
-**Done (this branch — Phase 2 fully wired + L3.5 hook layer):**
+**Done (this branch — deps hooks + composer + L4 form-binding):**
+- **`flow-form-binding-on-new-subchat.test.ts`** — 7 L4 tests covering PR #38 regression class. Closes the L4 gap from the original plan. Drives the real `applyModeDefaultModel` via `mode-switch-service.toggleMode` to verify per-mode default propagation, sync ordering (PR #36), cross-provider defaults, and per-subChatId isolation (PR #51).
+- **`useModeSwitchDeps`** hook — extracted the mode-switch service deps from `ChatViewInner`. The renderer now calls `useModeSwitchDeps(updateSubChatModeMutation)` instead of building the deps inline.
+- **`useTransportFactoryDeps`** hook — extracted the ~280 LOC factory deps block (FSM-decision deps + the 140-LOC `createChat` callback with onError/onFinish lifecycle hooks) from `getOrCreateChat`. The renderer's `getOrCreateChat` is now a thin caller around the FSM decision + the deps from this hook. Reduced `active-chat.tsx` by ~270 LOC.
+- **`useApprovePlanDeps`** hook — extracted the ~80 LOC plan-approval deps from `handleApprovePlan`. The renderer's `handleApprovePlan` is now a 5-line wrapper around `approvePlanService(subChatId, planDeps)`. Reduced `active-chat.tsx` by ~110 LOC.
+- **`useChatController`** composer hook — the public API the original plan called out as "composes all hooks for active-chat.tsx". Bundles `useChatViewState` + the three deps hooks into a single typed return. The renderer keeps its individual hook calls (the per-call inputs are scattered across the file), but components extracted from `ChatViewInner` will use the composer to get everything per-subChatId in one shot.
+- **L3.5 hook tests** for the controller (7 tests): mount, return-shape contract, viewState read/write, per-subChatId isolation, persistMode skip-temp-id behavior, persistMode awaits the mutation. Uses structural mocks for the IPC/Codex/Remote transports so the test runs in node without an electronTRPC global.
+- **`lib/chat-instance-helpers.ts`** — pure helpers (`parseStoredMessages`, `getChatMessages`, `shouldRecreateStaleRuntimeChat`) lifted out of `active-chat.tsx` so the transport-factory hook can import them without circling back through the renderer.
+- **`lib/implement-plan-parts.ts`** — `IMPLEMENT_PLAN_BASE_TEXT` + `buildImplementPlanParts` + `ApprovedPlanContent` lifted out of `active-chat.tsx` for the approve-plan hook.
+- **`active-chat.tsx` LOC: 7,389 → 7,006** (~383 LOC removed via deps-hook extractions; behavior unchanged).
+
+**Done (previous — Phase 2 fully wired + L3.5 hook layer):**
 - All four Phase 2 services are now wired through `ChatViewInner`:
   - **`chat-send-service.sendPendingMessage`** — the six near-identical pending-message effects (`pendingPrMessage`, `pendingReviewMessage`, `pendingConflictResolutionMessage`, `pendingMergeBaseMessage`, `pendingContinueMessage`, `pendingImplementPlan`) collapse to a single 3-line call each via a `sendPending` wrapper. Clear-before-await invariant sourced from the service.
   - **`mode-switch-service.hydrateMode`** — the `dbSubChats` initialization loop now hydrates each sub-chat through the FSM exactly once (tracked in `hydratedSubChatIdsRef`). PR #51 stale-refetch race is locked in by the FSM's hydrationVersion guard, not the legacy `knownModes[id] === undefined` check.
