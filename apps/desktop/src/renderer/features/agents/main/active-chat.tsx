@@ -121,7 +121,7 @@ import {
   subChatCodexThinkingAtomFamily,
   subChatModelIdAtomFamily,
   subChatModeAtomFamily,
-  subChatModesStorageAtom,
+  chatModeFsmStateAtomFamily,
   subChatProviderOverridesAtom,
   suppressInputFocusAtom,
   undoStackAtom,
@@ -136,6 +136,26 @@ import {
   sendPendingMessage,
   type PendingMessage,
 } from "../services/chat-send-service"
+import {
+  hydrateMode,
+  toggleMode as toggleModeService,
+  noteSendRequested,
+  noteStreamStarted,
+  noteStreamCompleted,
+  noteStreamErrored,
+  type ModeSwitchDeps,
+} from "../services/mode-switch-service"
+import {
+  approvePlan as approvePlanService,
+  type ApprovePlanDeps,
+} from "../services/plan-approval-service"
+import {
+  getOrCreateChat as getOrCreateChatService,
+  type TransportFactoryDeps,
+  type FactoryInput,
+} from "../services/transport-factory"
+import type { ChatModeState } from "../machines/chat-mode-machine"
+import type { ProviderId } from "../machines/transport-lifecycle"
 import { ConfirmDeleteDialog } from "../../../components/confirm-delete-dialog"
 import { AgentSendButton } from "../components/agent-send-button"
 import { ChatToolbar } from "../components/chat-toolbar"
@@ -966,6 +986,78 @@ export const ChatViewInner = memo(function ChatViewInner({
     },
   })
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mode-switch service deps.
+  //
+  // The four side-effectful services (`mode-switch-service`,
+  // `plan-approval-service`, plus pieces of `transport-factory`) all read
+  // and write the per-subChatId FSM state. The renderer constructs the
+  // shared `ModeSwitchDeps` once via the closure below, then passes it to
+  // each service call site.
+  //
+  // **Why useMemo instead of useCallback per dep?** The deps interface is
+  // a frozen contract; the closures inside don't depend on React state, only
+  // on `appStore` (module-singleton) and the mutation refs. A single object
+  // is cheaper to thread through.
+  //
+  // The `setMode` closure mirrors what `useChatViewState`'s `setMode` does,
+  // *plus* the Zustand store update so the sidebar mode icon stays in sync.
+  // The service writes both `subChatModeAtomFamily` and the FSM state
+  // container; the Zustand mirror is the renderer's add-on.
+  // ──────────────────────────────────────────────────────────────────────────
+  const modeDeps = useMemo<ModeSwitchDeps>(
+    () => ({
+      readState: (id) => appStore.get(chatModeFsmStateAtomFamily(id)),
+      writeState: (id, state) =>
+        appStore.set(chatModeFsmStateAtomFamily(id), state),
+      setMode: (id, mode) => {
+        if (mode === "review") {
+          // The chat-mode FSM allows review, but the renderer's surface
+          // only persists "plan" / "agent". Drop "review" writes here —
+          // applyDefaultModel still applies the right model + thinking.
+          return
+        }
+        appStore.set(subChatModeAtomFamily(id), mode)
+        useAgentSubChatStore.getState().updateSubChatMode(id, mode)
+      },
+      applyDefaultModel: (id, mode) => {
+        const result = applyModeDefaultModel(id, mode)
+        return {
+          modelId: result.modelId,
+          provider: result.provider as ProviderId,
+        }
+      },
+      persistMode: async ({ subChatId: id, mode }) => {
+        if (id.startsWith("temp-")) return
+        await updateSubChatModeMutation.mutateAsync({
+          subChatId: id,
+          mode,
+        })
+      },
+      log: (msg) => {
+        if (process.env.NODE_ENV === "development") {
+          console.log(msg)
+        }
+      },
+    }),
+    [updateSubChatModeMutation],
+  )
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Hydration tracking — see `services/mode-switch-service.hydrateMode`.
+  //
+  // The legacy "init only" loop was: "if storage atom has no entry yet,
+  // initialize it from DB." We preserve that semantics by hydrating each
+  // sub-chat exactly once (tracked in `hydratedSubChatIdsRef`) with
+  // version=1. After that, FSM-internal version bumps from forced flips
+  // would reject any subsequent stale hydration anyway — but skipping the
+  // call entirely is faster and matches the original behavior.
+  //
+  // PR #51 regression class is now locked in by the FSM's stale-version
+  // guard, *and* by this set never re-firing once a sub-chat is hydrated.
+  // ──────────────────────────────────────────────────────────────────────────
+  const hydratedSubChatIdsRef = useRef<Set<string>>(new Set())
+
   // Sync atomFamily mode to Zustand store on mount/subChatId change
   // This ensures the sidebar shows the correct mode icon
   useEffect(() => {
@@ -1028,20 +1120,36 @@ export const ChatViewInner = memo(function ChatViewInner({
     }
   }, [subChatId])
 
-  // Handle mode changes - updates atomFamily, store, and database together
-  // No effect needed - this is called directly when user toggles mode
-  const handleModeChange = useCallback((newMode: AgentMode) => {
-    // Update atomFamily (source of truth for UI)
-    setSubChatMode(newMode)
-
-    // Update Zustand store (for other components that read from store)
-    useAgentSubChatStore.getState().updateSubChatMode(subChatId, newMode)
-
-    // Save to database (skip temp IDs that haven't been persisted yet)
-    if (!subChatId.startsWith("temp-")) {
-      updateSubChatModeMutation.mutate({ subChatId, mode: newMode })
-    }
-  }, [subChatId, setSubChatMode, updateSubChatModeMutation])
+  // Handle mode changes — wired through `mode-switch-service.toggleMode`.
+  //
+  // The service does what the legacy code did (atom + Zustand + DB) plus
+  // four invariants that the legacy code missed:
+  //
+  //   - PR #36: `applyDefaultModel` runs synchronously BEFORE any await,
+  //     so the chat-input model badge flips before the next send sees it.
+  //   - PR #38: per-mode default model + thinking gets applied (legacy
+  //     code didn't do this on user toggle — only on plan approval).
+  //   - PR #51: FSM activity gate rejects toggles while streaming/sending.
+  //     Silent rejection here — the toggle UI in chat-input-area should
+  //     also be gated on `isStreaming` so the user doesn't see the
+  //     rejection at all. Keeping a console.warn for debugging.
+  //   - PR #44 / #52: cross-provider switches that change the underlying
+  //     transport are signaled via `notifyProviderChange`. We don't wire
+  //     that callback here because user-driven toggles within a single
+  //     provider (plan ↔ agent in the same Claude or Codex session) don't
+  //     change the transport. Plan approval (which CAN change provider)
+  //     uses the plan-approval service which DOES wire the callback.
+  const handleModeChange = useCallback(
+    async (newMode: AgentMode) => {
+      const result = await toggleModeService(subChatId, newMode, modeDeps)
+      if (!result.ok && result.reason === "busy") {
+        console.warn(
+          `[mode-toggle] rejected: chat is busy (activity=${result.finalState.activity})`,
+        )
+      }
+    },
+    [subChatId, modeDeps],
+  )
 
   // File/image upload hook
   const {
@@ -1230,6 +1338,33 @@ export const ChatViewInner = memo(function ChatViewInner({
   stopRef.current = stop
 
   const isStreaming = status === "streaming" || status === "submitted"
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // FSM activity tracking. The chat-mode FSM gates user toggles on
+  // `activity === "idle"` (PR #36 / PR #51). Without this effect the FSM
+  // would stay at activity="idle" forever and the gate would be a no-op.
+  //
+  // Map `useChat.status` → FSM events:
+  //   submitted → SEND_REQUESTED   (user just hit send; not yet streaming)
+  //   streaming → STREAM_STARTED   (server is producing output)
+  //   ready     → STREAM_COMPLETED (back to idle)
+  //   error     → STREAM_ERRORED   (FSM marks activity=errored for clarity)
+  //
+  // The note* helpers in `mode-switch-service` advance the FSM and write
+  // it back through `modeDeps.writeState`, so reading `chatModeFsmStateAtomFamily`
+  // anywhere else in the renderer reflects the latest activity.
+  // ──────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (status === "submitted") {
+      noteSendRequested(subChatId, modeDeps)
+    } else if (status === "streaming") {
+      noteStreamStarted(subChatId, modeDeps)
+    } else if (status === "ready") {
+      noteStreamCompleted(subChatId, modeDeps)
+    } else if (status === "error") {
+      noteStreamErrored(subChatId, modeDeps)
+    }
+  }, [status, subChatId, modeDeps])
 
   // Enter sends in an ongoing conversation; Shift+Enter sends in a fresh empty sub-chat.
   // We're already past the chat-loading gate (ChatViewInner only mounts when !isLocalChatLoading),
@@ -2047,98 +2182,120 @@ export const ChatViewInner = memo(function ChatViewInner({
     void sendPending(pendingImplementPlan, () => setPendingImplementPlan(null))
   }, [pendingImplementPlan, sendPending])
 
-  // Handle plan approval - sends "Implement plan" message and switches to agent mode
+  // ──────────────────────────────────────────────────────────────────────────
+  // Plan approval — wired through `plan-approval-service.approvePlan`.
+  //
+  // The service composes the pure plan-approval FSM (PRs #36, #38, #40, #44,
+  // #45, #51, #52) with the renderer's side-effect deps. Behavioral parity
+  // with the legacy imperative version is locked in by 24 L2 tests +
+  // 11 integration tests (`flow-plan-to-agent`, `flow-cross-provider-approve`,
+  // `flow-session-clear-after-approve`).
+  //
+  // The renderer's only job here is to wire deps — every invariant lives in
+  // the service:
+  //   - `readPreviousProvider` snapshots the planner's provider BEFORE any
+  //     write. Mirrors the legacy `existingChat instanceof CodexChatTransport`
+  //     check, with the same `subChatProviderOverridesAtom` fallback.
+  //   - `setMode` writes both the atom AND the Zustand store (mirror).
+  //   - `persistMode` skips temp- IDs (legacy `if (!subChatId.startsWith("temp-"))`).
+  //   - `applyDefaultModel` returns the resolved provider/isRemote for the
+  //     FSM's same/cross branching.
+  //   - `notifyProviderChange` triggers `onProviderChange` (parent prop)
+  //     which writes to `subChatProviderOverridesAtom`, forcing the next
+  //     `getOrCreateChat` to RECREATE under the new provider.
+  //   - `buildImplementPlanParts` adapts the FSM payload to the renderer's
+  //     existing helper.
+  //   - `scheduleDeferredSend` writes `setPendingImplementPlan` (consumed by
+  //     the existing effect that sends the message once isStreaming=false).
+  //   - `isInFlight`/`markInFlight`/`releaseInFlight` wrap the module-level
+  //     `planApproveInFlight: Set<string>` (kept for now; eventual goal is
+  //     a per-subChat ref, but the current Set is shared correctly across
+  //     mounts and works).
+  // ──────────────────────────────────────────────────────────────────────────
   const handleApprovePlan = useCallback(async () => {
-    if (planApproveInFlight.has(subChatId)) return
-    planApproveInFlight.add(subChatId)
-
-    try {
-      // Capture the planner's provider BEFORE any state writes. applyModeDefaultModel
-      // overwrites subChatProviderOverrideAtomFamily as a side-effect, so we must
-      // snapshot it first. Uses the same transport-instanceof pattern as getOrCreateChat.
-      // Falls back to the atom store directly (module-level, no temporal-dead-zone risk)
-      // so we don't need to reference the inferProviderFromMessages useCallback which is
-      // declared later in the component.
-      const existingChat = agentChatStore.get(subChatId)
-      const previousProvider: "claude-code" | "codex" = existingChat
-        ? ((existingChat as any)?.transport instanceof CodexChatTransport
+    const planDeps: ApprovePlanDeps = {
+      readPreviousProvider: (id) => {
+        const existing = agentChatStore.get(id)
+        if (existing) {
+          return ((existing as any)?.transport instanceof CodexChatTransport
             ? "codex"
-            : "claude-code")
-        : (appStore.get(subChatProviderOverridesAtom)[subChatId] ?? "claude-code")
-      console.log(
-        `[PLAN] approve:start sub=${subChatId.slice(-8)} ` +
-        `previousProvider=${previousProvider} ` +
-        `existingTransport=${existingChat ? ((existingChat as any)?.transport?.constructor?.name ?? "unknown") : "none"} ` +
-        `currentMode=${appStore.get(subChatModeAtomFamily(subChatId)) ?? "unknown"}`,
-      )
-
-      // Switch mode and model synchronously BEFORE any await. The transport reads
-      // the model atom at send-time; yielding first causes the chat input to flip
-      // visibly late and risks the wrong provider being used during the async gap.
-      // setSubChatMode writes subChatModesStorageAtom so the hydration guard below
-      // will see a defined entry and not let a stale refetch clobber it back to "plan".
-      setSubChatMode("agent")
-      useAgentSubChatStore.getState().updateSubChatMode(subChatId, "agent")
-
-      // Sync mode to database — null out sessionId/sessionMode so the server
-      // starts a fresh session in agent mode instead of resuming the plan session.
-      // Await so the DB write lands before we schedule the deferred send.
-      if (!subChatId.startsWith("temp-")) {
-        await updateSubChatModeMutation.mutateAsync({ subChatId, mode: "agent", exitPlan: true })
-      }
-
-      // Autoswitch to the Agent-mode default model and get the resolved provider.
-      const { provider } = applyModeDefaultModel(subChatId, "agent")
-      console.log(
-        `[PLAN] approve:model-applied sub=${subChatId.slice(-8)} ` +
-        `newProvider=${provider} ` +
-        `newModel=${appStore.get(subChatModelIdAtomFamily(subChatId))} ` +
-        `crossProvider=${previousProvider !== provider}`,
-      )
-
-      if (previousProvider === provider) {
-        // Same provider (Claude→Claude or Codex→Codex): keep the existing transport so
-        // the SDK's native plan→default permission-mode transition fires naturally on the
-        // next query. Tearing it down here orphans in-flight TodoWrite/Task tool events.
-        // The SDK already has the plan in session history — no file attachment needed.
-        console.log(`[PLAN] approve:same-provider sub=${subChatId.slice(-8)} reusing transport`)
+            : "claude-code") as ProviderId
+        }
+        return (appStore.get(subChatProviderOverridesAtom)[id] ??
+          "claude-code") as ProviderId
+      },
+      setMode: (id, mode) => {
+        appStore.set(subChatModeAtomFamily(id), mode)
+        useAgentSubChatStore.getState().updateSubChatMode(id, mode)
+      },
+      persistMode: async ({ subChatId: id, mode, exitPlan }) => {
+        if (id.startsWith("temp-")) return
+        await updateSubChatModeMutation.mutateAsync({
+          subChatId: id,
+          mode,
+          exitPlan,
+        })
+      },
+      applyDefaultModel: (id, mode) => {
+        const result = applyModeDefaultModel(id, mode)
+        // The plan-approval service only needs `provider`/`isRemote`. The
+        // renderer does NOT track per-subChat remote-ness from the model
+        // selection — that's chat-level metadata. Pass false; the FSM uses
+        // it for the cross-provider transport-recreate decision, and that
+        // decision doesn't change between local sub-chats.
+        return { provider: result.provider as ProviderId, isRemote: false }
+      },
+      notifyProviderChange: (id, provider) => {
+        onProviderChange?.(id, provider)
+      },
+      resolvePlanContent: async () => {
+        try {
+          const plan = await resolveApprovedPlanContent()
+          return plan?.content ?? null
+        } catch (err) {
+          console.warn("[plan-approval] resolveApprovedPlanContent failed:", err)
+          return null
+        }
+      },
+      buildImplementPlanParts: (payload) => {
+        if (payload.kind === "text-only") {
+          return [{ type: "text", text: payload.text }]
+        }
+        // Cross-provider with-plan-attachment — feed back into the
+        // existing top-level helper so the file-content layout stays
+        // sourced from one place.
+        const plan: ApprovedPlanContent | null = payload.planContent
+          ? { content: payload.planContent }
+          : null
+        return buildImplementPlanParts(plan)
+      },
+      isInFlight: (id) => planApproveInFlight.has(id),
+      markInFlight: (id) => {
+        planApproveInFlight.add(id)
+      },
+      releaseInFlight: (id) => {
+        planApproveInFlight.delete(id)
+      },
+      scheduleDeferredSend: (id, parts) => {
+        // Auto-scroll behavior preserved from the legacy flow — both
+        // branches (same-provider + cross-provider) used to set this.
         shouldAutoScrollRef.current = true
         scrollToBottom()
-        setPendingImplementPlan({
-          subChatId,
-          parts: [{ type: "text", text: IMPLEMENT_PLAN_BASE_TEXT }],
-        })
-        return
-      }
+        setPendingImplementPlan({ subChatId: id, parts })
+      },
+      log: (msg) => {
+        console.log(msg)
+      },
+    }
 
-      // Cross-provider (Claude↔Codex): recreate the transport for the new provider and
-      // resend the plan as a hidden file-content attachment so the new provider has context.
-      onProviderChange?.(subChatId, provider)
-
-      // Resolve plan content async (only needed for message body, not for transport).
-      let planContent: ApprovedPlanContent | null = null
-      try {
-        planContent = await resolveApprovedPlanContent()
-      } catch (error) {
-        console.warn("[plan-approval] Failed to resolve approved plan text:", error)
-      }
-      console.log(
-        `[PLAN] approve:cross-provider sub=${subChatId.slice(-8)} ` +
-        `from=${previousProvider} to=${provider} planContentSource=${planContent?.source ?? "null"} ` +
-        `planContentBytes=${planContent?.content?.length ?? 0}`,
+    const result = await approvePlanService(subChatId, planDeps)
+    if (!result.ok && process.env.NODE_ENV === "development") {
+      console.warn(
+        `[plan-approval] not-ok sub=${subChatId.slice(-8)} reason=${result.reason}`,
       )
-      const implementPlanParts = buildImplementPlanParts(planContent)
-
-      // Enable auto-scroll and defer the send to after the transport recreates.
-      shouldAutoScrollRef.current = true
-      scrollToBottom()
-      setPendingImplementPlan({ subChatId, parts: implementPlanParts })
-    } finally {
-      planApproveInFlight.delete(subChatId)
     }
   }, [
     subChatId,
-    setSubChatMode,
     scrollToBottom,
     updateSubChatModeMutation,
     onProviderChange,
@@ -5430,14 +5587,21 @@ Make sure to preserve all functionality from both branches when resolving confli
 
     freshState.setAllSubChats(allSubChats)
 
-    // Initialize atomFamily mode for each sub-chat from database — but only when the
-    // storage atom has no entry yet. A stale refetch arriving after handleApprovePlan
-    // has already written "agent" must not clobber the in-memory mode back to "plan".
-    const knownModes = appStore.get(subChatModesStorageAtom)
+    // Initialize per-subChat mode + FSM state from the database. Wired
+    // through `mode-switch-service.hydrateMode` (tested at L2 + L4) so the
+    // PR #51 stale-refetch race is locked in by the FSM, not by an
+    // ad-hoc `knownModes[sc.id] === undefined` check.
+    //
+    // `hydratedSubChatIdsRef` ensures each sub-chat hydrates exactly once
+    // — matching the original "init only" semantics. A constant version=1
+    // is sufficient because the FSM bumps its internal version on every
+    // forced flip (PR #36 + PR #51), so a subsequent stale call would be
+    // rejected even if we somehow re-fired it.
     for (const sc of dbSubChats) {
-      if (sc.mode && knownModes[sc.id] === undefined) {
-        appStore.set(subChatModeAtomFamily(sc.id), sc.mode)
-      }
+      if (!sc.mode) continue
+      if (hydratedSubChatIdsRef.current.has(sc.id)) continue
+      hydratedSubChatIdsRef.current.add(sc.id)
+      hydrateMode(sc.id, sc.mode, 1, modeDeps)
     }
 
     // All open tabs are now valid (we created placeholders for non-DB ones)
@@ -5699,223 +5863,276 @@ Make sure to preserve all functionality from both branches when resolving confli
     clearRuntimeCachesForSubChat(subChatId)
   }, [])
 
-  // Create or get Chat instance for a sub-chat
+  // ──────────────────────────────────────────────────────────────────────────
+  // Get-or-create chat instance — wired through `transport-factory` service.
+  //
+  // The pure FSM (`decideTransportAction` in `machines/transport-lifecycle.ts`)
+  // owns the keep/create/recreate decision. The factory orchestrates it
+  // against injected deps; the renderer only supplies the side-effects
+  // (transport construction, agentChatStore mutations, audio/notification
+  // hooks on stream finish).
+  //
+  // Behavioral parity with the legacy imperative branches (see git history
+  // before this commit):
+  //   - `existing && remote` → KEEP            (FSM: existingIsRemote)
+  //   - `existing && stale && idle` → RECREATE (FSM: stale-runtime)
+  //   - `existing && provider matches` → KEEP  (FSM: provider match)
+  //   - `existing && cross-provider && hasMessages` → KEEP  (PR #44)
+  //   - `existing && cross-provider && empty`  → RECREATE   (FSM: cross-provider-empty)
+  //
+  // Plan-approval cross-provider recreates use a SEPARATE FSM
+  // (`decidePlanApprovalCrossProviderRecreate`) wired by the plan-approval
+  // service; this factory is for the regular send-time flow.
+  //
+  // The big `createChat` callback (~140 LOC inline below) is exactly what
+  // it was before — Chat instantiation + onError/onFinish side effects.
+  // Wiring it as a dep means tests can substitute a mock transport and
+  // exercise the FSM without spinning up real IPC / audio / notification
+  // plumbing.
+  // ──────────────────────────────────────────────────────────────────────────
   const getOrCreateChat = useCallback(
     (subChatId: string): Chat<any> | null => {
-      // Desktop uses worktreePath, web uses sandboxUrl
-      if (!chatWorkingDir || !agentChat) {
-        return null
-      }
+      if (!chatWorkingDir || !agentChat) return null
 
-      // Create transport based on chat type (local worktree vs remote sandbox)
-      // Note: Extended thinking setting is read dynamically inside the transport
-      // projectPath: original project path for MCP config lookup (worktreePath is the cwd)
       const projectPath = (agentChat as any)?.project?.path as string | undefined
-      const chatSandboxId = (agentChat as any)?.sandboxId || (agentChat as any)?.sandbox_id
-      const chatSandboxUrl = chatSandboxId ? `https://3003-${chatSandboxId}.e2b.app` : null
+      const chatSandboxId =
+        (agentChat as any)?.sandboxId || (agentChat as any)?.sandbox_id
+      const chatSandboxUrl = chatSandboxId
+        ? `https://3003-${chatSandboxId}.e2b.app`
+        : null
       const isRemoteChat = !!(agentChat as any)?.isRemote || !!chatSandboxId
+      const targetProvider: ProviderId = inferProviderFromMessages(subChatId)
 
-      // Find sub-chat data before the runtime fast path. Runtime Chat
-      // instances can be created from optimistic/empty cache entries and then
-      // outlive the eventual persisted messages, so existing chats must be
-      // reconciled against the latest query data before reuse.
-      const subChat = agentSubChats.find((sc) => sc.id === subChatId)
-      const messages = parseStoredMessages(subChat?.messages)
-
-      const existing = agentChatStore.get(subChatId)
-      if (existing) {
-        if (isRemoteChat) return existing
-
-        const existingMessages = getChatMessages(existing)
-        const existingStatus = (existing as any)?.status
-        const existingIsStreaming =
-          existingStatus === "streaming" ||
-          existingStatus === "submitted" ||
-          (existingStatus == null &&
-            useStreamingStatusStore.getState().isStreaming(subChatId))
-        const existingHasQueue =
-          (useMessageQueueStore.getState().queues[subChatId]?.length ?? 0) > 0
-
-        if (
-          !existingIsStreaming &&
-          !existingHasQueue &&
-          shouldRecreateStaleRuntimeChat(existingMessages, messages)
-        ) {
-          if (process.env.NODE_ENV === "development") {
-            console.warn("[getOrCreateChat] Recreating stale runtime chat", {
-              subChatId: subChatId.slice(-8),
-              persistedMessageCount: messages.length,
-              runtimeMessageCount: existingMessages.length,
-              existingStatus,
-            })
-          }
-          agentChatStore.delete(subChatId)
-        } else {
-          const overrideProvider = subChatProviderOverrides[subChatId]
-          if (!overrideProvider) return existing
-
-          const existingProvider: "claude-code" | "codex" =
-            (existing as any)?.transport instanceof CodexChatTransport
-              ? "codex"
-              : "claude-code"
-          if (existingProvider === overrideProvider) return existing
-
-          if (messages.length > 0) return existing
-          agentChatStore.delete(subChatId)
-        }
-      }
-
-      const chatProvider = inferProviderFromMessages(subChatId)
-
-      console.log("[getOrCreateChat] Transport selection", {
-        subChatId: subChatId.slice(-8),
-        isRemoteChat,
-        chatSandboxId,
-        chatSandboxUrl,
-        worktreePath: worktreePath ? "exists" : "none",
-      })
-
-      let transport: IPCChatTransport | RemoteChatTransport | CodexChatTransport | null = null
-
-      if (isRemoteChat && chatSandboxUrl) {
-        // Remote sandbox chat: use HTTP SSE transport
-        const subChatName = subChat?.name || "Chat"
-        const selectedModelId = appStore.get(subChatModelIdAtomFamily(subChatId))
-        const modelString = MODEL_ID_MAP[selectedModelId] || MODEL_ID_MAP["opus"]
-        console.log("[getOrCreateChat] Using RemoteChatTransport", {
-          sandboxUrl: chatSandboxUrl,
-          model: modelString,
-        })
-        transport = new RemoteChatTransport({
-          chatId,
-          subChatId,
-          subChatName,
-          sandboxUrl: chatSandboxUrl,
-          model: modelString,
-        })
-      } else if (worktreePath) {
-        if (chatProvider === "codex") {
-          console.log("[getOrCreateChat] Using CodexChatTransport", { provider: chatProvider })
-          transport = new CodexChatTransport({
-            chatId,
-            subChatId,
-            cwd: worktreePath,
-            projectPath,
-            provider: "codex",
-          })
-        } else {
-          // Local worktree chat: use IPC transport
-          transport = new IPCChatTransport({
-            chatId,
-            subChatId,
-            cwd: worktreePath,
-            projectPath,
-          })
-        }
-      }
-
-      if (!transport) {
-        console.error("[getOrCreateChat] No transport available")
-        return null
-      }
-
-      const newChat = new Chat<any>({
-        id: subChatId,
-        messages,
-        transport,
-        onError: () => {
-          // Sync status to global store on error (allows queue to continue)
-          useStreamingStatusStore.getState().setStatus(subChatId, "ready")
-          syncFinishedMessagesToChatCache(subChatId, newChat)
-          pruneIfDetachedAndIdle(subChatId, chatId)
+      // Per-call factory deps. These are simple closures over the renderer's
+      // current scope (chatId, agentChatStore, etc.); the factory itself is
+      // pure orchestration.
+      const factoryDeps: TransportFactoryDeps<Chat<any>> = {
+        readExistingChat: (id) => agentChatStore.get(id) ?? null,
+        readChatMessages: (chat) => getChatMessages(chat) as unknown[],
+        readPersistedMessages: (id) => {
+          const sc = agentSubChats.find((s) => s.id === id)
+          return parseStoredMessages(sc?.messages)
         },
-        // Clear loading when streaming completes (works even if component unmounted)
-        onFinish: () => {
-          clearLoading(setLoadingSubChats, subChatId)
-
-          // Sync status to global store for queue processing (even when component unmounted)
-          useStreamingStatusStore.getState().setStatus(subChatId, "ready")
-          syncFinishedMessagesToChatCache(subChatId, newChat)
-          if (chatProvider === "codex") {
-            void utils.agents.getAgentChat.invalidate({ chatId })
+        isStreaming: (id) => {
+          const existing = agentChatStore.get(id)
+          const existingStatus = (existing as any)?.status
+          if (existingStatus === "streaming" || existingStatus === "submitted") {
+            return true
           }
-
-          // Check if this was a manual abort (ESC/Ctrl+C) - skip sound if so
-          const wasManuallyAborted =
-            agentChatStore.wasManuallyAborted(subChatId)
-          agentChatStore.clearManuallyAborted(subChatId)
-
-          // Get CURRENT values at runtime (not stale closure values)
-          const currentActiveSubChatId =
-            useAgentSubChatStore.getState().activeSubChatId
-          const currentSelectedChatId = appStore.get(selectedAgentChatIdAtom)
-
-          const isViewingThisSubChat = currentActiveSubChatId === subChatId
-          const isViewingThisChat = currentSelectedChatId === chatId
-
-          if (!isViewingThisSubChat) {
-            setSubChatUnseenChanges((prev: Set<string>) => {
-              const next = new Set(prev)
-              next.add(subChatId)
-              return next
+          if (existingStatus == null) {
+            return useStreamingStatusStore.getState().isStreaming(id)
+          }
+          return false
+        },
+        hasQueue: (id) =>
+          (useMessageQueueStore.getState().queues[id]?.length ?? 0) > 0,
+        isStaleRuntime: (existingMessages, persistedMessages) =>
+          shouldRecreateStaleRuntimeChat(
+            existingMessages as Parameters<typeof shouldRecreateStaleRuntimeChat>[0],
+            persistedMessages as Parameters<typeof shouldRecreateStaleRuntimeChat>[1],
+          ),
+        getExistingProvider: (chat) =>
+          (chat as any)?.transport instanceof CodexChatTransport
+            ? "codex"
+            : "claude-code",
+        deleteExistingChat: (id) => {
+          if (process.env.NODE_ENV === "development") {
+            console.warn("[transport-factory] Recreating stale/cross-provider chat", {
+              subChatId: id.slice(-8),
             })
           }
+          agentChatStore.delete(id)
+        },
+        storeChat: (id, chat) => {
+          const sc = agentSubChats.find((s) => s.id === id)
+          agentChatStore.set(id, chat, chatId)
+          // Store streamId at creation time to prevent resume during active
+          // streaming. tRPC refetch updates stream_id in DB; store stays stable.
+          agentChatStore.setStreamId(id, sc?.stream_id || null)
+        },
+        log: (msg) => {
+          if (process.env.NODE_ENV === "development") {
+            console.log(msg)
+          }
+        },
+        createChat: ({ subChatId: id, provider, isRemote }, persistedMessages) => {
+          const sc = agentSubChats.find((s) => s.id === id)
+          const messages = persistedMessages as ReturnType<
+            typeof parseStoredMessages
+          >
 
-          // Also mark parent chat as unseen if user is not viewing it
-          if (!isViewingThisChat) {
-            setUnseenChanges((prev: Set<string>) => {
-              const next = new Set(prev)
-              next.add(chatId)
-              return next
+          let transport:
+            | IPCChatTransport
+            | RemoteChatTransport
+            | CodexChatTransport
+            | null = null
+
+          if (isRemote && chatSandboxUrl) {
+            const subChatName = sc?.name || "Chat"
+            const selectedModelId = appStore.get(subChatModelIdAtomFamily(id))
+            const modelString =
+              MODEL_ID_MAP[selectedModelId] || MODEL_ID_MAP["opus"]
+            console.log("[getOrCreateChat] Using RemoteChatTransport", {
+              sandboxUrl: chatSandboxUrl,
+              model: modelString,
             })
-
-            // Play completion sound only if NOT manually aborted and sound is enabled
-            if (!wasManuallyAborted) {
-              const isSoundEnabled = appStore.get(soundNotificationsEnabledAtom)
-              if (isSoundEnabled) {
-                try {
-                  const audio = new Audio("./sound.mp3")
-                  audio.volume = 1.0
-                  audio.play().catch(() => {})
-                } catch {
-                  // Ignore audio errors
-                }
-              }
+            transport = new RemoteChatTransport({
+              chatId,
+              subChatId: id,
+              subChatName,
+              sandboxUrl: chatSandboxUrl,
+              model: modelString,
+            })
+          } else if (worktreePath) {
+            if (provider === "codex") {
+              console.log("[getOrCreateChat] Using CodexChatTransport", {
+                provider,
+              })
+              transport = new CodexChatTransport({
+                chatId,
+                subChatId: id,
+                cwd: worktreePath,
+                projectPath,
+                provider: "codex",
+              })
+            } else {
+              transport = new IPCChatTransport({
+                chatId,
+                subChatId: id,
+                cwd: worktreePath,
+                projectPath,
+              })
             }
           }
 
-          // Show native notification if not manually aborted
-          // (the hook handles focus/preference checks internally)
-          if (!wasManuallyAborted) {
-            notifyAgentComplete(agentChat?.name || "Agent")
+          if (!transport) {
+            // The factory expects a Chat instance back; null breaks its
+            // contract. Throw so the outer catch returns null, mirroring
+            // the legacy "no transport available" branch.
+            throw new Error("[transport-factory] No transport available")
           }
 
-          // Refresh diff stats after agent finishes making changes
-          fetchDiffStatsRef.current()
+          // newChat is captured in closure for onError/onFinish
+          // (otherwise `syncFinishedMessagesToChatCache(id, newChat)` can't
+          // pass the instance back through itself).
+          // eslint-disable-next-line prefer-const
+          let newChat: Chat<any>
+          newChat = new Chat<any>({
+            id,
+            messages,
+            transport,
+            onError: () => {
+              // Sync status to global store on error (allows queue to continue)
+              useStreamingStatusStore.getState().setStatus(id, "ready")
+              syncFinishedMessagesToChatCache(id, newChat)
+              pruneIfDetachedAndIdle(id, chatId)
+            },
+            // Clear loading when streaming completes (works even if component unmounted)
+            onFinish: () => {
+              clearLoading(setLoadingSubChats, id)
 
-          // Broadcast "agent finished" so subscribed widgets refresh their data.
-          // Always fire — even on manual abort the agent may have left changes
-          // (file edits, partial PR creation, etc.) worth re-fetching.
-          appStore.set(agentFinishedTickAtomFamily(subChatId))
-          appStore.set(agentFinishedTickAtomFamily(chatId))
-          // Also bump the plan-refetch trigger so the Plan widget re-reads its
-          // file content on every finish (covers Write-not-Edit cases the
-          // tool-call detector at active-chat.tsx:3320 misses).
-          appStore.set(planEditRefetchTriggerAtomFamily(subChatId))
+              // Sync status to global store for queue processing (even when component unmounted)
+              useStreamingStatusStore.getState().setStatus(id, "ready")
+              syncFinishedMessagesToChatCache(id, newChat)
+              if (provider === "codex") {
+                void utils.agents.getAgentChat.invalidate({ chatId })
+              }
 
-          pruneIfDetachedAndIdle(subChatId, chatId)
+              // Check if this was a manual abort (ESC/Ctrl+C) - skip sound if so
+              const wasManuallyAborted =
+                agentChatStore.wasManuallyAborted(id)
+              agentChatStore.clearManuallyAborted(id)
 
-          // Note: sidebar timestamp update is handled via optimistic update in handleSend
-          // No need to refetch here as it would overwrite the optimistic update with stale data
+              // Get CURRENT values at runtime (not stale closure values)
+              const currentActiveSubChatId =
+                useAgentSubChatStore.getState().activeSubChatId
+              const currentSelectedChatId = appStore.get(selectedAgentChatIdAtom)
+
+              const isViewingThisSubChat = currentActiveSubChatId === id
+              const isViewingThisChat = currentSelectedChatId === chatId
+
+              if (!isViewingThisSubChat) {
+                setSubChatUnseenChanges((prev: Set<string>) => {
+                  const next = new Set(prev)
+                  next.add(id)
+                  return next
+                })
+              }
+
+              // Also mark parent chat as unseen if user is not viewing it
+              if (!isViewingThisChat) {
+                setUnseenChanges((prev: Set<string>) => {
+                  const next = new Set(prev)
+                  next.add(chatId)
+                  return next
+                })
+
+                // Play completion sound only if NOT manually aborted and sound is enabled
+                if (!wasManuallyAborted) {
+                  const isSoundEnabled = appStore.get(soundNotificationsEnabledAtom)
+                  if (isSoundEnabled) {
+                    try {
+                      const audio = new Audio("./sound.mp3")
+                      audio.volume = 1.0
+                      audio.play().catch(() => {})
+                    } catch {
+                      // Ignore audio errors
+                    }
+                  }
+                }
+              }
+
+              // Show native notification if not manually aborted
+              // (the hook handles focus/preference checks internally)
+              if (!wasManuallyAborted) {
+                notifyAgentComplete(agentChat?.name || "Agent")
+              }
+
+              // Refresh diff stats after agent finishes making changes
+              fetchDiffStatsRef.current()
+
+              // Broadcast "agent finished" so subscribed widgets refresh their data.
+              // Always fire — even on manual abort the agent may have left changes
+              // (file edits, partial PR creation, etc.) worth re-fetching.
+              appStore.set(agentFinishedTickAtomFamily(id))
+              appStore.set(agentFinishedTickAtomFamily(chatId))
+              // Also bump the plan-refetch trigger so the Plan widget re-reads its
+              // file content on every finish (covers Write-not-Edit cases the
+              // tool-call detector at active-chat.tsx:3320 misses).
+              appStore.set(planEditRefetchTriggerAtomFamily(id))
+
+              pruneIfDetachedAndIdle(id, chatId)
+
+              // Note: sidebar timestamp update is handled via optimistic update in handleSend
+              // No need to refetch here as it would overwrite the optimistic update with stale data
+            },
+          })
+
+          return newChat
         },
-      })
+      }
 
-      agentChatStore.set(subChatId, newChat, chatId)
-      // Store streamId at creation time to prevent resume during active streaming
-      // tRPC refetch would update stream_id in DB, but store stays stable
-      agentChatStore.setStreamId(subChatId, subChat?.stream_id || null)
-      forceUpdate({}) // Trigger re-render to use new chat
-      return newChat
+      // Run the factory: decide → execute. The factory's `storeChat` dep
+      // already wrote the new chat into agentChatStore (or kept the
+      // existing one), so we just need to forceUpdate on create/recreate
+      // so the renderer picks up the new instance.
+      try {
+        const result = getOrCreateChatService(
+          {
+            subChatId,
+            targetProvider,
+            targetIsRemote: isRemoteChat,
+          } satisfies FactoryInput,
+          factoryDeps,
+        )
+        if (result.action.kind !== "keep") {
+          forceUpdate({})
+        }
+        return result.chat
+      } catch (err) {
+        console.error("[getOrCreateChat]", err)
+        return null
+      }
     },
     [
       agentChat,
@@ -5924,7 +6141,6 @@ Make sure to preserve all functionality from both branches when resolving confli
       chatId,
       agentSubChats,
       inferProviderFromMessages,
-      subChatProviderOverrides,
       utils,
       setSubChatUnseenChanges,
       selectedChatId,

@@ -1177,6 +1177,34 @@ export const workspaceDiffCacheAtomFamily = atomFamily((chatId: string) =>
   ),
 )
 
+// ============================================================================
+// CHAT MODE FSM STATE
+// ============================================================================
+//
+// Per-subChatId container for the chat-mode FSM state (see
+// `machines/chat-mode-machine.ts`). Used by `mode-switch-service`,
+// `plan-approval-service` for `readState` / `writeState` deps.
+//
+// Stored as an atom family — non-reactive on purpose. Consumers that want to
+// react to the FSM state (e.g., the toggle UI gating on `activity === "idle"`)
+// should derive it from other signals (`useChat.status`); the FSM atom is
+// just a container the services read/write through their deps interface.
+//
+// Initial state defaults to `mode: "agent"` (matches `subChatModeAtomFamily`'s
+// fallback). The hydration loop will overwrite this from the DB the first time
+// it sees a sub-chat with a persisted mode.
+//
+// Storage isn't needed — the FSM state is derivable from `subChatMode` +
+// `useChat.status` after a fresh launch. The atom is in-memory only.
+import {
+  initialChatModeState,
+  type ChatModeState,
+} from "../machines/chat-mode-machine"
+
+export const chatModeFsmStateAtomFamily = atomFamily((_subChatId: string) =>
+  atom<ChatModeState>(initialChatModeState("agent")),
+)
+
 /**
  * Refresh trigger for the per-workspace diff cache.
  *
