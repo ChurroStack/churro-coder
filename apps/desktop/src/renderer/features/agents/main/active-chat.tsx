@@ -144,12 +144,14 @@ import {
 import { BUILTIN_SLASH_COMMANDS } from "../commands"
 import { ConfirmDeleteDialog } from "../../../components/confirm-delete-dialog"
 import { AgentSendButton } from "../components/agent-send-button"
+import { ChatToolbar } from "../components/chat-toolbar"
 import { MessageGroup } from "../components/message-group"
 import { OpenLocallyDialog } from "../components/open-locally-dialog"
 import { PreviewSetupHoverCard } from "../components/preview-setup-hover-card"
 import { ScrollToBottomButton } from "../components/scroll-to-bottom-button"
 import { SplitPaneInlineClose } from "../components/split-pane-inline-close"
 import { SubChatFilesTracker } from "../components/sub-chat-files-tracker"
+import { TerminalBottomMount } from "../components/terminal-bottom-mount"
 import type { TextSelectionSource } from "../context/text-selection-context"
 import { TextSelectionProvider } from "../context/text-selection-context"
 import { useAgentsFileUpload, type UploadedImage } from "../hooks/use-agents-file-upload"
@@ -4618,39 +4620,16 @@ export const ChatViewInner = memo(function ChatViewInner({
         <ChatSearchBar messages={messagesForSync} topOffset={searchBarTopOffset} />
 
         {/* Chat title - flex above scroll area (desktop only) */}
-        {!isMobile && (
-        <div
-          className={cn(
-            "flex-shrink-0 pb-2",
-            isSubChatsSidebarOpen ? "pt-[52px]" : "pt-2",
-          )}
-        >
-          {/* Title row: ChatTitleEditor on the left, per-pane close X on the
-              right for split panes. Flex layout ensures the X sits on the same
-              visual row as the title rather than floating in a corner. */}
-          <div className="flex items-center">
-            <div className="flex-1 min-w-0">
-              <ChatTitleEditor
-                name={subChatName}
-                placeholder="New Chat"
-                onSave={handleRenameSubChat}
-                isMobile={false}
-                chatId={subChatId}
-                hasMessages={true} /* Always show "New Chat" placeholder when name is empty */
-              />
-            </div>
-            {isSplitPane && <SplitPaneInlineClose subChatId={subChatId} />}
-          </div>
-          {/* Workspace subtitle: repo • branch */}
-          {(workspaceRepoName || workspaceBranch) && (
-            <div className="max-w-5xl mx-auto px-2">
-              <span className="text-xs text-muted-foreground/50 truncate block">
-                {[workspaceRepoName, workspaceBranch].filter(Boolean).join(" • ")}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
+        <ChatToolbar
+          isMobile={isMobile}
+          isSubChatsSidebarOpen={isSubChatsSidebarOpen}
+          isSplitPane={isSplitPane}
+          subChatId={subChatId}
+          subChatName={subChatName}
+          workspaceRepoName={workspaceRepoName}
+          workspaceBranch={workspaceBranch}
+          onRenameSubChat={handleRenameSubChat}
+        />
 
       {/* Messages */}
       <div
@@ -8043,27 +8022,16 @@ Make sure to preserve all functionality from both branches when resolving confli
       </div>
 
       {/* Terminal Bottom Panel — renders below the main row when displayMode is "bottom" */}
-      {terminalDisplayMode === "bottom" && worktreePath && !isMobileFullscreen && (
-        <ResizableBottomPanel
-          isOpen={isTerminalSidebarOpen}
-          onClose={() => setIsTerminalSidebarOpen(false)}
-          heightAtom={terminalBottomHeightAtom}
-          minHeight={150}
-          maxHeight={500}
-          showResizeTooltip={true}
-          closeHotkey={toggleTerminalHotkey ?? undefined}
-          className="bg-background border-t"
-          style={{ borderTopWidth: "0.5px" }}
-        >
-          <TerminalBottomPanelContent
-            chatId={chatId}
-            scopeKey={terminalScopeKey}
-            cwd={worktreePath}
-            workspaceId={chatId}
-            onClose={() => setIsTerminalSidebarOpen(false)}
-          />
-        </ResizableBottomPanel>
-      )}
+      <TerminalBottomMount
+        displayMode={terminalDisplayMode}
+        worktreePath={worktreePath}
+        isOpen={isTerminalSidebarOpen}
+        isMobileFullscreen={isMobileFullscreen}
+        chatId={chatId}
+        terminalScopeKey={terminalScopeKey}
+        toggleTerminalHotkey={toggleTerminalHotkey ?? undefined}
+        onClose={() => setIsTerminalSidebarOpen(false)}
+      />
     </div>
     </TextSelectionProvider>
     </FileOpenProvider>
