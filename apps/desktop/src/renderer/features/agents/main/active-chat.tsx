@@ -131,6 +131,7 @@ import {
   type AgentMode,
 } from "../atoms"
 import { BUILTIN_SLASH_COMMANDS } from "../commands"
+import { useChatViewState } from "../hooks/use-chat-view-state"
 import {
   sendPendingMessage,
   type PendingMessage,
@@ -926,8 +927,19 @@ export const ChatViewInner = memo(function ChatViewInner({
     [subChatId],
   )
 
-  // Plan mode state (per-subChat using atomFamily)
-  const [subChatMode, setSubChatMode] = useAtom(subChatModeAtomFamily(subChatId))
+  // Per-subChat configuration state — bundled in `useChatViewState` so
+  // components extracted from ChatViewInner can read the same slice
+  // without re-deriving each atomFamily binding. The hook only exposes
+  // the **configuration** atoms (mode / model / thinking / provider
+  // override). Activity flags and pending-message atoms have different
+  // lifecycles and stay where they are.
+  //
+  // Names destructured-with-rename so the existing ~30 references
+  // downstream (`subChatMode`, `setSubChatMode`) don't need to churn.
+  const {
+    mode: subChatMode,
+    setMode: setSubChatMode,
+  } = useChatViewState(subChatId)
 
   // Mutation for updating sub-chat mode in database
   const updateSubChatModeMutation = api.agents.updateSubChatMode.useMutation({

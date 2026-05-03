@@ -18,6 +18,7 @@ export default defineConfig({
         "src/renderer/features/agents/services/mode-switch-service.ts",
         "src/renderer/features/agents/services/chat-send-service.ts",
         "src/renderer/features/agents/services/transport-factory.ts",
+        "src/renderer/features/agents/hooks/use-chat-view-state.ts",
         "src/renderer/features/agents/components/message-group.tsx",
         "src/renderer/features/agents/components/scroll-to-bottom-button.tsx",
         "src/renderer/features/agents/components/split-pane-inline-close.tsx",

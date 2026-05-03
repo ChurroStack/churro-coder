@@ -384,8 +384,14 @@ The `release` script chains `build → package:mac → dist:manifest → upload-
 - System-view overlay for Settings / Usage / Kanban / Automations / Inbox / New Workspace.
 - Diff panel: ChangesPanel + AgentDiffView + DiffSidebarHeader, with Review / Create PR / Merge / Fix-conflicts wired.
 
+**Done (this branch — Phase 2 partial wiring + L3.5 hook layer):**
+- `chat-send-service.sendPendingMessage` wired into `ChatViewInner` — the six near-identical pending-message effects (`pendingPrMessage`, `pendingReviewMessage`, `pendingConflictResolutionMessage`, `pendingMergeBaseMessage`, `pendingContinueMessage`, `pendingImplementPlan`) collapse to a single 3-line call each via a `sendPending` wrapper that injects `sendMessage` + `isStreaming`. The clear-before-await invariant is now sourced from the L2-tested service, not duplicated six times.
+- `useChatViewState(subChatId)` hook landed in `agents/hooks/use-chat-view-state.ts`. Bundles the per-subChatId **configuration** atoms (`mode`, `modelId`, `codexModelId`, `codexThinking`, `claudeThinking`, `providerOverride`) with their setters into a single typed return. ChatViewInner consumes it for the `subChatMode` / `setSubChatMode` binding (destructured-with-rename so existing references downstream don't churn). Components extracted from ChatViewInner can call the hook to read the same slice without re-deriving each atomFamily binding.
+- L3.5 hook test layer: `agents/hooks/use-chat-view-state.test.tsx` (7 tests) — covers default values, individual setters, per-subChatId isolation, and the PR #51-style cross-subchat bleed regression class. Uses `renderHook` from RTL with a fresh jotai store per test.
+
 **Known limitations / deferred:**
-- `active-chat.tsx` is now ~7.1k LOC after the full Phase 3 component pass. Every entry in the Phase 3 component table is either landed or closed (already extracted upstream / no extractable block existed). Phase 2 services are landed but not yet wired in — that's the next reduction lever, gated on runtime UI verification per CLAUDE.md.
+- `active-chat.tsx` LOC sits at ~7.1k. The remaining service wirings — `plan-approval-service.approvePlan`, `mode-switch-service.toggleMode/forceMode/hydrateMode`, `transport-factory.getOrCreateChat` — are deferred to a follow-up PR with runtime UI verification. They share an FSM state container per subChatId that doesn't exist in the renderer yet; wiring just one would create state inconsistency between the FSM and the rest of mode handling, so they have to land together. The L2 tests for those services are green (68 tests, 0 failures) — they're ready when the renderer is.
+- `useChatViewState` is the **configuration** slice only — activity flags (`isStreaming`, error state), pending-message atoms (now wired through the send service but still subscribed in ChatViewInner), and FSM state have different lifecycles and live elsewhere. The hook is intentionally narrow so the test surface stays focused.
 - Mobile branch (`agents-content.tsx if (isMobile)`) still uses legacy `TerminalSidebar` / `KanbanView` dispatch — unaudited against the dockview changes.
 - Display-mode atoms (`terminalDisplayModeAtom`, `diffViewDisplayModeAtom`, `fileViewerDisplayModeAtom` + `*SidebarOpenAtomFamily` siblings) are vestigial but still consumed by `changes-view.tsx` / `agent-diff-view.tsx` / `git-activity-badges.tsx` / `agent-plan-file-tool.tsx` / mobile `terminal-sidebar.tsx`. Removal is a 7-file follow-up.
 - `chats.listArchived` / `chats.restore` / `chats.deleteAllArchived` were removed; Cmd+Z workspace undo is a no-op (sub-chat undo still works). The `archived_at` column remains in the schema and is filtered out by `chats.list`.
@@ -530,13 +536,14 @@ Side-effectful orchestrators that compose the machines with injected deps so eac
 
 ## Test battery
 
-Five layers, each catching a different class of bug. Lower layers are cheaper, faster, and more deterministic — push regression tests as low as possible.
+Six layers, each catching a different class of bug. Lower layers are cheaper, faster, and more deterministic — push regression tests as low as possible.
 
 | Layer | Tooling | Lives in | When to use |
 |---|---|---|---|
 | **L1: Pure** | vitest (node env) | `machines/`, `utils/` | Decision logic, FSM transitions, idempotence — no React, no DOM, no IPC |
 | **L2: Service** | vitest + `vi.mock` | `services/*.test.ts` (landed — 4 files, 68 tests) | Sequencing, race guards, cross-provider switch — mock atom-reads + tRPC + transport; drive the real service |
 | **L3: Component** | vitest (jsdom) + RTL | `components/` (Phase 3 — extraction in progress) | Render correctness, event handlers, prop wiring — no business logic |
+| **L3.5: Hook** | vitest (jsdom) + RTL `renderHook` + jotai `<Provider>` | `hooks/*.test.tsx` (landed — `use-chat-view-state.test.tsx` with 7 tests) | Atom-binding semantics, per-id isolation, default-fallback behavior — no service deps, no tRPC. Sits between L3 (component DOM) and L2 (service mocks) for hooks that just glue atoms together. |
 | **L4: Integration** | vitest (node env) + real `appStore` + `applyModeDefaultModel` | `__tests__/integration/*.test.ts` (landed — 5 files, 19 tests) | Multi-step flows (plan → approve → agent) — workflow assertions, not LLM output |
 | **L5: E2E** | Playwright + electron | `e2e/` (Phase 5, optional) | Smoke happy paths in real Electron |
 
