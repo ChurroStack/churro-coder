@@ -76,6 +76,7 @@ import { terminalBottomHeightAtom, terminalDisplayModeAtom, terminalSidebarOpenA
 import { TerminalBottomPanelContent, TerminalSidebar } from "../../terminal/terminal-sidebar"
 import { getTerminalScopeKey } from "../../terminal/utils"
 import {
+  agentsDiffSidebarWidthAtom,
   agentsPreviewSidebarOpenAtom,
   agentsPreviewSidebarWidthAtom,
   agentsSubChatsSidebarModeAtom,
@@ -90,6 +91,8 @@ import {
   fileViewerDisplayModeAtom,
   fileViewerOpenAtomFamily,
   fileViewerSidebarWidthAtom,
+  filteredDiffFilesAtom,
+  filteredSubChatIdAtom,
   isCreatingPrAtom,
   justCreatedIdsAtom,
   loadingSubChatsAtom,
@@ -110,6 +113,7 @@ import {
   planEditRefetchTriggerAtomFamily,
   QUESTIONS_SKIPPED_MESSAGE,
   selectedAgentChatIdAtom,
+  selectedDiffFilePathAtom,
   setLoading,
   subChatFilesAtom,
   agentsSidebarOpenAtom,
