@@ -11,6 +11,7 @@ import {
 import { DiffSidebarHeader } from "../../changes/components/diff-sidebar-header"
 import {
   workspaceDiffCacheAtomFamily,
+  workspaceDiffRefreshTickAtomFamily,
   agentsChangesPanelWidthAtom,
   diffActiveTabAtom,
   selectedCommitAtom,
@@ -274,6 +275,15 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
     },
   })
 
+  // Bump the per-chatId tick so ChatViewInner's `fetchDiffStats` re-runs.
+  // Required because `fetchDiffStats` uses the vanilla trpcClient (not
+  // useQuery) — invalidating the React Query cache alone wouldn't refresh
+  // the diff content; only the file-list / branches queries (which DO go
+  // through useQuery) would update. Without this bump the right panel
+  // would stay "No changes detected" even though the file list refreshed.
+  const bumpDiffRefreshTick = useSetAtom(
+    useMemo(() => workspaceDiffRefreshTickAtomFamily(chatId), [chatId]),
+  )
   const handleRefresh = useCallback(() => {
     if (!chatId) return
     void trpcUtils.chats.getParsedDiff.invalidate({ chatId })
@@ -283,7 +293,9 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
     void trpcUtils.changes.getBranches.invalidate({
       worktreePath: worktreePath ?? "",
     })
-  }, [chatId, trpcUtils, worktreePath])
+    // Trigger the actual diff content re-fetch (vanilla-client path).
+    bumpDiffRefreshTick((n) => n + 1)
+  }, [chatId, trpcUtils, worktreePath, bumpDiffRefreshTick])
 
   // Review — sends a "review the diff" prompt to the active sub-chat.
   // Mirrors active-chat.tsx's handleReview: pulls PR context, switches

@@ -127,6 +127,7 @@ import {
   undoStackAtom,
   virtualPlanContentAtomFamily,
   workspaceDiffCacheAtomFamily,
+  workspaceDiffRefreshTickAtomFamily,
   type AgentMode,
 } from "../atoms"
 import { BUILTIN_SLASH_COMMANDS } from "../commands"
@@ -4992,6 +4993,22 @@ export function ChatView({
       fetchDiffStats()
     }
   }, [isDiffSidebarOpen, fetchDiffStats])
+
+  // External refresh trigger — UI surfaces outside ChatView (e.g. the dock
+  // diff panel's Refresh button) bump this counter to ask the diff fetcher
+  // to re-run. Needed because `fetchDiffStats` uses the vanilla trpcClient,
+  // so invalidating React Query alone doesn't cause a re-fetch. Skip the
+  // initial value (0) so we don't fire a duplicate fetch on mount — the
+  // mount effect above already handles that.
+  const diffRefreshTick = useAtomValue(
+    useMemo(() => workspaceDiffRefreshTickAtomFamily(chatId), [chatId]),
+  )
+  const lastSeenDiffRefreshTickRef = useRef(diffRefreshTick)
+  useEffect(() => {
+    if (diffRefreshTick === lastSeenDiffRefreshTickRef.current) return
+    lastSeenDiffRefreshTickRef.current = diffRefreshTick
+    fetchDiffStats()
+  }, [diffRefreshTick, fetchDiffStats])
 
   // Throttled diff refresh for filesystem events (file edits, git ops)
   // Initialize to Date.now() to prevent double-fetch on mount

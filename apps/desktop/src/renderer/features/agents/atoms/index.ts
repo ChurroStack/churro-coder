@@ -1177,6 +1177,25 @@ export const workspaceDiffCacheAtomFamily = atomFamily((chatId: string) =>
   ),
 )
 
+/**
+ * Refresh trigger for the per-workspace diff cache.
+ *
+ * `fetchDiffStats` (in `active-chat.tsx`) calls the **vanilla** trpcClient
+ * (`trpcClient.chats.getParsedDiff.query`), so invalidating the React Query
+ * cache via `trpcUtils.chats.getParsedDiff.invalidate` does NOT cause it to
+ * re-run. The diff content stays stale until one of the natural triggers
+ * fires (mount, sidebar open, file-change listener, stream finish).
+ *
+ * To let UI surfaces (e.g. the dock diff panel's Refresh button) ask
+ * `active-chat.tsx` to re-fetch immediately, we expose this counter atom.
+ * Bumping it (`set((n) => n + 1)`) trips a `useEffect` in `ChatViewInner`
+ * that re-runs `fetchDiffStats`. Per-chatId so refreshes don't fan out
+ * across workspaces.
+ */
+export const workspaceDiffRefreshTickAtomFamily = atomFamily((_chatId: string) =>
+  atom(0),
+)
+
 // Show raw JSON for each message in chat (dev only)
 export const showMessageJsonAtom = atomWithStorage<boolean>(
   "agents:showMessageJson",

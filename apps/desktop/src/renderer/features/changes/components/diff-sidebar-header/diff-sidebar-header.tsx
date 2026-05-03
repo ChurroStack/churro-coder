@@ -537,6 +537,30 @@ export const DiffSidebarHeader = memo(function DiffSidebarHeader({
 					WebkitAppRegion: "no-drag",
 				}}
 			>
+				{/* Refresh button — re-fetches the diff content and file list.
+				    Visible whenever an onRefresh handler is provided. The kebab
+				    dropdown also has a "Refresh diff view" item, but the toolbar
+				    button is more discoverable when the right panel shows
+				    "No changes detected" but the file list shows files (e.g. the
+				    in-memory diff cache went stale or the file-change listener
+				    missed an event). */}
+				{onRefresh && (
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={onRefresh}
+								className="h-6 w-6 p-0 hover:bg-foreground/10"
+								aria-label="Refresh diff"
+							>
+								<RefreshCw className="size-3.5" />
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent side="bottom">Refresh diff</TooltipContent>
+					</Tooltip>
+				)}
+
 				{/* Review button - visible whenever an onReview handler is provided.
 				    Don't gate on `diffStats.hasChanges` — the in-memory diff cache
 				    resets on reload, and untracked files in a fresh repo show no
