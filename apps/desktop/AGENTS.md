@@ -245,7 +245,7 @@ Pinned at `tailwindcss@^3.4.17`. Do **not** add Tailwind v4 syntax to CSS files 
 - `src/renderer/features/dock/use-panel-actions.ts` - Single source of truth for "open a panel" flows
 
 **Renderer — chat**
-- `src/renderer/features/agents/main/active-chat.tsx` - ChatView (still ~8.7k LOC, mid-extraction — see "Refactor playbook" below)
+- `src/renderer/features/agents/main/active-chat.tsx` - ChatView (still ~8.7k LOC, Phase 2 services landed but not yet wired in — see "Refactor playbook" + "Phase 3 wiring contract" below)
 - `src/renderer/features/agents/atoms/index.ts` - Agent UI state atoms (incl. the `pendingXxxMessageAtom` family)
 - `src/renderer/features/agents/stores/sub-chat-store.ts` - Per-workspace `openSubChatIds` / `activeSubChatId`
 - `src/renderer/features/agents/lib/agents-actions.ts` - Hotkey-driven action handlers
@@ -254,11 +254,17 @@ Pinned at `tailwindcss@^3.4.17`. Do **not** add Tailwind v4 syntax to CSS files 
 - `src/renderer/features/agents/machines/chat-mode-machine.ts` - Pure FSM for chat mode + activity (idle / sending / streaming / errored)
 - `src/renderer/features/agents/machines/plan-approval-machine.ts` - Pure FSM for `handleApprovePlan` (single-flight + same/cross-provider branches)
 - `src/renderer/features/agents/machines/transport-lifecycle.ts` - Pure decision logic for `getOrCreateChat` + plan-approval cross-provider recreate
+- `src/renderer/features/agents/services/plan-approval-service.ts` - `approvePlan(subChatId, deps)` — wraps the plan-approval FSM with injected side-effect deps (covered by 24 L2 tests + 11 integration tests across 5 PRs)
+- `src/renderer/features/agents/services/mode-switch-service.ts` - `toggleMode` / `forceMode` / `hydrateMode` — gates the mode atom + DB persist on the chat-mode FSM (PR #36 + PR #51 invariants)
+- `src/renderer/features/agents/services/chat-send-service.ts` - `sendPendingMessage` / `drainFirstPending` — collapses the six `pendingXxxMessageAtom` consumer effects into one function with clear-before-await invariant
+- `src/renderer/features/agents/services/transport-factory.ts` - `getOrCreateChat(input, deps)` — wraps `decideTransportAction` with the cache + transport constructor injection; replaces `instanceof CodexChatTransport` checks
 
 **Testing**
-- `vitest.config.ts` - Test config (node env default; per-file `// @vitest-environment jsdom` for component tests). Pure modules go in the `coverage.include` array
+- `vitest.config.ts` - Test config (node env default; per-file `// @vitest-environment jsdom` for component tests). Pure modules + service modules go in the `coverage.include` array
 - `vitest.setup.ts` - localStorage stub so jotai's `atomWithStorage` works in node
 - `test-utils/` - Shared test helpers: `renderWithProviders`, `createTestStore`, `createMockTransport`, `createMockTrpc`. Import via `import { ... } from "../../../../../test-utils"` (or set up an alias if you find yourself reaching deep)
+- `src/renderer/features/agents/services/*.test.ts` - L2 service tests (68 tests) — see "Test battery" below
+- `src/renderer/features/agents/__tests__/integration/*.test.ts` - L4 integration flow tests (19 tests; see `__tests__/integration/README.md` for the per-flow PR mapping)
 
 **Renderer — workflow / status**
 - `src/renderer/features/agents/utils/workflow-state.ts` - **Pure** Plan→Code→Review→PR state machine (no React/jotai/tRPC)
@@ -331,7 +337,15 @@ The `release` script chains `build → package:mac → dist:manifest → upload-
 
 ## Current Status
 
-**Done (this branch — Status widget):**
+**Done (this branch — Phase 2 services + L4 integration battery):**
+- Four services in `src/renderer/features/agents/services/`: `plan-approval-service`, `mode-switch-service`, `chat-send-service`, `transport-factory`. Each composes the corresponding pure machine with injected side-effect deps so the orchestration is testable end-to-end without React/jotai/tRPC.
+- 68 L2 service tests across 4 files — encode invariants from PRs #36 / #38 / #40 / #44 / #45 / #51 / #52. See the bug-cluster regression matrix below.
+- 19 L4 integration tests in `src/renderer/features/agents/__tests__/integration/`: `flow-plan-to-agent`, `flow-cross-provider-approve`, `flow-mode-toggle-mid-stream`, `flow-stale-hydration`, `flow-session-clear-after-approve`. These compose the services with the real `appStore` + `applyModeDefaultModel` to verify multi-step workflows.
+- `vitest.config.ts` `coverage.include` extended to cover the four new service modules.
+- AGENTS.md gained a maintenance plan, a bug-cluster regression matrix, a Phase 3 wiring contract (service-by-service deps wiring guide), and a Phase 3 component extraction order.
+- `active-chat.tsx` itself is unchanged — Phase 3 component extraction needs runtime browser verification per the no-typecheck constraint, so the services are landed as drop-in replacements for the next session to wire in.
+
+**Done (previous branch — Status widget):**
 - Pure `computeWorkflowState` state machine (`agents/utils/workflow-state.ts`) — single source of truth for Plan / Code / Review / PR milestones + `next` action.
 - `useWorkflowState` + `useWorkflowActions` hooks (`agents/hooks/use-workflow-state.ts`) — wire jotai/tRPC → state machine and centralize the dispatch path.
 - New right-rail Status widget (4-pill stepper) and refactored notch above the chat input — both consume the same `WorkflowState`.
@@ -355,7 +369,7 @@ The `release` script chains `build → package:mac → dist:manifest → upload-
 - Diff panel: ChangesPanel + AgentDiffView + DiffSidebarHeader, with Review / Create PR / Merge / Fix-conflicts wired.
 
 **Known limitations / deferred:**
-- `active-chat.tsx` is still ~7k LOC; the planned `<ChatBody />` extraction wasn't done.
+- `active-chat.tsx` is still ~8.7k LOC; Phase 2 services are landed but not yet wired in (Phase 3 component extraction is gated on runtime UI verification).
 - Mobile branch (`agents-content.tsx if (isMobile)`) still uses legacy `TerminalSidebar` / `KanbanView` dispatch — unaudited against the dockview changes.
 - Display-mode atoms (`terminalDisplayModeAtom`, `diffViewDisplayModeAtom`, `fileViewerDisplayModeAtom` + `*SidebarOpenAtomFamily` siblings) are vestigial but still consumed by `changes-view.tsx` / `agent-diff-view.tsx` / `git-activity-badges.tsx` / `agent-plan-file-tool.tsx` / mobile `terminal-sidebar.tsx`. Removal is a 7-file follow-up.
 - `chats.listArchived` / `chats.restore` / `chats.deleteAllArchived` were removed; Cmd+Z workspace undo is a no-op (sub-chat undo still works). The `archived_at` column remains in the schema and is filtered out by `chats.list`.
@@ -485,7 +499,18 @@ Pure TypeScript discriminated-union state machines. Mirror the shape of [workflo
   - `decideTransportAction(input)` mirrors the imperative branches of `getOrCreateChat` (no-existing → CREATE; remote → KEEP; stale + idle → RECREATE; provider matches → KEEP; cross-provider with messages → KEEP; cross-provider empty → RECREATE).
   - `decidePlanApprovalCrossProviderRecreate({ previousProvider, newProvider, newIsRemote })` is the cross-provider branch the orchestrator follows after plan approval.
 
-**Wiring guidance for Phase 2 (services, not yet landed)**: services should call the machine reducers and treat their output as the source of truth. The atom store + IPC mutations execute the actions the machine emits; they do NOT independently decide what to do.
+### `services/` (landed — 4 modules)
+
+Side-effectful orchestrators that compose the machines with injected deps so each can be unit-tested without React, jotai, or tRPC. The seam is the `*Deps` interface — the renderer passes the real atom-reads / mutations / transport constructors, and the L2 test passes `vi.fn()` mocks.
+
+- [plan-approval-service.ts](src/renderer/features/agents/services/plan-approval-service.ts) — `approvePlan(subChatId, deps)` runs the full plan→agent flow. Encodes invariants from PR #36 (sync model-switch before await), #38 (per-mode default propagation), #40 (snapshot `previousProvider` before any writes), #44 (KEEP transport for same-provider), #45 (await `persistMode({ exitPlan: true })` before deferred send), #51 (single-flight per subChatId), #52 (cross-provider RECREATE with plan attached). Returns `{ ok, transportAction, finalState, reason? }`.
+- [mode-switch-service.ts](src/renderer/features/agents/services/mode-switch-service.ts) — `toggleMode` / `forceMode` / `hydrateMode` plus `noteSendRequested` / `noteStreamStarted` / etc. Encodes the mid-stream toggle gate (FSM rule), the synchronous-before-await ordering (PR #36), and the `hydrationVersion` stale-refetch guard (PR #51). `forceMode` bypasses the activity gate and is used by `approvePlan` to flip `plan → agent` mid-stream.
+- [chat-send-service.ts](src/renderer/features/agents/services/chat-send-service.ts) — `sendPendingMessage(mountSubChatId, pending, clearPending, deps)` collapses the six near-identical `pendingXxxMessageAtom` consumer effects into one function. Enforces clear-before-await (so a re-render can't double-fire) and the idle-only / subchat-scoped gates. `drainFirstPending` consumes the first matching atom from an array.
+- [transport-factory.ts](src/renderer/features/agents/services/transport-factory.ts) — `getOrCreateChat(input, deps)` wraps the FSM in `transport-lifecycle.ts` with the cache + constructor injection. Replaces the `instanceof CodexChatTransport` checks scattered through `active-chat.tsx`. Returns `{ chat, action, provider }`.
+
+**Layering invariant**: a service file MUST NOT import from `react`, `jotai`, `@trpc/*`, or anything in `features/agents/main/*`. The imports are limited to `machines/*` and stable shared types. The L2 tests assert this implicitly by running in node without any of those modules in scope.
+
+**Where the renderer wires them in**: see [Phase 3 wiring contract](#phase-3-wiring-contract) below. The services are landed but `active-chat.tsx` still uses its imperative blocks pending Phase 3 component extraction. Wiring the services in is a one-line replacement of each block — see the `Wire-in checklist` per service in the file headers.
 
 ## Test battery
 
@@ -494,9 +519,9 @@ Five layers, each catching a different class of bug. Lower layers are cheaper, f
 | Layer | Tooling | Lives in | When to use |
 |---|---|---|---|
 | **L1: Pure** | vitest (node env) | `machines/`, `utils/` | Decision logic, FSM transitions, idempotence — no React, no DOM, no IPC |
-| **L2: Service** | vitest + `vi.mock` | `services/` (Phase 2) | Sequencing, race guards, cross-provider switch — mock tRPC + transport, drive the real service |
-| **L3: Component** | vitest (jsdom) + RTL | `components/` (Phase 3) | Render correctness, event handlers, prop wiring — no business logic |
-| **L4: Integration** | vitest (jsdom) + RTL + service mocks | `__tests__/integration/` (Phase 4) | Multi-component flows (plan → approve → agent) — workflow assertions, not LLM output |
+| **L2: Service** | vitest + `vi.mock` | `services/*.test.ts` (landed — 4 files, 68 tests) | Sequencing, race guards, cross-provider switch — mock atom-reads + tRPC + transport; drive the real service |
+| **L3: Component** | vitest (jsdom) + RTL | `components/` (Phase 3 — extraction in progress) | Render correctness, event handlers, prop wiring — no business logic |
+| **L4: Integration** | vitest (node env) + real `appStore` + `applyModeDefaultModel` | `__tests__/integration/*.test.ts` (landed — 5 files, 19 tests) | Multi-step flows (plan → approve → agent) — workflow assertions, not LLM output |
 | **L5: E2E** | Playwright + electron | `e2e/` (Phase 5, optional) | Smoke happy paths in real Electron |
 
 ### Conventions
@@ -529,20 +554,98 @@ Five layers, each catching a different class of bug. Lower layers are cheaper, f
 5. None of the above? Re-examine — it probably is one of them.
 
 **Extraction order** (low → high blast radius):
-1. **Phase 0 — Test infra** (✅ done): RTL + jsdom + `test-utils/`.
-2. **Phase 1 — Pure machines** (✅ done): `machines/{chat-mode,plan-approval,transport-lifecycle}.ts`.
-3. **Phase 2 — Services**: `transport-factory` (eliminates `instanceof CodexChatTransport`), then `mode-switch-service` (wraps `applyModeDefaultModel`), then `plan-approval-service` (extracts `handleApprovePlan` body), then `chat-send-service` (extracts `sendMessage` orchestration). Each gets wired into `active-chat.tsx` as a 1-line call.
-4. **Phase 3 — Components**: `chat-toolbar` → `streaming-status-indicator` → `plan-panel-inline` → `chat-input-bar` → `chat-message-list` → `pending-files-strip`. Each extraction: cut + paste + `<NewComponent {...props} />` + verify in `bun run dev` + write component test.
-5. **Phase 4 — Integration tests**: `flow-plan-to-agent`, `flow-cross-provider-approve`, `flow-form-binding-on-new-subchat`, `flow-mode-toggle-mid-stream`, `flow-stale-hydration`, `flow-session-clear-after-approve` — each tagged to the PR(s) it guards.
-6. **Phase 5 — E2E** (optional): Playwright Electron for 2–3 smoke specs.
+1. **Phase 0 — Test infra** (✅ landed): RTL + jsdom + `test-utils/`.
+2. **Phase 1 — Pure machines** (✅ landed): `machines/{chat-mode,plan-approval,transport-lifecycle}.ts`.
+3. **Phase 2 — Services** (✅ landed): `services/{plan-approval,mode-switch,chat-send,transport-factory}.ts` plus `*.test.ts` covering the bug-cluster invariants from PRs #36 / #38 / #40 / #44 / #45 / #51 / #52. Wiring into `active-chat.tsx` is a one-line replacement per concern (tracked under "Phase 3 wiring contract" below).
+4. **Phase 3 — Components** (in progress): `streaming-status-indicator` → `chat-toolbar` → `plan-panel-inline` → `pending-files-strip` → `chat-input-bar` → `chat-message-list`. Each extraction: cut + paste + `<NewComponent {...props} />` + verify in `bun run dev` + write component test. **Verification step is mandatory** — agents without browser access should ship the cut as a draft PR for the user to verify, not merge blind.
+5. **Phase 4 — Integration tests** (✅ landed for plan-approval/mode-switch flows; expand as services wire in): `__tests__/integration/flow-{plan-to-agent,cross-provider-approve,mode-toggle-mid-stream,stale-hydration,session-clear-after-approve}.test.ts`. Each `describe` block names the PR(s) it guards.
+6. **Phase 5 — E2E** (optional): Playwright Electron for 2–3 smoke specs covering: open workspace → send Plan-mode message → approve → verify agent edits a file; cross-provider plan approval; mode toggle hotkey.
 
 **Target**: `active-chat.tsx` ≤ 500 LOC of pure orchestration after Phase 3.
 
+### Bug-cluster regression matrix
+
+This table is the searchable audit trail. When a bug recurs, the failing test must already exist (or you add one tagged to the new PR). When a service or component is extracted, the matrix dictates which tests must remain green.
+
+| PR | Bug class | What broke | Locked in by |
+|---|---|---|---|
+| #36 | Timing | `applyModeDefaultModel` ran AFTER `await`; chat input flipped late, wrong provider sometimes used | `services/plan-approval-service.test.ts` ("applyDefaultModel BEFORE await persistMode"), `services/mode-switch-service.test.ts` ("setMode and applyDefaultModel resolve before persistMode is awaited"), `__tests__/integration/flow-plan-to-agent.test.ts` |
+| #38 | Defaults | Per-mode default model+thinking didn't reach all entry points (review, plan-approval, mode-toggle) | `services/plan-approval-service.test.ts` ("setMode receives mode='agent'"), `services/mode-switch-service.test.ts` ("applyDefaultModel always called"), `lib/model-switching.test.ts` |
+| #40 | Stale closure | Mode captured at transport-construction time; post-approve sends still tagged `mode=plan` | `services/plan-approval-service.test.ts` ("readPreviousProvider runs BEFORE setMode and applyDefaultModel" + "readPreviousProvider invoked exactly once"), `__tests__/integration/flow-cross-provider-approve.test.ts` ("previousProvider captured BEFORE applyDefaultModel overwrites the override atom"), `lib/transport-mode-reading.test.ts` |
+| #44 | Lifecycle | Same-provider plan approval recreated transport, orphaning in-flight TodoWrite/Task events | `services/plan-approval-service.test.ts` ("notifyProviderChange is NOT called for Claude→Claude/Codex→Codex"), `machines/transport-lifecycle.test.ts` ("cross-provider with messages → KEEP"), `services/transport-factory.test.ts` ("PR #44 — cross-provider WITH messages → KEEP") |
+| #45 | Session | Approve didn't null sessionId; server resumed the plan-mode JSONL for the agent turn | `services/plan-approval-service.test.ts` ("persistMode called with mode: 'agent' and exitPlan: true" + "persistMode awaited BEFORE scheduleDeferredSend"), `__tests__/integration/flow-session-clear-after-approve.test.ts`, `main/lib/trpc/routers/claude-mode-change.test.ts` |
+| #51 | Race | Stale DB refetch reset mode atom back to "plan" after a forced flip | `machines/chat-mode-machine.test.ts` ("HYDRATE with stale version is rejected"), `services/mode-switch-service.test.ts` ("hydrate with stale version is REJECTED — no setMode call"), `__tests__/integration/flow-stale-hydration.test.ts`, also single-flight: `services/plan-approval-service.test.ts` ("two parallel approvePlan calls") |
+| #52 | Cross-provider | Codex GPT-5.5 plan → Claude Sonnet approval crashed the renderer with "Maximum update depth" | `services/plan-approval-service.test.ts` ("Claude→Codex: notifyProviderChange fires" + "Codex GPT-5.5 → Claude Sonnet"), `__tests__/integration/flow-cross-provider-approve.test.ts` (full scenario), `machines/plan-approval-machine.test.ts` ("Cross-provider Codex (gpt-5.5) → Claude (sonnet) approval — PR #52 specific scenario") |
+
+When you fix a new bug:
+1. Reproduce the bug in a failing L1 or L2 test FIRST.
+2. Tag the test name with the PR number.
+3. Add a row to this matrix in the same PR.
+4. If the bug is in a service that already has integration coverage, also add an L4 case so the multi-step flow stays guarded.
+
+### Maintenance plan
+
+The recurring-bug pattern in this repo had two root causes: (a) a single 8.7k-LOC file with 18+ concerns intertwined, and (b) zero tests for the bug-prone paths until PR #33. The plan below codifies the seams that prevent both.
+
+**1. Layering, enforced by directory + import discipline.**
+- `machines/` → only standard lib + intra-`machines/` types.
+- `services/` → only `machines/` + standard lib.
+- `hooks/` → React + `services/` + `lib/`.
+- `components/` → only React + `hooks/` + `components/`.
+- Promotion to `machines/` or `services/` is preferred over adding logic to `active-chat.tsx`. New `useEffect` blocks in the orchestrator are a code-smell — most are a service waiting to be extracted.
+
+**2. The "ask before adding to active-chat.tsx" gate** (5 questions earlier in this section) — apply it on every new PR that touches the file.
+
+**3. Coverage gates.**
+- Every file in `machines/` and `services/` MUST appear in `coverage.include` of `vitest.config.ts`. The list is checked manually until we add a CI gate.
+- Pure modules target 100% line coverage; service modules target ≥ 90% with the gaps being defensive branches that the FSM already guards.
+
+**4. PR-tagged regression tests.** Every test that guards a real bug includes `PR #NN` in its `describe` or `test` name. `git grep "PR #" apps/desktop/src/renderer/features/agents/{machines,services,__tests__}` lists the audit trail.
+
+**5. Invariants are tests, not comments.** When a service file says "X must run before Y", there's a test asserting the call order via `vi.fn().mock.invocationCallOrder` or a sequenced `events.push(...)` log. Comments rot; tests fail.
+
+**6. Service-level wire-in path.** Each service's file header carries the imperative-source line range it replaces in `active-chat.tsx`. When a Phase 3 component is extracted, the new component imports the service rather than reaching into `appStore`/`agentChatStore` directly — the renderer's only remaining job is wiring the deps.
+
+**7. Browser verification is non-optional for Phase 3 cuts.** The CLAUDE.md note ("verify changes by running the app in the UI") applies double when extracting a component out of `active-chat.tsx`: closures into the parent `useState` / `useRef` / atom subscriptions are easy to miss and TypeScript won't catch them. Agents without `bun run dev` access should ship Phase 3 cuts as draft PRs annotated with the smoke-test steps, never as merged commits.
+
+### Phase 3 wiring contract
+
+The four services are drop-in replacements for these `active-chat.tsx` blocks. Each row gives the imperative source range, the new service entry-point, and the deps to inject.
+
+| Concern | active-chat.tsx lines | Service | Wire-in deps |
+|---|---|---|---|
+| Plan approval flow | `3604–3712` (incl. consumer effect) | `approvePlan(subChatId, deps)` | `readPreviousProvider`: read `agentChatStore.get(subChatId)?.transport instanceof CodexChatTransport` then fall back to `appStore.get(subChatProviderOverridesAtom)[subChatId]`. `setMode`: write atom + `useAgentSubChatStore.getState().updateSubChatMode`. `persistMode`: `updateSubChatModeMutation.mutateAsync({ subChatId, mode: "agent", exitPlan: true })` (skip when `subChatId.startsWith("temp-")`). `applyDefaultModel`: `applyModeDefaultModel(subChatId, "agent")` then derive `isRemote` from chat metadata. `notifyProviderChange`: `onProviderChange?.(subChatId, provider)`. `resolvePlanContent`: keep current `resolveApprovedPlanContent()`. `buildImplementPlanParts`: keep current. `isInFlight`/`markInFlight`/`releaseInFlight`: read/write `planApproveInFlight: Set<string>` (module-level, kept for now). `scheduleDeferredSend`: `setPendingImplementPlan({ subChatId, parts })`. |
+| Mode toggle hotkey + slash command | scattered (Shift-Tab handler + `/plan` `/agent` slash) | `toggleMode(subChatId, to, deps)` | `readState`/`writeState`: keep an FSM state ref keyed on `subChatId`. `setMode` / `applyDefaultModel` / `persistMode`: same wiring as plan approval. `notifyProviderChange`: optional. `noteSendRequested` / `noteStreamStarted` / `noteStreamCompleted` / `noteStreamErrored` are called from the matching `useChat` callbacks. |
+| `dbSubChats` hydration loop | `2529–2546` | `hydrateMode(subChatId, from, hydrationVersion, deps)` | Increment `hydrationVersion` per query refetch (use `dataUpdatedAt` from React Query as the version). |
+| 6 pending-message effects | `2977–3064`, `3472–3521` | `sendPendingMessage(mountSubChatId, pending, clearPending, deps)` × 6 OR a single `drainFirstPending` over the array of `(pending, clearPending)` pairs | `sendMessage`: SDK `sendMessage`. `isStreaming`: `() => status === "streaming" \|\| status === "submitted"`. The renderer keeps the six atom subscriptions; the service just collapses the body. |
+| `getOrCreateChat` | `7256–7489` | `getOrCreateChat(input, deps)` | `readExistingChat`: `agentChatStore.get`. `getExistingProvider`: `existing.transport instanceof CodexChatTransport ? "codex" : "claude-code"`. `isStaleRuntime`: existing `shouldRecreateStaleRuntimeChat`. `createChat`: build the right transport (IPC/Codex/Remote) + `new Chat<any>({ id, messages, transport, onError, onFinish })`. `storeChat`: `agentChatStore.set(subChatId, chat, chatId)`. `deleteExistingChat`: `agentChatStore.delete(subChatId)`. |
+
+When wiring, **do not** add new branches in `active-chat.tsx` for cases the service already handles. If a code review notices a service-equivalent decision being re-implemented in the renderer, that's a regression in the layering — the fix is to extend the service's deps interface, not duplicate logic.
+
+### Phase 3 component extraction guide
+
+`active-chat.tsx` will be cut into the components below. Each cut is independently reviewable and the order is chosen so dependent components extract last. **Cut → paste → wire → verify in `bun run dev` → component test.** Don't merge a cut that hasn't been verified in the browser.
+
+| # | Component | Purpose | Source lines (approx) | Deps to thread through |
+|---|---|---|---|---|
+| 1 | `streaming-status-indicator` | Spinner + Stop / Regenerate buttons; reads `useChat` status | inline status block + `handleStop` | `status`, `stop`, `regenerate`, `agentChatStore` (for `setManuallyAborted`) |
+| 2 | `chat-toolbar` | Top bar: title editor, mode selector, model selector entry, traffic-light spacer | top of return tree | `subChatId`, `chatId`, `subChatMode`, `setSubChatMode` (now via `mode-switch-service`) |
+| 3 | `plan-panel-inline` | The inline plan widget that approval renders before the dock panel split | mid-tree, search "PlanWidget" | `currentPlanPath`, `agentFinishedTickAtomFamily`, `pendingBuildPlanSubChatIdAtom` |
+| 4 | `pending-files-strip` | Strip of attached images + pasted-text chips above the input | input area top | `useAgentsFileUpload`, `usePastedTextFiles` |
+| 5 | `chat-input-bar` | Editor + mode/model selectors + send button. Already partially extracted as `chat-input-area.tsx`. Finish the seam: input bar should NOT subscribe to `subChatModelIdAtomFamily` directly (that was the PR #52 oscillation cause) — derive `selectedModel` from a single useMemo over the atom. | `chat-input-area.tsx` | `editorRef`, `subChatId`, `quickCommentState`, `inputHasContent` |
+| 6 | `chat-message-list` | Virtualized message list + scroll-to-bottom + auto-rename trigger | mid-tree, ~3000–6000 LOC | `messagesForSync`, `useChangedFilesTracking`, `scrollToBottom`, `chatContainerRef` |
+| 7 | `diff-sidebar-renderer` | The inline diff sidebar (DiffSidebarContent + peek dialog + full-page view) | `1830–2200`, `1389–1514` | `selectedDiffFilePathAtom`, `filteredDiffFilesAtom`, `agentsChangesPanelWidthAtom`, `agentsChangesPanelCollapsedAtom`, `chatId`, `subChatId` |
+| 8 | `empty-state` | Welcome card + prompt suggestions when `messagesForSync.length === 0` | conditional render | `chat`, `worktreePath`, `defaultPlanModeModelAtom`/etc. for prompt examples |
+| 9 | `terminal-bottom-mount` | The conditional `<TerminalBottomPanelContent>` mount block | `8705–8725` | `terminalDisplayMode`, `terminalBottomHeightAtom`, `worktreePath` |
+
+Components 1–4 + 8–9 are the safe cuts — they have minimal closure into parent state. 5–7 carry refs and atom subscriptions; treat them as the higher-risk batch and extract last.
+
 **Invariants to preserve when extracting** (these are the ones the bug cluster is built on):
-- `applyModeDefaultModel(subChatId, mode)` runs **synchronously before any `await`** in every mode-switch entry point. Three call sites today: `diff-panel.tsx:handleReview`, `active-chat.tsx:handleReview`, `use-workflow-state.ts:dispatch("reviewPr")`. The plan-approval service must follow the same rule.
-- `previousProvider` for plan approval is captured **before** any state writes — `applyModeDefaultModel` overwrites the provider override atom as a side effect, so by the time it returns, the snapshot is gone.
-- The `pendingXxxMessageAtom` consumer effects clear the atom **before** the `await sendMessage(...)` so a re-render can't fire the same prompt twice.
-- The `isActive` guard on the `pendingBuildPlanSubChatIdAtom` consumer effect prevents two `ChatViewInner` mounts (the legacy layout + the dockview chat panel) from both running `handleApprovePlan` for the same sub-chat — that race crashed the renderer in PR #51.
+- `applyModeDefaultModel(subChatId, mode)` runs **synchronously before any `await`** in every mode-switch entry point. Three renderer call sites today plus the `mode-switch-service.toggleMode`. The plan-approval service follows the same rule.
+- `previousProvider` for plan approval is captured **before** any state writes — `applyModeDefaultModel` overwrites the provider override atom as a side effect, so by the time it returns, the snapshot is gone. `services/plan-approval-service.ts:readPreviousProvider` is the seam.
+- The `pendingXxxMessageAtom` consumer effects clear the atom **before** the `await sendMessage(...)` so a re-render can't fire the same prompt twice. `services/chat-send-service.ts:sendPendingMessage` enforces this in one place.
+- The `isActive` guard on the `pendingBuildPlanSubChatIdAtom` consumer effect prevents two `ChatViewInner` mounts (the legacy layout + the dockview chat panel) from both running `handleApprovePlan` for the same sub-chat — that race crashed the renderer in PR #51. The single-flight Set in the plan-approval service backs this up.
+- **Selected model in the input bar must be derived (`useMemo`), not synced via `useState` + bidirectional `useEffect`** — that's the PR #52 oscillation. When extracting `chat-input-bar`, keep the `selectedModel` derivation pattern from the current `chat-input-area.tsx` fix.
 
 ## Debug Mode
 
