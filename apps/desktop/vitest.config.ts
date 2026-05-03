@@ -11,6 +11,9 @@ export default defineConfig({
       include: [
         "src/renderer/features/agents/lib/model-switching.ts",
         "src/renderer/features/agents/lib/models.ts",
+        "src/renderer/features/agents/machines/chat-mode-machine.ts",
+        "src/renderer/features/agents/machines/plan-approval-machine.ts",
+        "src/renderer/features/agents/machines/transport-lifecycle.ts",
         "src/renderer/features/agents/utils/workflow-state.ts",
         "src/renderer/features/agents/utils/pr-message.ts",
         "src/renderer/features/agents/utils/git-activity.ts",

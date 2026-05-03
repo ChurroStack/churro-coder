@@ -92,7 +92,9 @@ pnpm exec nx affected -t test          # run only tests affected by local change
 | daemon  | `pnpm exec nx run daemon:test` (or `cd apps/daemon && go test ./...`) | `go test` | `apps/daemon/*_test.go` |
 
 ### Desktop test details
-Tests run in a Node.js environment (no Electron, no real SQLite). A `vitest.setup.ts` stubs `localStorage` so atoms that use `atomWithStorage({ getOnInit: true })` work in Node. Tests that need a DOM add `// @vitest-environment jsdom` at the top of the file.
+Tests run in a Node.js environment (no Electron, no real SQLite). A `vitest.setup.ts` stubs `localStorage` so atoms that use `atomWithStorage({ getOnInit: true })` work in Node. Tests that need a DOM add `// @vitest-environment jsdom` at the top of the file and `import { cleanup } from "@testing-library/react"` + `afterEach(cleanup)` to prevent prior renders from leaking into the next test.
+
+Shared component-test helpers live in [apps/desktop/test-utils/](apps/desktop/test-utils/index.ts): `renderWithProviders` (RTL render with an isolated jotai store), `createTestStore`, `createMockTransport`, `createMockTrpc`. The chat orchestrator's pure decision logic lives under [apps/desktop/src/renderer/features/agents/machines/](apps/desktop/src/renderer/features/agents/machines/) — see `apps/desktop/AGENTS.md` for the full layered-architecture + test-battery conventions.
 
 ```bash
 cd apps/desktop
