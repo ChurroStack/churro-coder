@@ -844,20 +844,9 @@ export const ChatViewInner = memo(function ChatViewInner({
   // for the full contract; this is a one-line wire-in.
   const modeDeps = useModeSwitchDeps(updateSubChatModeMutation);
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Hydration tracking — see `services/mode-switch-service.hydrateMode`.
-  //
-  // The legacy "init only" loop was: "if storage atom has no entry yet,
-  // initialize it from DB." We preserve that semantics by hydrating each
-  // sub-chat exactly once (tracked in `hydratedSubChatIdsRef`) with
-  // version=1. After that, FSM-internal version bumps from forced flips
-  // would reject any subsequent stale hydration anyway — but skipping the
-  // call entirely is faster and matches the original behavior.
-  //
-  // PR #51 regression class is now locked in by the FSM's stale-version
-  // guard, *and* by this set never re-firing once a sub-chat is hydrated.
-  // ──────────────────────────────────────────────────────────────────────────
-  const hydratedSubChatIdsRef = useRef<Set<string>>(new Set());
+  // (`hydratedSubChatIdsRef` and the chat-level hydration deps live in
+  // `ChatView`, not here — the hydration loop iterates dbSubChats which
+  // is chat-scoped.)
 
   // Sync atomFamily mode to Zustand store on mount/subChatId change
   // This ensures the sidebar shows the correct mode icon
@@ -3672,6 +3661,39 @@ export function ChatView({
 }) {
   const [selectedTeamId] = useAtom(selectedTeamIdAtom);
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Hydration tracking — see `services/mode-switch-service.hydrateMode`.
+  //
+  // Both the ref and the minimal hydration deps live HERE in `ChatView`
+  // rather than in `ChatViewInner`, because the hydration loop iterates
+  // over `dbSubChats` (chat-scoped). `ChatViewInner` is per-subchat —
+  // putting the ref there made it inaccessible from the chat-level loop.
+  //
+  // We only need 4 of the `ModeSwitchDeps` fields here (no `persistMode`),
+  // so the deps are built inline without going through `useModeSwitchDeps`
+  // / a tRPC mutation. The activity-tracking + toggle/forceMode wirings
+  // still live in `ChatViewInner` with their own `modeDeps`.
+  // ──────────────────────────────────────────────────────────────────────────
+  const hydratedSubChatIdsRef = useRef<Set<string>>(new Set());
+  const chatViewHydrationDeps = useMemo<
+    Pick<ModeSwitchDeps, 'readState' | 'writeState' | 'setMode' | 'applyDefaultModel'>
+  >(
+    () => ({
+      readState: (id) => appStore.get(chatModeFsmStateAtomFamily(id)),
+      writeState: (id, state) => appStore.set(chatModeFsmStateAtomFamily(id), state),
+      setMode: (id, mode) => {
+        if (mode === 'review') return;
+        appStore.set(subChatModeAtomFamily(id), mode);
+        useAgentSubChatStore.getState().updateSubChatMode(id, mode);
+      },
+      applyDefaultModel: (id, mode) => {
+        const result = applyModeDefaultModel(id, mode);
+        return { modelId: result.modelId, provider: result.provider as ProviderId };
+      }
+    }),
+    []
+  );
+
   // Get active sub-chat ID from store for mode tracking (reactive). When the
   // ChatView is mounted inside a specific dockview tab (ChatPanel),
   // `subChatIdOverride` pins the rendered sub-chat to this tab's id so each
@@ -5122,7 +5144,7 @@ Make sure to preserve all functionality from both branches when resolving confli
       if (!sc.mode) continue;
       if (hydratedSubChatIdsRef.current.has(sc.id)) continue;
       hydratedSubChatIdsRef.current.add(sc.id);
-      hydrateMode(sc.id, sc.mode, 1, modeDeps);
+      hydrateMode(sc.id, sc.mode, 1, chatViewHydrationDeps);
     }
 
     // All open tabs are now valid (we created placeholders for non-DB ones)
