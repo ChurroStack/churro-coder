@@ -3,7 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync, realpathSync } from 'fs';
 import { execSync } from 'child_process';
-import { getDatabase, chats, projects, sandboxSettings } from '../db';
+import { app } from 'electron';
+import { getDatabase, chats, projects, sandboxSettings, subChats } from '../db';
 import { eq } from 'drizzle-orm';
 
 export interface SandboxPolicy {
@@ -160,7 +161,8 @@ function buildWritableRoots(
   worktreePath: string,
   _projectPath: string,
   allowToolchainCaches: boolean,
-  extraWritablePaths: string[]
+  extraWritablePaths: string[],
+  sessionRoots: string[] = []
 ): string[] {
   const home = os.homedir();
   const tmpdir = os.tmpdir();
@@ -205,6 +207,10 @@ function buildWritableRoots(
 
   for (const extra of extraWritablePaths) {
     roots.push(expandHome(extra));
+  }
+
+  for (const sessionRoot of sessionRoots) {
+    roots.push(sessionRoot);
   }
 
   return [...new Set(roots.map((r) => path.resolve(r)))];
@@ -265,7 +271,21 @@ export async function resolveSandboxPolicy(
 
   const enabled = enabledOverride !== null ? enabledOverride : globalDefault;
 
-  const writableRoots = buildWritableRoots(worktreePath, projectPath, allowToolchainCaches, extraWritablePaths);
+  // Build per-workspace session dirs so CLIs can read their own plans/pasted/memory.
+  // Claude SDK keys session files by subChatId; Ollama uses chatId — both are added.
+  const userData = app.getPath('userData');
+  const sessionsBase = path.join(userData, 'claude-sessions');
+  const subChatRows = db.select({ id: subChats.id }).from(subChats).where(eq(subChats.chatId, chatId)).all();
+  const sessionRoots: string[] = subChatRows.map((row) => path.join(sessionsBase, row.id));
+  sessionRoots.push(path.join(sessionsBase, chatId));
+
+  const writableRoots = buildWritableRoots(
+    worktreePath,
+    projectPath,
+    allowToolchainCaches,
+    extraWritablePaths,
+    sessionRoots
+  );
   const deniedReads = buildDeniedReads(extraDeniedPaths);
 
   return {
