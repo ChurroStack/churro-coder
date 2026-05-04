@@ -1,7 +1,7 @@
-import { useId } from "react"
+import { useId } from 'react';
 
 interface FolderIconProps {
-  className?: string
+  className?: string;
 }
 
 /**
@@ -9,16 +9,11 @@ interface FolderIconProps {
  * face, mirroring the look of folders in Finder list view.
  */
 export function MacOsFolderIcon({ className }: FolderIconProps) {
-  const id = useId()
-  const backGradient = `${id}-back`
-  const frontGradient = `${id}-front`
+  const id = useId();
+  const backGradient = `${id}-back`;
+  const frontGradient = `${id}-front`;
   return (
-    <svg
-      viewBox="0 0 16 14"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 16 14" xmlns="http://www.w3.org/2000/svg" className={className} aria-hidden="true">
       <defs>
         <linearGradient id={backGradient} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#5AA9F0" />
@@ -46,7 +41,7 @@ export function MacOsFolderIcon({ className }: FolderIconProps) {
         fillOpacity="0.18"
       />
     </svg>
-  )
+  );
 }
 
 /**
@@ -54,16 +49,11 @@ export function MacOsFolderIcon({ className }: FolderIconProps) {
  * expanded folders. Visually similar; the chevron is the primary cue.
  */
 export function MacOsFolderOpenIcon({ className }: FolderIconProps) {
-  const id = useId()
-  const backGradient = `${id}-back`
-  const frontGradient = `${id}-front`
+  const id = useId();
+  const backGradient = `${id}-back`;
+  const frontGradient = `${id}-front`;
   return (
-    <svg
-      viewBox="0 0 16 14"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 16 14" xmlns="http://www.w3.org/2000/svg" className={className} aria-hidden="true">
       <defs>
         <linearGradient id={backGradient} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#5AA9F0" />
@@ -89,5 +79,5 @@ export function MacOsFolderOpenIcon({ className }: FolderIconProps) {
         fillOpacity="0.2"
       />
     </svg>
-  )
+  );
 }

@@ -1,47 +1,47 @@
-type AnyRecord = Record<string, any>
+type AnyRecord = Record<string, any>;
 
 const CODEX_VERB_TO_TOOL_TYPE: Record<string, string> = {
-  Read: "Read",
-  Run: "Bash",
-  List: "Glob",
-  Search: "Grep",
-  Grep: "Grep",
-  Glob: "Glob",
-  Edit: "Edit",
-  Write: "Write",
-  Thought: "Thinking",
-  Fetch: "WebFetch",
-  AskUserQuestion: "AskUserQuestion",
-  PlanWrite: "PlanWrite",
-}
+  Read: 'Read',
+  Run: 'Bash',
+  List: 'Glob',
+  Search: 'Grep',
+  Grep: 'Grep',
+  Glob: 'Glob',
+  Edit: 'Edit',
+  Write: 'Write',
+  Thought: 'Thinking',
+  Fetch: 'WebFetch',
+  AskUserQuestion: 'AskUserQuestion',
+  PlanWrite: 'PlanWrite'
+};
 
 type CodexToolDescriptor = {
-  canonicalToolName: string
-  detail: string
-  isMcp: boolean
-}
+  canonicalToolName: string;
+  detail: string;
+  isMcp: boolean;
+};
 
 type NormalizeCodexToolPartOptions = {
-  normalizeState?: boolean
-}
+  normalizeState?: boolean;
+};
 
 function isRecord(value: unknown): value is AnyRecord {
-  return typeof value === "object" && value !== null
+  return typeof value === 'object' && value !== null;
 }
 
 function isShallowEqual(left: unknown, right: unknown): boolean {
-  if (left === right) return true
-  if (!isRecord(left) || !isRecord(right)) return false
+  if (left === right) return true;
+  if (!isRecord(left) || !isRecord(right)) return false;
 
-  const leftKeys = Object.keys(left)
-  const rightKeys = Object.keys(right)
-  if (leftKeys.length !== rightKeys.length) return false
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
 
   for (const key of leftKeys) {
-    if (left[key] !== right[key]) return false
+    if (left[key] !== right[key]) return false;
   }
 
-  return true
+  return true;
 }
 
 function getParsedCmdEntries(rawInput: AnyRecord, args: AnyRecord): AnyRecord[] {
@@ -49,246 +49,214 @@ function getParsedCmdEntries(rawInput: AnyRecord, args: AnyRecord): AnyRecord[] 
     ? args.parsed_cmd
     : Array.isArray(rawInput.parsed_cmd)
       ? rawInput.parsed_cmd
-      : []
-  return parsedCmdRaw.filter(isRecord)
+      : [];
+  return parsedCmdRaw.filter(isRecord);
 }
 
 function getParsedCmdEntriesFromPayload(payload: unknown): AnyRecord[] {
-  if (!isRecord(payload)) return []
-  if (!Array.isArray(payload.parsed_cmd)) return []
-  return payload.parsed_cmd.filter(isRecord)
+  if (!isRecord(payload)) return [];
+  if (!Array.isArray(payload.parsed_cmd)) return [];
+  return payload.parsed_cmd.filter(isRecord);
 }
 
-function getFirstParsedCmdValue(
-  entries: AnyRecord[],
-  key: string,
-): string | undefined {
-  const match = entries.find(
-    (entry) => typeof entry[key] === "string" && entry[key].trim().length > 0,
-  )
-  if (!match) return undefined
-  return match[key].trim()
+function getFirstParsedCmdValue(entries: AnyRecord[], key: string): string | undefined {
+  const match = entries.find((entry) => typeof entry[key] === 'string' && entry[key].trim().length > 0);
+  if (!match) return undefined;
+  return match[key].trim();
 }
 
-function normalizeReadInputFromPayload(
-  input: unknown,
-  payload: unknown,
-): unknown {
-  const normalizedInput = isRecord(input) ? { ...input } : {}
+function normalizeReadInputFromPayload(input: unknown, payload: unknown): unknown {
+  const normalizedInput = isRecord(input) ? { ...input } : {};
   const existingPath =
-    typeof normalizedInput.file_path === "string" &&
-    normalizedInput.file_path.trim().length > 0
+    typeof normalizedInput.file_path === 'string' && normalizedInput.file_path.trim().length > 0
       ? normalizedInput.file_path.trim()
-      : ""
+      : '';
   if (existingPath) {
-    return input
+    return input;
   }
 
-  const payloadEntries = getParsedCmdEntriesFromPayload(payload)
-  const payloadPath = getFirstParsedCmdValue(payloadEntries, "path")
-  const payloadName = getFirstParsedCmdValue(payloadEntries, "name")
+  const payloadEntries = getParsedCmdEntriesFromPayload(payload);
+  const payloadPath = getFirstParsedCmdValue(payloadEntries, 'path');
+  const payloadName = getFirstParsedCmdValue(payloadEntries, 'name');
   const directPayloadPath =
-    isRecord(payload) && typeof payload.path === "string" && payload.path.trim().length > 0
-      ? payload.path.trim()
-      : ""
+    isRecord(payload) && typeof payload.path === 'string' && payload.path.trim().length > 0 ? payload.path.trim() : '';
   const directPayloadFilePath =
-    isRecord(payload) &&
-    typeof payload.file_path === "string" &&
-    payload.file_path.trim().length > 0
+    isRecord(payload) && typeof payload.file_path === 'string' && payload.file_path.trim().length > 0
       ? payload.file_path.trim()
-      : ""
+      : '';
 
-  const resolvedPath =
-    directPayloadFilePath || directPayloadPath || payloadPath || payloadName
+  const resolvedPath = directPayloadFilePath || directPayloadPath || payloadPath || payloadName;
 
   if (!resolvedPath) {
-    return input
+    return input;
   }
 
-  normalizedInput.file_path = resolvedPath
+  normalizedInput.file_path = resolvedPath;
 
   if (isRecord(input) && isShallowEqual(normalizedInput, input)) {
-    return input
+    return input;
   }
 
-  return normalizedInput
+  return normalizedInput;
 }
 
 function toCanonicalToolState(state: unknown): string | undefined {
-  if (state === "input-available") return "call"
-  if (state === "output-available") return "result"
-  return typeof state === "string" ? state : undefined
+  if (state === 'input-available') return 'call';
+  if (state === 'output-available') return 'result';
+  return typeof state === 'string' ? state : undefined;
 }
 
 const ACP_NATIVE_TOOL_NAMES = new Set([
-  "AskUserQuestion",
-  "PlanWrite",
-  "TodoWrite",
-  "TaskCreate",
-  "TaskUpdate",
-  "TaskList",
-  "TaskGet",
-])
+  'AskUserQuestion',
+  'PlanWrite',
+  'TodoWrite',
+  'TaskCreate',
+  'TaskUpdate',
+  'TaskList',
+  'TaskGet'
+]);
 
 function parseCodexToolDescriptor(rawToolName: string): CodexToolDescriptor | null {
-  const normalizedName = rawToolName.trim()
-  if (!normalizedName) return null
+  const normalizedName = rawToolName.trim();
+  if (!normalizedName) return null;
 
-  const MCP_ACP_PREFIX = "mcp__acp-ai-sdk-tools__"
+  const MCP_ACP_PREFIX = 'mcp__acp-ai-sdk-tools__';
   if (normalizedName.startsWith(MCP_ACP_PREFIX)) {
-    const tool = normalizedName.slice(MCP_ACP_PREFIX.length)
+    const tool = normalizedName.slice(MCP_ACP_PREFIX.length);
     if (ACP_NATIVE_TOOL_NAMES.has(tool)) {
-      return { canonicalToolName: tool, detail: "", isMcp: false }
+      return { canonicalToolName: tool, detail: '', isMcp: false };
     }
   }
 
-  if (normalizedName.startsWith("Tool:")) {
-    const payload = normalizedName.slice("Tool:".length).trim()
-    const separatorIndex = payload.indexOf("/")
-    if (separatorIndex === -1) return null
+  if (normalizedName.startsWith('Tool:')) {
+    const payload = normalizedName.slice('Tool:'.length).trim();
+    const separatorIndex = payload.indexOf('/');
+    if (separatorIndex === -1) return null;
 
-    const serverName = payload.slice(0, separatorIndex).trim()
-    const rawToolName = payload.slice(separatorIndex + 1).trim()
-    const toolName = rawToolName.replaceAll("/", "__")
-    if (!serverName || !toolName) return null
+    const serverName = payload.slice(0, separatorIndex).trim();
+    const rawToolName = payload.slice(separatorIndex + 1).trim();
+    const toolName = rawToolName.replaceAll('/', '__');
+    if (!serverName || !toolName) return null;
 
-    if (
-      serverName === "acp-ai-sdk-tools" &&
-      ACP_NATIVE_TOOL_NAMES.has(rawToolName)
-    ) {
+    if (serverName === 'acp-ai-sdk-tools' && ACP_NATIVE_TOOL_NAMES.has(rawToolName)) {
       return {
         canonicalToolName: rawToolName,
-        detail: "",
-        isMcp: false,
-      }
+        detail: '',
+        isMcp: false
+      };
     }
 
     return {
       canonicalToolName: `mcp__${serverName}__${toolName}`,
-      detail: "",
-      isMcp: true,
-    }
+      detail: '',
+      isMcp: true
+    };
   }
 
-  const spaceIndex = normalizedName.indexOf(" ")
-  const verb = spaceIndex === -1 ? normalizedName : normalizedName.slice(0, spaceIndex)
-  const detail = spaceIndex === -1 ? "" : normalizedName.slice(spaceIndex + 1).trim()
-  const canonicalToolName = CODEX_VERB_TO_TOOL_TYPE[verb]
-  if (!canonicalToolName) return null
+  const spaceIndex = normalizedName.indexOf(' ');
+  const verb = spaceIndex === -1 ? normalizedName : normalizedName.slice(0, spaceIndex);
+  const detail = spaceIndex === -1 ? '' : normalizedName.slice(spaceIndex + 1).trim();
+  const canonicalToolName = CODEX_VERB_TO_TOOL_TYPE[verb];
+  if (!canonicalToolName) return null;
 
   return {
     canonicalToolName,
     detail,
-    isMcp: false,
-  }
+    isMcp: false
+  };
 }
 
 function stripExecutionBookkeeping(input: AnyRecord): AnyRecord {
-  const cleaned: AnyRecord = { ...input }
-  delete cleaned.call_id
-  delete cleaned.process_id
-  delete cleaned.turn_id
-  delete cleaned.command
-  delete cleaned.cwd
-  delete cleaned.parsed_cmd
-  delete cleaned.source
-  delete cleaned.server
-  delete cleaned.tool
-  return cleaned
+  const cleaned: AnyRecord = { ...input };
+  delete cleaned.call_id;
+  delete cleaned.process_id;
+  delete cleaned.turn_id;
+  delete cleaned.command;
+  delete cleaned.cwd;
+  delete cleaned.parsed_cmd;
+  delete cleaned.source;
+  delete cleaned.server;
+  delete cleaned.tool;
+  return cleaned;
 }
 
 function normalizePlanWriteInput(input: unknown): unknown {
-  if (!isRecord(input)) return input
+  if (!isRecord(input)) return input;
 
-  const normalizedInput: AnyRecord = { ...input }
+  const normalizedInput: AnyRecord = { ...input };
   normalizedInput.action =
-    typeof normalizedInput.action === "string" && normalizedInput.action.length > 0
-      ? normalizedInput.action
-      : "create"
+    typeof normalizedInput.action === 'string' && normalizedInput.action.length > 0 ? normalizedInput.action : 'create';
 
   if (!isRecord(normalizedInput.plan)) {
-    return normalizedInput
+    return normalizedInput;
   }
 
-  const plan: AnyRecord = { ...normalizedInput.plan }
-  if (typeof plan.status !== "string" || plan.status.length === 0) {
-    plan.status = "awaiting_approval"
+  const plan: AnyRecord = { ...normalizedInput.plan };
+  if (typeof plan.status !== 'string' || plan.status.length === 0) {
+    plan.status = 'awaiting_approval';
   }
-  if (typeof plan.id !== "string" || plan.id.length === 0) {
-    plan.id = "plan"
+  if (typeof plan.id !== 'string' || plan.id.length === 0) {
+    plan.id = 'plan';
   }
 
   if (Array.isArray(plan.steps)) {
     plan.steps = plan.steps.map((step: unknown, index: number) => {
-      if (!isRecord(step)) return step
-      const normalizedStep: AnyRecord = { ...step }
-      if (typeof normalizedStep.id !== "string" || normalizedStep.id.length === 0) {
-        normalizedStep.id = `step-${index + 1}`
+      if (!isRecord(step)) return step;
+      const normalizedStep: AnyRecord = { ...step };
+      if (typeof normalizedStep.id !== 'string' || normalizedStep.id.length === 0) {
+        normalizedStep.id = `step-${index + 1}`;
       }
-      if (
-        typeof normalizedStep.status !== "string" ||
-        normalizedStep.status.length === 0
-      ) {
-        normalizedStep.status = "pending"
+      if (typeof normalizedStep.status !== 'string' || normalizedStep.status.length === 0) {
+        normalizedStep.status = 'pending';
       }
-      return normalizedStep
-    })
+      return normalizedStep;
+    });
   }
 
-  normalizedInput.plan = plan
-  return normalizedInput
+  normalizedInput.plan = plan;
+  return normalizedInput;
 }
 
-function unwrapAcpSdkToolOutput(
-  output: unknown,
-  canonicalToolName: string,
-): unknown {
+function unwrapAcpSdkToolOutput(output: unknown, canonicalToolName: string): unknown {
   const normalizeUnwrapped = (value: unknown): unknown => {
-    if (
-      canonicalToolName === "AskUserQuestion" &&
-      isRecord(value) &&
-      typeof value.result === "string"
-    ) {
-      return value.result
+    if (canonicalToolName === 'AskUserQuestion' && isRecord(value) && typeof value.result === 'string') {
+      return value.result;
     }
-    return value
-  }
+    return value;
+  };
 
-  if (!isRecord(output)) return output
+  if (!isRecord(output)) return output;
 
   if (isRecord(output.structuredContent)) {
-    return normalizeUnwrapped(output.structuredContent)
+    return normalizeUnwrapped(output.structuredContent);
   }
 
   if (Array.isArray(output.content) && output.content.length > 0) {
-    const firstContent = output.content[0]
-    if (isRecord(firstContent) && typeof firstContent.text === "string") {
-      const text = firstContent.text.trim()
+    const firstContent = output.content[0];
+    if (isRecord(firstContent) && typeof firstContent.text === 'string') {
+      const text = firstContent.text.trim();
       if (text.length > 0) {
         try {
-          return normalizeUnwrapped(JSON.parse(text))
+          return normalizeUnwrapped(JSON.parse(text));
         } catch {
-          return normalizeUnwrapped(text)
+          return normalizeUnwrapped(text);
         }
       }
     }
   }
 
-  return normalizeUnwrapped(output)
+  return normalizeUnwrapped(output);
 }
 
-function normalizeCodexToolInput(
-  rawInput: unknown,
-  descriptor: CodexToolDescriptor,
-): unknown {
+function normalizeCodexToolInput(rawInput: unknown, descriptor: CodexToolDescriptor): unknown {
   if (!isRecord(rawInput)) {
-    if (typeof rawInput === "string") {
-      const trimmedInput = rawInput.trim()
+    if (typeof rawInput === 'string') {
+      const trimmedInput = rawInput.trim();
       if (trimmedInput.length > 0) {
         try {
-          const parsedInput = JSON.parse(trimmedInput)
+          const parsedInput = JSON.parse(trimmedInput);
           if (isRecord(parsedInput)) {
-            return normalizeCodexToolInput(parsedInput, descriptor)
+            return normalizeCodexToolInput(parsedInput, descriptor);
           }
         } catch {
           // Keep the original string input for downstream consumers.
@@ -296,372 +264,341 @@ function normalizeCodexToolInput(
       }
     }
 
-    if (descriptor.canonicalToolName === "Read" && descriptor.detail) {
-      return { file_path: descriptor.detail }
+    if (descriptor.canonicalToolName === 'Read' && descriptor.detail) {
+      return { file_path: descriptor.detail };
     }
-    if (descriptor.canonicalToolName === "Bash" && descriptor.detail) {
-      return { command: descriptor.detail }
+    if (descriptor.canonicalToolName === 'Bash' && descriptor.detail) {
+      return { command: descriptor.detail };
     }
-    if (
-      (descriptor.canonicalToolName === "Grep" || descriptor.canonicalToolName === "Glob") &&
-      descriptor.detail
-    ) {
-      return { pattern: descriptor.detail }
+    if ((descriptor.canonicalToolName === 'Grep' || descriptor.canonicalToolName === 'Glob') && descriptor.detail) {
+      return { pattern: descriptor.detail };
     }
-    return rawInput
+    return rawInput;
   }
 
-  const hasArgsWrapper = isRecord(rawInput.args)
-  const args = hasArgsWrapper ? (rawInput.args as AnyRecord) : rawInput
+  const hasArgsWrapper = isRecord(rawInput.args);
+  const args = hasArgsWrapper ? (rawInput.args as AnyRecord) : rawInput;
 
   if (descriptor.isMcp) {
     const mcpArguments = isRecord(args.arguments)
       ? { ...(args.arguments as AnyRecord) }
-      : stripExecutionBookkeeping(args)
-    return mcpArguments
+      : stripExecutionBookkeeping(args);
+    return mcpArguments;
   }
 
-  const normalizedInput: AnyRecord = { ...args }
-  const parsedCmdEntries = getParsedCmdEntries(rawInput, args)
-  const parsedPath = getFirstParsedCmdValue(parsedCmdEntries, "path")
-  const parsedName = getFirstParsedCmdValue(parsedCmdEntries, "name")
-  const parsedPattern = getFirstParsedCmdValue(parsedCmdEntries, "pattern")
-  const parsedTargetDirectory =
-    getFirstParsedCmdValue(parsedCmdEntries, "target_directory") || parsedPath
+  const normalizedInput: AnyRecord = { ...args };
+  const parsedCmdEntries = getParsedCmdEntries(rawInput, args);
+  const parsedPath = getFirstParsedCmdValue(parsedCmdEntries, 'path');
+  const parsedName = getFirstParsedCmdValue(parsedCmdEntries, 'name');
+  const parsedPattern = getFirstParsedCmdValue(parsedCmdEntries, 'pattern');
+  const parsedTargetDirectory = getFirstParsedCmdValue(parsedCmdEntries, 'target_directory') || parsedPath;
 
-  if (
-    !Array.isArray(normalizedInput.parsed_cmd) &&
-    Array.isArray(rawInput.parsed_cmd)
-  ) {
-    normalizedInput.parsed_cmd = rawInput.parsed_cmd
+  if (!Array.isArray(normalizedInput.parsed_cmd) && Array.isArray(rawInput.parsed_cmd)) {
+    normalizedInput.parsed_cmd = rawInput.parsed_cmd;
   }
-  if (
-    normalizedInput.command === undefined &&
-    rawInput.command !== undefined
-  ) {
-    normalizedInput.command = rawInput.command
+  if (normalizedInput.command === undefined && rawInput.command !== undefined) {
+    normalizedInput.command = rawInput.command;
   }
 
-  if (descriptor.canonicalToolName === "Read") {
+  if (descriptor.canonicalToolName === 'Read') {
     if (!normalizedInput.file_path) {
-      if (typeof normalizedInput.path === "string" && normalizedInput.path.length > 0) {
-        normalizedInput.file_path = normalizedInput.path
+      if (typeof normalizedInput.path === 'string' && normalizedInput.path.length > 0) {
+        normalizedInput.file_path = normalizedInput.path;
       } else if (parsedPath) {
-        normalizedInput.file_path = parsedPath
+        normalizedInput.file_path = parsedPath;
       } else if (parsedName) {
-        normalizedInput.file_path = parsedName
+        normalizedInput.file_path = parsedName;
       } else if (descriptor.detail) {
-        normalizedInput.file_path = descriptor.detail
+        normalizedInput.file_path = descriptor.detail;
       }
     }
   }
 
-  if (descriptor.canonicalToolName === "Bash") {
+  if (descriptor.canonicalToolName === 'Bash') {
     if (Array.isArray(normalizedInput.command)) {
-      normalizedInput.command =
-        normalizedInput.command[normalizedInput.command.length - 1] || descriptor.detail
+      normalizedInput.command = normalizedInput.command[normalizedInput.command.length - 1] || descriptor.detail;
     } else if (!normalizedInput.command && descriptor.detail) {
-      normalizedInput.command = descriptor.detail
+      normalizedInput.command = descriptor.detail;
     }
   }
 
-  if (descriptor.canonicalToolName === "Grep" || descriptor.canonicalToolName === "Glob") {
+  if (descriptor.canonicalToolName === 'Grep' || descriptor.canonicalToolName === 'Glob') {
     if (!normalizedInput.pattern) {
       if (parsedPattern) {
-        normalizedInput.pattern = parsedPattern
+        normalizedInput.pattern = parsedPattern;
       } else if (descriptor.detail) {
-        normalizedInput.pattern = descriptor.detail
+        normalizedInput.pattern = descriptor.detail;
       }
     }
   }
 
-  if (descriptor.canonicalToolName === "Grep") {
+  if (descriptor.canonicalToolName === 'Grep') {
     if (!normalizedInput.path && parsedPath) {
-      normalizedInput.path = parsedPath
+      normalizedInput.path = parsedPath;
     }
   }
 
-  if (descriptor.canonicalToolName === "Glob") {
+  if (descriptor.canonicalToolName === 'Glob') {
     if (!normalizedInput.target_directory && parsedTargetDirectory) {
-      normalizedInput.target_directory = parsedTargetDirectory
+      normalizedInput.target_directory = parsedTargetDirectory;
     }
   }
 
-  if (descriptor.canonicalToolName === "WebFetch") {
-    if (!normalizedInput.url && descriptor.detail.startsWith("http")) {
-      normalizedInput.url = descriptor.detail
+  if (descriptor.canonicalToolName === 'WebFetch') {
+    if (!normalizedInput.url && descriptor.detail.startsWith('http')) {
+      normalizedInput.url = descriptor.detail;
     }
   }
 
-  if (descriptor.canonicalToolName === "Edit") {
+  if (descriptor.canonicalToolName === 'Edit') {
     if (!normalizedInput.file_path) {
-      if (typeof normalizedInput.path === "string" && normalizedInput.path.length > 0) {
-        normalizedInput.file_path = normalizedInput.path
+      if (typeof normalizedInput.path === 'string' && normalizedInput.path.length > 0) {
+        normalizedInput.file_path = normalizedInput.path;
       } else if (parsedPath) {
-        normalizedInput.file_path = parsedPath
+        normalizedInput.file_path = parsedPath;
       } else if (parsedName) {
-        normalizedInput.file_path = parsedName
+        normalizedInput.file_path = parsedName;
       } else if (descriptor.detail) {
-        normalizedInput.file_path = descriptor.detail
+        normalizedInput.file_path = descriptor.detail;
       }
     }
-    if (!normalizedInput.old_string && typeof normalizedInput.old_text === "string") {
-      normalizedInput.old_string = normalizedInput.old_text
+    if (!normalizedInput.old_string && typeof normalizedInput.old_text === 'string') {
+      normalizedInput.old_string = normalizedInput.old_text;
     }
     if (!normalizedInput.new_string) {
-      if (typeof normalizedInput.new_text === "string") {
-        normalizedInput.new_string = normalizedInput.new_text
-      } else if (typeof normalizedInput.new_content === "string") {
-        normalizedInput.new_string = normalizedInput.new_content
+      if (typeof normalizedInput.new_text === 'string') {
+        normalizedInput.new_string = normalizedInput.new_text;
+      } else if (typeof normalizedInput.new_content === 'string') {
+        normalizedInput.new_string = normalizedInput.new_content;
       }
     }
   }
 
-  if (descriptor.canonicalToolName === "Write") {
+  if (descriptor.canonicalToolName === 'Write') {
     if (!normalizedInput.file_path) {
-      if (typeof normalizedInput.path === "string" && normalizedInput.path.length > 0) {
-        normalizedInput.file_path = normalizedInput.path
+      if (typeof normalizedInput.path === 'string' && normalizedInput.path.length > 0) {
+        normalizedInput.file_path = normalizedInput.path;
       } else if (parsedPath) {
-        normalizedInput.file_path = parsedPath
+        normalizedInput.file_path = parsedPath;
       } else if (parsedName) {
-        normalizedInput.file_path = parsedName
+        normalizedInput.file_path = parsedName;
       } else if (descriptor.detail) {
-        normalizedInput.file_path = descriptor.detail
+        normalizedInput.file_path = descriptor.detail;
       }
     }
     if (!normalizedInput.content) {
-      if (typeof normalizedInput.text === "string") {
-        normalizedInput.content = normalizedInput.text
-      } else if (typeof normalizedInput.new_text === "string") {
-        normalizedInput.content = normalizedInput.new_text
-      } else if (typeof normalizedInput.new_content === "string") {
-        normalizedInput.content = normalizedInput.new_content
+      if (typeof normalizedInput.text === 'string') {
+        normalizedInput.content = normalizedInput.text;
+      } else if (typeof normalizedInput.new_text === 'string') {
+        normalizedInput.content = normalizedInput.new_text;
+      } else if (typeof normalizedInput.new_content === 'string') {
+        normalizedInput.content = normalizedInput.new_content;
       }
     }
   }
 
-  if (descriptor.canonicalToolName === "PlanWrite") {
-    return normalizePlanWriteInput(normalizedInput)
+  if (descriptor.canonicalToolName === 'PlanWrite') {
+    return normalizePlanWriteInput(normalizedInput);
   }
 
-  return normalizedInput
+  return normalizedInput;
 }
 
 function getPartToolName(part: AnyRecord): string | null {
-  if (typeof part.toolName === "string" && part.toolName.length > 0) {
-    return part.toolName
+  if (typeof part.toolName === 'string' && part.toolName.length > 0) {
+    return part.toolName;
   }
-  if (isRecord(part.input) && typeof part.input.toolName === "string") {
-    return part.input.toolName
+  if (isRecord(part.input) && typeof part.input.toolName === 'string') {
+    return part.input.toolName;
   }
-  if (typeof part.type === "string" && part.type.startsWith("tool-")) {
-    return part.type.slice("tool-".length)
+  if (typeof part.type === 'string' && part.type.startsWith('tool-')) {
+    return part.type.slice('tool-'.length);
   }
-  return null
+  return null;
 }
 
-export function normalizeCodexToolPart(
-  part: unknown,
-  options?: NormalizeCodexToolPartOptions,
-): unknown {
-  if (!isRecord(part)) return part
-  if (typeof part.type !== "string" || !part.type.startsWith("tool-")) return part
+export function normalizeCodexToolPart(part: unknown, options?: NormalizeCodexToolPartOptions): unknown {
+  if (!isRecord(part)) return part;
+  if (typeof part.type !== 'string' || !part.type.startsWith('tool-')) return part;
 
-  const rawToolName = getPartToolName(part)
-  let descriptor = rawToolName ? parseCodexToolDescriptor(rawToolName) : null
+  const rawToolName = getPartToolName(part);
+  let descriptor = rawToolName ? parseCodexToolDescriptor(rawToolName) : null;
 
   // When the outer tool name is an ACP dynamic wrapper (unrecognised), check if
   // the inner input.toolName resolves to a known tool (e.g. "PlanWrite").
-  if (!descriptor && isRecord(part.input) && typeof part.input.toolName === "string") {
-    descriptor = parseCodexToolDescriptor(part.input.toolName)
+  if (!descriptor && isRecord(part.input) && typeof part.input.toolName === 'string') {
+    descriptor = parseCodexToolDescriptor(part.input.toolName);
   }
   const shouldNormalizeState =
-    options?.normalizeState === true &&
-    (part.state === "input-available" || part.state === "output-available")
+    options?.normalizeState === true && (part.state === 'input-available' || part.state === 'output-available');
 
   const hasCodexArgsWrapper =
-    isRecord(part.input) &&
-    (isRecord(part.input.args) || typeof part.input.toolName === "string")
+    isRecord(part.input) && (isRecord(part.input.args) || typeof part.input.toolName === 'string');
 
   if (!descriptor && !hasCodexArgsWrapper && !shouldNormalizeState) {
-    return part
+    return part;
   }
 
-  const normalizedType = descriptor ? `tool-${descriptor.canonicalToolName}` : part.type
+  const normalizedType = descriptor ? `tool-${descriptor.canonicalToolName}` : part.type;
   const fallbackDescriptor: CodexToolDescriptor = {
-    canonicalToolName: normalizedType.startsWith("tool-")
-      ? normalizedType.slice("tool-".length)
-      : normalizedType,
-    detail: "",
-    isMcp: normalizedType.startsWith("tool-mcp__"),
-  }
-  const normalizedInput =
-    descriptor
-      ? normalizeCodexToolInput(part.input, descriptor)
-      : hasCodexArgsWrapper
-        ? normalizeCodexToolInput(part.input, fallbackDescriptor)
-        : part.input
+    canonicalToolName: normalizedType.startsWith('tool-') ? normalizedType.slice('tool-'.length) : normalizedType,
+    detail: '',
+    isMcp: normalizedType.startsWith('tool-mcp__')
+  };
+  const normalizedInput = descriptor
+    ? normalizeCodexToolInput(part.input, descriptor)
+    : hasCodexArgsWrapper
+      ? normalizeCodexToolInput(part.input, fallbackDescriptor)
+      : part.input;
   const shouldUnwrapAcpSdkOutput =
-    fallbackDescriptor.canonicalToolName === "AskUserQuestion" ||
-    fallbackDescriptor.canonicalToolName === "PlanWrite"
-  const rawOutput = part.output !== undefined ? part.output : part.result
-  const rawResult = part.result !== undefined ? part.result : part.output
-  const normalizedOutput =
-    shouldUnwrapAcpSdkOutput
-      ? unwrapAcpSdkToolOutput(rawOutput, fallbackDescriptor.canonicalToolName)
-      : rawOutput
-  const normalizedResult =
-    shouldUnwrapAcpSdkOutput
-      ? unwrapAcpSdkToolOutput(rawResult, fallbackDescriptor.canonicalToolName)
-      : rawResult
-  const outputPayload =
-    normalizedOutput !== undefined ? normalizedOutput : normalizedResult
+    fallbackDescriptor.canonicalToolName === 'AskUserQuestion' || fallbackDescriptor.canonicalToolName === 'PlanWrite';
+  const rawOutput = part.output !== undefined ? part.output : part.result;
+  const rawResult = part.result !== undefined ? part.result : part.output;
+  const normalizedOutput = shouldUnwrapAcpSdkOutput
+    ? unwrapAcpSdkToolOutput(rawOutput, fallbackDescriptor.canonicalToolName)
+    : rawOutput;
+  const normalizedResult = shouldUnwrapAcpSdkOutput
+    ? unwrapAcpSdkToolOutput(rawResult, fallbackDescriptor.canonicalToolName)
+    : rawResult;
+  const outputPayload = normalizedOutput !== undefined ? normalizedOutput : normalizedResult;
   const outputEnrichedInput =
-    fallbackDescriptor.canonicalToolName === "Read"
+    fallbackDescriptor.canonicalToolName === 'Read'
       ? normalizeReadInputFromPayload(normalizedInput, outputPayload)
-      : normalizedInput
+      : normalizedInput;
   const finalInput =
     outputEnrichedInput !== part.input && isShallowEqual(outputEnrichedInput, part.input)
       ? part.input
-      : outputEnrichedInput
+      : outputEnrichedInput;
 
-  const normalizedState = shouldNormalizeState
-    ? toCanonicalToolState(part.state)
-    : part.state
+  const normalizedState = shouldNormalizeState ? toCanonicalToolState(part.state) : part.state;
 
-  const typeChanged = normalizedType !== part.type
-  const inputChanged = finalInput !== part.input
-  const stateChanged = normalizedState !== part.state
-  const outputChanged = normalizedOutput !== part.output
-  const resultChanged = normalizedResult !== part.result
+  const typeChanged = normalizedType !== part.type;
+  const inputChanged = finalInput !== part.input;
+  const stateChanged = normalizedState !== part.state;
+  const outputChanged = normalizedOutput !== part.output;
+  const resultChanged = normalizedResult !== part.result;
 
   if (!typeChanged && !inputChanged && !stateChanged && !outputChanged && !resultChanged) {
-    return part
+    return part;
   }
 
-  const normalizedPart: AnyRecord = { ...part }
-  if (typeChanged) normalizedPart.type = normalizedType
-  if (inputChanged) normalizedPart.input = finalInput
-  if (stateChanged) normalizedPart.state = normalizedState
-  if (normalizedOutput !== undefined) normalizedPart.output = normalizedOutput
-  if (normalizedResult !== undefined) normalizedPart.result = normalizedResult
+  const normalizedPart: AnyRecord = { ...part };
+  if (typeChanged) normalizedPart.type = normalizedType;
+  if (inputChanged) normalizedPart.input = finalInput;
+  if (stateChanged) normalizedPart.state = normalizedState;
+  if (normalizedOutput !== undefined) normalizedPart.output = normalizedOutput;
+  if (normalizedResult !== undefined) normalizedPart.result = normalizedResult;
 
   // Stash the human-readable detail string (e.g. "src/foo.ts", "./build.sh") so
   // the renderer can surface it for tools whose detail isn't mapped into a typed
   // input field (Edit, Write, Search, Patch, etc.)
   if (descriptor?.detail && descriptor.detail.length > 0) {
-    const existing = isRecord(normalizedPart.callProviderMetadata)
-      ? normalizedPart.callProviderMetadata
-      : {}
-    const existingCustom = isRecord(existing.custom) ? existing.custom : {}
+    const existing = isRecord(normalizedPart.callProviderMetadata) ? normalizedPart.callProviderMetadata : {};
+    const existingCustom = isRecord(existing.custom) ? existing.custom : {};
     normalizedPart.callProviderMetadata = {
       ...existing,
-      custom: { ...existingCustom, codexDetail: descriptor.detail },
-    }
+      custom: { ...existingCustom, codexDetail: descriptor.detail }
+    };
   }
 
-  return normalizedPart
+  return normalizedPart;
 }
 
-export function normalizeCodexAssistantMessage(
-  message: unknown,
-  options?: NormalizeCodexToolPartOptions,
-): unknown {
-  if (!isRecord(message)) return message
-  if (message.role !== "assistant" || !Array.isArray(message.parts)) return message
+export function normalizeCodexAssistantMessage(message: unknown, options?: NormalizeCodexToolPartOptions): unknown {
+  if (!isRecord(message)) return message;
+  if (message.role !== 'assistant' || !Array.isArray(message.parts)) return message;
 
-  let changed = false
+  let changed = false;
   const normalizedParts = message.parts.map((part) => {
-    const normalizedPart = normalizeCodexToolPart(part, options)
-    if (normalizedPart !== part) changed = true
-    return normalizedPart
-  })
+    const normalizedPart = normalizeCodexToolPart(part, options);
+    if (normalizedPart !== part) changed = true;
+    return normalizedPart;
+  });
 
-  if (!changed) return message
+  if (!changed) return message;
   return {
     ...message,
-    parts: normalizedParts,
-  }
+    parts: normalizedParts
+  };
 }
 
 export function normalizeCodexStreamChunk(chunk: unknown): unknown {
-  if (!isRecord(chunk)) return chunk
-  if (chunk.type !== "tool-input-start" && chunk.type !== "tool-input-available") {
-    return chunk
+  if (!isRecord(chunk)) return chunk;
+  if (chunk.type !== 'tool-input-start' && chunk.type !== 'tool-input-available') {
+    return chunk;
   }
-  if (typeof chunk.toolName !== "string" || chunk.toolName.length === 0) return chunk
+  if (typeof chunk.toolName !== 'string' || chunk.toolName.length === 0) return chunk;
 
-  const descriptor = parseCodexToolDescriptor(chunk.toolName)
+  const descriptor = parseCodexToolDescriptor(chunk.toolName);
   const hasCodexArgsWrapper =
-    chunk.type === "tool-input-available" &&
+    chunk.type === 'tool-input-available' &&
     isRecord(chunk.input) &&
-    (isRecord(chunk.input.args) || typeof chunk.input.toolName === "string")
+    (isRecord(chunk.input.args) || typeof chunk.input.toolName === 'string');
 
   // When the outer toolName is the ACP dynamic tool wrapper (e.g.
   // "acp.acp_provider_agent_dynamic_tool"), the real tool descriptor is
   // embedded in chunk.input.toolName (e.g. "Edit src/foo.ts"). Extract it so
   // the normalizer can map the chunk to the canonical tool type and name.
   const innerDescriptor =
-    !descriptor && hasCodexArgsWrapper && isRecord(chunk.input) && typeof chunk.input.toolName === "string"
+    !descriptor && hasCodexArgsWrapper && isRecord(chunk.input) && typeof chunk.input.toolName === 'string'
       ? parseCodexToolDescriptor(chunk.input.toolName as string)
-      : null
+      : null;
 
-  const effectiveDescriptor = descriptor || innerDescriptor
+  const effectiveDescriptor = descriptor || innerDescriptor;
 
   if (!effectiveDescriptor && !hasCodexArgsWrapper) {
-    return chunk
+    return chunk;
   }
 
-  const canonicalToolName = effectiveDescriptor?.canonicalToolName || chunk.toolName
+  const canonicalToolName = effectiveDescriptor?.canonicalToolName || chunk.toolName;
   const fallbackDescriptor: CodexToolDescriptor = {
     canonicalToolName,
-    detail: "",
-    isMcp: canonicalToolName.startsWith("mcp__"),
-  }
+    detail: '',
+    isMcp: canonicalToolName.startsWith('mcp__')
+  };
   const normalizedInput =
-    chunk.type === "tool-input-available"
+    chunk.type === 'tool-input-available'
       ? normalizeCodexToolInput(chunk.input, effectiveDescriptor || fallbackDescriptor)
-      : undefined
+      : undefined;
   const normalizedTitle =
-    typeof chunk.title === "string" && chunk.title.trim().length > 0
+    typeof chunk.title === 'string' && chunk.title.trim().length > 0
       ? chunk.title
-      : typeof effectiveDescriptor?.detail === "string" && effectiveDescriptor.detail.trim().length > 0
+      : typeof effectiveDescriptor?.detail === 'string' && effectiveDescriptor.detail.trim().length > 0
         ? effectiveDescriptor.detail
-        : undefined
+        : undefined;
   const finalInput =
-    chunk.type === "tool-input-available" &&
+    chunk.type === 'tool-input-available' &&
     normalizedInput !== chunk.input &&
     isShallowEqual(normalizedInput, chunk.input)
       ? chunk.input
-      : normalizedInput
+      : normalizedInput;
 
-  const toolNameChanged = canonicalToolName !== chunk.toolName
-  const titleChanged = normalizedTitle !== undefined && normalizedTitle !== chunk.title
-  const inputChanged =
-    chunk.type === "tool-input-available" && finalInput !== chunk.input
+  const toolNameChanged = canonicalToolName !== chunk.toolName;
+  const titleChanged = normalizedTitle !== undefined && normalizedTitle !== chunk.title;
+  const inputChanged = chunk.type === 'tool-input-available' && finalInput !== chunk.input;
 
   if (!toolNameChanged && !inputChanged && !titleChanged) {
-    return chunk
+    return chunk;
   }
 
-  if (chunk.type === "tool-input-available") {
+  if (chunk.type === 'tool-input-available') {
     const normalizedChunk: AnyRecord = {
       ...chunk,
       toolName: canonicalToolName,
-      input: finalInput,
-    }
+      input: finalInput
+    };
     if (normalizedTitle !== undefined) {
-      normalizedChunk.title = normalizedTitle
+      normalizedChunk.title = normalizedTitle;
     }
-    return normalizedChunk
+    return normalizedChunk;
   }
 
   const normalizedChunk: AnyRecord = {
     ...chunk,
-    toolName: canonicalToolName,
-  }
+    toolName: canonicalToolName
+  };
   if (normalizedTitle !== undefined) {
-    normalizedChunk.title = normalizedTitle
+    normalizedChunk.title = normalizedTitle;
   }
-  return normalizedChunk
+  return normalizedChunk;
 }

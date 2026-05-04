@@ -1,129 +1,136 @@
-import { useCallback, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useAtomValue } from "jotai";
-import { toast } from "sonner";
-import { trpc } from "../../../../lib/trpc";
-import { selectedOllamaModelAtom, showOfflineModeFeaturesAtom } from "../../../../lib/atoms";
-import { getCommitGenerationNeeds, buildFinalCommitMessage } from "./commit-message-utils";
+import { useCallback, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAtomValue } from 'jotai';
+import { toast } from 'sonner';
+import { trpc } from '../../../../lib/trpc';
+import { selectedOllamaModelAtom, showOfflineModeFeaturesAtom } from '../../../../lib/atoms';
+import { getCommitGenerationNeeds, buildFinalCommitMessage } from './commit-message-utils';
 
 interface CommitActionInput {
-	title?: string;
-	description?: string;
-	filePaths?: string[];
+  title?: string;
+  description?: string;
+  filePaths?: string[];
 }
 
 interface UseCommitActionsOptions {
-	worktreePath?: string | null;
-	chatId?: string;
-	onRefresh?: () => void;
-	onCommitSuccess?: () => void;
-	onMessageGenerated?: (msg: { title: string; description: string }) => void;
+  worktreePath?: string | null;
+  chatId?: string;
+  onRefresh?: () => void;
+  onCommitSuccess?: () => void;
+  onMessageGenerated?: (msg: { title: string; description: string }) => void;
 }
 
 export function useCommitActions({
-	worktreePath,
-	chatId,
-	onRefresh,
-	onCommitSuccess,
-	onMessageGenerated,
+  worktreePath,
+  chatId,
+  onRefresh,
+  onCommitSuccess,
+  onMessageGenerated
 }: UseCommitActionsOptions) {
-	const [isGenerating, setIsGenerating] = useState(false);
-	const queryClient = useQueryClient();
-	const selectedOllamaModel = useAtomValue(selectedOllamaModelAtom);
-	const useOllamaFallback = useAtomValue(showOfflineModeFeaturesAtom);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const queryClient = useQueryClient();
+  const selectedOllamaModel = useAtomValue(selectedOllamaModelAtom);
+  const useOllamaFallback = useAtomValue(showOfflineModeFeaturesAtom);
 
-	const handleSuccess = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: [["changes", "getStatus"]] });
-		onRefresh?.();
-		onCommitSuccess?.();
-	}, [queryClient, onRefresh, onCommitSuccess]);
+  const handleSuccess = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: [['changes', 'getStatus']] });
+    onRefresh?.();
+    onCommitSuccess?.();
+  }, [queryClient, onRefresh, onCommitSuccess]);
 
-	const handleError = useCallback((error: { message?: string }) => {
-		toast.error(`Commit failed: ${error.message ?? "Unknown error"}`);
-	}, []);
+  const handleError = useCallback((error: { message?: string }) => {
+    toast.error(`Commit failed: ${error.message ?? 'Unknown error'}`);
+  }, []);
 
-	const generateCommitMutation = trpc.chats.generateCommitMessage.useMutation();
-	const atomicCommitMutation = trpc.changes.atomicCommit.useMutation();
-	const commitMutation = trpc.changes.commit.useMutation();
+  const generateCommitMutation = trpc.chats.generateCommitMessage.useMutation();
+  const atomicCommitMutation = trpc.changes.atomicCommit.useMutation();
+  const commitMutation = trpc.changes.commit.useMutation();
 
-	const commit = useCallback(
-		async ({ title, description, filePaths }: CommitActionInput): Promise<boolean> => {
-			if (!worktreePath) {
-				toast.error("Worktree path is required");
-				return false;
-			}
+  const commit = useCallback(
+    async ({ title, description, filePaths }: CommitActionInput): Promise<boolean> => {
+      if (!worktreePath) {
+        toast.error('Worktree path is required');
+        return false;
+      }
 
-			let commitTitle = title?.trim() ?? "";
-			let commitDescription = description?.trim() ?? "";
+      let commitTitle = title?.trim() ?? '';
+      let commitDescription = description?.trim() ?? '';
 
-			const { needsTitle, needsDescription, shouldGenerate } = getCommitGenerationNeeds(
-				commitTitle, commitDescription, chatId
-			);
+      const { needsTitle, needsDescription, shouldGenerate } = getCommitGenerationNeeds(
+        commitTitle,
+        commitDescription,
+        chatId
+      );
 
-			if (shouldGenerate && chatId) {
-				console.log("[CommitActions] Generating with AI — needsTitle:", needsTitle, "needsDescription:", needsDescription);
-				setIsGenerating(true);
-				try {
-					const result = await generateCommitMutation.mutateAsync({
-						chatId,
-						filePaths,
-						ollamaModel: selectedOllamaModel,
-						existingTitle: needsTitle ? undefined : commitTitle,
-						useOllamaFallback,
-					});
-					console.log("[CommitActions] AI generated:", result.title, "provider:", result.provider);
+      if (shouldGenerate && chatId) {
+        console.log(
+          '[CommitActions] Generating with AI — needsTitle:',
+          needsTitle,
+          'needsDescription:',
+          needsDescription
+        );
+        setIsGenerating(true);
+        try {
+          const result = await generateCommitMutation.mutateAsync({
+            chatId,
+            filePaths,
+            ollamaModel: selectedOllamaModel,
+            existingTitle: needsTitle ? undefined : commitTitle,
+            useOllamaFallback
+          });
+          console.log('[CommitActions] AI generated:', result.title, 'provider:', result.provider);
 
-					if (needsTitle) {
-						commitTitle = result.title;
-						commitDescription = result.description;
-					} else {
-						commitDescription = result.description;
-					}
-					onMessageGenerated?.({ title: commitTitle, description: commitDescription });
-				} catch (error) {
-					console.error("[CommitActions] Failed to generate message:", error);
-					toast.error("Failed to generate commit message");
-					return false;
-				} finally {
-					setIsGenerating(false);
-				}
-			}
+          if (needsTitle) {
+            commitTitle = result.title;
+            commitDescription = result.description;
+          } else {
+            commitDescription = result.description;
+          }
+          onMessageGenerated?.({ title: commitTitle, description: commitDescription });
+        } catch (error) {
+          console.error('[CommitActions] Failed to generate message:', error);
+          toast.error('Failed to generate commit message');
+          return false;
+        } finally {
+          setIsGenerating(false);
+        }
+      }
 
-			if (!commitTitle) {
-				toast.error("Please enter a commit message");
-				return false;
-			}
+      if (!commitTitle) {
+        toast.error('Please enter a commit message');
+        return false;
+      }
 
-			const commitMessage = buildFinalCommitMessage(commitTitle, commitDescription);
+      const commitMessage = buildFinalCommitMessage(commitTitle, commitDescription);
 
-			try {
-				if (filePaths && filePaths.length > 0) {
-					await atomicCommitMutation.mutateAsync({ worktreePath, filePaths, message: commitMessage });
-				} else {
-					await commitMutation.mutateAsync({ worktreePath, message: commitMessage });
-				}
-				handleSuccess();
-				return true;
-			} catch (error) {
-				handleError(error as { message?: string });
-				return false;
-			}
-		},
-		[
-			worktreePath,
-			chatId,
-			generateCommitMutation,
-			selectedOllamaModel,
-			useOllamaFallback,
-			onMessageGenerated,
-			atomicCommitMutation,
-			commitMutation,
-			handleSuccess,
-			handleError,
-		],
-	);
+      try {
+        if (filePaths && filePaths.length > 0) {
+          await atomicCommitMutation.mutateAsync({ worktreePath, filePaths, message: commitMessage });
+        } else {
+          await commitMutation.mutateAsync({ worktreePath, message: commitMessage });
+        }
+        handleSuccess();
+        return true;
+      } catch (error) {
+        handleError(error as { message?: string });
+        return false;
+      }
+    },
+    [
+      worktreePath,
+      chatId,
+      generateCommitMutation,
+      selectedOllamaModel,
+      useOllamaFallback,
+      onMessageGenerated,
+      atomicCommitMutation,
+      commitMutation,
+      handleSuccess,
+      handleError
+    ]
+  );
 
-	const isPending = isGenerating || atomicCommitMutation.isPending || commitMutation.isPending;
+  const isPending = isGenerating || atomicCommitMutation.isPending || commitMutation.isPending;
 
-	return { commit, isPending, isGenerating };
+  return { commit, isPending, isGenerating };
 }

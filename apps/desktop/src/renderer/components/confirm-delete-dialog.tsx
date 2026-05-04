@@ -7,17 +7,17 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
-} from "./ui/alert-dialog"
+  AlertDialogTitle
+} from './ui/alert-dialog';
 
 interface ConfirmDeleteDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description: React.ReactNode
-  confirmLabel?: string
-  onConfirm: () => void
-  isDeleting?: boolean
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: React.ReactNode;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  isDeleting?: boolean;
 }
 
 export function ConfirmDeleteDialog({
@@ -25,9 +25,9 @@ export function ConfirmDeleteDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Delete",
+  confirmLabel = 'Delete',
   onConfirm,
-  isDeleting = false,
+  isDeleting = false
 }: ConfirmDeleteDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -43,12 +43,11 @@ export function ConfirmDeleteDialog({
           <AlertDialogAction
             onClick={onConfirm}
             disabled={isDeleting}
-            className="bg-red-600 hover:bg-red-700 text-white"
-          >
-            {isDeleting ? "Deleting..." : confirmLabel}
+            className="bg-red-600 hover:bg-red-700 text-white">
+            {isDeleting ? 'Deleting...' : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
+  );
 }

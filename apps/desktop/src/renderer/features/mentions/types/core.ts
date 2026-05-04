@@ -5,18 +5,18 @@
  * Inspired by VS Code's extension model for maximum extensibility.
  */
 
-import type { ComponentType } from "react"
+import type { ComponentType } from 'react';
 
 /**
  * Branded type for provider IDs to ensure type safety
  */
-export type MentionProviderId = string & { readonly __brand: "MentionProviderId" }
+export type MentionProviderId = string & { readonly __brand: 'MentionProviderId' };
 
 /**
  * Helper to create a MentionProviderId
  */
 export function createProviderId(id: string): MentionProviderId {
-  return id as MentionProviderId
+  return id as MentionProviderId;
 }
 
 /**
@@ -27,13 +27,13 @@ export interface MentionTrigger {
   /**
    * The trigger character(s) - e.g., '@', '/', '#'
    */
-  char: string
+  char: string;
 
   /**
    * Optional regex pattern for more complex triggers
    * e.g., /#\d+/ for GitHub issue numbers
    */
-  pattern?: RegExp
+  pattern?: RegExp;
 
   /**
    * Position requirements for the trigger:
@@ -41,19 +41,19 @@ export interface MentionTrigger {
    * - 'standalone': Must be preceded by whitespace or start of input
    * - 'any': Can appear anywhere
    */
-  position: "start-of-line" | "standalone" | "any"
+  position: 'start-of-line' | 'standalone' | 'any';
 
   /**
    * Allow continuation after space (for multi-word search)
    * e.g., "@agents sidebar" matches files containing both words
    */
-  allowSpaces: boolean
+  allowSpaces: boolean;
 
   /**
    * Maximum characters in the search query before auto-close
    * Prevents runaway searches
    */
-  maxLength?: number
+  maxLength?: number;
 }
 
 /**
@@ -63,22 +63,22 @@ export interface MentionCategory {
   /**
    * Unique category ID
    */
-  id: string
+  id: string;
 
   /**
    * Display label for the category
    */
-  label: string
+  label: string;
 
   /**
    * Optional icon component for the category
    */
-  icon?: ComponentType<{ className?: string }>
+  icon?: ComponentType<{ className?: string }>;
 
   /**
    * Sort priority (higher = shown first)
    */
-  priority: number
+  priority: number;
 }
 
 /**
@@ -91,55 +91,55 @@ export interface MentionItem<TData = unknown> {
    * Format: prefix:source:identifier
    * e.g., "file:local:/src/index.ts", "skill:claude-code"
    */
-  id: string
+  id: string;
 
   /**
    * Display label in dropdown (usually filename or name)
    */
-  label: string
+  label: string;
 
   /**
    * Optional secondary text (path, description)
    */
-  description?: string
+  description?: string;
 
   /**
    * Icon identifier (string) or component
    * String IDs map to the icon registry
    */
-  icon?: string | ComponentType<{ className?: string }>
+  icon?: string | ComponentType<{ className?: string }>;
 
   /**
    * Provider-specific data payload
    * Type-safe when provider specifies TData
    */
-  data: TData
+  data: TData;
 
   /**
    * Additional keywords for fuzzy search (beyond label)
    */
-  keywords?: string[]
+  keywords?: string[];
 
   /**
    * Sort priority within results (higher = shown first)
    */
-  priority?: number
+  priority?: number;
 
   /**
    * Whether this item can be expanded (hierarchical navigation)
    * e.g., file -> symbols, folder -> files
    */
-  hasChildren?: boolean
+  hasChildren?: boolean;
 
   /**
    * Parent item ID for hierarchical mentions
    */
-  parentId?: string
+  parentId?: string;
 
   /**
    * Disabled state with optional reason
    */
-  disabled?: { reason: string } | false
+  disabled?: { reason: string } | false;
 
   /**
    * Optional metadata for display purposes
@@ -148,23 +148,23 @@ export interface MentionItem<TData = unknown> {
     /**
      * For files: diff stats (+additions, -deletions)
      */
-    diffStats?: { additions: number; deletions: number }
+    diffStats?: { additions: number; deletions: number };
 
     /**
      * Truncated path for display
      */
-    truncatedPath?: string
+    truncatedPath?: string;
 
     /**
      * Type hint for rendering
      */
-    type?: "file" | "folder" | "skill" | "agent" | "tool" | "category" | "symbol"
+    type?: 'file' | 'folder' | 'skill' | 'agent' | 'tool' | 'category' | 'symbol';
 
     /**
      * Repository name (for multi-repo support)
      */
-    repository?: string
-  }
+    repository?: string;
+  };
 }
 
 /**
@@ -172,20 +172,20 @@ export interface MentionItem<TData = unknown> {
  * Used in serialization/deserialization
  */
 export const MENTION_PREFIXES = {
-  FILE: "file:",
-  FOLDER: "folder:",
-  SKILL: "skill:",
-  AGENT: "agent:",
-  TOOL: "tool:",
-  QUOTE: "quote:",
-  DIFF: "diff:",
-  PASTED: "pasted:",
-  SYMBOL: "symbol:",
-  GITHUB_ISSUE: "github:issue:",
-  GITHUB_PR: "github:pr:",
-} as const
+  FILE: 'file:',
+  FOLDER: 'folder:',
+  SKILL: 'skill:',
+  AGENT: 'agent:',
+  TOOL: 'tool:',
+  QUOTE: 'quote:',
+  DIFF: 'diff:',
+  PASTED: 'pasted:',
+  SYMBOL: 'symbol:',
+  GITHUB_ISSUE: 'github:issue:',
+  GITHUB_PR: 'github:pr:'
+} as const;
 
-export type MentionPrefix = (typeof MENTION_PREFIXES)[keyof typeof MENTION_PREFIXES]
+export type MentionPrefix = (typeof MENTION_PREFIXES)[keyof typeof MENTION_PREFIXES];
 
 /**
  * Extract prefix from a mention ID
@@ -193,18 +193,15 @@ export type MentionPrefix = (typeof MENTION_PREFIXES)[keyof typeof MENTION_PREFI
 export function getMentionPrefix(id: string): MentionPrefix | null {
   for (const prefix of Object.values(MENTION_PREFIXES)) {
     if (id.startsWith(prefix)) {
-      return prefix
+      return prefix;
     }
   }
-  return null
+  return null;
 }
 
 /**
  * Check if a mention ID belongs to a specific type
  */
-export function isMentionType(
-  id: string,
-  type: keyof typeof MENTION_PREFIXES
-): boolean {
-  return id.startsWith(MENTION_PREFIXES[type])
+export function isMentionType(id: string, type: keyof typeof MENTION_PREFIXES): boolean {
+  return id.startsWith(MENTION_PREFIXES[type]);
 }

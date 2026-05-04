@@ -1,27 +1,27 @@
-import { router } from "../index"
-import { projectsRouter } from "./projects"
-import { chatsRouter } from "./chats"
-import { claudeRouter } from "./claude"
-import { claudeCodeRouter } from "./claude-code"
-import { claudeSettingsRouter } from "./claude-settings"
-import { anthropicAccountsRouter } from "./anthropic-accounts"
-import { ollamaRouter } from "./ollama"
-import { codexRouter } from "./codex"
-import { terminalRouter } from "./terminal"
-import { externalRouter } from "./external"
-import { filesRouter } from "./files"
-import { debugRouter } from "./debug"
-import { skillsRouter } from "./skills"
-import { agentsRouter } from "./agents"
-import { worktreeConfigRouter } from "./worktree-config"
-import { commandsRouter } from "./commands"
-import { voiceRouter } from "./voice"
-import { pluginsRouter } from "./plugins"
-import { usageRouter } from "./usage"
-import { sandboxRouter } from "./sandbox"
-import { sandboxImportRouter } from "./sandbox-import"
-import { createGitRouter } from "../../git"
-import { BrowserWindow } from "electron"
+import { router } from '../index';
+import { projectsRouter } from './projects';
+import { chatsRouter } from './chats';
+import { claudeRouter } from './claude';
+import { claudeCodeRouter } from './claude-code';
+import { claudeSettingsRouter } from './claude-settings';
+import { anthropicAccountsRouter } from './anthropic-accounts';
+import { ollamaRouter } from './ollama';
+import { codexRouter } from './codex';
+import { terminalRouter } from './terminal';
+import { externalRouter } from './external';
+import { filesRouter } from './files';
+import { debugRouter } from './debug';
+import { skillsRouter } from './skills';
+import { agentsRouter } from './agents';
+import { worktreeConfigRouter } from './worktree-config';
+import { commandsRouter } from './commands';
+import { voiceRouter } from './voice';
+import { pluginsRouter } from './plugins';
+import { usageRouter } from './usage';
+import { sandboxRouter } from './sandbox';
+import { sandboxImportRouter } from './sandbox-import';
+import { createGitRouter } from '../../git';
+import { BrowserWindow } from 'electron';
 
 /**
  * Create the main app router
@@ -51,11 +51,11 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     sandbox: sandboxRouter,
     sandboxImport: sandboxImportRouter,
     // Git operations - named "changes" to match Superset API
-    changes: createGitRouter(),
-  })
+    changes: createGitRouter()
+  });
 }
 
 /**
  * Export the router type for client usage
  */
-export type AppRouter = ReturnType<typeof createAppRouter>
+export type AppRouter = ReturnType<typeof createAppRouter>;

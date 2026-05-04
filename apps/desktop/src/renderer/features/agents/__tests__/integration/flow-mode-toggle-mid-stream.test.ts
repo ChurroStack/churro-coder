@@ -11,163 +11,163 @@
  * agent turn would intermittently leave the chat input + transport in
  * inconsistent states.
  */
-import { describe, test, expect, beforeEach, vi } from "vitest"
+import { describe, test, expect, beforeEach, vi } from 'vitest';
 
-vi.mock("../../../../lib/window-storage", async () => {
-  const { atom } = await import("jotai")
+vi.mock('../../../../lib/window-storage', async () => {
+  const { atom } = await import('jotai');
   return {
     atomWithWindowStorage: (_key: string, defaultValue: unknown) => atom(defaultValue),
     createWindowScopedStorage: () => ({
       getItem: (_key: string, init: unknown) => init,
       setItem: () => {},
-      removeItem: () => {},
-    }),
-  }
-})
+      removeItem: () => {}
+    })
+  };
+});
 
-import { appStore } from "../../../../lib/jotai-store"
+import { appStore } from '../../../../lib/jotai-store';
 import {
   defaultAgentModeModelAtom,
   defaultPlanModeModelAtom,
   subChatModeAtomFamily,
-  subChatModelIdAtomFamily,
-} from "../../atoms"
-import { applyModeDefaultModel } from "../../lib/model-switching"
+  subChatModelIdAtomFamily
+} from '../../atoms';
+import { applyModeDefaultModel } from '../../lib/model-switching';
 import {
   initialState,
   noteSendRequested,
   noteStreamCompleted,
   noteStreamStarted,
   toggleMode,
-  type ModeSwitchDeps,
-} from "../../services/mode-switch-service"
-import type { ChatModeState } from "../../machines/chat-mode-machine"
+  type ModeSwitchDeps
+} from '../../services/mode-switch-service';
+import type { ChatModeState } from '../../machines/chat-mode-machine';
 
-let testCounter = 0
-const newSubChatId = () => `int-toggle-${++testCounter}`
+let testCounter = 0;
+const newSubChatId = () => `int-toggle-${++testCounter}`;
 
 beforeEach(() => {
-  appStore.set(defaultPlanModeModelAtom, "opus[1m]")
-  appStore.set(defaultAgentModeModelAtom, "sonnet")
-})
+  appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
+  appStore.set(defaultAgentModeModelAtom, 'sonnet');
+});
 
 function makeDeps(subChatId: string): {
-  deps: ModeSwitchDeps
-  states: Map<string, ChatModeState>
+  deps: ModeSwitchDeps;
+  states: Map<string, ChatModeState>;
 } {
-  const states = new Map<string, ChatModeState>([[subChatId, initialState("agent")]])
+  const states = new Map<string, ChatModeState>([[subChatId, initialState('agent')]]);
 
   const deps: ModeSwitchDeps = {
-    readState: (id) => states.get(id) ?? initialState("agent"),
+    readState: (id) => states.get(id) ?? initialState('agent'),
     writeState: (id, state) => {
-      states.set(id, state)
+      states.set(id, state);
     },
     setMode: (id, mode) => {
       // ChatMode is "plan" | "agent" | "review"; the persisted atom only
       // accepts AgentMode ("plan" | "agent"). Review is transient and
       // never reaches setMode in toggleMode flows.
-      if (mode === "review") return
-      appStore.set(subChatModeAtomFamily(id), mode)
+      if (mode === 'review') return;
+      appStore.set(subChatModeAtomFamily(id), mode);
     },
     applyDefaultModel: (id, mode) => {
-      const result = applyModeDefaultModel(id, mode)
-      return { modelId: result.modelId, provider: result.provider }
+      const result = applyModeDefaultModel(id, mode);
+      return { modelId: result.modelId, provider: result.provider };
     },
-    persistMode: async () => {},
-  }
+    persistMode: async () => {}
+  };
 
-  return { deps, states }
+  return { deps, states };
 }
 
-describe("L4 integration — mode toggle mid-stream is rejected", () => {
-  test("agent → plan toggle during streaming: no atom writes", async () => {
-    const subChatId = newSubChatId()
-    appStore.set(subChatModeAtomFamily(subChatId), "agent")
-    appStore.set(subChatModelIdAtomFamily(subChatId), "sonnet")
+describe('L4 integration — mode toggle mid-stream is rejected', () => {
+  test('agent → plan toggle during streaming: no atom writes', async () => {
+    const subChatId = newSubChatId();
+    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
-    const { deps } = makeDeps(subChatId)
+    const { deps } = makeDeps(subChatId);
 
     // Simulate streaming: SEND_REQUESTED → STREAM_STARTED.
-    noteSendRequested(subChatId, deps)
-    noteStreamStarted(subChatId, deps)
+    noteSendRequested(subChatId, deps);
+    noteStreamStarted(subChatId, deps);
 
-    const result = await toggleMode(subChatId, "plan", deps)
+    const result = await toggleMode(subChatId, 'plan', deps);
 
-    expect(result.ok).toBe(false)
-    expect(result.reason).toBe("busy")
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('busy');
     // Atom did not flip.
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe("agent")
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
     // Model atom did not change to opus[1m].
-    expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe("sonnet")
-  })
+    expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('sonnet');
+  });
 
-  test("agent → plan toggle after STREAM_COMPLETED: atoms flip", async () => {
-    const subChatId = newSubChatId()
-    appStore.set(subChatModeAtomFamily(subChatId), "agent")
-    appStore.set(subChatModelIdAtomFamily(subChatId), "sonnet")
+  test('agent → plan toggle after STREAM_COMPLETED: atoms flip', async () => {
+    const subChatId = newSubChatId();
+    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
-    const { deps } = makeDeps(subChatId)
+    const { deps } = makeDeps(subChatId);
 
     // Stream lifecycle: send → start → complete.
-    noteSendRequested(subChatId, deps)
-    noteStreamStarted(subChatId, deps)
-    noteStreamCompleted(subChatId, deps)
+    noteSendRequested(subChatId, deps);
+    noteStreamStarted(subChatId, deps);
+    noteStreamCompleted(subChatId, deps);
 
-    const result = await toggleMode(subChatId, "plan", deps)
+    const result = await toggleMode(subChatId, 'plan', deps);
 
-    expect(result.ok).toBe(true)
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe("plan")
+    expect(result.ok).toBe(true);
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('plan');
     // Plan-mode default applied.
-    expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe("opus[1m]")
-  })
+    expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('opus[1m]');
+  });
 
-  test("rapid toggle: 5 toggles during streaming all rejected, atoms unchanged", async () => {
-    const subChatId = newSubChatId()
-    appStore.set(subChatModeAtomFamily(subChatId), "agent")
+  test('rapid toggle: 5 toggles during streaming all rejected, atoms unchanged', async () => {
+    const subChatId = newSubChatId();
+    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
 
-    const { deps } = makeDeps(subChatId)
-    noteSendRequested(subChatId, deps)
-    noteStreamStarted(subChatId, deps)
+    const { deps } = makeDeps(subChatId);
+    noteSendRequested(subChatId, deps);
+    noteStreamStarted(subChatId, deps);
 
     for (let i = 0; i < 5; i++) {
-      const target = i % 2 === 0 ? "plan" : "agent"
-      const result = await toggleMode(subChatId, target, deps)
-      expect(result.ok).toBe(false)
+      const target = i % 2 === 0 ? 'plan' : 'agent';
+      const result = await toggleMode(subChatId, target, deps);
+      expect(result.ok).toBe(false);
     }
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe("agent")
-  })
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+  });
 
-  test("toggle accepted between consecutive turns (complete → toggle → send → complete)", async () => {
-    const subChatId = newSubChatId()
-    appStore.set(subChatModeAtomFamily(subChatId), "agent")
+  test('toggle accepted between consecutive turns (complete → toggle → send → complete)', async () => {
+    const subChatId = newSubChatId();
+    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
 
-    const { deps } = makeDeps(subChatId)
+    const { deps } = makeDeps(subChatId);
 
     // Turn 1.
-    noteSendRequested(subChatId, deps)
-    noteStreamStarted(subChatId, deps)
-    noteStreamCompleted(subChatId, deps)
+    noteSendRequested(subChatId, deps);
+    noteStreamStarted(subChatId, deps);
+    noteStreamCompleted(subChatId, deps);
 
     // User toggles to plan between turns — accepted.
-    const r1 = await toggleMode(subChatId, "plan", deps)
-    expect(r1.ok).toBe(true)
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe("plan")
+    const r1 = await toggleMode(subChatId, 'plan', deps);
+    expect(r1.ok).toBe(true);
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('plan');
 
     // Turn 2 in plan mode.
-    noteSendRequested(subChatId, deps)
-    noteStreamStarted(subChatId, deps)
+    noteSendRequested(subChatId, deps);
+    noteStreamStarted(subChatId, deps);
 
     // Toggle attempted mid-stream — rejected.
-    const r2 = await toggleMode(subChatId, "agent", deps)
-    expect(r2.ok).toBe(false)
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe("plan")
+    const r2 = await toggleMode(subChatId, 'agent', deps);
+    expect(r2.ok).toBe(false);
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('plan');
 
     // Stream completes.
-    noteStreamCompleted(subChatId, deps)
+    noteStreamCompleted(subChatId, deps);
 
     // Now accepted.
-    const r3 = await toggleMode(subChatId, "agent", deps)
-    expect(r3.ok).toBe(true)
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe("agent")
-  })
-})
+    const r3 = await toggleMode(subChatId, 'agent', deps);
+    expect(r3.ok).toBe(true);
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+  });
+});

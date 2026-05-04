@@ -1,5 +1,5 @@
-import { useAtom, useAtomValue } from "jotai"
-import { useEffect, useMemo, useState } from "react"
+import { useAtom, useAtomValue } from 'jotai';
+import { useEffect, useMemo, useState } from 'react';
 import {
   analyticsOptOutAtom,
   autoAdvanceTargetAtom,
@@ -20,56 +20,52 @@ import {
   type CtrlTabTarget,
   type DockLaunchButtonId,
   type SidebarToggleButtonId,
-  type NewPanelPlacement,
-} from "../../../lib/atoms"
-import {
-  defaultWidgetVisibilityAtom,
-  WIDGET_REGISTRY,
-  type WidgetId,
-} from "../../../features/details-sidebar/atoms"
+  type NewPanelPlacement
+} from '../../../lib/atoms';
+import { defaultWidgetVisibilityAtom, WIDGET_REGISTRY, type WidgetId } from '../../../features/details-sidebar/atoms';
 import {
   defaultAgentModeModelAtom,
   defaultAgentModeThinkingAtom,
   defaultPlanModeModelAtom,
   defaultPlanModeThinkingAtom,
   defaultReviewModeModelAtom,
-  defaultReviewModeThinkingAtom,
-} from "../../../features/agents/atoms"
+  defaultReviewModeThinkingAtom
+} from '../../../features/agents/atoms';
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
   formatClaudeThinkingLabel,
-  type ClaudeThinkingLevel,
-} from "../../../features/agents/lib/models"
-import { APP_META, type ExternalApp } from "../../../../shared/external-apps"
+  type ClaudeThinkingLevel
+} from '../../../features/agents/lib/models';
+import { APP_META, type ExternalApp } from '../../../../shared/external-apps';
 
 // Editor icon imports
-import cursorIcon from "../../../assets/app-icons/cursor.svg"
-import vscodeIcon from "../../../assets/app-icons/vscode.svg"
-import vscodeInsidersIcon from "../../../assets/app-icons/vscode-insiders.svg"
-import zedIcon from "../../../assets/app-icons/zed.png"
-import sublimeIcon from "../../../assets/app-icons/sublime.svg"
-import xcodeIcon from "../../../assets/app-icons/xcode.svg"
-import intellijIcon from "../../../assets/app-icons/intellij.svg"
-import webstormIcon from "../../../assets/app-icons/webstorm.svg"
-import pycharmIcon from "../../../assets/app-icons/pycharm.svg"
-import phpstormIcon from "../../../assets/app-icons/phpstorm.svg"
-import golandIcon from "../../../assets/app-icons/goland.svg"
-import clionIcon from "../../../assets/app-icons/clion.svg"
-import riderIcon from "../../../assets/app-icons/rider.svg"
-import fleetIcon from "../../../assets/app-icons/fleet.svg"
-import rustroverIcon from "../../../assets/app-icons/rustrover.svg"
-import windsurfIcon from "../../../assets/app-icons/windsurf.svg"
-import traeIcon from "../../../assets/app-icons/trae.svg"
-import itermIcon from "../../../assets/app-icons/iterm.png"
-import warpIcon from "../../../assets/app-icons/warp.png"
-import terminalIcon from "../../../assets/app-icons/terminal.png"
-import ghosttyIcon from "../../../assets/app-icons/ghostty.svg"
+import cursorIcon from '../../../assets/app-icons/cursor.svg';
+import vscodeIcon from '../../../assets/app-icons/vscode.svg';
+import vscodeInsidersIcon from '../../../assets/app-icons/vscode-insiders.svg';
+import zedIcon from '../../../assets/app-icons/zed.png';
+import sublimeIcon from '../../../assets/app-icons/sublime.svg';
+import xcodeIcon from '../../../assets/app-icons/xcode.svg';
+import intellijIcon from '../../../assets/app-icons/intellij.svg';
+import webstormIcon from '../../../assets/app-icons/webstorm.svg';
+import pycharmIcon from '../../../assets/app-icons/pycharm.svg';
+import phpstormIcon from '../../../assets/app-icons/phpstorm.svg';
+import golandIcon from '../../../assets/app-icons/goland.svg';
+import clionIcon from '../../../assets/app-icons/clion.svg';
+import riderIcon from '../../../assets/app-icons/rider.svg';
+import fleetIcon from '../../../assets/app-icons/fleet.svg';
+import rustroverIcon from '../../../assets/app-icons/rustrover.svg';
+import windsurfIcon from '../../../assets/app-icons/windsurf.svg';
+import traeIcon from '../../../assets/app-icons/trae.svg';
+import itermIcon from '../../../assets/app-icons/iterm.png';
+import warpIcon from '../../../assets/app-icons/warp.png';
+import terminalIcon from '../../../assets/app-icons/terminal.png';
+import ghosttyIcon from '../../../assets/app-icons/ghostty.svg';
 
 const EDITOR_ICONS: Partial<Record<ExternalApp, string>> = {
   cursor: cursorIcon,
   vscode: vscodeIcon,
-  "vscode-insiders": vscodeInsidersIcon,
+  'vscode-insiders': vscodeInsidersIcon,
   zed: zedIcon,
   windsurf: windsurfIcon,
   sublime: sublimeIcon,
@@ -87,56 +83,51 @@ const EDITOR_ICONS: Partial<Record<ExternalApp, string>> = {
   clion: clionIcon,
   rider: riderIcon,
   fleet: fleetIcon,
-  rustrover: rustroverIcon,
-}
+  rustrover: rustroverIcon
+};
 
 interface EditorOption {
-  id: ExternalApp
-  label: string
+  id: ExternalApp;
+  label: string;
 }
 
 // Order matches Superset: editors, terminals, VS Code, JetBrains
 const EDITORS: EditorOption[] = [
-  { id: "cursor", label: "Cursor" },
-  { id: "zed", label: "Zed" },
-  { id: "sublime", label: "Sublime Text" },
-  { id: "xcode", label: "Xcode" },
-  { id: "windsurf", label: "Windsurf" },
-  { id: "trae", label: "Trae" },
-]
+  { id: 'cursor', label: 'Cursor' },
+  { id: 'zed', label: 'Zed' },
+  { id: 'sublime', label: 'Sublime Text' },
+  { id: 'xcode', label: 'Xcode' },
+  { id: 'windsurf', label: 'Windsurf' },
+  { id: 'trae', label: 'Trae' }
+];
 
 const TERMINALS: EditorOption[] = [
-  { id: "iterm", label: "iTerm" },
-  { id: "warp", label: "Warp" },
-  { id: "terminal", label: "Terminal" },
-  { id: "ghostty", label: "Ghostty" },
-]
+  { id: 'iterm', label: 'iTerm' },
+  { id: 'warp', label: 'Warp' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'ghostty', label: 'Ghostty' }
+];
 
 const VSCODE: EditorOption[] = [
-  { id: "vscode", label: "VS Code" },
-  { id: "vscode-insiders", label: "VS Code Insiders" },
-]
+  { id: 'vscode', label: 'VS Code' },
+  { id: 'vscode-insiders', label: 'VS Code Insiders' }
+];
 
 const JETBRAINS: EditorOption[] = [
-  { id: "intellij", label: "IntelliJ IDEA" },
-  { id: "webstorm", label: "WebStorm" },
-  { id: "pycharm", label: "PyCharm" },
-  { id: "phpstorm", label: "PhpStorm" },
-  { id: "goland", label: "GoLand" },
-  { id: "clion", label: "CLion" },
-  { id: "rider", label: "Rider" },
-  { id: "fleet", label: "Fleet" },
-  { id: "rustrover", label: "RustRover" },
-]
-import vscodeBaseIcon from "../../../assets/app-icons/vscode.svg"
-import jetbrainsBaseIcon from "../../../assets/app-icons/jetbrains.svg"
-import { Kbd } from "../../ui/kbd"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "../../ui/select"
+  { id: 'intellij', label: 'IntelliJ IDEA' },
+  { id: 'webstorm', label: 'WebStorm' },
+  { id: 'pycharm', label: 'PyCharm' },
+  { id: 'phpstorm', label: 'PhpStorm' },
+  { id: 'goland', label: 'GoLand' },
+  { id: 'clion', label: 'CLion' },
+  { id: 'rider', label: 'Rider' },
+  { id: 'fleet', label: 'Fleet' },
+  { id: 'rustrover', label: 'RustRover' }
+];
+import vscodeBaseIcon from '../../../assets/app-icons/vscode.svg';
+import jetbrainsBaseIcon from '../../../assets/app-icons/jetbrains.svg';
+import { Kbd } from '../../ui/kbd';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '../../ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -145,115 +136,101 @@ import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "../../ui/dropdown-menu"
-import { ChevronDown } from "lucide-react"
-import { Switch } from "../../ui/switch"
-import { Checkbox } from "../../ui/checkbox"
-import { trpc } from "../../../lib/trpc"
+  DropdownMenuTrigger
+} from '../../ui/dropdown-menu';
+import { ChevronDown } from 'lucide-react';
+import { Switch } from '../../ui/switch';
+import { Checkbox } from '../../ui/checkbox';
+import { trpc } from '../../../lib/trpc';
 
 // Hook to detect narrow screen
 function useIsNarrowScreen(): boolean {
-  const [isNarrow, setIsNarrow] = useState(false)
+  const [isNarrow, setIsNarrow] = useState(false);
 
   useEffect(() => {
     const checkWidth = () => {
-      setIsNarrow(window.innerWidth <= 768)
-    }
+      setIsNarrow(window.innerWidth <= 768);
+    };
 
-    checkWidth()
-    window.addEventListener("resize", checkWidth)
-    return () => window.removeEventListener("resize", checkWidth)
-  }, [])
+    checkWidth();
+    window.addEventListener('resize', checkWidth);
+    return () => window.removeEventListener('resize', checkWidth);
+  }, []);
 
-  return isNarrow
+  return isNarrow;
 }
 
 type ModelOption = {
-  id: string
-  label: string
-  provider: "claude-code" | "codex"
-}
+  id: string;
+  label: string;
+  provider: 'claude-code' | 'codex';
+};
 
 function buildModelOptions(hiddenModels: string[]): ModelOption[] {
-  const hidden = new Set(hiddenModels)
+  const hidden = new Set(hiddenModels);
   const claude = CLAUDE_MODELS.filter((m) => !hidden.has(m.id)).map((m) => ({
     id: m.id,
     label: `${m.name} ${m.version}`,
-    provider: "claude-code" as const,
-  }))
+    provider: 'claude-code' as const
+  }));
   const codex = CODEX_MODELS.filter((m) => !hidden.has(m.id)).map((m) => ({
     id: m.id,
     label: m.name,
-    provider: "codex" as const,
-  }))
-  return [...claude, ...codex]
+    provider: 'codex' as const
+  }));
+  return [...claude, ...codex];
 }
 
 function formatModelLabel(modelId: string, options: ModelOption[]): string {
-  return options.find((m) => m.id === modelId)?.label ?? modelId
+  return options.find((m) => m.id === modelId)?.label ?? modelId;
 }
 
 export function AgentsPreferencesTab() {
-  const [soundEnabled, setSoundEnabled] = useAtom(soundNotificationsEnabledAtom)
-  const [desktopNotificationsEnabled, setDesktopNotificationsEnabled] = useAtom(desktopNotificationsEnabledAtom)
-  const [notifyWhenFocused, setNotifyWhenFocused] = useAtom(notifyWhenFocusedAtom)
-  const [analyticsOptOut, setAnalyticsOptOut] = useAtom(analyticsOptOutAtom)
-  const [ctrlTabTarget, setCtrlTabTarget] = useAtom(ctrlTabTargetAtom)
-  const [autoAdvanceTarget, setAutoAdvanceTarget] = useAtom(autoAdvanceTargetAtom)
-  const [defaultAgentMode, setDefaultAgentMode] = useAtom(defaultAgentModeAtom)
-  const [panelPlacement, setPanelPlacement] = useAtom(newPanelPlacementAtom)
-  const [visibleDockButtons, setVisibleDockButtons] = useAtom(visibleDockLaunchButtonsAtom)
-  const [visibleSidebarToggles, setVisibleSidebarToggles] = useAtom(visibleSidebarToggleButtonsAtom)
-  const [defaultWidgets, setDefaultWidgets] = useAtom(defaultWidgetVisibilityAtom)
-  const [defaultPlanModel, setDefaultPlanModel] = useAtom(defaultPlanModeModelAtom)
-  const [defaultAgentModel, setDefaultAgentModel] = useAtom(
-    defaultAgentModeModelAtom,
-  )
-  const [defaultReviewModel, setDefaultReviewModel] = useAtom(
-    defaultReviewModeModelAtom,
-  )
-  const [defaultPlanThinking, setDefaultPlanThinking] = useAtom(
-    defaultPlanModeThinkingAtom,
-  )
-  const [defaultAgentThinking, setDefaultAgentThinking] = useAtom(
-    defaultAgentModeThinkingAtom,
-  )
-  const [defaultReviewThinking, setDefaultReviewThinking] = useAtom(
-    defaultReviewModeThinkingAtom,
-  )
-  const hiddenModels = useAtomValue(hiddenModelsAtom)
-  const modelOptions = useMemo(
-    () => buildModelOptions(hiddenModels),
-    [hiddenModels],
-  )
-  const [preferredEditor, setPreferredEditor] = useAtom(preferredEditorAtom)
-  const isNarrowScreen = useIsNarrowScreen()
+  const [soundEnabled, setSoundEnabled] = useAtom(soundNotificationsEnabledAtom);
+  const [desktopNotificationsEnabled, setDesktopNotificationsEnabled] = useAtom(desktopNotificationsEnabledAtom);
+  const [notifyWhenFocused, setNotifyWhenFocused] = useAtom(notifyWhenFocusedAtom);
+  const [analyticsOptOut, setAnalyticsOptOut] = useAtom(analyticsOptOutAtom);
+  const [ctrlTabTarget, setCtrlTabTarget] = useAtom(ctrlTabTargetAtom);
+  const [autoAdvanceTarget, setAutoAdvanceTarget] = useAtom(autoAdvanceTargetAtom);
+  const [defaultAgentMode, setDefaultAgentMode] = useAtom(defaultAgentModeAtom);
+  const [panelPlacement, setPanelPlacement] = useAtom(newPanelPlacementAtom);
+  const [visibleDockButtons, setVisibleDockButtons] = useAtom(visibleDockLaunchButtonsAtom);
+  const [visibleSidebarToggles, setVisibleSidebarToggles] = useAtom(visibleSidebarToggleButtonsAtom);
+  const [defaultWidgets, setDefaultWidgets] = useAtom(defaultWidgetVisibilityAtom);
+  const [defaultPlanModel, setDefaultPlanModel] = useAtom(defaultPlanModeModelAtom);
+  const [defaultAgentModel, setDefaultAgentModel] = useAtom(defaultAgentModeModelAtom);
+  const [defaultReviewModel, setDefaultReviewModel] = useAtom(defaultReviewModeModelAtom);
+  const [defaultPlanThinking, setDefaultPlanThinking] = useAtom(defaultPlanModeThinkingAtom);
+  const [defaultAgentThinking, setDefaultAgentThinking] = useAtom(defaultAgentModeThinkingAtom);
+  const [defaultReviewThinking, setDefaultReviewThinking] = useAtom(defaultReviewModeThinkingAtom);
+  const hiddenModels = useAtomValue(hiddenModelsAtom);
+  const modelOptions = useMemo(() => buildModelOptions(hiddenModels), [hiddenModels]);
+  const [preferredEditor, setPreferredEditor] = useAtom(preferredEditorAtom);
+  const isNarrowScreen = useIsNarrowScreen();
 
   // Co-authored-by setting from Claude settings.json
   const { data: includeCoAuthoredBy, refetch: refetchCoAuthoredBy } =
-    trpc.claudeSettings.getIncludeCoAuthoredBy.useQuery()
-  const setCoAuthoredByMutation =
-    trpc.claudeSettings.setIncludeCoAuthoredBy.useMutation({
-      onSuccess: () => {
-        refetchCoAuthoredBy()
-      },
-    })
+    trpc.claudeSettings.getIncludeCoAuthoredBy.useQuery();
+  const setCoAuthoredByMutation = trpc.claudeSettings.setIncludeCoAuthoredBy.useMutation({
+    onSuccess: () => {
+      refetchCoAuthoredBy();
+    }
+  });
 
   const handleCoAuthoredByToggle = (enabled: boolean) => {
-    setCoAuthoredByMutation.mutate({ enabled })
-  }
+    setCoAuthoredByMutation.mutate({ enabled });
+  };
 
   // Sync opt-out status to main process
   const handleAnalyticsToggle = async (optedOut: boolean) => {
-    setAnalyticsOptOut(optedOut)
+    setAnalyticsOptOut(optedOut);
     // Notify main process
     try {
-      await window.desktopApi?.setAnalyticsOptOut(optedOut)
+      await window.desktopApi?.setAnalyticsOptOut(optedOut);
     } catch (error) {
-      console.error("Failed to sync analytics opt-out to main process:", error)
+      console.error('Failed to sync analytics opt-out to main process:', error);
     }
-  }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -261,9 +238,7 @@ export function AgentsPreferencesTab() {
       {!isNarrowScreen && (
         <div className="flex flex-col space-y-1.5 text-center sm:text-left">
           <h3 className="text-sm font-semibold text-foreground">Preferences</h3>
-          <p className="text-xs text-muted-foreground">
-            Configure Claude's behavior and features
-          </p>
+          <p className="text-xs text-muted-foreground">Configure Claude's behavior and features</p>
         </div>
       )}
 
@@ -271,21 +246,14 @@ export function AgentsPreferencesTab() {
       <div className="bg-background rounded-lg border border-border overflow-hidden">
         <div className="flex items-center justify-between p-4">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Default Mode
-            </span>
+            <span className="text-sm font-medium text-foreground">Default Mode</span>
             <span className="text-xs text-muted-foreground">
               Mode for new agents (Plan = read-only, Agent = can edit)
             </span>
           </div>
-          <Select
-            value={defaultAgentMode}
-            onValueChange={(value: AgentMode) => setDefaultAgentMode(value)}
-          >
+          <Select value={defaultAgentMode} onValueChange={(value: AgentMode) => setDefaultAgentMode(value)}>
             <SelectTrigger className="w-auto px-2">
-              <span className="text-xs">
-                {defaultAgentMode === "agent" ? "Agent" : "Plan"}
-              </span>
+              <span className="text-xs">{defaultAgentMode === 'agent' ? 'Agent' : 'Plan'}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="agent">Agent</SelectItem>
@@ -295,23 +263,15 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border gap-4">
           <div className="flex flex-col space-y-1 min-w-0">
-            <span className="text-sm font-medium text-foreground">
-              Default Plan
-            </span>
+            <span className="text-sm font-medium text-foreground">Default Plan</span>
             <span className="text-xs text-muted-foreground">
-              Model and thinking effort applied when a chat starts or switches
-              to Plan mode
+              Model and thinking effort applied when a chat starts or switches to Plan mode
             </span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <Select
-              value={defaultPlanModel}
-              onValueChange={(value: string) => setDefaultPlanModel(value)}
-            >
+            <Select value={defaultPlanModel} onValueChange={(value: string) => setDefaultPlanModel(value)}>
               <SelectTrigger className="w-auto px-2">
-                <span className="text-xs">
-                  {formatModelLabel(defaultPlanModel, modelOptions)}
-                </span>
+                <span className="text-xs">{formatModelLabel(defaultPlanModel, modelOptions)}</span>
               </SelectTrigger>
               <SelectContent>
                 {modelOptions.map((model) => (
@@ -323,19 +283,12 @@ export function AgentsPreferencesTab() {
             </Select>
             <Select
               value={defaultPlanThinking}
-              onValueChange={(value: ClaudeThinkingLevel) =>
-                setDefaultPlanThinking(value)
-              }
-            >
+              onValueChange={(value: ClaudeThinkingLevel) => setDefaultPlanThinking(value)}>
               <SelectTrigger className="w-auto px-2">
-                <span className="text-xs">
-                  {formatClaudeThinkingLabel(defaultPlanThinking)}
-                </span>
+                <span className="text-xs">{formatClaudeThinkingLabel(defaultPlanThinking)}</span>
               </SelectTrigger>
               <SelectContent>
-                {(
-                  ["off", "low", "medium", "high", "xhigh", "max"] as const
-                ).map((level) => (
+                {(['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map((level) => (
                   <SelectItem key={level} value={level}>
                     {formatClaudeThinkingLabel(level)}
                   </SelectItem>
@@ -346,23 +299,16 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border gap-4">
           <div className="flex flex-col space-y-1 min-w-0">
-            <span className="text-sm font-medium text-foreground">
-              Default Agent
-            </span>
+            <span className="text-sm font-medium text-foreground">Default Agent</span>
             <span className="text-xs text-muted-foreground">
-              Model and thinking effort applied when a chat starts or switches
-              to Agent mode (e.g. after approving a plan)
+              Model and thinking effort applied when a chat starts or switches to Agent mode (e.g. after approving a
+              plan)
             </span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <Select
-              value={defaultAgentModel}
-              onValueChange={(value: string) => setDefaultAgentModel(value)}
-            >
+            <Select value={defaultAgentModel} onValueChange={(value: string) => setDefaultAgentModel(value)}>
               <SelectTrigger className="w-auto px-2">
-                <span className="text-xs">
-                  {formatModelLabel(defaultAgentModel, modelOptions)}
-                </span>
+                <span className="text-xs">{formatModelLabel(defaultAgentModel, modelOptions)}</span>
               </SelectTrigger>
               <SelectContent>
                 {modelOptions.map((model) => (
@@ -374,19 +320,12 @@ export function AgentsPreferencesTab() {
             </Select>
             <Select
               value={defaultAgentThinking}
-              onValueChange={(value: ClaudeThinkingLevel) =>
-                setDefaultAgentThinking(value)
-              }
-            >
+              onValueChange={(value: ClaudeThinkingLevel) => setDefaultAgentThinking(value)}>
               <SelectTrigger className="w-auto px-2">
-                <span className="text-xs">
-                  {formatClaudeThinkingLabel(defaultAgentThinking)}
-                </span>
+                <span className="text-xs">{formatClaudeThinkingLabel(defaultAgentThinking)}</span>
               </SelectTrigger>
               <SelectContent>
-                {(
-                  ["off", "low", "medium", "high", "xhigh", "max"] as const
-                ).map((level) => (
+                {(['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map((level) => (
                   <SelectItem key={level} value={level}>
                     {formatClaudeThinkingLabel(level)}
                   </SelectItem>
@@ -397,23 +336,15 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border gap-4">
           <div className="flex flex-col space-y-1 min-w-0">
-            <span className="text-sm font-medium text-foreground">
-              Default Review
-            </span>
+            <span className="text-sm font-medium text-foreground">Default Review</span>
             <span className="text-xs text-muted-foreground">
-              Model and thinking effort applied when running /review or
-              /security-review
+              Model and thinking effort applied when running /review or /security-review
             </span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <Select
-              value={defaultReviewModel}
-              onValueChange={(value: string) => setDefaultReviewModel(value)}
-            >
+            <Select value={defaultReviewModel} onValueChange={(value: string) => setDefaultReviewModel(value)}>
               <SelectTrigger className="w-auto px-2">
-                <span className="text-xs">
-                  {formatModelLabel(defaultReviewModel, modelOptions)}
-                </span>
+                <span className="text-xs">{formatModelLabel(defaultReviewModel, modelOptions)}</span>
               </SelectTrigger>
               <SelectContent>
                 {modelOptions.map((model) => (
@@ -425,19 +356,12 @@ export function AgentsPreferencesTab() {
             </Select>
             <Select
               value={defaultReviewThinking}
-              onValueChange={(value: ClaudeThinkingLevel) =>
-                setDefaultReviewThinking(value)
-              }
-            >
+              onValueChange={(value: ClaudeThinkingLevel) => setDefaultReviewThinking(value)}>
               <SelectTrigger className="w-auto px-2">
-                <span className="text-xs">
-                  {formatClaudeThinkingLabel(defaultReviewThinking)}
-                </span>
+                <span className="text-xs">{formatClaudeThinkingLabel(defaultReviewThinking)}</span>
               </SelectTrigger>
               <SelectContent>
-                {(
-                  ["off", "low", "medium", "high", "xhigh", "max"] as const
-                ).map((level) => (
+                {(['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map((level) => (
                   <SelectItem key={level} value={level}>
                     {formatClaudeThinkingLabel(level)}
                   </SelectItem>
@@ -448,9 +372,7 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Include Co-Authored-By
-            </span>
+            <span className="text-sm font-medium text-foreground">Include Co-Authored-By</span>
             <span className="text-xs text-muted-foreground">
               Add "Co-authored-by: Claude" to git commits made by Claude
             </span>
@@ -467,9 +389,7 @@ export function AgentsPreferencesTab() {
       <div className="bg-background rounded-lg border border-border overflow-hidden">
         <div className="flex items-center justify-between p-4">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Desktop Notifications
-            </span>
+            <span className="text-sm font-medium text-foreground">Desktop Notifications</span>
             <span className="text-xs text-muted-foreground">
               Show system notifications when agent needs input or completes work
             </span>
@@ -478,9 +398,7 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Sound Notifications
-            </span>
+            <span className="text-sm font-medium text-foreground">Sound Notifications</span>
             <span className="text-xs text-muted-foreground">
               Play a sound when agent completes work while you're away
             </span>
@@ -489,12 +407,8 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Notify When Focused
-            </span>
-            <span className="text-xs text-muted-foreground">
-              Show notifications even when the app window is active
-            </span>
+            <span className="text-sm font-medium text-foreground">Notify When Focused</span>
+            <span className="text-xs text-muted-foreground">Show notifications even when the app window is active</span>
           </div>
           <Switch
             checked={notifyWhenFocused}
@@ -508,21 +422,14 @@ export function AgentsPreferencesTab() {
       <div className="bg-background rounded-lg border border-border overflow-hidden">
         <div className="flex items-center justify-between p-4">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Quick Switch
-            </span>
+            <span className="text-sm font-medium text-foreground">Quick Switch</span>
             <span className="text-xs text-muted-foreground">
               What <Kbd>⌃Tab</Kbd> switches between
             </span>
           </div>
-          <Select
-            value={ctrlTabTarget}
-            onValueChange={(value: CtrlTabTarget) => setCtrlTabTarget(value)}
-          >
+          <Select value={ctrlTabTarget} onValueChange={(value: CtrlTabTarget) => setCtrlTabTarget(value)}>
             <SelectTrigger className="w-auto px-2">
-              <span className="text-xs">
-                {ctrlTabTarget === "workspaces" ? "Workspaces" : "Agents"}
-              </span>
+              <span className="text-xs">{ctrlTabTarget === 'workspaces' ? 'Workspaces' : 'Agents'}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="workspaces">Workspaces</SelectItem>
@@ -532,24 +439,17 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Auto-advance
-            </span>
-            <span className="text-xs text-muted-foreground">
-              Where to go after archiving a workspace
-            </span>
+            <span className="text-sm font-medium text-foreground">Auto-advance</span>
+            <span className="text-xs text-muted-foreground">Where to go after archiving a workspace</span>
           </div>
-          <Select
-            value={autoAdvanceTarget}
-            onValueChange={(value: AutoAdvanceTarget) => setAutoAdvanceTarget(value)}
-          >
+          <Select value={autoAdvanceTarget} onValueChange={(value: AutoAdvanceTarget) => setAutoAdvanceTarget(value)}>
             <SelectTrigger className="w-auto px-2">
               <span className="text-xs">
-                {autoAdvanceTarget === "next"
-                  ? "Go to next workspace"
-                  : autoAdvanceTarget === "previous"
-                    ? "Go to previous workspace"
-                    : "Close workspace"}
+                {autoAdvanceTarget === 'next'
+                  ? 'Go to next workspace'
+                  : autoAdvanceTarget === 'previous'
+                    ? 'Go to previous workspace'
+                    : 'Close workspace'}
               </span>
             </SelectTrigger>
             <SelectContent>
@@ -561,29 +461,18 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Preferred Editor
-            </span>
-            <span className="text-xs text-muted-foreground">
-              Default app for opening workspaces
-            </span>
+            <span className="text-sm font-medium text-foreground">Preferred Editor</span>
+            <span className="text-xs text-muted-foreground">Default app for opening workspaces</span>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground transition-colors"
-              >
+                className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground transition-colors">
                 {EDITOR_ICONS[preferredEditor] && (
-                  <img
-                    src={EDITOR_ICONS[preferredEditor]}
-                    alt=""
-                    className="h-4 w-4 flex-shrink-0"
-                  />
+                  <img src={EDITOR_ICONS[preferredEditor]} alt="" className="h-4 w-4 flex-shrink-0" />
                 )}
-                <span className="truncate">
-                  {APP_META[preferredEditor].label}
-                </span>
+                <span className="truncate">{APP_META[preferredEditor].label}</span>
                 <ChevronDown className="h-3 w-3 opacity-50" />
               </button>
             </DropdownMenuTrigger>
@@ -592,8 +481,7 @@ export function AgentsPreferencesTab() {
                 <DropdownMenuItem
                   key={editor.id}
                   onClick={() => setPreferredEditor(editor.id)}
-                  className="flex items-center gap-2"
-                >
+                  className="flex items-center gap-2">
                   {EDITOR_ICONS[editor.id] ? (
                     <img src={EDITOR_ICONS[editor.id]} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
                   ) : (
@@ -606,8 +494,7 @@ export function AgentsPreferencesTab() {
                 <DropdownMenuItem
                   key={app.id}
                   onClick={() => setPreferredEditor(app.id)}
-                  className="flex items-center gap-2"
-                >
+                  className="flex items-center gap-2">
                   {EDITOR_ICONS[app.id] ? (
                     <img src={EDITOR_ICONS[app.id]} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
                   ) : (
@@ -626,8 +513,7 @@ export function AgentsPreferencesTab() {
                     <DropdownMenuItem
                       key={app.id}
                       onClick={() => setPreferredEditor(app.id)}
-                      className="flex items-center gap-2"
-                    >
+                      className="flex items-center gap-2">
                       {EDITOR_ICONS[app.id] ? (
                         <img src={EDITOR_ICONS[app.id]} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
                       ) : (
@@ -648,8 +534,7 @@ export function AgentsPreferencesTab() {
                     <DropdownMenuItem
                       key={app.id}
                       onClick={() => setPreferredEditor(app.id)}
-                      className="flex items-center gap-2"
-                    >
+                      className="flex items-center gap-2">
                       {EDITOR_ICONS[app.id] ? (
                         <img src={EDITOR_ICONS[app.id]} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
                       ) : (
@@ -687,28 +572,23 @@ export function AgentsPreferencesTab() {
       <div className="bg-background rounded-lg border border-border overflow-hidden">
         <div className="flex items-center justify-between p-4">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              New Panel Placement
-            </span>
+            <span className="text-sm font-medium text-foreground">New Panel Placement</span>
             <span className="text-xs text-muted-foreground">
               Where new panels open when you click Chat, Plan, Changes, etc.
             </span>
           </div>
-          <Select
-            value={panelPlacement}
-            onValueChange={(value: NewPanelPlacement) => setPanelPlacement(value)}
-          >
+          <Select value={panelPlacement} onValueChange={(value: NewPanelPlacement) => setPanelPlacement(value)}>
             <SelectTrigger className="w-auto px-2">
               <span className="text-xs">
-                {panelPlacement === "smart"
-                  ? "Smart"
-                  : panelPlacement === "tab"
-                    ? "Always Tab"
-                    : panelPlacement === "split-right"
-                      ? "Split Right"
-                      : panelPlacement === "split-down"
-                        ? "Split Below"
-                        : "Split Left"}
+                {panelPlacement === 'smart'
+                  ? 'Smart'
+                  : panelPlacement === 'tab'
+                    ? 'Always Tab'
+                    : panelPlacement === 'split-right'
+                      ? 'Split Right'
+                      : panelPlacement === 'split-down'
+                        ? 'Split Below'
+                        : 'Split Left'}
               </span>
             </SelectTrigger>
             <SelectContent>
@@ -737,12 +617,12 @@ export function AgentsPreferencesTab() {
                 <Checkbox
                   checked={visibleDockButtons.includes(btn.id as DockLaunchButtonId)}
                   onCheckedChange={() => {
-                    const id = btn.id as DockLaunchButtonId
+                    const id = btn.id as DockLaunchButtonId;
                     setVisibleDockButtons(
                       visibleDockButtons.includes(id)
                         ? visibleDockButtons.filter((b) => b !== id)
-                        : [...visibleDockButtons, id],
-                    )
+                        : [...visibleDockButtons, id]
+                    );
                   }}
                 />
                 <span className="text-xs text-foreground">{btn.label}</span>
@@ -767,12 +647,12 @@ export function AgentsPreferencesTab() {
                 <Checkbox
                   checked={visibleSidebarToggles.includes(btn.id as SidebarToggleButtonId)}
                   onCheckedChange={() => {
-                    const id = btn.id as SidebarToggleButtonId
+                    const id = btn.id as SidebarToggleButtonId;
                     setVisibleSidebarToggles(
                       visibleSidebarToggles.includes(id)
                         ? visibleSidebarToggles.filter((b) => b !== id)
-                        : [...visibleSidebarToggles, id],
-                    )
+                        : [...visibleSidebarToggles, id]
+                    );
                   }}
                 />
                 <span className="text-xs text-foreground">{btn.label}</span>
@@ -797,12 +677,10 @@ export function AgentsPreferencesTab() {
                 <Checkbox
                   checked={defaultWidgets.includes(widget.id as WidgetId)}
                   onCheckedChange={() => {
-                    const id = widget.id as WidgetId
+                    const id = widget.id as WidgetId;
                     setDefaultWidgets(
-                      defaultWidgets.includes(id)
-                        ? defaultWidgets.filter((w) => w !== id)
-                        : [...defaultWidgets, id],
-                    )
+                      defaultWidgets.includes(id) ? defaultWidgets.filter((w) => w !== id) : [...defaultWidgets, id]
+                    );
                   }}
                 />
                 <span className="text-xs text-foreground">{widget.label}</span>
@@ -812,5 +690,5 @@ export function AgentsPreferencesTab() {
         </div>
       </div>
     </div>
-  )
+  );
 }

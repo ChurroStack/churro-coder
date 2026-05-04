@@ -1,4 +1,4 @@
-import type { GitHubStatus, PRComment } from "../github/types";
+import type { GitHubStatus, PRComment } from '../github/types';
 
 /**
  * The provider-agnostic PR status shape. Aliased to GitHubStatus for v1 since
@@ -9,4 +9,4 @@ export type PullRequestStatus = GitHubStatus;
 
 export type { PRComment };
 
-export type SupportedProvider = "github" | "azure";
+export type SupportedProvider = 'github' | 'azure';

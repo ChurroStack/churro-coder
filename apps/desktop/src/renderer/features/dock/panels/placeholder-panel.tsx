@@ -1,4 +1,4 @@
-import type { IDockviewPanelProps } from "dockview-react"
+import type { IDockviewPanelProps } from 'dockview-react';
 
 export function PlaceholderPanel({ api, params }: IDockviewPanelProps) {
   return (
@@ -11,5 +11,5 @@ export function PlaceholderPanel({ api, params }: IDockviewPanelProps) {
         </pre>
       ) : null}
     </div>
-  )
+  );
 }

@@ -1,34 +1,34 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect } from 'react';
 
 // Module-level cache for local file icons: projectId → blob URL
-const fileIconCache = new Map<string, string>()
+const fileIconCache = new Map<string, string>();
 // Deduplicate concurrent fetches
-const pendingFetches = new Map<string, Promise<string | null>>()
+const pendingFetches = new Map<string, Promise<string | null>>();
 
 async function fetchFileIcon(projectId: string, fileUrl: string): Promise<string | null> {
-  const cached = fileIconCache.get(projectId)
-  if (cached) return cached
+  const cached = fileIconCache.get(projectId);
+  if (cached) return cached;
 
-  const pending = pendingFetches.get(projectId)
-  if (pending) return pending
+  const pending = pendingFetches.get(projectId);
+  if (pending) return pending;
 
   const promise = (async () => {
     try {
-      const res = await fetch(fileUrl)
-      if (!res.ok) return null
-      const blob = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
-      fileIconCache.set(projectId, blobUrl)
-      return blobUrl
+      const res = await fetch(fileUrl);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      fileIconCache.set(projectId, blobUrl);
+      return blobUrl;
     } catch {
-      return null
+      return null;
     } finally {
-      pendingFetches.delete(projectId)
+      pendingFetches.delete(projectId);
     }
-  })()
+  })();
 
-  pendingFetches.set(projectId, promise)
-  return promise
+  pendingFetches.set(projectId, promise);
+  return promise;
 }
 
 /**
@@ -36,26 +36,26 @@ async function fetchFileIcon(projectId: string, fileUrl: string): Promise<string
  * Revokes the blob URL and removes the cache entry so the hook re-fetches.
  */
 export function invalidateProjectIcon(projectId: string) {
-  const cached = fileIconCache.get(projectId)
+  const cached = fileIconCache.get(projectId);
   if (cached) {
-    URL.revokeObjectURL(cached)
-    fileIconCache.delete(projectId)
+    URL.revokeObjectURL(cached);
+    fileIconCache.delete(projectId);
   }
 }
 
 interface ProjectIconData {
-  id: string
-  iconPath?: string | null
-  updatedAt?: string | Date | null
-  gitOwner?: string | null
-  gitProvider?: string | null
+  id: string;
+  iconPath?: string | null;
+  updatedAt?: string | Date | null;
+  gitOwner?: string | null;
+  gitProvider?: string | null;
 }
 
 interface UseProjectIconResult {
   /** URL to use as img src — blob URL for local icons, direct URL for GitHub avatars */
-  src: string | null
-  isLoading: boolean
-  hasError: boolean
+  src: string | null;
+  isLoading: boolean;
+  hasError: boolean;
 }
 
 /**
@@ -65,60 +65,60 @@ interface UseProjectIconResult {
  * - No icon: returns null
  */
 export function useProjectIcon(project: ProjectIconData | null | undefined): UseProjectIconResult {
-  const [src, setSrc] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [hasError, setHasError] = useState(false)
+  const [src, setSrc] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     if (!project) {
-      setSrc(null)
-      setIsLoading(false)
-      setHasError(false)
-      return
+      setSrc(null);
+      setIsLoading(false);
+      setHasError(false);
+      return;
     }
 
-    let cancelled = false
+    let cancelled = false;
 
     if (project.iconPath) {
       // Local file icon — fetch and cache as blob URL
-      const cached = fileIconCache.get(project.id)
+      const cached = fileIconCache.get(project.id);
       if (cached) {
-        setSrc(cached)
-        setIsLoading(false)
-        setHasError(false)
-        return
+        setSrc(cached);
+        setIsLoading(false);
+        setHasError(false);
+        return;
       }
 
-      setIsLoading(true)
-      setHasError(false)
+      setIsLoading(true);
+      setHasError(false);
 
-      const fileUrl = `file://${project.iconPath}?t=${project.updatedAt}`
+      const fileUrl = `file://${project.iconPath}?t=${project.updatedAt}`;
       fetchFileIcon(project.id, fileUrl).then((blobUrl) => {
-        if (cancelled) return
+        if (cancelled) return;
         if (blobUrl) {
-          setSrc(blobUrl)
-          setHasError(false)
+          setSrc(blobUrl);
+          setHasError(false);
         } else {
-          setSrc(null)
-          setHasError(true)
+          setSrc(null);
+          setHasError(true);
         }
-        setIsLoading(false)
-      })
-    } else if (project.gitOwner && project.gitProvider === "github") {
+        setIsLoading(false);
+      });
+    } else if (project.gitOwner && project.gitProvider === 'github') {
       // GitHub avatar — return direct URL, <img> handles loading/caching
-      setSrc(`https://github.com/${project.gitOwner}.png?size=64`)
-      setIsLoading(false)
-      setHasError(false)
+      setSrc(`https://github.com/${project.gitOwner}.png?size=64`);
+      setIsLoading(false);
+      setHasError(false);
     } else {
-      setSrc(null)
-      setIsLoading(false)
-      setHasError(false)
+      setSrc(null);
+      setIsLoading(false);
+      setHasError(false);
     }
 
     return () => {
-      cancelled = true
-    }
-  }, [project?.id, project?.iconPath, project?.updatedAt, project?.gitOwner, project?.gitProvider])
+      cancelled = true;
+    };
+  }, [project?.id, project?.iconPath, project?.updatedAt, project?.gitOwner, project?.gitProvider]);
 
-  return { src, isLoading, hasError }
+  return { src, isLoading, hasError };
 }

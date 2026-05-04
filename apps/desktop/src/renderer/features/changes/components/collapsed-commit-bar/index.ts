@@ -1,1 +1,1 @@
-export { CollapsedCommitBar } from "./collapsed-commit-bar";
+export { CollapsedCommitBar } from './collapsed-commit-bar';

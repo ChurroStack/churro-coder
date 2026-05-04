@@ -1,56 +1,50 @@
-import { z } from "zod"
-import { router, publicProcedure } from "../index"
-import { getDatabase, projects } from "../../db"
-import { eq } from "drizzle-orm"
+import { z } from 'zod';
+import { router, publicProcedure } from '../index';
+import { getDatabase, projects } from '../../db';
+import { eq } from 'drizzle-orm';
 import {
   detectWorktreeConfig,
   saveWorktreeConfig,
   getAvailableConfigPaths,
-  type WorktreeConfig,
-} from "../../git/worktree-config"
+  type WorktreeConfig
+} from '../../git/worktree-config';
 
 const WorktreeScriptSchema = z.object({
   name: z.string().min(1).max(60),
-  command: z.string().min(1),
-})
+  command: z.string().min(1)
+});
 
 const WorktreeConfigSchema = z.object({
-  "setup-worktree-unix": z.union([z.array(z.string()), z.string()]).optional(),
-  "setup-worktree-windows": z.union([z.array(z.string()), z.string()]).optional(),
-  "setup-worktree": z.union([z.array(z.string()), z.string()]).optional(),
-  scripts: z.array(WorktreeScriptSchema).optional(),
-})
+  'setup-worktree-unix': z.union([z.array(z.string()), z.string()]).optional(),
+  'setup-worktree-windows': z.union([z.array(z.string()), z.string()]).optional(),
+  'setup-worktree': z.union([z.array(z.string()), z.string()]).optional(),
+  scripts: z.array(WorktreeScriptSchema).optional()
+});
 
 export const worktreeConfigRouter = router({
   /**
    * Get worktree config for a project
    * Detects from .cursor/worktrees.json or .cscode/worktree.json (legacy: .1code/worktree.json read-only)
    */
-  get: publicProcedure
-    .input(z.object({ projectId: z.string() }))
-    .query(async ({ input }) => {
-      const db = getDatabase()
-      const project = db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, input.projectId))
-        .get()
+  get: publicProcedure.input(z.object({ projectId: z.string() })).query(async ({ input }) => {
+    const db = getDatabase();
+    const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
 
-      if (!project) {
-        throw new Error("Project not found")
-      }
+    if (!project) {
+      throw new Error('Project not found');
+    }
 
-      const detected = await detectWorktreeConfig(project.path)
-      const available = await getAvailableConfigPaths(project.path)
+    const detected = await detectWorktreeConfig(project.path);
+    const available = await getAvailableConfigPaths(project.path);
 
-      return {
-        config: detected.config,
-        path: detected.path,
-        source: detected.source,
-        available,
-        projectPath: project.path,
-      }
-    }),
+    return {
+      config: detected.config,
+      path: detected.path,
+      source: detected.source,
+      available,
+      projectPath: project.path
+    };
+  }),
 
   /**
    * Save worktree config for a project
@@ -60,47 +54,33 @@ export const worktreeConfigRouter = router({
       z.object({
         projectId: z.string(),
         config: WorktreeConfigSchema,
-        target: z.enum(["cursor", "cscode"]).or(z.string()).default("cscode"),
-      }),
+        target: z.enum(['cursor', 'cscode']).or(z.string()).default('cscode')
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
-      const project = db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, input.projectId))
-        .get()
+      const db = getDatabase();
+      const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
 
       if (!project) {
-        throw new Error("Project not found")
+        throw new Error('Project not found');
       }
 
-      const result = await saveWorktreeConfig(
-        project.path,
-        input.config as WorktreeConfig,
-        input.target,
-      )
+      const result = await saveWorktreeConfig(project.path, input.config as WorktreeConfig, input.target);
 
-      return result
+      return result;
     }),
 
   /**
    * Get available config paths for a project
    */
-  getAvailablePaths: publicProcedure
-    .input(z.object({ projectId: z.string() }))
-    .query(async ({ input }) => {
-      const db = getDatabase()
-      const project = db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, input.projectId))
-        .get()
+  getAvailablePaths: publicProcedure.input(z.object({ projectId: z.string() })).query(async ({ input }) => {
+    const db = getDatabase();
+    const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
 
-      if (!project) {
-        throw new Error("Project not found")
-      }
+    if (!project) {
+      throw new Error('Project not found');
+    }
 
-      return getAvailableConfigPaths(project.path)
-    }),
-})
+    return getAvailableConfigPaths(project.path);
+  })
+});

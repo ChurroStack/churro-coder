@@ -1,7 +1,7 @@
-import { atom } from "jotai"
-import { atomFamily, atomWithStorage } from "jotai/utils"
-import { atomWithWindowStorage } from "../../../lib/window-storage"
-import type { LucideIcon } from "lucide-react"
+import { atom } from 'jotai';
+import { atomFamily, atomWithStorage } from 'jotai/utils';
+import { atomWithWindowStorage } from '../../../lib/window-storage';
+import type { LucideIcon } from 'lucide-react';
 import {
   Box,
   FileText,
@@ -11,105 +11,104 @@ import {
   GitPullRequest,
   Activity,
   PlayCircle,
-  Workflow,
-} from "lucide-react"
-import { OriginalMCPIcon } from "../../../components/ui/icons"
+  Workflow
+} from 'lucide-react';
+import { OriginalMCPIcon } from '../../../components/ui/icons';
 
 // ============================================================================
 // Widget System Types & Registry
 // ============================================================================
 
-export type WidgetId = "status" | "info" | "tasks" | "todo" | "plan" | "terminal" | "diff" | "mcp" | "pr" | "scripts"
+export type WidgetId = 'status' | 'info' | 'tasks' | 'todo' | 'plan' | 'terminal' | 'diff' | 'mcp' | 'pr' | 'scripts';
 
 export interface WidgetConfig {
-  id: WidgetId
-  label: string
-  icon: LucideIcon
-  canExpand: boolean // true = can open as separate sidebar
-  defaultVisible: boolean
+  id: WidgetId;
+  label: string;
+  icon: LucideIcon;
+  canExpand: boolean; // true = can open as separate sidebar
+  defaultVisible: boolean;
 }
 
 export const WIDGET_REGISTRY: WidgetConfig[] = [
-  { id: "status", label: "Status", icon: Workflow, canExpand: false, defaultVisible: true },
-  { id: "info", label: "Workspace", icon: Box, canExpand: false, defaultVisible: true },
-  { id: "pr", label: "Pull Request", icon: GitPullRequest, canExpand: false, defaultVisible: false },
-  { id: "tasks", label: "Tasks", icon: Activity, canExpand: false, defaultVisible: true },
-  { id: "todo", label: "To-dos", icon: ListTodo, canExpand: false, defaultVisible: true },
-  { id: "plan", label: "Plan", icon: FileText, canExpand: true, defaultVisible: true },
-  { id: "scripts", label: "Scripts", icon: PlayCircle, canExpand: false, defaultVisible: false },
-  { id: "terminal", label: "Terminal", icon: Terminal, canExpand: true, defaultVisible: false },
-  { id: "diff", label: "Changes", icon: FileDiff, canExpand: true, defaultVisible: true },
-  { id: "mcp", label: "MCP Servers", icon: OriginalMCPIcon as unknown as LucideIcon, canExpand: false, defaultVisible: false },
-]
+  { id: 'status', label: 'Status', icon: Workflow, canExpand: false, defaultVisible: true },
+  { id: 'info', label: 'Workspace', icon: Box, canExpand: false, defaultVisible: true },
+  { id: 'pr', label: 'Pull Request', icon: GitPullRequest, canExpand: false, defaultVisible: false },
+  { id: 'tasks', label: 'Tasks', icon: Activity, canExpand: false, defaultVisible: true },
+  { id: 'todo', label: 'To-dos', icon: ListTodo, canExpand: false, defaultVisible: true },
+  { id: 'plan', label: 'Plan', icon: FileText, canExpand: true, defaultVisible: true },
+  { id: 'scripts', label: 'Scripts', icon: PlayCircle, canExpand: false, defaultVisible: false },
+  { id: 'terminal', label: 'Terminal', icon: Terminal, canExpand: true, defaultVisible: false },
+  { id: 'diff', label: 'Changes', icon: FileDiff, canExpand: true, defaultVisible: true },
+  {
+    id: 'mcp',
+    label: 'MCP Servers',
+    icon: OriginalMCPIcon as unknown as LucideIcon,
+    canExpand: false,
+    defaultVisible: false
+  }
+];
 
 // Helper to get default visible widgets (used as initial value for the user-configurable default)
-export const DEFAULT_VISIBLE_WIDGETS: WidgetId[] = WIDGET_REGISTRY
-  .filter((w) => w.defaultVisible)
-  .map((w) => w.id)
+export const DEFAULT_VISIBLE_WIDGETS: WidgetId[] = WIDGET_REGISTRY.filter((w) => w.defaultVisible).map((w) => w.id);
 
 // Default widget order (all widgets)
-const DEFAULT_WIDGET_ORDER: WidgetId[] = WIDGET_REGISTRY.map((w) => w.id)
+const DEFAULT_WIDGET_ORDER: WidgetId[] = WIDGET_REGISTRY.map((w) => w.id);
 
 // ============================================================================
 // Global Default Widget Visibility (user-configurable, applies to new workspaces)
 // ============================================================================
 
 export const defaultWidgetVisibilityAtom = atomWithStorage<WidgetId[]>(
-  "overview:defaultWidgetVisibility",
+  'overview:defaultWidgetVisibility',
   DEFAULT_VISIBLE_WIDGETS,
   undefined,
-  { getOnInit: true },
-)
+  { getOnInit: true }
+);
 
 // ============================================================================
 // Widget Visibility (per workspace)
 // ============================================================================
 
 const widgetVisibilityStorageAtom = atomWithStorage<Record<string, WidgetId[]>>(
-  "overview:widgetVisibility",
+  'overview:widgetVisibility',
   {},
   undefined,
-  { getOnInit: true },
-)
+  { getOnInit: true }
+);
 
 export const widgetVisibilityAtomFamily = atomFamily((workspaceId: string) =>
   atom(
-    (get) =>
-      get(widgetVisibilityStorageAtom)[workspaceId] ?? get(defaultWidgetVisibilityAtom),
+    (get) => get(widgetVisibilityStorageAtom)[workspaceId] ?? get(defaultWidgetVisibilityAtom),
     (get, set, visibleWidgets: WidgetId[]) => {
-      const current = get(widgetVisibilityStorageAtom)
+      const current = get(widgetVisibilityStorageAtom);
       set(widgetVisibilityStorageAtom, {
         ...current,
-        [workspaceId]: visibleWidgets,
-      })
-    },
-  ),
-)
+        [workspaceId]: visibleWidgets
+      });
+    }
+  )
+);
 
 // ============================================================================
 // Widget Order (per workspace) - controls display order of all widgets
 // ============================================================================
 
-const widgetOrderStorageAtom = atomWithStorage<Record<string, WidgetId[]>>(
-  "overview:widgetOrder",
-  {},
-  undefined,
-  { getOnInit: true },
-)
+const widgetOrderStorageAtom = atomWithStorage<Record<string, WidgetId[]>>('overview:widgetOrder', {}, undefined, {
+  getOnInit: true
+});
 
 export const widgetOrderAtomFamily = atomFamily((workspaceId: string) =>
   atom(
-    (get) =>
-      get(widgetOrderStorageAtom)[workspaceId] ?? DEFAULT_WIDGET_ORDER,
+    (get) => get(widgetOrderStorageAtom)[workspaceId] ?? DEFAULT_WIDGET_ORDER,
     (get, set, widgetOrder: WidgetId[]) => {
-      const current = get(widgetOrderStorageAtom)
+      const current = get(widgetOrderStorageAtom);
       set(widgetOrderStorageAtom, {
         ...current,
-        [workspaceId]: widgetOrder,
-      })
-    },
-  ),
-)
+        [workspaceId]: widgetOrder
+      });
+    }
+  )
+);
 
 // ============================================================================
 // Feature Flag & Sidebar State
@@ -117,116 +116,114 @@ export const widgetOrderAtomFamily = atomFamily((workspaceId: string) =>
 
 // Feature flag for unified vs separate sidebars (for future toggle)
 export const unifiedSidebarEnabledAtom = atomWithStorage<boolean>(
-  "overview:unifiedEnabled",
+  'overview:unifiedEnabled',
   true, // Enable by default
   undefined,
-  { getOnInit: true },
-)
+  { getOnInit: true }
+);
 
 // Details sidebar open state (per-window, persisted)
-export const detailsSidebarOpenAtom = atomWithWindowStorage<boolean>(
-  "overview:sidebarOpen",
-  false,
-  { getOnInit: true },
-)
+export const detailsSidebarOpenAtom = atomWithWindowStorage<boolean>('overview:sidebarOpen', false, {
+  getOnInit: true
+});
 
 // Details sidebar active tab (per-window, persisted)
-export type DetailsSidebarTab = "details" | "files" | "search"
+export type DetailsSidebarTab = 'details' | 'files' | 'search';
 
-export const detailsSidebarTabAtom = atomWithWindowStorage<DetailsSidebarTab>(
-  "overview:sidebarTab",
-  "details",
-  { getOnInit: true },
-)
+export const detailsSidebarTabAtom = atomWithWindowStorage<DetailsSidebarTab>('overview:sidebarTab', 'details', {
+  getOnInit: true
+});
 
 // Section types for the overview sidebar
-export type OverviewSection = "info" | "plan" | "terminal" | "diff"
+export type OverviewSection = 'info' | 'plan' | 'terminal' | 'diff';
 
 // Default expanded sections
-const DEFAULT_EXPANDED_SECTIONS: OverviewSection[] = ["info", "plan", "terminal"]
+const DEFAULT_EXPANDED_SECTIONS: OverviewSection[] = ['info', 'plan', 'terminal'];
 
 // Section expand states (per workspace) - stores array of expanded section IDs
-const sectionExpandStorageAtom = atomWithStorage<
-  Record<string, OverviewSection[]>
->("overview:expandedSections", {}, undefined, { getOnInit: true })
+const sectionExpandStorageAtom = atomWithStorage<Record<string, OverviewSection[]>>(
+  'overview:expandedSections',
+  {},
+  undefined,
+  { getOnInit: true }
+);
 
 export const expandedSectionsAtomFamily = atomFamily((workspaceId: string) =>
   atom(
-    (get) =>
-      get(sectionExpandStorageAtom)[workspaceId] ?? DEFAULT_EXPANDED_SECTIONS,
+    (get) => get(sectionExpandStorageAtom)[workspaceId] ?? DEFAULT_EXPANDED_SECTIONS,
     (get, set, expandedSections: OverviewSection[]) => {
-      const current = get(sectionExpandStorageAtom)
+      const current = get(sectionExpandStorageAtom);
       set(sectionExpandStorageAtom, {
         ...current,
-        [workspaceId]: expandedSections,
-      })
-    },
-  ),
-)
+        [workspaceId]: expandedSections
+      });
+    }
+  )
+);
 
 // Unified sidebar width (persisted)
-export const detailsSidebarWidthAtom = atomWithStorage<number>(
-  "overview:sidebarWidth",
-  500,
-  undefined,
-  { getOnInit: true },
-)
+export const detailsSidebarWidthAtom = atomWithStorage<number>('overview:sidebarWidth', 500, undefined, {
+  getOnInit: true
+});
 
 // Focused section for "focus mode" (when a section needs more space like Diff)
 // null = normal mode, section name = focused mode
-export const focusedSectionAtom = atom<OverviewSection | null>(null)
+export const focusedSectionAtom = atom<OverviewSection | null>(null);
 
 // ============================================================================
 // Plan Content Cache (per workspace) - prevents flashing loading states
 // ============================================================================
 
 export interface PlanContentCache {
-  content: string
-  planPath: string
+  content: string;
+  planPath: string;
   // Track if content is ready (file loaded successfully)
-  isReady: boolean
+  isReady: boolean;
 }
 
 // Runtime cache for plan content per workspace (not persisted)
-const planContentCacheStorageAtom = atom<Record<string, PlanContentCache | null>>({})
+const planContentCacheStorageAtom = atom<Record<string, PlanContentCache | null>>({});
 
 export const planContentCacheAtomFamily = atomFamily((chatId: string) =>
   atom(
     (get) => get(planContentCacheStorageAtom)[chatId] ?? null,
     (get, set, cache: PlanContentCache | null) => {
-      const current = get(planContentCacheStorageAtom)
+      const current = get(planContentCacheStorageAtom);
       set(planContentCacheStorageAtom, {
         ...current,
-        [chatId]: cache,
-      })
-    },
-  ),
-)
+        [chatId]: cache
+      });
+    }
+  )
+);
 
 // ============================================================================
 // File Tree Expanded Paths (per worktree, persisted across reloads)
 // ============================================================================
 
-const fileTreeExpandedStorageAtom = atomWithStorage<
-  Record<string, string[]>
->("overview:fileTreeExpanded", {}, undefined, { getOnInit: true })
+const fileTreeExpandedStorageAtom = atomWithStorage<Record<string, string[]>>(
+  'overview:fileTreeExpanded',
+  {},
+  undefined,
+  { getOnInit: true }
+);
 
 /** null sentinel: first mount for this worktree (no user action yet → auto-expand roots) */
 export const fileTreeExpandedAtomFamily = atomFamily((worktreePath: string) =>
   atom(
     (get): string[] | null => {
-      const stored = get(fileTreeExpandedStorageAtom)[worktreePath]
-      return stored ?? null // null = never initialised
+      const stored = get(fileTreeExpandedStorageAtom)[worktreePath];
+      return stored ?? null; // null = never initialised
     },
     (get, set, paths: string[]) => {
-      const current = get(fileTreeExpandedStorageAtom)
+      const current = get(fileTreeExpandedStorageAtom);
       set(fileTreeExpandedStorageAtom, {
         ...current,
-        [worktreePath]: paths,
-      })
-    },
-  ),
-)
+        [worktreePath]: paths
+      });
+    }
+  )
+);
 
 // ============================================================================
 // Status widget — per-subChat workflow tracking
@@ -235,51 +232,51 @@ export const fileTreeExpandedAtomFamily = atomFamily((worktreePath: string) =>
 // User clicked Review (local) and the diff-sidebar opened — flip to "done" so
 // the Review milestone goes green even without a PR.
 const localReviewCompletedStorageAtom = atomWithStorage<Record<string, boolean>>(
-  "overview:localReviewCompleted",
+  'overview:localReviewCompleted',
   {},
   undefined,
-  { getOnInit: true },
-)
+  { getOnInit: true }
+);
 
 export const localReviewCompletedAtomFamily = atomFamily((subChatId: string) =>
   atom(
     (get) => get(localReviewCompletedStorageAtom)[subChatId] ?? false,
     (get, set, value: boolean) => {
-      const current = get(localReviewCompletedStorageAtom)
-      set(localReviewCompletedStorageAtom, { ...current, [subChatId]: value })
-    },
-  ),
-)
+      const current = get(localReviewCompletedStorageAtom);
+      set(localReviewCompletedStorageAtom, { ...current, [subChatId]: value });
+    }
+  )
+);
 
 // True once a plan was generated for this subChat (drives Plan = "done" after
 // the user approves the plan and we flip the chat into agent mode).
 const planEverGeneratedStorageAtom = atomWithStorage<Record<string, boolean>>(
-  "overview:planEverGenerated",
+  'overview:planEverGenerated',
   {},
   undefined,
-  { getOnInit: true },
-)
+  { getOnInit: true }
+);
 
 export const planEverGeneratedAtomFamily = atomFamily((subChatId: string) =>
   atom(
     (get) => get(planEverGeneratedStorageAtom)[subChatId] ?? false,
     (get, set, value: boolean) => {
-      const current = get(planEverGeneratedStorageAtom)
-      set(planEverGeneratedStorageAtom, { ...current, [subChatId]: value })
-    },
-  ),
-)
+      const current = get(planEverGeneratedStorageAtom);
+      set(planEverGeneratedStorageAtom, { ...current, [subChatId]: value });
+    }
+  )
+);
 
 // Optimistic spinner while AI is creating a PR (cleared once the PR shows up
 // in getPrStatus). In-memory only — survives page navigation but not reloads.
-const prCreatingStorageAtom = atom<Record<string, boolean>>({})
+const prCreatingStorageAtom = atom<Record<string, boolean>>({});
 
 export const prCreatingAtomFamily = atomFamily((subChatId: string) =>
   atom(
     (get) => get(prCreatingStorageAtom)[subChatId] ?? false,
     (get, set, value: boolean) => {
-      const current = get(prCreatingStorageAtom)
-      set(prCreatingStorageAtom, { ...current, [subChatId]: value })
-    },
-  ),
-)
+      const current = get(prCreatingStorageAtom);
+      set(prCreatingStorageAtom, { ...current, [subChatId]: value });
+    }
+  )
+);

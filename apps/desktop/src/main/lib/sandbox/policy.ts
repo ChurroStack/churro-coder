@@ -1,58 +1,58 @@
-import * as os from "os"
-import * as path from "path"
-import * as fs from "fs/promises"
-import { existsSync, realpathSync } from "fs"
-import { execSync } from "child_process"
-import { getDatabase, chats, projects, sandboxSettings } from "../db"
-import { eq } from "drizzle-orm"
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+import { existsSync, realpathSync } from 'fs';
+import { execSync } from 'child_process';
+import { getDatabase, chats, projects, sandboxSettings } from '../db';
+import { eq } from 'drizzle-orm';
 
 export interface SandboxPolicy {
-  enabled: boolean
+  enabled: boolean;
   // User-facing writable roots (resolved, no symlink expansion). Used for
   // display, the SDK settings file, and as the canonical paths.
-  writableRoots: string[]
+  writableRoots: string[];
   // Pre-expanded set including both `path.resolve` and `fs.realpath` forms of
   // every writable root, so symlinked roots (e.g. macOS /tmp -> /private/tmp,
   // $TMPDIR -> /private/var/folders/...) match either way. Used by
   // `pathIsInsideAny` for enforcement.
-  writableRootsExpanded: string[]
-  deniedReads: string[]
-  osSandboxAvailable: boolean
+  writableRootsExpanded: string[];
+  deniedReads: string[];
+  osSandboxAvailable: boolean;
 }
 
 interface SandboxCapabilities {
-  macSeatbelt: boolean
-  linuxBwrap: boolean
-  winNative: boolean
+  macSeatbelt: boolean;
+  linuxBwrap: boolean;
+  winNative: boolean;
 }
 
-let cachedCapabilities: SandboxCapabilities | null = null
+let cachedCapabilities: SandboxCapabilities | null = null;
 
 export function detectSandboxCapabilities(): SandboxCapabilities {
-  if (cachedCapabilities) return cachedCapabilities
+  if (cachedCapabilities) return cachedCapabilities;
 
-  let macSeatbelt = false
-  let linuxBwrap = false
-  const winNative = process.platform === "win32"
+  let macSeatbelt = false;
+  let linuxBwrap = false;
+  const winNative = process.platform === 'win32';
 
-  if (process.platform === "darwin") {
-    macSeatbelt = existsSync("/usr/bin/sandbox-exec")
-  } else if (process.platform === "linux") {
+  if (process.platform === 'darwin') {
+    macSeatbelt = existsSync('/usr/bin/sandbox-exec');
+  } else if (process.platform === 'linux') {
     try {
-      execSync("which bwrap", { stdio: "pipe" })
-      linuxBwrap = true
+      execSync('which bwrap', { stdio: 'pipe' });
+      linuxBwrap = true;
     } catch {
-      linuxBwrap = false
+      linuxBwrap = false;
     }
   }
 
-  cachedCapabilities = { macSeatbelt, linuxBwrap, winNative }
-  return cachedCapabilities
+  cachedCapabilities = { macSeatbelt, linuxBwrap, winNative };
+  return cachedCapabilities;
 }
 
 export function osSandboxAvailable(): boolean {
-  const caps = detectSandboxCapabilities()
-  return caps.macSeatbelt || caps.linuxBwrap || caps.winNative
+  const caps = detectSandboxCapabilities();
+  return caps.macSeatbelt || caps.linuxBwrap || caps.winNative;
 }
 
 /**
@@ -62,20 +62,20 @@ export function osSandboxAvailable(): boolean {
  */
 function realpathOrWalkUp(p: string): string {
   try {
-    return realpathSync(p)
+    return realpathSync(p);
   } catch {
     // Path doesn't exist — find the longest existing prefix and realpath that.
-    const parts = p.split(path.sep)
+    const parts = p.split(path.sep);
     for (let i = parts.length - 1; i > 0; i--) {
-      const prefix = parts.slice(0, i).join(path.sep) || path.sep
+      const prefix = parts.slice(0, i).join(path.sep) || path.sep;
       try {
-        const real = realpathSync(prefix)
-        return path.join(real, ...parts.slice(i))
+        const real = realpathSync(prefix);
+        return path.join(real, ...parts.slice(i));
       } catch {
-        continue
+        continue;
       }
     }
-    return p
+    return p;
   }
 }
 
@@ -87,45 +87,45 @@ function realpathOrWalkUp(p: string): string {
  * /foo matching /foobar.
  */
 export function pathIsInsideAny(targetPath: string, roots: string[]): boolean {
-  const resolved = path.resolve(targetPath)
-  const real = realpathOrWalkUp(resolved)
-  const candidates = real === resolved ? [resolved] : [resolved, real]
+  const resolved = path.resolve(targetPath);
+  const real = realpathOrWalkUp(resolved);
+  const candidates = real === resolved ? [resolved] : [resolved, real];
 
   for (const root of roots) {
-    const resolvedRoot = path.resolve(root)
+    const resolvedRoot = path.resolve(root);
     for (const c of candidates) {
       if (c === resolvedRoot || c.startsWith(resolvedRoot + path.sep)) {
-        return true
+        return true;
       }
     }
   }
-  return false
+  return false;
 }
 
 function expandRootsWithRealpath(roots: string[]): string[] {
-  const expanded = new Set<string>()
+  const expanded = new Set<string>();
   for (const root of roots) {
-    const resolved = path.resolve(root)
-    expanded.add(resolved)
+    const resolved = path.resolve(root);
+    expanded.add(resolved);
     try {
-      expanded.add(realpathSync(resolved))
+      expanded.add(realpathSync(resolved));
     } catch {
       // Root doesn't exist (e.g. ~/.cargo on a machine without Rust) — skip.
     }
   }
-  return [...expanded]
+  return [...expanded];
 }
 
 function expandHome(p: string): string {
-  if (p.startsWith("~/") || p === "~") {
-    return path.join(os.homedir(), p.slice(1))
+  if (p.startsWith('~/') || p === '~') {
+    return path.join(os.homedir(), p.slice(1));
   }
-  return p
+  return p;
 }
 
 interface ResolvedGitDirs {
-  gitDir: string | null
-  commonDir: string | null
+  gitDir: string | null;
+  commonDir: string | null;
 }
 
 function resolveGitDirsForSandbox(cwd: string): ResolvedGitDirs {
@@ -134,147 +134,151 @@ function resolveGitDirsForSandbox(cwd: string): ResolvedGitDirs {
   // narrowed to a tuple-encoded shape that doesn't match any overload).
   const opts: Parameters<typeof execSync>[1] = {
     cwd,
-    stdio: ["ignore", "pipe", "ignore"],
-    encoding: "utf8",
+    stdio: ['ignore', 'pipe', 'ignore'],
+    encoding: 'utf8',
     timeout: 2_000,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
-  }
-  let gitDir: string | null = null
-  let commonDir: string | null = null
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+  };
+  let gitDir: string | null = null;
+  let commonDir: string | null = null;
   try {
-    gitDir = String(execSync("git rev-parse --absolute-git-dir", opts)).trim() || null
+    gitDir = String(execSync('git rev-parse --absolute-git-dir', opts)).trim() || null;
   } catch {
-    return { gitDir: null, commonDir: null }
+    return { gitDir: null, commonDir: null };
   }
   try {
-    const raw = String(execSync("git rev-parse --git-common-dir", opts)).trim()
+    const raw = String(execSync('git rev-parse --git-common-dir', opts)).trim();
     // --git-common-dir has no --absolute variant; resolve relative output against cwd.
-    commonDir = raw ? path.resolve(cwd, raw) : null
+    commonDir = raw ? path.resolve(cwd, raw) : null;
   } catch {
-    commonDir = null
+    commonDir = null;
   }
-  return { gitDir, commonDir }
+  return { gitDir, commonDir };
 }
 
 function buildWritableRoots(
   worktreePath: string,
   _projectPath: string,
   allowToolchainCaches: boolean,
-  extraWritablePaths: string[],
+  extraWritablePaths: string[]
 ): string[] {
-  const home = os.homedir()
-  const tmpdir = os.tmpdir()
-  const { gitDir, commonDir } = resolveGitDirsForSandbox(worktreePath)
+  const home = os.homedir();
+  const tmpdir = os.tmpdir();
+  const { gitDir, commonDir } = resolveGitDirsForSandbox(worktreePath);
 
   const roots = [
     worktreePath,
-    path.join(home, ".claude"),
-    path.join(home, ".codex"),
-    path.join(home, ".churrostack"),
+    path.join(home, '.claude'),
+    path.join(home, '.codex'),
+    path.join(home, '.churrostack'),
     tmpdir,
-    "/tmp",
-    path.join(home, ".gitconfig"),
-    path.join(home, ".gitconfig.d"),
-    path.join(home, ".config", "gh"),
-  ]
-  if (gitDir) roots.push(gitDir)
-  if (commonDir) roots.push(commonDir)
+    '/tmp',
+    path.join(home, '.gitconfig'),
+    path.join(home, '.gitconfig.d'),
+    path.join(home, '.config', 'gh')
+  ];
+  if (gitDir) roots.push(gitDir);
+  if (commonDir) roots.push(commonDir);
 
   // Windows gh CLI config
-  if (process.platform === "win32" && process.env.APPDATA) {
-    roots.push(path.join(process.env.APPDATA, "GitHub CLI"))
+  if (process.platform === 'win32' && process.env.APPDATA) {
+    roots.push(path.join(process.env.APPDATA, 'GitHub CLI'));
   }
 
   if (allowToolchainCaches) {
     roots.push(
-      path.join(home, ".npm"),
-      path.join(home, ".cache"),
-      path.join(home, ".cargo"),
-      path.join(home, ".rustup"),
-      path.join(home, ".local", "share", "pnpm"),
-      path.join(home, ".bun"),
-      path.join(home, "go", "pkg", "mod"),
-      path.join(home, ".deno"),
-      path.join(home, ".asdf"),
-      path.join(home, ".local", "share", "mise"),
-    )
-    if (process.platform === "darwin") {
-      roots.push(path.join(home, "Library", "Caches"))
+      path.join(home, '.npm'),
+      path.join(home, '.cache'),
+      path.join(home, '.cargo'),
+      path.join(home, '.rustup'),
+      path.join(home, '.local', 'share', 'pnpm'),
+      path.join(home, '.bun'),
+      path.join(home, 'go', 'pkg', 'mod'),
+      path.join(home, '.deno'),
+      path.join(home, '.asdf'),
+      path.join(home, '.local', 'share', 'mise')
+    );
+    if (process.platform === 'darwin') {
+      roots.push(path.join(home, 'Library', 'Caches'));
     }
   }
 
   for (const extra of extraWritablePaths) {
-    roots.push(expandHome(extra))
+    roots.push(expandHome(extra));
   }
 
-  return [...new Set(roots.map(r => path.resolve(r)))]
+  return [...new Set(roots.map((r) => path.resolve(r)))];
 }
 
 function buildDeniedReads(extraDeniedPaths: string[]): string[] {
-  const home = os.homedir()
+  const home = os.homedir();
   const denied = [
-    path.join(home, ".aws", "credentials"),
-    path.join(home, ".ssh", "id_rsa"),
-    path.join(home, ".ssh", "id_ed25519"),
-    path.join(home, ".ssh", "id_ecdsa"),
-    path.join(home, ".netrc"),
-  ]
+    path.join(home, '.aws', 'credentials'),
+    path.join(home, '.ssh', 'id_rsa'),
+    path.join(home, '.ssh', 'id_ed25519'),
+    path.join(home, '.ssh', 'id_ecdsa'),
+    path.join(home, '.netrc')
+  ];
   for (const extra of extraDeniedPaths) {
-    denied.push(expandHome(extra))
+    denied.push(expandHome(extra));
   }
-  return [...new Set(denied.map(r => path.resolve(r)))]
+  return [...new Set(denied.map((r) => path.resolve(r)))];
 }
 
 export async function resolveSandboxPolicy(
   chatId: string,
   worktreePath: string,
-  projectPath: string,
+  projectPath: string
 ): Promise<SandboxPolicy> {
-  const db = getDatabase()
+  const db = getDatabase();
 
   // Load chat override
-  const chat = db.select().from(chats).where(eq(chats.id, chatId)).get()
-  let enabledOverride: boolean | null = null
+  const chat = db.select().from(chats).where(eq(chats.id, chatId)).get();
+  let enabledOverride: boolean | null = null;
 
   if (chat && chat.sandboxEnabled !== null && chat.sandboxEnabled !== undefined) {
-    enabledOverride = chat.sandboxEnabled as unknown as boolean
+    enabledOverride = chat.sandboxEnabled as unknown as boolean;
   } else if (chat?.projectId) {
-    const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get()
+    const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
     if (project && project.sandboxEnabled !== null && project.sandboxEnabled !== undefined) {
-      enabledOverride = project.sandboxEnabled as unknown as boolean
+      enabledOverride = project.sandboxEnabled as unknown as boolean;
     }
   }
 
   // Global settings
-  const globalSettings = db.select().from(sandboxSettings).where(eq(sandboxSettings.id, "singleton")).get()
+  const globalSettings = db.select().from(sandboxSettings).where(eq(sandboxSettings.id, 'singleton')).get();
 
-  let extraWritablePaths: string[] = []
-  let extraDeniedPaths: string[] = []
-  let allowToolchainCaches = true
-  const globalDefault = globalSettings ? globalSettings.sandboxEnabled !== false : true
+  let extraWritablePaths: string[] = [];
+  let extraDeniedPaths: string[] = [];
+  let allowToolchainCaches = true;
+  const globalDefault = globalSettings ? globalSettings.sandboxEnabled !== false : true;
 
   if (globalSettings) {
-    try { extraWritablePaths = JSON.parse(globalSettings.extraWritablePaths) } catch {}
-    try { extraDeniedPaths = JSON.parse(globalSettings.extraDeniedPaths) } catch {}
-    allowToolchainCaches = globalSettings.allowToolchainCaches !== false
+    try {
+      extraWritablePaths = JSON.parse(globalSettings.extraWritablePaths);
+    } catch {}
+    try {
+      extraDeniedPaths = JSON.parse(globalSettings.extraDeniedPaths);
+    } catch {}
+    allowToolchainCaches = globalSettings.allowToolchainCaches !== false;
   }
 
-  const enabled = enabledOverride !== null ? enabledOverride : globalDefault
+  const enabled = enabledOverride !== null ? enabledOverride : globalDefault;
 
-  const writableRoots = buildWritableRoots(worktreePath, projectPath, allowToolchainCaches, extraWritablePaths)
-  const deniedReads = buildDeniedReads(extraDeniedPaths)
+  const writableRoots = buildWritableRoots(worktreePath, projectPath, allowToolchainCaches, extraWritablePaths);
+  const deniedReads = buildDeniedReads(extraDeniedPaths);
 
   return {
     enabled,
     writableRoots,
     writableRootsExpanded: expandRootsWithRealpath(writableRoots),
     deniedReads,
-    osSandboxAvailable: osSandboxAvailable(),
-  }
+    osSandboxAvailable: osSandboxAvailable()
+  };
 }
 
-const CHURRO_WORKTREES_DIR = path.join(os.homedir(), ".churrostack", "worktrees")
-const MANAGED_SENTINEL = "__churro_managed"
+const CHURRO_WORKTREES_DIR = path.join(os.homedir(), '.churrostack', 'worktrees');
+const MANAGED_SENTINEL = '__churro_managed';
 
 // Refcount of in-flight turns per managed settings file. The Claude SDK only
 // looks at .claude/settings.local.json by name, so multiple chats sharing a
@@ -282,7 +286,7 @@ const MANAGED_SENTINEL = "__churro_managed"
 // pure function of the worktree + global settings), but cleanup must wait for
 // the last in-flight turn to finish or we'll yank the policy out from under a
 // concurrent session.
-const activeRefs = new Map<string, number>()
+const activeRefs = new Map<string, number>();
 
 /**
  * Writes a managed .claude/settings.local.json inside the worktree cwd.
@@ -290,70 +294,65 @@ const activeRefs = new Map<string, number>()
  * polluting arbitrary project directories.
  * Returns the path to the written file, or null if skipped.
  */
-export async function writeSandboxSettingsFile(
-  cwd: string,
-  policy: SandboxPolicy,
-): Promise<string | null> {
-  const resolvedCwd = path.resolve(cwd)
+export async function writeSandboxSettingsFile(cwd: string, policy: SandboxPolicy): Promise<string | null> {
+  const resolvedCwd = path.resolve(cwd);
   if (!resolvedCwd.startsWith(CHURRO_WORKTREES_DIR + path.sep)) {
-    return null
+    return null;
   }
 
-  const claudeDir = path.join(resolvedCwd, ".claude")
-  const settingsPath = path.join(claudeDir, "settings.local.json")
+  const claudeDir = path.join(resolvedCwd, '.claude');
+  const settingsPath = path.join(claudeDir, 'settings.local.json');
 
   // Check if file exists and wasn't written by us. If a sibling turn already
   // wrote our managed file (refcount > 0), it's safe to overwrite — content
   // is identical for a given worktree.
   if (existsSync(settingsPath) && (activeRefs.get(settingsPath) ?? 0) === 0) {
     try {
-      const existing = JSON.parse(await fs.readFile(settingsPath, "utf-8"))
+      const existing = JSON.parse(await fs.readFile(settingsPath, 'utf-8'));
       if (!existing[MANAGED_SENTINEL]) {
         // User-authored file — don't overwrite
-        return null
+        return null;
       }
     } catch {
       // Corrupt JSON — safe to overwrite
     }
   }
 
-  await fs.mkdir(claudeDir, { recursive: true })
+  await fs.mkdir(claudeDir, { recursive: true });
 
   // Paths relative to HOME for sandbox config (SDK resolves ~ internally)
-  const home = os.homedir()
+  const home = os.homedir();
   const toSandboxPath = (p: string) => {
-    if (p.startsWith(home + path.sep)) return "~" + p.slice(home.length)
-    return p
-  }
+    if (p.startsWith(home + path.sep)) return '~' + p.slice(home.length);
+    return p;
+  };
 
   const sandboxConfig = {
     [MANAGED_SENTINEL]: true,
     permissions: {
-      additionalDirectories: policy.writableRoots
-        .filter(r => r !== resolvedCwd)
-        .map(toSandboxPath),
-      deny: policy.deniedReads.map(p => `Read(${toSandboxPath(p)})`),
-    },
-  }
+      additionalDirectories: policy.writableRoots.filter((r) => r !== resolvedCwd).map(toSandboxPath),
+      deny: policy.deniedReads.map((p) => `Read(${toSandboxPath(p)})`)
+    }
+  };
 
-  await fs.writeFile(settingsPath, JSON.stringify(sandboxConfig, null, 2), "utf-8")
-  activeRefs.set(settingsPath, (activeRefs.get(settingsPath) ?? 0) + 1)
-  return settingsPath
+  await fs.writeFile(settingsPath, JSON.stringify(sandboxConfig, null, 2), 'utf-8');
+  activeRefs.set(settingsPath, (activeRefs.get(settingsPath) ?? 0) + 1);
+  return settingsPath;
 }
 
 export async function cleanupSandboxSettingsFile(filePath: string): Promise<void> {
-  const remaining = (activeRefs.get(filePath) ?? 1) - 1
+  const remaining = (activeRefs.get(filePath) ?? 1) - 1;
   if (remaining > 0) {
-    activeRefs.set(filePath, remaining)
-    return
+    activeRefs.set(filePath, remaining);
+    return;
   }
-  activeRefs.delete(filePath)
+  activeRefs.delete(filePath);
 
   try {
-    if (!existsSync(filePath)) return
-    const content = JSON.parse(await fs.readFile(filePath, "utf-8"))
+    if (!existsSync(filePath)) return;
+    const content = JSON.parse(await fs.readFile(filePath, 'utf-8'));
     if (content[MANAGED_SENTINEL]) {
-      await fs.unlink(filePath)
+      await fs.unlink(filePath);
     }
   } catch {
     // Best-effort cleanup

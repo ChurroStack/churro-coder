@@ -1,72 +1,72 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
+import { useState, useEffect } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-  DropdownMenuLabel,
-} from "../../../components/ui/dropdown-menu"
-import { ArrowUpRight } from "lucide-react"
-import { KeyboardIcon } from "../../../components/ui/icons"
-import { DiscordIcon } from "../../../icons"
-import { useSetAtom } from "jotai"
-import { agentsSettingsDialogOpenAtom, agentsSettingsDialogActiveTabAtom } from "../../../lib/atoms"
+  DropdownMenuLabel
+} from '../../../components/ui/dropdown-menu';
+import { ArrowUpRight } from 'lucide-react';
+import { KeyboardIcon } from '../../../components/ui/icons';
+import { DiscordIcon } from '../../../icons';
+import { useSetAtom } from 'jotai';
+import { agentsSettingsDialogOpenAtom, agentsSettingsDialogActiveTabAtom } from '../../../lib/atoms';
 
 interface ReleaseHighlight {
-  version: string
-  title: string
+  version: string;
+  title: string;
 }
 
 function parseFirstItemFromSection(lines: string[], sectionPattern: RegExp): string | null {
-  let inSection = false
+  let inSection = false;
   for (const line of lines) {
     if (sectionPattern.test(line)) {
-      inSection = true
-      continue
+      inSection = true;
+      continue;
     }
-    if (inSection && /^###?\s+/.test(line)) break
+    if (inSection && /^###?\s+/.test(line)) break;
     if (inSection) {
-      const bold = line.match(/^[-*]\s+\*\*(.+?)\*\*/)
-      if (bold) return bold[1]
-      const plain = line.match(/^[-*]\s+(.+)/)
-      if (plain) return plain[1].replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim()
+      const bold = line.match(/^[-*]\s+\*\*(.+?)\*\*/);
+      if (bold) return bold[1];
+      const plain = line.match(/^[-*]\s+(.+)/);
+      if (plain) return plain[1].replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
     }
   }
-  return null
+  return null;
 }
 
 function parseFirstHighlight(content: string): string {
-  const lines = content.split("\n")
+  const lines = content.split('\n');
   return (
     parseFirstItemFromSection(lines, /^###\s+Features/i) ??
     parseFirstItemFromSection(lines, /^###\s+Improvements/i) ??
-    "Bug fixes & improvements"
-  )
+    'Bug fixes & improvements'
+  );
 }
 
 interface AgentsHelpPopoverProps {
-  children: React.ReactNode
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  isMobile?: boolean
+  children: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  isMobile?: boolean;
 }
 
 export function AgentsHelpPopover({
   children,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
-  isMobile = false,
+  isMobile = false
 }: AgentsHelpPopoverProps) {
-  const [internalOpen, setInternalOpen] = useState(false)
-  const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom)
-  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom)
-  const [highlights, setHighlights] = useState<ReleaseHighlight[]>([])
+  const [internalOpen, setInternalOpen] = useState(false);
+  const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom);
+  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
+  const [highlights, setHighlights] = useState<ReleaseHighlight[]>([]);
 
-  const open = controlledOpen ?? internalOpen
-  const setOpen = controlledOnOpenChange ?? setInternalOpen
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = controlledOnOpenChange ?? setInternalOpen;
 
   // UPDATES-DISABLED: re-enable to restore changelog fetch + handlers
   /*
@@ -97,8 +97,8 @@ export function AgentsHelpPopover({
   */
 
   const handleCommunityClick = () => {
-    window.desktopApi.openExternal("https://discord.gg/8ektTZGnj4")
-  }
+    window.desktopApi.openExternal('https://discord.gg/8ektTZGnj4');
+  };
 
   // UPDATES-DISABLED: re-enable to restore changelog link handlers
   /*
@@ -114,10 +114,10 @@ export function AgentsHelpPopover({
   */
 
   const handleKeyboardShortcutsClick = () => {
-    setOpen(false)
-    setSettingsActiveTab("keyboard")
-    setSettingsDialogOpen(true)
-  }
+    setOpen(false);
+    setSettingsActiveTab('keyboard');
+    setSettingsDialogOpen(true);
+  };
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -129,10 +129,7 @@ export function AgentsHelpPopover({
         </DropdownMenuItem>
 
         {!isMobile && (
-          <DropdownMenuItem
-            onClick={handleKeyboardShortcutsClick}
-            className="gap-2"
-          >
+          <DropdownMenuItem onClick={handleKeyboardShortcutsClick} className="gap-2">
             <KeyboardIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="flex-1">Shortcuts</span>
           </DropdownMenuItem>
@@ -176,5 +173,5 @@ export function AgentsHelpPopover({
         */}
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

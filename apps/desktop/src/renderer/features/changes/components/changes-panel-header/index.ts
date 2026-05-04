@@ -1,1 +1,1 @@
-export { ChangesPanelHeader } from "./changes-panel-header";
+export { ChangesPanelHeader } from './changes-panel-header';

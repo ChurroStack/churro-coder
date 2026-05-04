@@ -1,17 +1,17 @@
-import { createContext, useContext } from "react"
+import { createContext, useContext } from 'react';
 
 export interface DockWorkspaceContextValue {
-  workspaceId: string | null
-  active: boolean
+  workspaceId: string | null;
+  active: boolean;
 }
 
 const DockWorkspaceContext = createContext<DockWorkspaceContextValue>({
   workspaceId: null,
-  active: true,
-})
+  active: true
+});
 
-export const DockWorkspaceProvider = DockWorkspaceContext.Provider
+export const DockWorkspaceProvider = DockWorkspaceContext.Provider;
 
 export function useDockWorkspace() {
-  return useContext(DockWorkspaceContext)
+  return useContext(DockWorkspaceContext);
 }

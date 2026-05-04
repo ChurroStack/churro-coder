@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react"
-import type { IDockviewPanelProps } from "dockview-react"
-import { AgentsContent } from "../../agents/ui/agents-content"
-import { useDockWorkspace } from "../workspace-context"
+import { useEffect, useState } from 'react';
+import type { IDockviewPanelProps } from 'dockview-react';
+import { AgentsContent } from '../../agents/ui/agents-content';
+import { useDockWorkspace } from '../workspace-context';
 
 /**
  * "Main" panel — fallback mounted by ChatPanelSync whenever there are no
@@ -21,29 +21,25 @@ import { useDockWorkspace } from "../workspace-context"
  *    and on top of the overlay, and split keystroke/event handlers.
  */
 export function MainPanel({ api }: IDockviewPanelProps) {
-  const { active: isWorkspaceActive } = useDockWorkspace()
-  const [isVisible, setIsVisible] = useState(api.isVisible)
-  const [isActive, setIsActive] = useState(api.isActive)
+  const { active: isWorkspaceActive } = useDockWorkspace();
+  const [isVisible, setIsVisible] = useState(api.isVisible);
+  const [isActive, setIsActive] = useState(api.isActive);
 
   useEffect(() => {
-    setIsVisible(api.isVisible)
-    const sub = api.onDidVisibilityChange((e) => setIsVisible(e.isVisible))
-    return () => sub.dispose()
-  }, [api])
+    setIsVisible(api.isVisible);
+    const sub = api.onDidVisibilityChange((e) => setIsVisible(e.isVisible));
+    return () => sub.dispose();
+  }, [api]);
 
   useEffect(() => {
-    setIsActive(api.isActive)
-    const sub = api.onDidActiveChange((e) => setIsActive(e.isActive))
-    return () => sub.dispose()
-  }, [api])
+    setIsActive(api.isActive);
+    const sub = api.onDidActiveChange((e) => setIsActive(e.isActive));
+    return () => sub.dispose();
+  }, [api]);
 
   return (
     <div className="h-full w-full overflow-hidden">
-      <AgentsContent
-        dockWorkspaceActive={isWorkspaceActive}
-        dockPanelVisible={isVisible}
-        dockPanelActive={isActive}
-      />
+      <AgentsContent dockWorkspaceActive={isWorkspaceActive} dockPanelVisible={isVisible} dockPanelActive={isActive} />
     </div>
-  )
+  );
 }

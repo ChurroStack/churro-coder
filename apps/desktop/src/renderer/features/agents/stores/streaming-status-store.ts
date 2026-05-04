@@ -1,20 +1,20 @@
-import { create } from "zustand"
-import { subscribeWithSelector } from "zustand/middleware"
+import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 
-export type StreamingStatus = "ready" | "streaming" | "submitted" | "error"
+export type StreamingStatus = 'ready' | 'streaming' | 'submitted' | 'error';
 
 interface StreamingStatusState {
   // Map: subChatId -> streaming status
-  statuses: Record<string, StreamingStatus>
+  statuses: Record<string, StreamingStatus>;
 
   // Actions
-  setStatus: (subChatId: string, status: StreamingStatus) => void
-  getStatus: (subChatId: string) => StreamingStatus
-  isStreaming: (subChatId: string) => boolean
-  clearStatus: (subChatId: string) => void
+  setStatus: (subChatId: string, status: StreamingStatus) => void;
+  getStatus: (subChatId: string) => StreamingStatus;
+  isStreaming: (subChatId: string) => boolean;
+  clearStatus: (subChatId: string) => void;
 
   // Get all sub-chats that are ready (not streaming)
-  getReadySubChats: () => string[]
+  getReadySubChats: () => string[];
 }
 
 export const useStreamingStatusStore = create<StreamingStatusState>()(
@@ -25,33 +25,33 @@ export const useStreamingStatusStore = create<StreamingStatusState>()(
       set((state) => ({
         statuses: {
           ...state.statuses,
-          [subChatId]: status,
-        },
-      }))
+          [subChatId]: status
+        }
+      }));
     },
 
     getStatus: (subChatId) => {
-      return get().statuses[subChatId] ?? "ready"
+      return get().statuses[subChatId] ?? 'ready';
     },
 
     isStreaming: (subChatId) => {
-      const status = get().statuses[subChatId] ?? "ready"
-      return status === "streaming" || status === "submitted"
+      const status = get().statuses[subChatId] ?? 'ready';
+      return status === 'streaming' || status === 'submitted';
     },
 
     clearStatus: (subChatId) => {
       set((state) => {
-        const newStatuses = { ...state.statuses }
-        delete newStatuses[subChatId]
-        return { statuses: newStatuses }
-      })
+        const newStatuses = { ...state.statuses };
+        delete newStatuses[subChatId];
+        return { statuses: newStatuses };
+      });
     },
 
     getReadySubChats: () => {
-      const { statuses } = get()
+      const { statuses } = get();
       return Object.entries(statuses)
-        .filter(([_, status]) => status === "ready")
-        .map(([subChatId]) => subChatId)
-    },
+        .filter(([_, status]) => status === 'ready')
+        .map(([subChatId]) => subChatId);
+    }
   }))
-)
+);

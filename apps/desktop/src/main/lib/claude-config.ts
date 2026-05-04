@@ -1,49 +1,49 @@
 /**
  * Helpers for reading and writing ~/.claude.json configuration
  */
-import { Mutex } from "async-mutex"
-import { eq } from "drizzle-orm"
-import { existsSync, readFileSync, writeFileSync } from "fs"
-import * as fs from "fs/promises"
-import * as os from "os"
-import * as path from "path"
-import { getDatabase } from "./db"
-import { chats, projects } from "./db/schema"
+import { Mutex } from 'async-mutex';
+import { eq } from 'drizzle-orm';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+import { getDatabase } from './db';
+import { chats, projects } from './db/schema';
 
 /**
  * Mutex for protecting read-modify-write operations on ~/.claude.json
  * This prevents race conditions when multiple concurrent operations
  * (e.g., token refreshes for different MCP servers) try to update the config.
  */
-const configMutex = new Mutex()
+const configMutex = new Mutex();
 
-export const CLAUDE_CONFIG_PATH = path.join(os.homedir(), ".claude.json")
-export const CLAUDE_DIR_CONFIG_PATH = path.join(os.homedir(), ".claude", ".claude.json")
-export const CLAUDE_DIR_MCP_PATH = path.join(os.homedir(), ".claude", "mcp.json")
+export const CLAUDE_CONFIG_PATH = path.join(os.homedir(), '.claude.json');
+export const CLAUDE_DIR_CONFIG_PATH = path.join(os.homedir(), '.claude', '.claude.json');
+export const CLAUDE_DIR_MCP_PATH = path.join(os.homedir(), '.claude', 'mcp.json');
 
 export interface McpServerConfig {
-  command?: string
-  args?: string[]
-  url?: string
-  authType?: "oauth" | "bearer" | "none"
+  command?: string;
+  args?: string[];
+  url?: string;
+  authType?: 'oauth' | 'bearer' | 'none';
   _oauth?: {
-    accessToken: string
-    refreshToken?: string
-    clientId?: string
-    expiresAt?: number
-  }
-  [key: string]: unknown
+    accessToken: string;
+    refreshToken?: string;
+    clientId?: string;
+    expiresAt?: number;
+  };
+  [key: string]: unknown;
 }
 
 export interface ProjectConfig {
-  mcpServers?: Record<string, McpServerConfig>
-  [key: string]: unknown
+  mcpServers?: Record<string, McpServerConfig>;
+  [key: string]: unknown;
 }
 
 export interface ClaudeConfig {
-  mcpServers?: Record<string, McpServerConfig>  // User-scope (global) MCP servers
-  projects?: Record<string, ProjectConfig>
-  [key: string]: unknown
+  mcpServers?: Record<string, McpServerConfig>; // User-scope (global) MCP servers
+  projects?: Record<string, ProjectConfig>;
+  [key: string]: unknown;
 }
 
 /**
@@ -52,10 +52,10 @@ export interface ClaudeConfig {
  */
 export async function readClaudeConfig(): Promise<ClaudeConfig> {
   try {
-    const content = await fs.readFile(CLAUDE_CONFIG_PATH, "utf-8")
-    return JSON.parse(content)
+    const content = await fs.readFile(CLAUDE_CONFIG_PATH, 'utf-8');
+    return JSON.parse(content);
   } catch {
-    return {}
+    return {};
   }
 }
 
@@ -65,10 +65,10 @@ export async function readClaudeConfig(): Promise<ClaudeConfig> {
  */
 export function readClaudeConfigSync(): ClaudeConfig {
   try {
-    const content = readFileSync(CLAUDE_CONFIG_PATH, "utf-8")
-    return JSON.parse(content)
+    const content = readFileSync(CLAUDE_CONFIG_PATH, 'utf-8');
+    return JSON.parse(content);
   } catch {
-    return {}
+    return {};
   }
 }
 
@@ -76,14 +76,14 @@ export function readClaudeConfigSync(): ClaudeConfig {
  * Write ~/.claude.json asynchronously
  */
 export async function writeClaudeConfig(config: ClaudeConfig): Promise<void> {
-  await fs.writeFile(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8")
+  await fs.writeFile(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 }
 
 /**
  * Write ~/.claude.json synchronously
  */
 export function writeClaudeConfigSync(config: ClaudeConfig): void {
-  writeFileSync(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8")
+  writeFileSync(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 }
 
 /**
@@ -101,18 +101,18 @@ export async function updateClaudeConfigAtomic(
   updater: (config: ClaudeConfig) => ClaudeConfig | Promise<ClaudeConfig>
 ): Promise<ClaudeConfig> {
   return configMutex.runExclusive(async () => {
-    const config = await readClaudeConfig()
-    const updatedConfig = await updater(config)
-    await writeClaudeConfig(updatedConfig)
-    return updatedConfig
-  })
+    const config = await readClaudeConfig();
+    const updatedConfig = await updater(config);
+    await writeClaudeConfig(updatedConfig);
+    return updatedConfig;
+  });
 }
 
 /**
  * Check if ~/.claude.json exists
  */
 export function claudeConfigExists(): boolean {
-  return existsSync(CLAUDE_CONFIG_PATH)
+  return existsSync(CLAUDE_CONFIG_PATH);
 }
 
 /**
@@ -123,12 +123,12 @@ export function getProjectMcpServers(
   config: ClaudeConfig,
   projectPath: string
 ): Record<string, McpServerConfig> | undefined {
-  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath
-  return config.projects?.[resolvedPath]?.mcpServers
+  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath;
+  return config.projects?.[resolvedPath]?.mcpServers;
 }
 
 // Special marker for global MCP servers (not tied to a project)
-export const GLOBAL_MCP_PATH = "__global__"
+export const GLOBAL_MCP_PATH = '__global__';
 
 /**
  * Get a specific MCP server config
@@ -142,11 +142,11 @@ export function getMcpServerConfig(
 ): McpServerConfig | undefined {
   // Global MCP servers (root level mcpServers in ~/.claude.json)
   if (!projectPath || projectPath === GLOBAL_MCP_PATH) {
-    return config.mcpServers?.[serverName]
+    return config.mcpServers?.[serverName];
   }
   // Project-specific MCP servers (resolve worktree paths)
-  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath
-  return config.projects?.[resolvedPath]?.mcpServers?.[serverName]
+  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath;
+  return config.projects?.[resolvedPath]?.mcpServers?.[serverName];
 }
 
 /**
@@ -162,23 +162,23 @@ export function updateMcpServerConfig(
 ): ClaudeConfig {
   // Global MCP servers (root level mcpServers in ~/.claude.json)
   if (!projectPath || projectPath === GLOBAL_MCP_PATH) {
-    config.mcpServers = config.mcpServers || {}
+    config.mcpServers = config.mcpServers || {};
     config.mcpServers[serverName] = {
       ...config.mcpServers[serverName],
-      ...update,
-    }
-    return config
+      ...update
+    };
+    return config;
   }
   // Project-specific MCP servers (resolve worktree paths)
-  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath
-  config.projects = config.projects || {}
-  config.projects[resolvedPath] = config.projects[resolvedPath] || {}
-  config.projects[resolvedPath].mcpServers = config.projects[resolvedPath].mcpServers || {}
+  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath;
+  config.projects = config.projects || {};
+  config.projects[resolvedPath] = config.projects[resolvedPath] || {};
+  config.projects[resolvedPath].mcpServers = config.projects[resolvedPath].mcpServers || {};
   config.projects[resolvedPath].mcpServers[serverName] = {
     ...config.projects[resolvedPath].mcpServers[serverName],
-    ...update,
-  }
-  return config
+    ...update
+  };
+  return config;
 }
 
 /**
@@ -194,23 +194,23 @@ export function removeMcpServerConfig(
   // Global MCP servers
   if (!projectPath || projectPath === GLOBAL_MCP_PATH) {
     if (config.mcpServers?.[serverName]) {
-      delete config.mcpServers[serverName]
+      delete config.mcpServers[serverName];
     }
-    return config
+    return config;
   }
   // Project-specific MCP servers
-  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath
+  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath;
   if (config.projects?.[resolvedPath]?.mcpServers?.[serverName]) {
-    delete config.projects[resolvedPath].mcpServers[serverName]
+    delete config.projects[resolvedPath].mcpServers[serverName];
     // Clean up empty objects
     if (Object.keys(config.projects[resolvedPath].mcpServers).length === 0) {
-      delete config.projects[resolvedPath].mcpServers
+      delete config.projects[resolvedPath].mcpServers;
     }
     if (Object.keys(config.projects[resolvedPath]).length === 0) {
-      delete config.projects[resolvedPath]
+      delete config.projects[resolvedPath];
     }
   }
-  return config
+  return config;
 }
 
 /**
@@ -222,79 +222,65 @@ export function removeMcpServerConfig(
  * @param pathToResolve - Either a worktree path or regular project path
  * @returns The original project path, or the input if not a worktree, or null if resolution fails
  */
-export function resolveProjectPathFromWorktree(
-  pathToResolve: string
-): string | null {
+export function resolveProjectPathFromWorktree(pathToResolve: string): string | null {
   const WORKTREE_BASES = [
-    path.join(os.homedir(), ".churrostack", "worktrees"),
-    path.join(os.homedir(), ".21st", "worktrees"),
-  ]
+    path.join(os.homedir(), '.churrostack', 'worktrees'),
+    path.join(os.homedir(), '.21st', 'worktrees')
+  ];
 
   // Normalize for cross-platform (handle both / and \ separators)
-  const normalizedPath = pathToResolve.replace(/\\/g, "/")
+  const normalizedPath = pathToResolve.replace(/\\/g, '/');
 
-  const matchedBase = WORKTREE_BASES.find((base) =>
-    normalizedPath.includes(base.replace(/\\/g, "/"))
-  )
+  const matchedBase = WORKTREE_BASES.find((base) => normalizedPath.includes(base.replace(/\\/g, '/')));
 
   if (!matchedBase) {
     // Not a worktree path, return as-is
-    return pathToResolve
+    return pathToResolve;
   }
 
   try {
     // Extract segments from path structure
     // Path format: <worktreeBase>/{projectSlug}/{worktreeFolder}
-    const normalizedBase = matchedBase.replace(/\\/g, "/")
-    const relativePath = normalizedPath
-      .replace(normalizedBase, "")
-      .replace(/^\//, "")
+    const normalizedBase = matchedBase.replace(/\\/g, '/');
+    const relativePath = normalizedPath.replace(normalizedBase, '').replace(/^\//, '');
 
-    const parts = relativePath.split("/")
+    const parts = relativePath.split('/');
     if (parts.length < 1 || !parts[0]) {
-      return null
+      return null;
     }
 
-    const db = getDatabase()
+    const db = getDatabase();
 
     // Strategy 1: Legacy lookup - folder name is a projectId
-    const projectById = db
-      .select({ path: projects.path })
-      .from(projects)
-      .where(eq(projects.id, parts[0]))
-      .get()
+    const projectById = db.select({ path: projects.path }).from(projects).where(eq(projects.id, parts[0])).get();
 
     if (projectById) {
-      return projectById.path
+      return projectById.path;
     }
 
     // Strategy 2: New format - folder name is the project name.
     // Look up via chats.worktreePath which stores the full path.
     if (parts.length >= 2) {
-      const expectedWorktreePath = path.join(matchedBase, parts[0], parts[1])
+      const expectedWorktreePath = path.join(matchedBase, parts[0], parts[1]);
       const chat = db
         .select({ projectId: chats.projectId })
         .from(chats)
         .where(eq(chats.worktreePath, expectedWorktreePath))
-        .get()
+        .get();
 
       if (chat) {
-        const project = db
-          .select({ path: projects.path })
-          .from(projects)
-          .where(eq(projects.id, chat.projectId))
-          .get()
+        const project = db.select({ path: projects.path }).from(projects).where(eq(projects.id, chat.projectId)).get();
 
         if (project) {
-          return project.path
+          return project.path;
         }
       }
     }
 
-    return null
+    return null;
   } catch (error) {
-    console.error("[worktree-utils] Failed to resolve project path:", error)
-    return null
+    console.error('[worktree-utils] Failed to resolve project path:', error);
+    return null;
   }
 }
 
@@ -309,55 +295,51 @@ export function resolveProjectPathFromWorktree(
  */
 function expandEnvVars(value: string): string {
   return value.replace(/\$\{([^}]+)\}/g, (_match, expr: string) => {
-    const defaultSep = expr.indexOf(":-")
+    const defaultSep = expr.indexOf(':-');
     if (defaultSep !== -1) {
-      const varName = expr.slice(0, defaultSep)
-      const defaultVal = expr.slice(defaultSep + 2)
-      return process.env[varName] || defaultVal
+      const varName = expr.slice(0, defaultSep);
+      const defaultVal = expr.slice(defaultSep + 2);
+      return process.env[varName] || defaultVal;
     }
-    return process.env[expr] || ""
-  })
+    return process.env[expr] || '';
+  });
 }
 
 /**
  * Expand env vars in MCP server config fields: command, args, env, url, headers
  */
-function expandMcpServerEnvVars(
-  servers: Record<string, McpServerConfig>
-): Record<string, McpServerConfig> {
-  const result: Record<string, McpServerConfig> = {}
+function expandMcpServerEnvVars(servers: Record<string, McpServerConfig>): Record<string, McpServerConfig> {
+  const result: Record<string, McpServerConfig> = {};
   for (const [name, config] of Object.entries(servers)) {
-    const expanded: McpServerConfig = { ...config }
-    if (typeof expanded.command === "string") {
-      expanded.command = expandEnvVars(expanded.command)
+    const expanded: McpServerConfig = { ...config };
+    if (typeof expanded.command === 'string') {
+      expanded.command = expandEnvVars(expanded.command);
     }
     if (Array.isArray(expanded.args)) {
-      expanded.args = expanded.args.map((a) =>
-        typeof a === "string" ? expandEnvVars(a) : a
-      )
+      expanded.args = expanded.args.map((a) => (typeof a === 'string' ? expandEnvVars(a) : a));
     }
-    if (typeof expanded.url === "string") {
-      expanded.url = expandEnvVars(expanded.url)
+    if (typeof expanded.url === 'string') {
+      expanded.url = expandEnvVars(expanded.url);
     }
-    if (expanded.env && typeof expanded.env === "object") {
-      const envObj = expanded.env as Record<string, string>
-      const expandedEnv: Record<string, string> = {}
+    if (expanded.env && typeof expanded.env === 'object') {
+      const envObj = expanded.env as Record<string, string>;
+      const expandedEnv: Record<string, string> = {};
       for (const [k, v] of Object.entries(envObj)) {
-        expandedEnv[k] = typeof v === "string" ? expandEnvVars(v) : v
+        expandedEnv[k] = typeof v === 'string' ? expandEnvVars(v) : v;
       }
-      expanded.env = expandedEnv
+      expanded.env = expandedEnv;
     }
-    if (expanded.headers && typeof expanded.headers === "object") {
-      const headersObj = expanded.headers as Record<string, string>
-      const expandedHeaders: Record<string, string> = {}
+    if (expanded.headers && typeof expanded.headers === 'object') {
+      const headersObj = expanded.headers as Record<string, string>;
+      const expandedHeaders: Record<string, string> = {};
       for (const [k, v] of Object.entries(headersObj)) {
-        expandedHeaders[k] = typeof v === "string" ? expandEnvVars(v) : v
+        expandedHeaders[k] = typeof v === 'string' ? expandEnvVars(v) : v;
       }
-      expanded.headers = expandedHeaders
+      expanded.headers = expandedHeaders;
     }
-    result[name] = expanded
+    result[name] = expanded;
   }
-  return result
+  return result;
 }
 
 /**
@@ -366,40 +348,33 @@ function expandMcpServerEnvVars(
  * Expands environment variables in server configs.
  * Returns empty record if file doesn't exist or is invalid.
  */
-export async function readProjectMcpJson(
-  projectPath: string
-): Promise<Record<string, McpServerConfig>> {
+export async function readProjectMcpJson(projectPath: string): Promise<Record<string, McpServerConfig>> {
   try {
-    const mcpJsonPath = path.join(projectPath, ".mcp.json")
-    const content = await fs.readFile(mcpJsonPath, "utf-8")
-    const parsed = JSON.parse(content)
+    const mcpJsonPath = path.join(projectPath, '.mcp.json');
+    const content = await fs.readFile(mcpJsonPath, 'utf-8');
+    const parsed = JSON.parse(content);
 
-    let servers: Record<string, McpServerConfig>
-    if (parsed.mcpServers && typeof parsed.mcpServers === "object") {
+    let servers: Record<string, McpServerConfig>;
+    if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
       // Nested format: { "mcpServers": { "name": { ... } } }
-      servers = parsed.mcpServers
+      servers = parsed.mcpServers;
     } else {
       // Flat format: { "name": { "command": ..., ... } }
       // Filter out non-server keys (a server entry should be an object with command or url)
-      servers = {}
+      servers = {};
       for (const [key, value] of Object.entries(parsed)) {
-        if (
-          value &&
-          typeof value === "object" &&
-          !Array.isArray(value) &&
-          key !== "mcpServers"
-        ) {
-          servers[key] = value as McpServerConfig
+        if (value && typeof value === 'object' && !Array.isArray(value) && key !== 'mcpServers') {
+          servers[key] = value as McpServerConfig;
         }
       }
     }
 
-    return expandMcpServerEnvVars(servers)
+    return expandMcpServerEnvVars(servers);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error(`[claude-config] Failed to read .mcp.json from ${projectPath}:`, error)
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error(`[claude-config] Failed to read .mcp.json from ${projectPath}:`, error);
     }
-    return {}
+    return {};
   }
 }
 
@@ -408,13 +383,13 @@ export async function readProjectMcpJson(
  */
 export async function readClaudeDirConfig(): Promise<ClaudeConfig> {
   try {
-    const content = await fs.readFile(CLAUDE_DIR_CONFIG_PATH, "utf-8")
-    return JSON.parse(content)
+    const content = await fs.readFile(CLAUDE_DIR_CONFIG_PATH, 'utf-8');
+    return JSON.parse(content);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error("[claude-config] Failed to read ~/.claude/.claude.json:", error)
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('[claude-config] Failed to read ~/.claude/.claude.json:', error);
     }
-    return {}
+    return {};
   }
 }
 
@@ -424,25 +399,25 @@ export async function readClaudeDirConfig(): Promise<ClaudeConfig> {
  */
 export async function readClaudeDirMcpJson(): Promise<Record<string, McpServerConfig>> {
   try {
-    const content = await fs.readFile(CLAUDE_DIR_MCP_PATH, "utf-8")
-    const parsed = JSON.parse(content)
+    const content = await fs.readFile(CLAUDE_DIR_MCP_PATH, 'utf-8');
+    const parsed = JSON.parse(content);
 
-    if (parsed.mcpServers && typeof parsed.mcpServers === "object") {
-      return parsed.mcpServers
+    if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
+      return parsed.mcpServers;
     }
     // Flat format
-    const servers: Record<string, McpServerConfig> = {}
+    const servers: Record<string, McpServerConfig> = {};
     for (const [key, value] of Object.entries(parsed)) {
-      if (value && typeof value === "object" && !Array.isArray(value) && key !== "mcpServers") {
-        servers[key] = value as McpServerConfig
+      if (value && typeof value === 'object' && !Array.isArray(value) && key !== 'mcpServers') {
+        servers[key] = value as McpServerConfig;
       }
     }
-    return servers
+    return servers;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error("[claude-config] Failed to read ~/.claude/mcp.json:", error)
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('[claude-config] Failed to read ~/.claude/mcp.json:', error);
     }
-    return {}
+    return {};
   }
 }
 
@@ -454,16 +429,16 @@ export async function getMergedGlobalMcpServers(
   claudeConfig?: ClaudeConfig,
   claudeDirConfig?: ClaudeConfig
 ): Promise<Record<string, McpServerConfig>> {
-  const config = claudeConfig ?? (await readClaudeConfig())
-  const dirConfig = claudeDirConfig ?? (await readClaudeDirConfig())
-  const claudeDirMcp = await readClaudeDirMcpJson()
+  const config = claudeConfig ?? (await readClaudeConfig());
+  const dirConfig = claudeDirConfig ?? (await readClaudeDirConfig());
+  const claudeDirMcp = await readClaudeDirMcpJson();
 
   // Lower priority first, higher priority overwrites
   return {
     ...claudeDirMcp,
     ...(dirConfig.mcpServers || {}),
-    ...(config.mcpServers || {}),
-  }
+    ...(config.mcpServers || {})
+  };
 }
 
 /**
@@ -476,19 +451,17 @@ export async function getMergedLocalProjectMcpServers(
   claudeConfig?: ClaudeConfig,
   claudeDirConfig?: ClaudeConfig
 ): Promise<Record<string, McpServerConfig>> {
-  const config = claudeConfig ?? (await readClaudeConfig())
-  const dirConfig = claudeDirConfig ?? (await readClaudeDirConfig())
+  const config = claudeConfig ?? (await readClaudeConfig());
+  const dirConfig = claudeDirConfig ?? (await readClaudeDirConfig());
 
-  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath
+  const resolvedPath = resolveProjectPathFromWorktree(projectPath) || projectPath;
 
-  const claudeDirProjectServers =
-    dirConfig.projects?.[resolvedPath]?.mcpServers || {}
-  const mainProjectServers =
-    config.projects?.[resolvedPath]?.mcpServers || {}
+  const claudeDirProjectServers = dirConfig.projects?.[resolvedPath]?.mcpServers || {};
+  const mainProjectServers = config.projects?.[resolvedPath]?.mcpServers || {};
 
   // Higher priority overwrites
   return {
     ...claudeDirProjectServers,
-    ...mainProjectServers,
-  }
+    ...mainProjectServers
+  };
 }

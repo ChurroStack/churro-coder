@@ -35,50 +35,37 @@
  * its mutation handle and parent-prop callbacks via config.
  */
 
-import { useChatViewState, type UseChatViewStateReturn } from "./use-chat-view-state"
-import {
-  useModeSwitchDeps,
-  type ModeSwitchMutationLike,
-} from "./use-mode-switch-deps"
-import {
-  useTransportFactoryDeps,
-  type UseTransportFactoryDepsConfig,
-} from "./use-transport-factory-deps"
-import {
-  useApprovePlanDeps,
-  type UseApprovePlanDepsConfig,
-} from "./use-approve-plan-deps"
-import type { Chat } from "@ai-sdk/react"
-import type { ModeSwitchDeps } from "../services/mode-switch-service"
-import type { PlanApprovalDeps } from "../services/plan-approval-service"
-import type { TransportFactoryDeps } from "../services/transport-factory"
+import { useChatViewState, type UseChatViewStateReturn } from './use-chat-view-state';
+import { useModeSwitchDeps, type ModeSwitchMutationLike } from './use-mode-switch-deps';
+import { useTransportFactoryDeps, type UseTransportFactoryDepsConfig } from './use-transport-factory-deps';
+import { useApprovePlanDeps, type UseApprovePlanDepsConfig } from './use-approve-plan-deps';
+import type { Chat } from '@ai-sdk/react';
+import type { ModeSwitchDeps } from '../services/mode-switch-service';
+import type { PlanApprovalDeps } from '../services/plan-approval-service';
+import type { TransportFactoryDeps } from '../services/transport-factory';
 
 export interface UseChatControllerConfig {
   /** The sub-chat this controller mount is bound to. */
-  subChatId: string
+  subChatId: string;
   /** tRPC mutation handle — `mutateAsync` is awaited inside `persistMode`. */
   updateSubChatModeMutation: ModeSwitchMutationLike & {
-    mutateAsync: (input: {
-      subChatId: string
-      mode: "agent" | "plan"
-      exitPlan?: true
-    }) => Promise<unknown>
-  }
+    mutateAsync: (input: { subChatId: string; mode: 'agent' | 'plan'; exitPlan?: true }) => Promise<unknown>;
+  };
   /** Transport-factory config — see `UseTransportFactoryDepsConfig`. */
-  transportFactoryConfig: UseTransportFactoryDepsConfig
+  transportFactoryConfig: UseTransportFactoryDepsConfig;
   /** Plan-approval config — see `UseApprovePlanDepsConfig`. */
-  approvePlanConfig: Omit<UseApprovePlanDepsConfig, "updateSubChatModeMutation">
+  approvePlanConfig: Omit<UseApprovePlanDepsConfig, 'updateSubChatModeMutation'>;
 }
 
 export interface UseChatControllerReturn {
   /** Per-subChatId configuration atoms (mode/model/thinking/provider). */
-  viewState: UseChatViewStateReturn
+  viewState: UseChatViewStateReturn;
   /** Deps for `mode-switch-service` (toggleMode/forceMode/hydrateMode + note* events). */
-  modeDeps: ModeSwitchDeps
+  modeDeps: ModeSwitchDeps;
   /** Deps for `transport-factory.getOrCreateChat`. */
-  transportFactoryDeps: TransportFactoryDeps<Chat<any>>
+  transportFactoryDeps: TransportFactoryDeps<Chat<any>>;
   /** Deps for `plan-approval-service.approvePlan`. */
-  planDeps: PlanApprovalDeps
+  planDeps: PlanApprovalDeps;
 }
 
 /**
@@ -88,16 +75,14 @@ export interface UseChatControllerReturn {
  *   returns. Each subfield's identity is preserved across renders that
  *   don't change its inputs (the underlying hooks already memoize).
  */
-export function useChatController(
-  config: UseChatControllerConfig,
-): UseChatControllerReturn {
-  const viewState = useChatViewState(config.subChatId)
-  const modeDeps = useModeSwitchDeps(config.updateSubChatModeMutation)
-  const transportFactoryDeps = useTransportFactoryDeps(config.transportFactoryConfig)
+export function useChatController(config: UseChatControllerConfig): UseChatControllerReturn {
+  const viewState = useChatViewState(config.subChatId);
+  const modeDeps = useModeSwitchDeps(config.updateSubChatModeMutation);
+  const transportFactoryDeps = useTransportFactoryDeps(config.transportFactoryConfig);
   const planDeps = useApprovePlanDeps({
     ...config.approvePlanConfig,
-    updateSubChatModeMutation: config.updateSubChatModeMutation,
-  })
+    updateSubChatModeMutation: config.updateSubChatModeMutation
+  });
 
   // No top-level `useMemo`: each underlying hook returns a memoized
   // object, so the controller's return is implicitly stable as long as
@@ -107,6 +92,6 @@ export function useChatController(
     viewState,
     modeDeps,
     transportFactoryDeps,
-    planDeps,
-  }
+    planDeps
+  };
 }

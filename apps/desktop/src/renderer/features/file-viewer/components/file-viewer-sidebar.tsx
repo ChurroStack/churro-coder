@@ -1,64 +1,53 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Editor, { type Monaco } from "@monaco-editor/react"
-import type { editor } from "monaco-editor"
-import { useAtom } from "jotai"
-import { useAtomValue } from "jotai"
-import { useTheme } from "next-themes"
-import {
-  Loader2,
-  AlertCircle,
-  FileWarning,
-  MoreHorizontal,
-  WrapText,
-  Map,
-} from "lucide-react"
-import { IconLineNumbers } from "@/components/ui/icons"
-import { Kbd } from "@/components/ui/kbd"
-import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Editor, { type Monaco } from '@monaco-editor/react';
+import type { editor } from 'monaco-editor';
+import { useAtom } from 'jotai';
+import { useAtomValue } from 'jotai';
+import { useTheme } from 'next-themes';
+import { Loader2, AlertCircle, FileWarning, MoreHorizontal, WrapText, Map } from 'lucide-react';
+import { IconLineNumbers } from '@/components/ui/icons';
+import { Kbd } from '@/components/ui/kbd';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu"
-import { ViewerErrorBoundary } from "@/components/ui/error-boundary"
-import { FileTitleBlock } from "./file-title-block"
-import { trpc } from "@/lib/trpc"
-import { preferredEditorAtom } from "@/lib/atoms"
-import { useResolvedHotkeyDisplay } from "@/lib/hotkeys"
-import { APP_META } from "../../../../shared/external-apps"
-import { CopyButton } from "../../agents/ui/message-action-buttons"
-import { EDITOR_ICONS } from "@/lib/editor-icons"
+  DropdownMenuItem
+} from '@/components/ui/dropdown-menu';
+import { ViewerErrorBoundary } from '@/components/ui/error-boundary';
+import { FileTitleBlock } from './file-title-block';
+import { trpc } from '@/lib/trpc';
+import { preferredEditorAtom } from '@/lib/atoms';
+import { useResolvedHotkeyDisplay } from '@/lib/hotkeys';
+import { APP_META } from '../../../../shared/external-apps';
+import { CopyButton } from '../../agents/ui/message-action-buttons';
+import { EDITOR_ICONS } from '@/lib/editor-icons';
 import {
   fileViewerWordWrapAtom,
   fileViewerMinimapAtom,
   fileViewerLineNumbersAtom,
-  fileViewerScrollTargetAtom,
-} from "../../agents/atoms"
-import { useFileContent, getErrorMessage } from "../hooks/use-file-content"
-import { getMonacoLanguage, getFileViewerType } from "../utils/language-map"
-import { defaultEditorOptions, getMonacoTheme, registerMonacoTheme } from "./monaco-config"
-import { useVSCodeTheme } from "@/lib/themes"
-import { ImageViewer } from "./image-viewer"
-import { MarkdownViewer } from "./markdown-viewer"
+  fileViewerScrollTargetAtom
+} from '../../agents/atoms';
+import { useFileContent, getErrorMessage } from '../hooks/use-file-content';
+import { getMonacoLanguage, getFileViewerType } from '../utils/language-map';
+import { defaultEditorOptions, getMonacoTheme, registerMonacoTheme } from './monaco-config';
+import { useVSCodeTheme } from '@/lib/themes';
+import { ImageViewer } from './image-viewer';
+import { MarkdownViewer } from './markdown-viewer';
 
 interface FileViewerSidebarProps {
-  filePath: string
-  projectPath: string
-  onClose: () => void
+  filePath: string;
+  projectPath: string;
+  onClose: () => void;
   /**
    * When true, render an inline header with a close button + filename
    * inside the viewer itself. Default false because dockview's tab strip
    * already provides those affordances; set true when the viewer lives in
    * a non-dockview surface (e.g. the new-workspace explorer sidebar).
    */
-  showHeader?: boolean
+  showHeader?: boolean;
 }
 
 function LoadingSpinner() {
@@ -69,7 +58,7 @@ function LoadingSpinner() {
         <span className="text-sm">Loading file...</span>
       </div>
     </div>
-  )
+  );
 }
 
 function ErrorDisplay({ error }: { error: string }) {
@@ -80,17 +69,17 @@ function ErrorDisplay({ error }: { error: string }) {
         <p className="font-medium text-foreground">{error}</p>
       </div>
     </div>
-  )
+  );
 }
 
 function UnsupportedViewer({
   filePath,
   onClose,
-  showHeader = false,
+  showHeader = false
 }: {
-  filePath: string
-  onClose: () => void
-  showHeader?: boolean
+  filePath: string;
+  onClose: () => void;
+  showHeader?: boolean;
 }) {
   return (
     <div className="flex flex-col h-full bg-background">
@@ -98,9 +87,8 @@ function UnsupportedViewer({
         <div
           className="flex items-center px-2 h-10 border-b border-border/50 bg-background flex-shrink-0"
           style={{
-            WebkitAppRegion: "no-drag",
-          }}
-        >
+            WebkitAppRegion: 'no-drag'
+          }}>
           <FileTitleBlock filePath={filePath} onClose={onClose} />
         </div>
       )}
@@ -111,45 +99,42 @@ function UnsupportedViewer({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function CodeViewerHeader({
   filePath,
   content,
   showHeader = false,
-  onClose,
+  onClose
 }: {
-  filePath: string
-  content?: string | null
-  showHeader?: boolean
-  onClose?: () => void
+  filePath: string;
+  content?: string | null;
+  showHeader?: boolean;
+  onClose?: () => void;
 }) {
-  const [wordWrap, setWordWrap] = useAtom(fileViewerWordWrapAtom)
-  const [minimap, setMinimap] = useAtom(fileViewerMinimapAtom)
-  const [lineNumbers, setLineNumbers] = useAtom(fileViewerLineNumbersAtom)
-  const preferredEditor = useAtomValue(preferredEditorAtom)
-  const editorMeta = APP_META[preferredEditor]
-  const openInAppMutation = trpc.external.openInApp.useMutation()
-  const openInEditorHotkey = useResolvedHotkeyDisplay("open-file-in-editor")
+  const [wordWrap, setWordWrap] = useAtom(fileViewerWordWrapAtom);
+  const [minimap, setMinimap] = useAtom(fileViewerMinimapAtom);
+  const [lineNumbers, setLineNumbers] = useAtom(fileViewerLineNumbersAtom);
+  const preferredEditor = useAtomValue(preferredEditorAtom);
+  const editorMeta = APP_META[preferredEditor];
+  const openInAppMutation = trpc.external.openInApp.useMutation();
+  const openInEditorHotkey = useResolvedHotkeyDisplay('open-file-in-editor');
 
   const handleOpenInEditor = useCallback(() => {
-    const absolutePath = filePath.startsWith("/") ? filePath : undefined
+    const absolutePath = filePath.startsWith('/') ? filePath : undefined;
     if (absolutePath) {
-      openInAppMutation.mutate({ path: absolutePath, app: preferredEditor })
+      openInAppMutation.mutate({ path: absolutePath, app: preferredEditor });
     }
-  }, [filePath, preferredEditor, openInAppMutation])
+  }, [filePath, preferredEditor, openInAppMutation]);
 
   return (
     <div
-      className={`@container flex items-center ${showHeader ? "justify-between" : "justify-end"} px-2 h-10 border-b border-border/50 bg-background flex-shrink-0`}
+      className={`@container flex items-center ${showHeader ? 'justify-between' : 'justify-end'} px-2 h-10 border-b border-border/50 bg-background flex-shrink-0`}
       style={{
-        WebkitAppRegion: "no-drag",
-      }}
-    >
-      {showHeader && onClose && (
-        <FileTitleBlock filePath={filePath} onClose={onClose} />
-      )}
+        WebkitAppRegion: 'no-drag'
+      }}>
+      {showHeader && onClose && <FileTitleBlock filePath={filePath} onClose={onClose} />}
       <div className="flex items-center gap-1 flex-shrink-0">
         {/* Open in editor */}
         <Tooltip delayDuration={500}>
@@ -157,15 +142,10 @@ function CodeViewerHeader({
             <button
               type="button"
               onClick={handleOpenInEditor}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer rounded-md px-1.5 py-1 hover:bg-accent hover:text-accent-foreground transition-colors"
-            >
+              className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer rounded-md px-1.5 py-1 hover:bg-accent hover:text-accent-foreground transition-colors">
               <span className="hidden @[400px]:inline">Open in</span>
               {EDITOR_ICONS[preferredEditor] && (
-                <img
-                  src={EDITOR_ICONS[preferredEditor]}
-                  alt=""
-                  className="h-3.5 w-3.5 flex-shrink-0"
-                />
+                <img src={EDITOR_ICONS[preferredEditor]} alt="" className="h-3.5 w-3.5 flex-shrink-0" />
               )}
             </button>
           </TooltipTrigger>
@@ -195,30 +175,20 @@ function CodeViewerHeader({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 p-0 hover:bg-foreground/10 text-muted-foreground hover:text-foreground"
-            >
+              className="h-6 w-6 p-0 hover:bg-foreground/10 text-muted-foreground hover:text-foreground">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuCheckboxItem
-              checked={wordWrap}
-              onCheckedChange={() => setWordWrap(!wordWrap)}
-            >
+            <DropdownMenuCheckboxItem checked={wordWrap} onCheckedChange={() => setWordWrap(!wordWrap)}>
               <WrapText className="mr-2 h-3.5 w-3.5" />
               Word Wrap
             </DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem
-              checked={minimap}
-              onCheckedChange={() => setMinimap(!minimap)}
-            >
+            <DropdownMenuCheckboxItem checked={minimap} onCheckedChange={() => setMinimap(!minimap)}>
               <Map className="mr-2 h-3.5 w-3.5" />
               Minimap
             </DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem
-              checked={lineNumbers}
-              onCheckedChange={() => setLineNumbers(!lineNumbers)}
-            >
+            <DropdownMenuCheckboxItem checked={lineNumbers} onCheckedChange={() => setLineNumbers(!lineNumbers)}>
               <IconLineNumbers className="mr-2 h-3.5 w-3.5" />
               Line Numbers
             </DropdownMenuCheckboxItem>
@@ -226,62 +196,36 @@ function CodeViewerHeader({
         </DropdownMenu>
       </div>
     </div>
-  )
+  );
 }
 
 /**
  * FileViewerSidebar - Routes to appropriate viewer based on file type
  */
-export function FileViewerSidebar({
-  filePath,
-  projectPath,
-  onClose,
-  showHeader = false,
-}: FileViewerSidebarProps) {
-  const viewerType = getFileViewerType(filePath)
+export function FileViewerSidebar({ filePath, projectPath, onClose, showHeader = false }: FileViewerSidebarProps) {
+  const viewerType = getFileViewerType(filePath);
 
   switch (viewerType) {
-    case "image":
+    case 'image':
       return (
         <ViewerErrorBoundary viewerType="image" onReset={onClose}>
-          <ImageViewer
-            filePath={filePath}
-            projectPath={projectPath}
-            onClose={onClose}
-            showHeader={showHeader}
-          />
+          <ImageViewer filePath={filePath} projectPath={projectPath} onClose={onClose} showHeader={showHeader} />
         </ViewerErrorBoundary>
-      )
-    case "unsupported":
-      return (
-        <UnsupportedViewer
-          filePath={filePath}
-          onClose={onClose}
-          showHeader={showHeader}
-        />
-      )
-    case "markdown":
+      );
+    case 'unsupported':
+      return <UnsupportedViewer filePath={filePath} onClose={onClose} showHeader={showHeader} />;
+    case 'markdown':
       return (
         <ViewerErrorBoundary viewerType="markdown" onReset={onClose}>
-          <MarkdownViewer
-            filePath={filePath}
-            projectPath={projectPath}
-            onClose={onClose}
-            showHeader={showHeader}
-          />
+          <MarkdownViewer filePath={filePath} projectPath={projectPath} onClose={onClose} showHeader={showHeader} />
         </ViewerErrorBoundary>
-      )
+      );
     default:
       return (
         <ViewerErrorBoundary viewerType="file" onReset={onClose}>
-          <CodeViewer
-            filePath={filePath}
-            projectPath={projectPath}
-            onClose={onClose}
-            showHeader={showHeader}
-          />
+          <CodeViewer filePath={filePath} projectPath={projectPath} onClose={onClose} showHeader={showHeader} />
         </ViewerErrorBoundary>
-      )
+      );
   }
 }
 
@@ -295,77 +239,76 @@ function EditorContextMenu({
   onCopy,
   onFind,
   onAddToContext,
-  hasSelection,
+  hasSelection
 }: {
-  position: { x: number; y: number }
-  onClose: () => void
-  onEditorAction: (actionId: string) => void
-  onCopy: () => void
-  onFind: () => void
-  onAddToContext: () => void
-  hasSelection: boolean
+  position: { x: number; y: number };
+  onClose: () => void;
+  onEditorAction: (actionId: string) => void;
+  onCopy: () => void;
+  onFind: () => void;
+  onAddToContext: () => void;
+  hasSelection: boolean;
 }) {
-  const menuRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose()
+        onClose();
       }
-    }
+    };
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("mousedown", handleClickOutside)
-    window.addEventListener("keydown", handleEsc, true)
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleEsc, true);
     return () => {
-      window.removeEventListener("mousedown", handleClickOutside)
-      window.removeEventListener("keydown", handleEsc, true)
-    }
-  }, [onClose])
+      window.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleEsc, true);
+    };
+  }, [onClose]);
 
   // Adjust position so menu doesn't overflow viewport
-  const [adjustedPos, setAdjustedPos] = useState(position)
+  const [adjustedPos, setAdjustedPos] = useState(position);
   useEffect(() => {
-    if (!menuRef.current) return
-    const rect = menuRef.current.getBoundingClientRect()
-    const x = position.x + rect.width > window.innerWidth ? window.innerWidth - rect.width - 4 : position.x
-    const y = position.y + rect.height > window.innerHeight ? window.innerHeight - rect.height - 4 : position.y
-    setAdjustedPos({ x, y })
-  }, [position])
+    if (!menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const x = position.x + rect.width > window.innerWidth ? window.innerWidth - rect.width - 4 : position.x;
+    const y = position.y + rect.height > window.innerHeight ? window.innerHeight - rect.height - 4 : position.y;
+    setAdjustedPos({ x, y });
+  }, [position]);
 
   const itemClass =
-    "flex items-center gap-1.5 min-h-[32px] py-[5px] px-1.5 mx-1 rounded-md text-sm cursor-default select-none outline-none transition-colors dark:hover:bg-neutral-800 hover:bg-accent hover:text-foreground"
+    'flex items-center gap-1.5 min-h-[32px] py-[5px] px-1.5 mx-1 rounded-md text-sm cursor-default select-none outline-none transition-colors dark:hover:bg-neutral-800 hover:bg-accent hover:text-foreground';
   const disabledItemClass =
-    "flex items-center gap-1.5 min-h-[32px] py-[5px] px-1.5 mx-1 rounded-md text-sm cursor-default select-none outline-none opacity-50 pointer-events-none"
-  const shortcutClass = "ml-auto text-xs tracking-widest text-muted-foreground/60"
-  const separatorClass = "my-1 h-px bg-border mx-1"
+    'flex items-center gap-1.5 min-h-[32px] py-[5px] px-1.5 mx-1 rounded-md text-sm cursor-default select-none outline-none opacity-50 pointer-events-none';
+  const shortcutClass = 'ml-auto text-xs tracking-widest text-muted-foreground/60';
+  const separatorClass = 'my-1 h-px bg-border mx-1';
 
   const handleAction = (fn: () => void) => {
-    fn()
-    onClose()
-  }
+    fn();
+    onClose();
+  };
 
   const handleEditorAction = (actionId: string) => {
-    onEditorAction(actionId)
-    onClose()
-  }
+    onEditorAction(actionId);
+    onClose();
+  };
 
   return (
     <div
       ref={menuRef}
       className="fixed z-50 min-w-[200px] py-1 rounded-[10px] border border-border bg-popover text-sm text-popover-foreground shadow-lg dark animate-in fade-in-0 zoom-in-95 duration-100"
-      style={{ left: adjustedPos.x, top: adjustedPos.y }}
-    >
-      <div className={itemClass} onClick={() => handleEditorAction("editor.action.revealDefinition")}>
+      style={{ left: adjustedPos.x, top: adjustedPos.y }}>
+      <div className={itemClass} onClick={() => handleEditorAction('editor.action.revealDefinition')}>
         Go to Definition
         <span className={shortcutClass}>⌘F12</span>
       </div>
-      <div className={itemClass} onClick={() => handleEditorAction("editor.action.goToReferences")}>
+      <div className={itemClass} onClick={() => handleEditorAction('editor.action.goToReferences')}>
         Go to References
         <span className={shortcutClass}>⇧F12</span>
       </div>
-      <div className={itemClass} onClick={() => handleEditorAction("editor.action.goToSymbol")}>
+      <div className={itemClass} onClick={() => handleEditorAction('editor.action.goToSymbol')}>
         Go to Symbol...
         <span className={shortcutClass}>⇧⌘O</span>
       </div>
@@ -375,7 +318,9 @@ function EditorContextMenu({
         <span className={shortcutClass}>⌘F</span>
       </div>
       <div className={separatorClass} />
-      <div className={hasSelection ? itemClass : disabledItemClass} onClick={hasSelection ? () => handleAction(onAddToContext) : undefined}>
+      <div
+        className={hasSelection ? itemClass : disabledItemClass}
+        onClick={hasSelection ? () => handleAction(onAddToContext) : undefined}>
         Add to Context
       </div>
       <div className={separatorClass} />
@@ -384,12 +329,12 @@ function EditorContextMenu({
         <span className={shortcutClass}>⌘C</span>
       </div>
       <div className={separatorClass} />
-      <div className={itemClass} onClick={() => handleEditorAction("editor.action.quickCommand")}>
+      <div className={itemClass} onClick={() => handleEditorAction('editor.action.quickCommand')}>
         Command Palette
         <span className={shortcutClass}>F1</span>
       </div>
     </div>
-  )
+  );
 }
 
 /**
@@ -399,251 +344,265 @@ function CodeViewer({
   filePath,
   projectPath,
   onClose,
-  showHeader = false,
+  showHeader = false
 }: {
-  filePath: string
-  projectPath: string
-  onClose: () => void
-  showHeader?: boolean
+  filePath: string;
+  projectPath: string;
+  onClose: () => void;
+  showHeader?: boolean;
 }) {
-  const language = getMonacoLanguage(filePath)
-  const { resolvedTheme } = useTheme()
-  const { currentTheme } = useVSCodeTheme()
-  const fallbackTheme = getMonacoTheme(resolvedTheme || "dark")
+  const language = getMonacoLanguage(filePath);
+  const { resolvedTheme } = useTheme();
+  const { currentTheme } = useVSCodeTheme();
+  const fallbackTheme = getMonacoTheme(resolvedTheme || 'dark');
 
-  const [wordWrap] = useAtom(fileViewerWordWrapAtom)
-  const [minimap] = useAtom(fileViewerMinimapAtom)
-  const [lineNumbers] = useAtom(fileViewerLineNumbersAtom)
+  const [wordWrap] = useAtom(fileViewerWordWrapAtom);
+  const [minimap] = useAtom(fileViewerMinimapAtom);
+  const [lineNumbers] = useAtom(fileViewerLineNumbersAtom);
 
-  const preferredEditor = useAtomValue(preferredEditorAtom)
-  const openInAppMutation = trpc.external.openInApp.useMutation()
+  const preferredEditor = useAtomValue(preferredEditorAtom);
+  const openInAppMutation = trpc.external.openInApp.useMutation();
 
-  const monacoRef = useRef<Monaco | null>(null)
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
-  const [hasSelection, setHasSelection] = useState(false)
+  const monacoRef = useRef<Monaco | null>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [hasSelection, setHasSelection] = useState(false);
   // Pending line to scroll to once Monaco mounts (set by Search tab clicks).
-  const pendingScrollLineRef = useRef<number | null>(null)
+  const pendingScrollLineRef = useRef<number | null>(null);
 
   // Handle ⌘⇧O hotkey to open current file in external editor
   useEffect(() => {
     const handler = () => {
-      const absolutePath = filePath.startsWith("/") ? filePath : undefined
+      const absolutePath = filePath.startsWith('/') ? filePath : undefined;
       if (absolutePath) {
-        openInAppMutation.mutate({ path: absolutePath, app: preferredEditor })
+        openInAppMutation.mutate({ path: absolutePath, app: preferredEditor });
       }
-    }
-    window.addEventListener("open-file-in-editor", handler)
-    return () => window.removeEventListener("open-file-in-editor", handler)
-  }, [filePath, preferredEditor, openInAppMutation])
+    };
+    window.addEventListener('open-file-in-editor', handler);
+    return () => window.removeEventListener('open-file-in-editor', handler);
+  }, [filePath, preferredEditor, openInAppMutation]);
 
   // Read pending scroll target set by Search tab on result click.
-  const [scrollTarget, setScrollTarget] = useAtom(fileViewerScrollTargetAtom)
+  const [scrollTarget, setScrollTarget] = useAtom(fileViewerScrollTargetAtom);
   useEffect(() => {
-    if (!scrollTarget || scrollTarget.path !== filePath || scrollTarget.line < 1) return
-    pendingScrollLineRef.current = scrollTarget.line
-    const ed = editorRef.current
+    if (!scrollTarget || scrollTarget.path !== filePath || scrollTarget.line < 1) return;
+    pendingScrollLineRef.current = scrollTarget.line;
+    const ed = editorRef.current;
     if (ed && ed.getModel()) {
-      ed.revealLineInCenter(scrollTarget.line)
-      ed.setPosition({ lineNumber: scrollTarget.line, column: 1 })
-      pendingScrollLineRef.current = null
+      ed.revealLineInCenter(scrollTarget.line);
+      ed.setPosition({ lineNumber: scrollTarget.line, column: 1 });
+      pendingScrollLineRef.current = null;
     }
     // Clear the target so it doesn't re-trigger on unrelated re-renders.
-    setScrollTarget(null)
-  }, [scrollTarget, filePath, setScrollTarget])
+    setScrollTarget(null);
+  }, [scrollTarget, filePath, setScrollTarget]);
 
   // Compute Monaco theme: use custom user theme if available, otherwise fallback
   const monacoTheme = useMemo(() => {
     if (currentTheme && monacoRef.current) {
-      return registerMonacoTheme(monacoRef.current, currentTheme)
+      return registerMonacoTheme(monacoRef.current, currentTheme);
     }
-    return fallbackTheme
-  }, [currentTheme, fallbackTheme])
+    return fallbackTheme;
+  }, [currentTheme, fallbackTheme]);
 
   // Re-register theme when user switches themes after editor is mounted
   useEffect(() => {
     if (currentTheme && monacoRef.current) {
-      const themeName = registerMonacoTheme(monacoRef.current, currentTheme)
-      monacoRef.current.editor.setTheme(themeName)
+      const themeName = registerMonacoTheme(monacoRef.current, currentTheme);
+      monacoRef.current.editor.setTheme(themeName);
     }
-  }, [currentTheme])
+  }, [currentTheme]);
 
-  const { content, isLoading, error } = useFileContent(projectPath, filePath)
+  const { content, isLoading, error } = useFileContent(projectPath, filePath);
 
   // Apply pending scroll target once content is available (Monaco rebuilds the
   // model when `value` changes, so we defer one frame to ensure it's ready).
   useEffect(() => {
-    const line = pendingScrollLineRef.current
-    if (!line || content == null) return
-    const ed = editorRef.current
-    if (!ed) return
+    const line = pendingScrollLineRef.current;
+    if (!line || content == null) return;
+    const ed = editorRef.current;
+    if (!ed) return;
     const raf = requestAnimationFrame(() => {
-      if (!editorRef.current) return
-      editorRef.current.revealLineInCenter(line)
-      editorRef.current.setPosition({ lineNumber: line, column: 1 })
-      pendingScrollLineRef.current = null
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [content, filePath])
+      if (!editorRef.current) return;
+      editorRef.current.revealLineInCenter(line);
+      editorRef.current.setPosition({ lineNumber: line, column: 1 });
+      pendingScrollLineRef.current = null;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [content, filePath]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === 'Escape') {
         if (contextMenu) {
-          setContextMenu(null)
-          return
+          setContextMenu(null);
+          return;
         }
         // Don't close viewer if Monaco's find widget is open — let Monaco handle Escape
-        const findWidget = containerRef.current?.querySelector(".find-widget.visible")
-        if (findWidget) return
+        const findWidget = containerRef.current?.querySelector('.find-widget.visible');
+        if (findWidget) return;
 
-        e.preventDefault()
-        onClose()
+        e.preventDefault();
+        onClose();
       }
-    }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [onClose, contextMenu])
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, contextMenu]);
 
   // Custom context menu handler for Monaco
   useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
+    const container = containerRef.current;
+    if (!container) return;
 
     const isInsideContainerRect = (x: number, y: number) => {
-      const rect = container.getBoundingClientRect()
-      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-    }
+      const rect = container.getBoundingClientRect();
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    };
 
     // Check if target is inside a Monaco UI widget (find widget, hover, etc.)
     const isMonacoUIElement = (target: HTMLElement) => {
-      return !!target.closest?.(".editor-widget, .monaco-hover, .monaco-menu")
-    }
+      return !!target.closest?.('.editor-widget, .monaco-hover, .monaco-menu');
+    };
 
     const handleContextMenu = (e: MouseEvent) => {
       // Don't intercept right-clicks on Monaco UI widgets (find widget buttons, etc.)
-      if (isMonacoUIElement(e.target as HTMLElement)) return
-      e.preventDefault()
-      e.stopPropagation()
-      setContextMenu({ x: e.clientX, y: e.clientY })
-    }
+      if (isMonacoUIElement(e.target as HTMLElement)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    };
 
     // Window-level handler for Monaco overlay elements rendered outside our container
     const handleWindowContextMenu = (e: MouseEvent) => {
-      if (isMonacoUIElement(e.target as HTMLElement)) return
-      const containsTarget = container.contains(e.target as Node)
-      const insideRect = isInsideContainerRect(e.clientX, e.clientY)
+      if (isMonacoUIElement(e.target as HTMLElement)) return;
+      const containsTarget = container.contains(e.target as Node);
+      const insideRect = isInsideContainerRect(e.clientX, e.clientY);
       if (!containsTarget && insideRect) {
-        e.preventDefault()
-        e.stopPropagation()
-        setContextMenu({ x: e.clientX, y: e.clientY })
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY });
       }
-    }
+    };
 
-    container.addEventListener("contextmenu", handleContextMenu)
-    window.addEventListener("contextmenu", handleWindowContextMenu, true)
+    container.addEventListener('contextmenu', handleContextMenu);
+    window.addEventListener('contextmenu', handleWindowContextMenu, true);
     return () => {
-      container.removeEventListener("contextmenu", handleContextMenu)
-      window.removeEventListener("contextmenu", handleWindowContextMenu, true)
-    }
-  }, [])
+      container.removeEventListener('contextmenu', handleContextMenu);
+      window.removeEventListener('contextmenu', handleWindowContextMenu, true);
+    };
+  }, []);
 
-  const handleEditorMount = useCallback((monacoEditor: editor.IStandaloneCodeEditor, monacoInstance: Monaco) => {
-    editorRef.current = monacoEditor
-    monacoRef.current = monacoInstance
+  const handleEditorMount = useCallback(
+    (monacoEditor: editor.IStandaloneCodeEditor, monacoInstance: Monaco) => {
+      editorRef.current = monacoEditor;
+      monacoRef.current = monacoInstance;
 
-    // Register and apply user's custom theme if available
-    if (currentTheme) {
-      const themeName = registerMonacoTheme(monacoInstance, currentTheme)
-      monacoInstance.editor.setTheme(themeName)
-    }
+      // Register and apply user's custom theme if available
+      if (currentTheme) {
+        const themeName = registerMonacoTheme(monacoInstance, currentTheme);
+        monacoInstance.editor.setTheme(themeName);
+      }
 
-    // Suppress tooltips on find widget buttons by stripping title attributes.
-    // Monaco re-adds them, so we use a MutationObserver.
-    const editorContainer = monacoEditor.getDomNode()?.closest(".monaco-editor")
-    if (editorContainer) {
-      const obs = new MutationObserver(() => {
-        const findWidget = editorContainer.querySelector(".find-widget")
-        if (findWidget) {
-          findWidget.querySelectorAll("[title]").forEach((el) => el.removeAttribute("title"))
-        }
-      })
-      obs.observe(editorContainer, { childList: true, subtree: true, attributes: true, attributeFilter: ["title", "class"] })
-    }
+      // Suppress tooltips on find widget buttons by stripping title attributes.
+      // Monaco re-adds them, so we use a MutationObserver.
+      const editorContainer = monacoEditor.getDomNode()?.closest('.monaco-editor');
+      if (editorContainer) {
+        const obs = new MutationObserver(() => {
+          const findWidget = editorContainer.querySelector('.find-widget');
+          if (findWidget) {
+            findWidget.querySelectorAll('[title]').forEach((el) => el.removeAttribute('title'));
+          }
+        });
+        obs.observe(editorContainer, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['title', 'class']
+        });
+      }
 
-    // Track selection state for context menu
-    monacoEditor.onDidChangeCursorSelection(() => {
-      const selection = monacoEditor.getSelection()
-      const hasText = !!(selection && !selection.isEmpty() && monacoEditor.getModel()?.getValueInRange(selection)?.trim())
-      setHasSelection(hasText)
-    })
+      // Track selection state for context menu
+      monacoEditor.onDidChangeCursorSelection(() => {
+        const selection = monacoEditor.getSelection();
+        const hasText = !!(
+          selection &&
+          !selection.isEmpty() &&
+          monacoEditor.getModel()?.getValueInRange(selection)?.trim()
+        );
+        setHasSelection(hasText);
+      });
 
-    // Apply any pending scroll target (set by Search tab before mount completed)
-    const pendingLine = pendingScrollLineRef.current
-    if (pendingLine && monacoEditor.getModel()) {
-      monacoEditor.revealLineInCenter(pendingLine)
-      monacoEditor.setPosition({ lineNumber: pendingLine, column: 1 })
-      pendingScrollLineRef.current = null
-    }
-  }, [currentTheme])
+      // Apply any pending scroll target (set by Search tab before mount completed)
+      const pendingLine = pendingScrollLineRef.current;
+      if (pendingLine && monacoEditor.getModel()) {
+        monacoEditor.revealLineInCenter(pendingLine);
+        monacoEditor.setPosition({ lineNumber: pendingLine, column: 1 });
+        pendingScrollLineRef.current = null;
+      }
+    },
+    [currentTheme]
+  );
 
   const handleCopy = useCallback(() => {
-    const ed = editorRef.current
+    const ed = editorRef.current;
     if (ed) {
-      const selection = ed.getSelection()
+      const selection = ed.getSelection();
       if (selection && !selection.isEmpty()) {
-        const text = ed.getModel()?.getValueInRange(selection) || ""
-        navigator.clipboard.writeText(text)
-        return
+        const text = ed.getModel()?.getValueInRange(selection) || '';
+        navigator.clipboard.writeText(text);
+        return;
       }
     }
     // Fallback: copy all content
-    if (content) navigator.clipboard.writeText(content)
-  }, [content])
+    if (content) navigator.clipboard.writeText(content);
+  }, [content]);
 
   const handleFind = useCallback(() => {
-    const ed = editorRef.current
+    const ed = editorRef.current;
     if (ed) {
-      ed.focus()
-      ed.trigger("contextmenu", "actions.find", null)
+      ed.focus();
+      ed.trigger('contextmenu', 'actions.find', null);
     }
-  }, [])
+  }, []);
 
   const handleAddToContext = useCallback(() => {
-    const ed = editorRef.current
-    if (!ed) return
-    const selection = ed.getSelection()
-    if (!selection || selection.isEmpty()) return
-    const text = ed.getModel()?.getValueInRange(selection)?.trim()
-    if (!text) return
+    const ed = editorRef.current;
+    if (!ed) return;
+    const selection = ed.getSelection();
+    if (!selection || selection.isEmpty()) return;
+    const text = ed.getModel()?.getValueInRange(selection)?.trim();
+    if (!text) return;
 
     // Dispatch event for active-chat to add the selected text to context
-    window.dispatchEvent(new CustomEvent("file-viewer-add-to-context", {
-      detail: {
-        text,
-        source: { type: "file-viewer", filePath },
-      },
-    }))
-  }, [filePath])
+    window.dispatchEvent(
+      new CustomEvent('file-viewer-add-to-context', {
+        detail: {
+          text,
+          source: { type: 'file-viewer', filePath }
+        }
+      })
+    );
+  }, [filePath]);
 
   const handleEditorAction = useCallback((actionId: string) => {
-    const ed = editorRef.current
+    const ed = editorRef.current;
     if (ed) {
-      ed.focus()
-      ed.trigger("contextmenu", actionId, null)
+      ed.focus();
+      ed.trigger('contextmenu', actionId, null);
     }
-  }, [])
+  }, []);
 
   const editorOptions = useMemo(
     () => ({
       ...defaultEditorOptions,
-      wordWrap: wordWrap ? ("on" as const) : ("off" as const),
+      wordWrap: wordWrap ? ('on' as const) : ('off' as const),
       minimap: { enabled: minimap },
-      lineNumbers: lineNumbers ? ("on" as const) : ("off" as const),
+      lineNumbers: lineNumbers ? ('on' as const) : ('off' as const)
     }),
-    [wordWrap, minimap, lineNumbers],
-  )
+    [wordWrap, minimap, lineNumbers]
+  );
 
   if (isLoading) {
     return (
@@ -651,7 +610,7 @@ function CodeViewer({
         <CodeViewerHeader filePath={filePath} showHeader={showHeader} onClose={onClose} />
         <LoadingSpinner />
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -660,7 +619,7 @@ function CodeViewer({
         <CodeViewerHeader filePath={filePath} showHeader={showHeader} onClose={onClose} />
         <ErrorDisplay error={getErrorMessage(error)} />
       </div>
-    )
+    );
   }
 
   return (
@@ -835,15 +794,11 @@ function CodeViewer({
         }
       `}</style>
       <CodeViewerHeader filePath={filePath} content={content} showHeader={showHeader} onClose={onClose} />
-      <div
-        ref={containerRef}
-        className="flex-1 min-h-0 allow-text-selection"
-        data-file-viewer-path={filePath}
-      >
+      <div ref={containerRef} className="flex-1 min-h-0 allow-text-selection" data-file-viewer-path={filePath}>
         <Editor
           height="100%"
           language={language}
-          value={content || ""}
+          value={content || ''}
           theme={monacoTheme}
           options={editorOptions}
           loading={<LoadingSpinner />}
@@ -862,5 +817,5 @@ function CodeViewer({
         />
       )}
     </div>
-  )
+  );
 }

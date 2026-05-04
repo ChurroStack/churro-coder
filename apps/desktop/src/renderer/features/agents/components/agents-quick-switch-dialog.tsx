@@ -1,29 +1,32 @@
-"use client"
+'use client';
 
-import { useMemo } from "react"
-import { AnimatePresence } from "motion/react"
-import { createPortal } from "react-dom"
-import { useAtomValue } from "jotai"
-import { loadingSubChatsAtom } from "../atoms"
-import { AgentChatCard } from "./agent-chat-card"
+import { useMemo } from 'react';
+import { AnimatePresence } from 'motion/react';
+import { createPortal } from 'react-dom';
+import { useAtomValue } from 'jotai';
+import { loadingSubChatsAtom } from '../atoms';
+import { AgentChatCard } from './agent-chat-card';
 
 interface AgentsQuickSwitchDialogProps {
-  isOpen: boolean
+  isOpen: boolean;
   // Accept the actual chat row shape from `trpc.chats.list` so callers
   // don't need to map. The legacy `meta` / `sandbox_id` / `updated_at`
   // fields are tolerated as optional.
   chats: Array<{
-    id: string
-    name: string | null
-    projectId: string | null
-    updatedAt?: Date | null
-    meta?: unknown
-    sandbox_id?: string | null
-    updated_at?: Date | string | null
-  }>
-  selectedIndex: number
-  projectsMap: Map<string, { gitOwner?: string | null; gitProvider?: string | null; gitRepo?: string | null; name: string }>
-  onHover?: (index: number) => void
+    id: string;
+    name: string | null;
+    projectId: string | null;
+    updatedAt?: Date | null;
+    meta?: unknown;
+    sandbox_id?: string | null;
+    updated_at?: Date | string | null;
+  }>;
+  selectedIndex: number;
+  projectsMap: Map<
+    string,
+    { gitOwner?: string | null; gitProvider?: string | null; gitRepo?: string | null; name: string }
+  >;
+  onHover?: (index: number) => void;
 }
 
 export function AgentsQuickSwitchDialog({
@@ -31,16 +34,13 @@ export function AgentsQuickSwitchDialog({
   chats,
   selectedIndex,
   projectsMap,
-  onHover,
+  onHover
 }: AgentsQuickSwitchDialogProps) {
-  if (typeof window === "undefined") return null
+  if (typeof window === 'undefined') return null;
 
   // Derive loading parent chat IDs from loadingSubChats Map
-  const loadingSubChats = useAtomValue(loadingSubChatsAtom)
-  const loadingChatIds = useMemo(
-    () => new Set([...loadingSubChats.values()]),
-    [loadingSubChats],
-  )
+  const loadingSubChats = useAtomValue(loadingSubChatsAtom);
+  const loadingChatIds = useMemo(() => new Set([...loadingSubChats.values()]), [loadingSubChats]);
 
   return createPortal(
     <AnimatePresence>
@@ -56,22 +56,19 @@ export function AgentsQuickSwitchDialog({
                 {/* Chat List or Empty State */}
                 {chats.length === 0 ? (
                   <div className="px-4 py-12 text-center bg-background rounded-xl border-[0.5px]">
-                    <p className="text-sm text-muted-foreground">
-                      No recent agents
-                    </p>
+                    <p className="text-sm text-muted-foreground">No recent agents</p>
                   </div>
                 ) : (
                   <div
                     className="flex gap-3 overflow-x-auto p-3 bg-background rounded-3xl border-[0.5px]"
                     style={{
                       boxShadow:
-                        "0 8px 32px 0 rgba(0,0,0,0.07), 0 0px 16px 0 rgba(0,0,0,0.04), 0 -8px 24px 0 rgba(0,0,0,0.03)",
-                    }}
-                  >
+                        '0 8px 32px 0 rgba(0,0,0,0.07), 0 0px 16px 0 rgba(0,0,0,0.04), 0 -8px 24px 0 rgba(0,0,0,0.03)'
+                    }}>
                     {chats.map((chat, index) => {
-                      const isSelected = index === selectedIndex
-                      const isLoading = loadingChatIds.has(chat.id)
-                      const project = chat.projectId ? projectsMap.get(chat.projectId) : undefined
+                      const isSelected = index === selectedIndex;
+                      const isLoading = loadingChatIds.has(chat.id);
+                      const project = chat.projectId ? projectsMap.get(chat.projectId) : undefined;
 
                       return (
                         <AgentChatCard
@@ -85,7 +82,7 @@ export function AgentsQuickSwitchDialog({
                           repoName={project?.gitRepo || project?.name}
                           onMouseEnter={() => onHover?.(index)}
                         />
-                      )
+                      );
                     })}
                   </div>
                 )}
@@ -95,6 +92,6 @@ export function AgentsQuickSwitchDialog({
         </>
       )}
     </AnimatePresence>,
-    document.body,
-  )
+    document.body
+  );
 }

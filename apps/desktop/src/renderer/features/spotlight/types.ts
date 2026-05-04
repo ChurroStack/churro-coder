@@ -1,22 +1,19 @@
-import type { ReactNode } from "react"
+import type { ReactNode } from 'react';
 
 export interface SpotlightItem {
-  id: string
-  icon?: ReactNode
-  title: string
-  description?: string
-  kbd?: string
-  action: () => void | Promise<void>
+  id: string;
+  icon?: ReactNode;
+  title: string;
+  description?: string;
+  kbd?: string;
+  action: () => void | Promise<void>;
 }
 
 export interface SpotlightProviderResult {
-  groupTitle: string
-  groupIcon?: ReactNode
-  items: SpotlightItem[]
-  loading?: boolean
+  groupTitle: string;
+  groupIcon?: ReactNode;
+  items: SpotlightItem[];
+  loading?: boolean;
 }
 
-export type SpotlightProvider = (
-  query: string,
-  enabled: boolean,
-) => SpotlightProviderResult
+export type SpotlightProvider = (query: string, enabled: boolean) => SpotlightProviderResult;

@@ -1,26 +1,26 @@
-"use client"
+'use client';
 
-import { Button } from "../../../components/ui/button"
-import { CodexIcon } from "../../../components/ui/icons"
-import { Input } from "../../../components/ui/input"
-import { Logo } from "../../../components/ui/logo"
-import type { CodexAuthMethod, CodexLoginFlowState } from "../hooks/use-codex-login-flow"
+import { Button } from '../../../components/ui/button';
+import { CodexIcon } from '../../../components/ui/icons';
+import { Input } from '../../../components/ui/input';
+import { Logo } from '../../../components/ui/logo';
+import type { CodexAuthMethod, CodexLoginFlowState } from '../hooks/use-codex-login-flow';
 
 type CodexLoginContentProps = {
-  state: CodexLoginFlowState
-  method: CodexAuthMethod
-  apiKey: string
-  error: string | null
-  url: string | null
-  isOpeningUrl: boolean
-  showConnectButton?: boolean
-  isConnecting?: boolean
-  onConnect?: () => void
-  onOpenUrl: () => void
-  onRetry: () => void
-  onApiKeyChange: (value: string) => void
-  onSubmitApiKey: () => void
-}
+  state: CodexLoginFlowState;
+  method: CodexAuthMethod;
+  apiKey: string;
+  error: string | null;
+  url: string | null;
+  isOpeningUrl: boolean;
+  showConnectButton?: boolean;
+  isConnecting?: boolean;
+  onConnect?: () => void;
+  onOpenUrl: () => void;
+  onRetry: () => void;
+  onApiKeyChange: (value: string) => void;
+  onSubmitApiKey: () => void;
+};
 
 export function CodexLoginContent({
   state,
@@ -35,12 +35,12 @@ export function CodexLoginContent({
   onOpenUrl,
   onRetry,
   onApiKeyChange,
-  onSubmitApiKey,
+  onSubmitApiKey
 }: CodexLoginContentProps) {
-  const isApiKeyMode = method === "api_key"
-  const showRetry = !isApiKeyMode && (state === "error" || state === "cancelled")
-  const showConnect = !isApiKeyMode && showConnectButton && state === "idle"
-  const showFooter = Boolean(error) || showRetry || showConnect || isApiKeyMode
+  const isApiKeyMode = method === 'api_key';
+  const showRetry = !isApiKeyMode && (state === 'error' || state === 'cancelled');
+  const showConnect = !isApiKeyMode && showConnectButton && state === 'idle';
+  const showFooter = Boolean(error) || showRetry || showConnect || isApiKeyMode;
 
   return (
     <div className="space-y-8">
@@ -56,9 +56,7 @@ export function CodexLoginContent({
         <div className="space-y-1">
           <h1 className="text-base font-semibold tracking-tight">Connect OpenAI Codex</h1>
           <p className="text-sm text-muted-foreground">
-            {isApiKeyMode
-              ? "Connect with your API key"
-              : "Connect your Codex subscription"}
+            {isApiKeyMode ? 'Connect with your API key' : 'Connect your Codex subscription'}
           </p>
 
           {!isApiKeyMode && url && (
@@ -66,9 +64,8 @@ export function CodexLoginContent({
               <button
                 onClick={onOpenUrl}
                 disabled={isOpeningUrl}
-                className="text-primary hover:underline disabled:opacity-50"
-              >
-                {isOpeningUrl ? "Opening..." : "Didn't open? Click here"}
+                className="text-primary hover:underline disabled:opacity-50">
+                {isOpeningUrl ? 'Opening...' : "Didn't open? Click here"}
               </button>
             </p>
           )}
@@ -76,7 +73,7 @@ export function CodexLoginContent({
       </div>
 
       {showFooter && (
-        <div className={isApiKeyMode ? "space-y-4" : "space-y-6"}>
+        <div className={isApiKeyMode ? 'space-y-4' : 'space-y-6'}>
           {error && (
             <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {error}
@@ -93,12 +90,8 @@ export function CodexLoginContent({
                 className="font-mono"
                 autoFocus
               />
-              <Button
-                onClick={onSubmitApiKey}
-                disabled={isConnecting || apiKey.trim().length === 0}
-                className="w-full"
-              >
-                {isConnecting ? "Connecting..." : "Connect with API key"}
+              <Button onClick={onSubmitApiKey} disabled={isConnecting || apiKey.trim().length === 0} className="w-full">
+                {isConnecting ? 'Connecting...' : 'Connect with API key'}
               </Button>
             </>
           ) : (
@@ -111,7 +104,7 @@ export function CodexLoginContent({
 
               {showConnect && (
                 <Button onClick={onConnect} disabled={!onConnect || isConnecting} className="w-full">
-                  {isConnecting ? "Connecting..." : "Connect"}
+                  {isConnecting ? 'Connecting...' : 'Connect'}
                 </Button>
               )}
             </>
@@ -119,5 +112,5 @@ export function CodexLoginContent({
         </div>
       )}
     </div>
-  )
+  );
 }

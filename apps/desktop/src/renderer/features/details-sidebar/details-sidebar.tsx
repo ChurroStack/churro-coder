@@ -1,63 +1,68 @@
-"use client"
+'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { ArrowUpRight, TerminalSquare, Box, ListTodo, GitPullRequest, Activity, Info, Folder, Search, PlayCircle, Workflow, Terminal as TerminalIcon } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+  ArrowUpRight,
+  TerminalSquare,
+  Box,
+  ListTodo,
+  GitPullRequest,
+  Activity,
+  Info,
+  Folder,
+  Search,
+  PlayCircle,
+  Workflow,
+  Terminal as TerminalIcon
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   IconDoubleChevronRight,
   PlanIcon,
   DiffIcon,
   OriginalMCPIcon,
   ExpandIcon,
-  CollapseIcon,
-} from "@/components/ui/icons"
-import { Kbd } from "@/components/ui/kbd"
-import { cn } from "@/lib/utils"
-import { useResolvedHotkeyDisplay } from "@/lib/hotkeys"
+  CollapseIcon
+} from '@/components/ui/icons';
+import { Kbd } from '@/components/ui/kbd';
+import { cn } from '@/lib/utils';
+import { useResolvedHotkeyDisplay } from '@/lib/hotkeys';
 import {
   detailsSidebarOpenAtom,
   detailsSidebarTabAtom,
   widgetVisibilityAtomFamily,
   widgetOrderAtomFamily,
   WIDGET_REGISTRY,
-  type WidgetId,
-} from "./atoms"
-import { WidgetSettingsPopup } from "./widget-settings-popup"
-import { InfoSection } from "./sections/info-section"
-import { TodoWidget } from "./sections/todo-widget"
-import { TasksWidget } from "./sections/tasks-widget"
-import { PlanWidget } from "./sections/plan-widget"
-import { TerminalWidget } from "./sections/terminal-widget"
-import { ChangesWidget } from "./sections/changes-widget"
-import { McpWidget } from "./sections/mcp-widget"
-import { PrWidget } from "./sections/pr-widget"
-import { ScriptsWidget } from "./sections/scripts-widget"
-import { StatusWidget } from "./sections/status-widget"
-import type {
-  MilestoneId,
-  WorkflowActionKind,
-  WorkflowState,
-} from "@/features/agents/utils/workflow-state"
-import { getTerminalScopeKey } from "../terminal/utils"
-import { trpc } from "../../lib/trpc"
-import { FilesTab, type FilesTabHandle } from "./sections/files-tab"
-import { SearchTab } from "./sections/search-tab"
-import type { ParsedDiffFile } from "./types"
-import { fileViewerOpenAtomFamily, type AgentMode } from "../agents/atoms"
+  type WidgetId
+} from './atoms';
+import { WidgetSettingsPopup } from './widget-settings-popup';
+import { InfoSection } from './sections/info-section';
+import { TodoWidget } from './sections/todo-widget';
+import { TasksWidget } from './sections/tasks-widget';
+import { PlanWidget } from './sections/plan-widget';
+import { TerminalWidget } from './sections/terminal-widget';
+import { ChangesWidget } from './sections/changes-widget';
+import { McpWidget } from './sections/mcp-widget';
+import { PrWidget } from './sections/pr-widget';
+import { ScriptsWidget } from './sections/scripts-widget';
+import { StatusWidget } from './sections/status-widget';
+import type { MilestoneId, WorkflowActionKind, WorkflowState } from '@/features/agents/utils/workflow-state';
+import { getTerminalScopeKey } from '../terminal/utils';
+import { trpc } from '../../lib/trpc';
+import { FilesTab, type FilesTabHandle } from './sections/files-tab';
+import { SearchTab } from './sections/search-tab';
+import type { ParsedDiffFile } from './types';
+import { fileViewerOpenAtomFamily, type AgentMode } from '../agents/atoms';
 import {
   agentsSettingsDialogOpenAtom,
   agentsSettingsDialogActiveTabAtom,
   selectedProjectAtom,
   visibleSidebarToggleButtonsAtom,
   SIDEBAR_TOGGLE_REGISTRY,
-  sessionInfoAtom,
-} from "@/lib/atoms"
+  sessionInfoAtom
+} from '@/lib/atoms';
 
 // ============================================================================
 // WidgetCard — extracted as a real component to avoid remounts
@@ -65,28 +70,28 @@ import {
 
 function getWidgetIcon(widgetId: WidgetId) {
   switch (widgetId) {
-    case "status":
-      return Workflow
-    case "info":
-      return Box
-    case "tasks":
-      return Activity
-    case "todo":
-      return ListTodo
-    case "plan":
-      return PlanIcon
-    case "terminal":
-      return TerminalSquare
-    case "diff":
-      return DiffIcon
-    case "mcp":
-      return OriginalMCPIcon
-    case "pr":
-      return GitPullRequest
-    case "scripts":
-      return PlayCircle
+    case 'status':
+      return Workflow;
+    case 'info':
+      return Box;
+    case 'tasks':
+      return Activity;
+    case 'todo':
+      return ListTodo;
+    case 'plan':
+      return PlanIcon;
+    case 'terminal':
+      return TerminalSquare;
+    case 'diff':
+      return DiffIcon;
+    case 'mcp':
+      return OriginalMCPIcon;
+    case 'pr':
+      return GitPullRequest;
+    case 'scripts':
+      return PlayCircle;
     default:
-      return Box
+      return Box;
   }
 }
 
@@ -98,41 +103,33 @@ function WidgetCard({
   customHeader,
   headerBg,
   hideExpand,
-  onExpand,
+  onExpand
 }: {
-  widgetId: WidgetId
-  title: string
-  badge?: React.ReactNode
-  children: React.ReactNode
-  customHeader?: React.ReactNode
-  headerBg?: string
-  hideExpand?: boolean
-  onExpand?: () => void
+  widgetId: WidgetId;
+  title: string;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+  customHeader?: React.ReactNode;
+  headerBg?: string;
+  hideExpand?: boolean;
+  onExpand?: () => void;
 }) {
-  const Icon = getWidgetIcon(widgetId)
-  const config = WIDGET_REGISTRY.find((w) => w.id === widgetId)
-  const canExpand = (config?.canExpand ?? false) && !hideExpand && !!onExpand
+  const Icon = getWidgetIcon(widgetId);
+  const config = WIDGET_REGISTRY.find((w) => w.id === widgetId);
+  const canExpand = (config?.canExpand ?? false) && !hideExpand && !!onExpand;
 
   return (
     <div className="mx-2 mb-2">
       <div className="rounded-lg border border-border/50 overflow-hidden">
         <div
-          className={cn(
-            "flex items-center gap-2 px-2 h-8 select-none group",
-            !headerBg && "bg-muted/30",
-          )}
-          style={headerBg ? { backgroundColor: headerBg } : undefined}
-        >
+          className={cn('flex items-center gap-2 px-2 h-8 select-none group', !headerBg && 'bg-muted/30')}
+          style={headerBg ? { backgroundColor: headerBg } : undefined}>
           {customHeader ? (
-            <div className="flex-1 min-w-0 flex items-center gap-1">
-              {customHeader}
-            </div>
+            <div className="flex-1 min-w-0 flex items-center gap-1">{customHeader}</div>
           ) : (
             <>
               <Icon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-              <span className="text-xs font-medium text-foreground flex-1">
-                {title}
-              </span>
+              <span className="text-xs font-medium text-foreground flex-1">{title}</span>
               {badge}
             </>
           )}
@@ -144,8 +141,7 @@ function WidgetCard({
                   size="icon"
                   onClick={onExpand}
                   className="h-5 w-5 p-0 hover:bg-foreground/10 text-muted-foreground hover:text-foreground rounded-md opacity-0 group-hover:opacity-100 transition-[background-color,opacity,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0"
-                  aria-label={`Expand ${widgetId}`}
-                >
+                  aria-label={`Expand ${widgetId}`}>
                   <ArrowUpRight className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
@@ -156,7 +152,7 @@ function WidgetCard({
         <div>{children}</div>
       </div>
     </div>
-  )
+  );
 }
 
 // ============================================================================
@@ -165,63 +161,63 @@ function WidgetCard({
 
 interface DetailsSidebarProps {
   /** Workspace/chat ID */
-  chatId: string
+  chatId: string;
   /** Worktree path for terminal */
-  worktreePath: string | null
+  worktreePath: string | null;
   /** Plan path for plan section */
-  planPath: string | null
+  planPath: string | null;
   /** Current agent mode (plan or agent) */
-  mode: AgentMode
+  mode: AgentMode;
   /** Callback when "Build plan" is clicked */
-  onBuildPlan?: () => void
+  onBuildPlan?: () => void;
   /** Plan refetch trigger */
-  planRefetchTrigger?: number
+  planRefetchTrigger?: number;
   /** Active sub-chat ID for plan */
-  activeSubChatId?: string | null
+  activeSubChatId?: string | null;
   /** Sidebar open states - used to hide widgets when their sidebar is open */
-  isTerminalSidebarOpen?: boolean
-  isDiffSidebarOpen?: boolean
+  isTerminalSidebarOpen?: boolean;
+  isDiffSidebarOpen?: boolean;
   /** Diff display mode - only hide widget when in side-peek mode */
-  diffDisplayMode?: "side-peek" | "center-peek" | "full-page"
+  diffDisplayMode?: 'side-peek' | 'center-peek' | 'full-page';
   /** Diff-related props */
-  canOpenDiff: boolean
-  setIsDiffSidebarOpen: (open: boolean) => void
-  diffStats?: { additions: number; deletions: number; fileCount: number } | null
+  canOpenDiff: boolean;
+  setIsDiffSidebarOpen: (open: boolean) => void;
+  diffStats?: { additions: number; deletions: number; fileCount: number } | null;
   /** Parsed diff files for file list */
-  parsedFileDiffs?: ParsedDiffFile[] | null
+  parsedFileDiffs?: ParsedDiffFile[] | null;
   /** Callback to commit selected changes */
-  onCommit?: (selectedPaths: string[]) => void
+  onCommit?: (selectedPaths: string[]) => void;
   /** Callback to commit and push selected changes */
-  onCommitAndPush?: (selectedPaths: string[]) => void
+  onCommitAndPush?: (selectedPaths: string[]) => void;
   /** Whether commit is in progress */
-  isCommitting?: boolean
+  isCommitting?: boolean;
   /** Git sync status for push/pull actions */
-  gitStatus?: { pushCount?: number; pullCount?: number; hasUpstream?: boolean } | null
+  gitStatus?: { pushCount?: number; pullCount?: number; hasUpstream?: boolean } | null;
   /** Whether git sync status is loading */
-  isGitStatusLoading?: boolean
+  isGitStatusLoading?: boolean;
   /** Current branch name for header */
-  currentBranch?: string
+  currentBranch?: string;
   /** Callbacks to expand widgets that still use sidebars */
-  onExpandTerminal?: () => void
-  onExpandDiff?: () => void
+  onExpandTerminal?: () => void;
+  onExpandDiff?: () => void;
   /** Callback when a file is selected in Changes widget - opens diff with file selected */
-  onFileSelect?: (filePath: string) => void
+  onFileSelect?: (filePath: string) => void;
   /** Callback when a file is opened from Files tab - opens in file viewer */
-  onOpenFile?: (absolutePath: string) => void
+  onOpenFile?: (absolutePath: string) => void;
   /** Remote chat info for sandbox workspaces */
   remoteInfo?: {
-    repository?: string
-    branch?: string | null
-    sandboxId?: string
-  } | null
+    repository?: string;
+    branch?: string | null;
+    sandboxId?: string;
+  } | null;
   /** Whether this is a remote sandbox chat (no local worktree) */
-  isRemoteChat?: boolean
+  isRemoteChat?: boolean;
   /** Pre-computed workflow state from active-chat (Plan/Code/Review/PR milestones) */
-  workflow?: WorkflowState | null
+  workflow?: WorkflowState | null;
   /** Dispatcher for Status widget actions and PR-widget review-pending click */
-  onWorkflowAction?: (kind: WorkflowActionKind, milestone: MilestoneId) => void
+  onWorkflowAction?: (kind: WorkflowActionKind, milestone: MilestoneId) => void;
   /** Direct handler for the PR widget's "Review pending" click (PR-flow review) */
-  onPrReview?: () => void
+  onPrReview?: () => void;
 }
 
 export function DetailsSidebar({
@@ -253,53 +249,53 @@ export function DetailsSidebar({
   isRemoteChat = false,
   workflow,
   onWorkflowAction,
-  onPrReview,
+  onPrReview
 }: DetailsSidebarProps) {
   // Global sidebar open state
-  const [isOpen, setIsOpen] = useAtom(detailsSidebarOpenAtom)
+  const [isOpen, setIsOpen] = useAtom(detailsSidebarOpenAtom);
 
   // Active tab state (Details / Files)
-  const [activeTab, setActiveTab] = useAtom(detailsSidebarTabAtom)
+  const [activeTab, setActiveTab] = useAtom(detailsSidebarTabAtom);
 
   // Sidebar widget toggle buttons configuration
-  const visibleSidebarToggles = useAtomValue(visibleSidebarToggleButtonsAtom)
+  const visibleSidebarToggles = useAtomValue(visibleSidebarToggleButtonsAtom);
 
   // Session info — used to auto-hide MCP widget when no servers are active
-  const sessionInfo = useAtomValue(sessionInfoAtom)
+  const sessionInfo = useAtomValue(sessionInfoAtom);
 
   // Files tab ref for header actions
-  const filesTabRef = useRef<FilesTabHandle>(null)
-  const [filesAllExpanded, setFilesAllExpanded] = useState(false)
+  const filesTabRef = useRef<FilesTabHandle>(null);
+  const [filesAllExpanded, setFilesAllExpanded] = useState(false);
 
   // Current file open in file viewer (for tree highlight sync)
-  const fileViewerAtom = useMemo(() => fileViewerOpenAtomFamily(chatId), [chatId])
-  const fileViewerPath = useAtomValue(fileViewerAtom)
+  const fileViewerAtom = useMemo(() => fileViewerOpenAtomFamily(chatId), [chatId]);
+  const fileViewerPath = useAtomValue(fileViewerAtom);
 
   // Settings dialog atoms for MCP settings
-  const setSettingsOpen = useSetAtom(agentsSettingsDialogOpenAtom)
-  const setSettingsTab = useSetAtom(agentsSettingsDialogActiveTabAtom)
+  const setSettingsOpen = useSetAtom(agentsSettingsDialogOpenAtom);
+  const setSettingsTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
 
   const handleOpenMcpSettings = useCallback(() => {
-    setSettingsTab("mcp")
-    setSettingsOpen(true)
-  }, [setSettingsTab, setSettingsOpen])
+    setSettingsTab('mcp');
+    setSettingsOpen(true);
+  }, [setSettingsTab, setSettingsOpen]);
 
   // Fetch chat to derive projectId + terminal scope for the Scripts widget
-  const { data: chatData } = trpc.chats.get.useQuery({ id: chatId })
-  const projectIdForScripts = chatData?.projectId ?? null
+  const { data: chatData } = trpc.chats.get.useQuery({ id: chatId });
+  const projectIdForScripts = chatData?.projectId ?? null;
   const scriptsScopeKey = useMemo(
     () =>
       getTerminalScopeKey({
         id: chatId,
         branch: chatData?.branch ?? null,
-        worktreePath,
+        worktreePath
       }),
-    [chatId, chatData?.branch, worktreePath],
-  )
+    [chatId, chatData?.branch, worktreePath]
+  );
 
   // Pre-select the right project when opening settings from the Scripts widget
   // so the user doesn't have to find it manually in the project list.
-  const setSelectedProject = useSetAtom(selectedProjectAtom)
+  const setSelectedProject = useSetAtom(selectedProjectAtom);
   const handleOpenScriptsSettings = useCallback(() => {
     if (chatData?.project) {
       setSelectedProject({
@@ -307,106 +303,87 @@ export function DetailsSidebar({
         name: chatData.project.name,
         path: chatData.project.path,
         gitRemoteUrl: chatData.project.gitRemoteUrl ?? null,
-        gitProvider: (chatData.project.gitProvider as "github" | "gitlab" | "bitbucket" | null) ?? null,
+        gitProvider: (chatData.project.gitProvider as 'github' | 'gitlab' | 'bitbucket' | null) ?? null,
         gitOwner: chatData.project.gitOwner ?? null,
-        gitRepo: chatData.project.gitRepo ?? null,
-      })
+        gitRepo: chatData.project.gitRepo ?? null
+      });
     }
-    setSettingsTab("projects")
-    setSettingsOpen(true)
-  }, [chatData?.project, setSelectedProject, setSettingsTab, setSettingsOpen])
+    setSettingsTab('projects');
+    setSettingsOpen(true);
+  }, [chatData?.project, setSelectedProject, setSettingsTab, setSettingsOpen]);
 
   // Per-workspace widget visibility
-  const widgetVisibilityAtom = useMemo(
-    () => widgetVisibilityAtomFamily(chatId),
-    [chatId],
-  )
-  const [visibleWidgets, setVisibleWidgets] = useAtom(widgetVisibilityAtom)
+  const widgetVisibilityAtom = useMemo(() => widgetVisibilityAtomFamily(chatId), [chatId]);
+  const [visibleWidgets, setVisibleWidgets] = useAtom(widgetVisibilityAtom);
 
   // Per-workspace widget order
-  const widgetOrderAtom = useMemo(
-    () => widgetOrderAtomFamily(chatId),
-    [chatId],
-  )
-  const [widgetOrder, setWidgetOrder] = useAtom(widgetOrderAtom)
+  const widgetOrderAtom = useMemo(() => widgetOrderAtomFamily(chatId), [chatId]);
+  const [widgetOrder, setWidgetOrder] = useAtom(widgetOrderAtom);
 
   // Toggle a widget's visibility on/off
   const toggleWidgetVisibility = useCallback(
     (widgetId: WidgetId) => {
       setVisibleWidgets(
-        visibleWidgets.includes(widgetId)
-          ? visibleWidgets.filter((w) => w !== widgetId)
-          : [...visibleWidgets, widgetId],
-      )
+        visibleWidgets.includes(widgetId) ? visibleWidgets.filter((w) => w !== widgetId) : [...visibleWidgets, widgetId]
+      );
     },
-    [visibleWidgets, setVisibleWidgets],
-  )
+    [visibleWidgets, setVisibleWidgets]
+  );
 
   // One-time migration per chat: inject "status" into pre-existing saved arrays
   // that were persisted before this widget existed. New chats get the defaults
   // (which already include "status") so this only fires for old workspaces.
-  const migratedChatsRef = useRef<Set<string>>(new Set())
+  const migratedChatsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (migratedChatsRef.current.has(chatId)) return
-    migratedChatsRef.current.add(chatId)
-    if (!visibleWidgets.includes("status")) {
-      setVisibleWidgets(["status", ...visibleWidgets])
+    if (migratedChatsRef.current.has(chatId)) return;
+    migratedChatsRef.current.add(chatId);
+    if (!visibleWidgets.includes('status')) {
+      setVisibleWidgets(['status', ...visibleWidgets]);
     }
-    if (!widgetOrder.includes("status")) {
-      setWidgetOrder(["status", ...widgetOrder])
+    if (!widgetOrder.includes('status')) {
+      setWidgetOrder(['status', ...widgetOrder]);
     }
-  }, [chatId, visibleWidgets, widgetOrder, setVisibleWidgets, setWidgetOrder])
+  }, [chatId, visibleWidgets, widgetOrder, setVisibleWidgets, setWidgetOrder]);
 
   // Close sidebar callback
   const closeSidebar = useCallback(() => {
-    setIsOpen(false)
-  }, [setIsOpen])
+    setIsOpen(false);
+  }, [setIsOpen]);
 
   // Resolved hotkeys for tooltips
-  const toggleDetailsHotkey = useResolvedHotkeyDisplay("toggle-details")
+  const toggleDetailsHotkey = useResolvedHotkeyDisplay('toggle-details');
 
   // Check if a widget should be shown
-  const isWidgetVisible = useCallback(
-    (widgetId: WidgetId) => visibleWidgets.includes(widgetId),
-    [visibleWidgets],
-  )
+  const isWidgetVisible = useCallback((widgetId: WidgetId) => visibleWidgets.includes(widgetId), [visibleWidgets]);
 
   // Keyboard shortcut: Cmd+Shift+\ to toggle details sidebar
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.metaKey &&
-        e.shiftKey &&
-        !e.altKey &&
-        !e.ctrlKey &&
-        e.code === "Backslash"
-      ) {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsOpen(!isOpen)
+      if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && e.code === 'Backslash') {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsOpen(!isOpen);
       }
-    }
+    };
 
-    window.addEventListener("keydown", handleKeyDown, true)
-    return () => window.removeEventListener("keydown", handleKeyDown, true)
-  }, [setIsOpen, isOpen])
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [setIsOpen, isOpen]);
 
   // Stable noop callback for when onOpenFile is not provided
-  const noopSelectFile = useCallback(() => {}, [])
+  const noopSelectFile = useCallback(() => {}, []);
 
   return (
     <div
       className="h-full w-full bg-tl-background border border-border/50 overflow-hidden"
-      style={{ borderRadius: "var(--dv-border-radius)" }}
-    >
+      style={{ borderRadius: 'var(--dv-border-radius)' }}>
       <div className="flex flex-col h-full min-w-0 overflow-hidden">
         {/* Header with pill tabs */}
         <div
           className="flex items-center justify-between px-2 h-10 bg-tl-background flex-shrink-0 border-b border-border/50"
           style={{
-            WebkitAppRegion: "no-drag",
-          }}
-        >
+            WebkitAppRegion: 'no-drag'
+          }}>
           <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -415,8 +392,7 @@ export function DetailsSidebar({
                   size="icon"
                   onClick={closeSidebar}
                   className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground flex-shrink-0 rounded-md"
-                  aria-label="Close details"
-                >
+                  aria-label="Close details">
                   <IconDoubleChevronRight className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
@@ -430,14 +406,13 @@ export function DetailsSidebar({
             <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-muted/50">
               <button
                 type="button"
-                onClick={() => setActiveTab("details")}
+                onClick={() => setActiveTab('details')}
                 className={cn(
-                  "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                  activeTab === "details"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
+                  'px-2.5 py-1 text-xs font-medium rounded-md transition-colors',
+                  activeTab === 'details'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}>
                 <span className="flex items-center gap-1.5">
                   <Info className="size-3.5" />
                   Details
@@ -445,14 +420,13 @@ export function DetailsSidebar({
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab("files")}
+                onClick={() => setActiveTab('files')}
                 className={cn(
-                  "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                  activeTab === "files"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
+                  'px-2.5 py-1 text-xs font-medium rounded-md transition-colors',
+                  activeTab === 'files'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}>
                 <span className="flex items-center gap-1.5">
                   <Folder className="size-3.5" />
                   Files
@@ -460,14 +434,13 @@ export function DetailsSidebar({
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab("search")}
+                onClick={() => setActiveTab('search')}
                 className={cn(
-                  "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                  activeTab === "search"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
+                  'px-2.5 py-1 text-xs font-medium rounded-md transition-colors',
+                  activeTab === 'search'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}>
                 <span className="flex items-center gap-1.5">
                   <Search className="size-3.5" />
                   Search
@@ -477,37 +450,34 @@ export function DetailsSidebar({
           </div>
 
           {/* Right-side header actions */}
-          {activeTab === "details" ? (
+          {activeTab === 'details' ? (
             <div className="flex items-center gap-0.5">
-              {SIDEBAR_TOGGLE_REGISTRY
-                .filter((btn) => visibleSidebarToggles.includes(btn.id))
-                .map((btn) => {
-                  const wId = btn.widgetId as WidgetId
-                  const isActive = visibleWidgets.includes(wId)
-                  const Icon = btn.id === "terminal" ? TerminalIcon : PlayCircle
-                  return (
-                    <Tooltip key={btn.id}>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={isActive ? `Hide ${btn.label}` : `Show ${btn.label}`}
-                          onClick={() => toggleWidgetVisibility(wId)}
-                          data-active={isActive}
-                          className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md text-muted-foreground hover:text-foreground data-[active=true]:text-foreground data-[active=true]:bg-foreground/10"
-                        >
-                          <Icon className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        {isActive ? `Hide ${btn.label}` : `Show ${btn.label}`}
-                      </TooltipContent>
-                    </Tooltip>
-                  )
-                })}
+              {SIDEBAR_TOGGLE_REGISTRY.filter((btn) => visibleSidebarToggles.includes(btn.id)).map((btn) => {
+                const wId = btn.widgetId as WidgetId;
+                const isActive = visibleWidgets.includes(wId);
+                const Icon = btn.id === 'terminal' ? TerminalIcon : PlayCircle;
+                return (
+                  <Tooltip key={btn.id}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={isActive ? `Hide ${btn.label}` : `Show ${btn.label}`}
+                        onClick={() => toggleWidgetVisibility(wId)}
+                        data-active={isActive}
+                        className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md text-muted-foreground hover:text-foreground data-[active=true]:text-foreground data-[active=true]:bg-foreground/10">
+                        <Icon className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {isActive ? `Hide ${btn.label}` : `Show ${btn.label}`}
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
               <WidgetSettingsPopup workspaceId={chatId} isRemoteChat={isRemoteChat} />
             </div>
-          ) : activeTab === "files" ? (
+          ) : activeTab === 'files' ? (
             <div className="flex items-center gap-0.5">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -515,64 +485,46 @@ export function DetailsSidebar({
                     variant="ghost"
                     size="icon"
                     onClick={() => filesTabRef.current?.toggleExpandCollapse()}
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                  >
-                    {filesAllExpanded ? (
-                      <CollapseIcon className="size-3.5" />
-                    ) : (
-                      <ExpandIcon className="size-3.5" />
-                    )}
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground">
+                    {filesAllExpanded ? <CollapseIcon className="size-3.5" /> : <ExpandIcon className="size-3.5" />}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {filesAllExpanded ? "Collapse all" : "Expand all"}
-                </TooltipContent>
+                <TooltipContent side="bottom">{filesAllExpanded ? 'Collapse all' : 'Expand all'}</TooltipContent>
               </Tooltip>
             </div>
           ) : null}
         </div>
 
         {/* Tab content — both tabs always mounted to preserve state */}
-        <div className={cn("flex-1 overflow-y-auto py-2", activeTab !== "details" && "hidden")}>
+        <div className={cn('flex-1 overflow-y-auto py-2', activeTab !== 'details' && 'hidden')}>
           {widgetOrder.map((widgetId) => {
             // Skip if widget is not visible
-            if (!isWidgetVisible(widgetId)) return null
+            if (!isWidgetVisible(widgetId)) return null;
 
             switch (widgetId) {
-              case "status":
-                if (!workflow || !onWorkflowAction) return null
+              case 'status':
+                if (!workflow || !onWorkflowAction) return null;
                 return (
                   <WidgetCard key="status" widgetId="status" title="Status" hideExpand>
-                    <StatusWidget
-                      workflow={workflow}
-                      onAction={onWorkflowAction}
-                    />
+                    <StatusWidget workflow={workflow} onAction={onWorkflowAction} />
                   </WidgetCard>
-                )
+                );
 
-              case "info":
+              case 'info':
                 return (
                   <WidgetCard key="info" widgetId="info" title="Workspace">
-                    <InfoSection
-                      chatId={chatId}
-                      worktreePath={worktreePath}
-                      remoteInfo={remoteInfo}
-                    />
+                    <InfoSection chatId={chatId} worktreePath={worktreePath} remoteInfo={remoteInfo} />
                   </WidgetCard>
-                )
+                );
 
-              case "tasks":
-                return (
-                  <TasksWidget key="tasks" subChatId={activeSubChatId || null} />
-                )
+              case 'tasks':
+                return <TasksWidget key="tasks" subChatId={activeSubChatId || null} />;
 
-              case "todo":
-                return (
-                  <TodoWidget key="todo" subChatId={activeSubChatId || null} />
-                )
+              case 'todo':
+                return <TodoWidget key="todo" subChatId={activeSubChatId || null} />;
 
-              case "plan":
-                if (!planPath) return null
+              case 'plan':
+                if (!planPath) return null;
                 return (
                   <PlanWidget
                     key="plan"
@@ -583,11 +535,11 @@ export function DetailsSidebar({
                     mode={mode}
                     onApprovePlan={onBuildPlan}
                   />
-                )
+                );
 
-              case "terminal":
+              case 'terminal':
                 // Hidden when Terminal sidebar is open
-                if (!worktreePath || isTerminalSidebarOpen) return null
+                if (!worktreePath || isTerminalSidebarOpen) return null;
                 return (
                   <TerminalWidget
                     key="terminal"
@@ -596,14 +548,15 @@ export function DetailsSidebar({
                     workspaceId={chatId}
                     onExpand={onExpandTerminal}
                   />
-                )
+                );
 
-              case "diff":
+              case 'diff':
                 // Show widget if we have diff stats (local or remote)
                 // Hide only when Diff sidebar is open in side-peek mode
-                const hasDiffStats = !!diffStats && (diffStats.fileCount > 0 || diffStats.additions > 0 || diffStats.deletions > 0)
-                const canShowDiffWidget = canOpenDiff || (isRemoteChat && hasDiffStats)
-                if (!canShowDiffWidget || (isDiffSidebarOpen && diffDisplayMode === "side-peek")) return null
+                const hasDiffStats =
+                  !!diffStats && (diffStats.fileCount > 0 || diffStats.additions > 0 || diffStats.deletions > 0);
+                const canShowDiffWidget = canOpenDiff || (isRemoteChat && hasDiffStats);
+                if (!canShowDiffWidget || (isDiffSidebarOpen && diffDisplayMode === 'side-peek')) return null;
                 return (
                   <ChangesWidget
                     key="diff"
@@ -624,19 +577,19 @@ export function DetailsSidebar({
                     onFileSelect={canOpenDiff ? onFileSelect : undefined}
                     diffDisplayMode={diffDisplayMode}
                   />
-                )
+                );
 
-              case "pr":
+              case 'pr':
                 // Only show for local chats with a worktree
-                if (!worktreePath) return null
+                if (!worktreePath) return null;
                 return (
                   <WidgetCard key="pr" widgetId="pr" title="Pull Request">
                     <PrWidget chatId={chatId} onReviewClick={onPrReview} />
                   </WidgetCard>
-                )
+                );
 
-              case "mcp":
-                if (!sessionInfo?.mcpServers || sessionInfo.mcpServers.length === 0) return null
+              case 'mcp':
+                if (!sessionInfo?.mcpServers || sessionInfo.mcpServers.length === 0) return null;
                 return (
                   <WidgetCard
                     key="mcp"
@@ -650,22 +603,20 @@ export function DetailsSidebar({
                             size="icon"
                             onClick={handleOpenMcpSettings}
                             className="h-5 w-5 p-0 hover:bg-foreground/10 text-muted-foreground hover:text-foreground rounded-md opacity-0 group-hover:opacity-100 transition-[background-color,opacity] duration-150 ease-out flex-shrink-0"
-                            aria-label="MCP Settings"
-                          >
+                            aria-label="MCP Settings">
                             <ArrowUpRight className="h-3 w-3" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent side="left">Open settings</TooltipContent>
                       </Tooltip>
                     }
-                    hideExpand
-                  >
+                    hideExpand>
                     <McpWidget />
                   </WidgetCard>
-                )
+                );
 
-              case "scripts":
-                if (!worktreePath) return null
+              case 'scripts':
+                if (!worktreePath) return null;
                 return (
                   <WidgetCard
                     key="scripts"
@@ -679,16 +630,14 @@ export function DetailsSidebar({
                             size="icon"
                             onClick={handleOpenScriptsSettings}
                             className="h-5 w-5 p-0 hover:bg-foreground/10 text-muted-foreground hover:text-foreground rounded-md opacity-0 group-hover:opacity-100 transition-[background-color,opacity] duration-150 ease-out flex-shrink-0"
-                            aria-label="Manage scripts"
-                          >
+                            aria-label="Manage scripts">
                             <ArrowUpRight className="h-3 w-3" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent side="left">Manage scripts</TooltipContent>
                       </Tooltip>
                     }
-                    hideExpand
-                  >
+                    hideExpand>
                     <ScriptsWidget
                       chatId={chatId}
                       projectId={projectIdForScripts}
@@ -697,10 +646,10 @@ export function DetailsSidebar({
                       onOpenSettings={handleOpenScriptsSettings}
                     />
                   </WidgetCard>
-                )
+                );
 
               default:
-                return null
+                return null;
             }
           })}
         </div>
@@ -711,15 +660,15 @@ export function DetailsSidebar({
           onExpandedStateChange={setFilesAllExpanded}
           currentViewerFilePath={fileViewerPath}
           showFilterInput
-          className={cn("flex-1", activeTab !== "files" && "hidden")}
+          className={cn('flex-1', activeTab !== 'files' && 'hidden')}
         />
         <SearchTab
           worktreePath={worktreePath}
           onSelectFile={onOpenFile ?? noopSelectFile}
-          isActive={activeTab === "search"}
-          className={cn("flex-1", activeTab !== "search" && "hidden")}
+          isActive={activeTab === 'search'}
+          className={cn('flex-1', activeTab !== 'search' && 'hidden')}
         />
       </div>
     </div>
-  )
+  );
 }

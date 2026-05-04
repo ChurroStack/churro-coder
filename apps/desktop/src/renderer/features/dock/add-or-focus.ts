@@ -1,23 +1,19 @@
-import type {
-  DockviewApi,
-  AddPanelOptions,
-  DockviewGroupPanel,
-} from "dockview-react"
-import { panelIdFor, panelTitleFor, type PanelEntity } from "./atoms"
-import type { NewPanelPlacement } from "../../lib/atoms"
+import type { DockviewApi, AddPanelOptions, DockviewGroupPanel } from 'dockview-react';
+import { panelIdFor, panelTitleFor, type PanelEntity } from './atoms';
+import type { NewPanelPlacement } from '../../lib/atoms';
 
 export interface AddOrFocusOptions {
-  splitDirection?: "right" | "down" | "left" | "up"
-  floating?: boolean
+  splitDirection?: 'right' | 'down' | 'left' | 'up';
+  floating?: boolean;
   /** When provided, used as the reference panel for splits. Defaults to the active panel. */
-  referencePanelId?: string
+  referencePanelId?: string;
   /**
    * When provided (and no splitDirection is set), the new panel becomes a
    * tab inside this group. This is what header-action buttons pass to keep
    * the new panel in the same group whose [+]/Chat/Terminal button was
    * clicked, instead of landing on whichever group is globally active.
    */
-  referenceGroup?: DockviewGroupPanel
+  referenceGroup?: DockviewGroupPanel;
 }
 
 /**
@@ -33,73 +29,64 @@ export function resolvePlacementOpts(
   api: DockviewApi,
   placement: NewPanelPlacement,
   isTerminal: boolean,
-  sourceGroup?: DockviewGroupPanel,
+  sourceGroup?: DockviewGroupPanel
 ): AddOrFocusOptions {
-  if (placement === "smart") {
+  if (placement === 'smart') {
     if (isTerminal) {
-      const existingTerminal = api.panels.find((p) => p.id.startsWith("terminal:"))
-      if (existingTerminal) return { referenceGroup: existingTerminal.group }
+      const existingTerminal = api.panels.find((p) => p.id.startsWith('terminal:'));
+      if (existingTerminal) return { referenceGroup: existingTerminal.group };
       return {
-        splitDirection: "down",
-        referencePanelId: sourceGroup?.activePanel?.id,
-      }
+        splitDirection: 'down',
+        referencePanelId: sourceGroup?.activePanel?.id
+      };
     }
-    const isSingleGroup = api.groups.length <= 1
+    const isSingleGroup = api.groups.length <= 1;
     if (isSingleGroup) {
       return {
-        splitDirection: "right",
-        referencePanelId: sourceGroup?.activePanel?.id,
-      }
+        splitDirection: 'right',
+        referencePanelId: sourceGroup?.activePanel?.id
+      };
     }
-    return { referenceGroup: sourceGroup }
+    return { referenceGroup: sourceGroup };
   }
-  if (placement === "tab") return { referenceGroup: sourceGroup }
+  if (placement === 'tab') return { referenceGroup: sourceGroup };
   return {
-    splitDirection: placement.replace("split-", "") as "right" | "down" | "left",
-    referencePanelId: sourceGroup?.activePanel?.id,
-  }
+    splitDirection: placement.replace('split-', '') as 'right' | 'down' | 'left',
+    referencePanelId: sourceGroup?.activePanel?.id
+  };
 }
 
-export function addOrFocus(
-  api: DockviewApi,
-  entity: PanelEntity,
-  opts: AddOrFocusOptions = {},
-): void {
-  const id = panelIdFor(entity)
-  const existing = api.getPanel(id)
+export function addOrFocus(api: DockviewApi, entity: PanelEntity, opts: AddOrFocusOptions = {}): void {
+  const id = panelIdFor(entity);
+  const existing = api.getPanel(id);
   if (existing) {
-    existing.api.setActive()
-    return
+    existing.api.setActive();
+    return;
   }
 
-  const title = panelTitleFor(entity)
-  const referenceId = opts.referencePanelId ?? api.activePanel?.id
-  const reference = referenceId ? api.getPanel(referenceId) : undefined
+  const title = panelTitleFor(entity);
+  const referenceId = opts.referencePanelId ?? api.activePanel?.id;
+  const reference = referenceId ? api.getPanel(referenceId) : undefined;
 
   const options: AddPanelOptions = {
     id,
     component: entity.kind,
     params: entity.data as unknown as Record<string, unknown>,
-    title,
-  }
+    title
+  };
 
   if (opts.floating) {
-    options.floating = true
+    options.floating = true;
   } else if (opts.splitDirection && reference) {
     // Dockview uses "above"/"below" for vertical splits, not "up"/"down".
-    const dir =
-      opts.splitDirection === "down"
-        ? "below"
-        : opts.splitDirection === "up"
-          ? "above"
-          : opts.splitDirection
+    const dir = opts.splitDirection === 'down' ? 'below' : opts.splitDirection === 'up' ? 'above' : opts.splitDirection;
     options.position = {
       referencePanel: reference.id,
-      direction: dir,
-    }
+      direction: dir
+    };
   } else if (opts.referenceGroup) {
-    options.position = { referenceGroup: opts.referenceGroup }
+    options.position = { referenceGroup: opts.referenceGroup };
   }
 
-  api.addPanel(options)
+  api.addPanel(options);
 }

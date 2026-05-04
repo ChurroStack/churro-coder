@@ -5,9 +5,9 @@
  * "oauth.ts", and "lib/foo.ts" doesn't match "mylib/foo.ts".
  */
 export function matchesFilePath(a: string, b: string): boolean {
-	if (!a || !b) return false;
-	if (a === b) return true;
-	if (a.endsWith(`/${b}`)) return true;
-	if (b.endsWith(`/${a}`)) return true;
-	return false;
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.endsWith(`/${b}`)) return true;
+  if (b.endsWith(`/${a}`)) return true;
+  return false;
 }

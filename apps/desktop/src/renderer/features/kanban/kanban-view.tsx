@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useEffect, useRef, useState } from "react"
-import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { toast } from "sonner"
-import { trpc } from "../../lib/trpc"
-import { getWindowId } from "../../contexts/WindowContext"
+import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { toast } from 'sonner';
+import { trpc } from '../../lib/trpc';
+import { getWindowId } from '../../contexts/WindowContext';
 import {
   selectedAgentChatIdAtom,
   selectedDraftIdAtom,
@@ -13,247 +13,234 @@ import {
   pendingPlanApprovalsAtom,
   agentsUnseenChangesAtom,
   selectedProjectAtom,
-  agentsSidebarOpenAtom,
-} from "../agents/atoms"
-import {
-  selectedAgentChatIdsAtom,
-  isAgentMultiSelectModeAtom,
-  toggleAgentChatSelectionAtom,
-} from "../../lib/atoms"
-import { KanbanBoard } from "./components/kanban-board"
-import type { KanbanCardData } from "./components/kanban-card"
-import { deriveWorkspaceStatus } from "./lib/derive-status"
-import { useNewChatDrafts } from "../agents/lib/drafts"
-import { exportChat, copyChat } from "../agents/lib/export-chat"
-import { AgentsRenameSubChatDialog } from "../agents/components/agents-rename-subchat-dialog"
-import { ConfirmArchiveDialog } from "../../components/confirm-archive-dialog"
-import { AgentsHeaderControls } from "../agents/ui/agents-header-controls"
+  agentsSidebarOpenAtom
+} from '../agents/atoms';
+import { selectedAgentChatIdsAtom, isAgentMultiSelectModeAtom, toggleAgentChatSelectionAtom } from '../../lib/atoms';
+import { KanbanBoard } from './components/kanban-board';
+import type { KanbanCardData } from './components/kanban-card';
+import { deriveWorkspaceStatus } from './lib/derive-status';
+import { useNewChatDrafts } from '../agents/lib/drafts';
+import { exportChat, copyChat } from '../agents/lib/export-chat';
+import { AgentsRenameSubChatDialog } from '../agents/components/agents-rename-subchat-dialog';
+import { ConfirmArchiveDialog } from '../../components/confirm-archive-dialog';
+import { AgentsHeaderControls } from '../agents/ui/agents-header-controls';
 
 // Event for open sub-chats changes
-const OPEN_SUB_CHATS_CHANGE_EVENT = "open-sub-chats-change"
+const OPEN_SUB_CHATS_CHANGE_EVENT = 'open-sub-chats-change';
 
 export function KanbanView() {
-  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom)
-  const setSelectedDraftId = useSetAtom(selectedDraftIdAtom)
-  const setShowNewChatForm = useSetAtom(showNewChatFormAtom)
+  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom);
+  const setSelectedDraftId = useSetAtom(selectedDraftIdAtom);
+  const setShowNewChatForm = useSetAtom(showNewChatFormAtom);
 
   // Sidebar state for header controls
-  const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
+  const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom);
 
   // Multi-select state
-  const [selectedChatIds] = useAtom(selectedAgentChatIdsAtom)
-  const isMultiSelectMode = useAtomValue(isAgentMultiSelectModeAtom)
-  const toggleChatSelection = useSetAtom(toggleAgentChatSelectionAtom)
+  const [selectedChatIds] = useAtom(selectedAgentChatIdsAtom);
+  const isMultiSelectMode = useAtomValue(isAgentMultiSelectModeAtom);
+  const toggleChatSelection = useSetAtom(toggleAgentChatSelectionAtom);
 
   // Status atoms
-  const loadingSubChats = useAtomValue(loadingSubChatsAtom)
-  const pendingQuestions = useAtomValue(pendingUserQuestionsAtom)
-  const expiredQuestions = useAtomValue(expiredUserQuestionsAtom)
-  const pendingPlanApprovals = useAtomValue(pendingPlanApprovalsAtom)
-  const unseenChanges = useAtomValue(agentsUnseenChangesAtom)
+  const loadingSubChats = useAtomValue(loadingSubChatsAtom);
+  const pendingQuestions = useAtomValue(pendingUserQuestionsAtom);
+  const expiredQuestions = useAtomValue(expiredUserQuestionsAtom);
+  const pendingPlanApprovals = useAtomValue(pendingPlanApprovalsAtom);
+  const unseenChanges = useAtomValue(agentsUnseenChangesAtom);
 
   // Project for pinned chats storage
-  const [selectedProject] = useAtom(selectedProjectAtom)
+  const [selectedProject] = useAtom(selectedProjectAtom);
 
   // Pinned chats (stored in localStorage per project)
-  const [pinnedChatIds, setPinnedChatIds] = useState<Set<string>>(new Set())
+  const [pinnedChatIds, setPinnedChatIds] = useState<Set<string>>(new Set());
 
   // Rename dialog state
-  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
-  const [renamingChat, setRenamingChat] = useState<{ id: string; name: string | null } | null>(null)
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renamingChat, setRenamingChat] = useState<{ id: string; name: string | null } | null>(null);
 
   // Archive confirmation dialog state
-  const [confirmArchiveDialogOpen, setConfirmArchiveDialogOpen] = useState(false)
-  const [archivingChatId, setArchivingChatId] = useState<string | null>(null)
-  const [activeProcessCount, setActiveProcessCount] = useState(0)
+  const [confirmArchiveDialogOpen, setConfirmArchiveDialogOpen] = useState(false);
+  const [archivingChatId, setArchivingChatId] = useState<string | null>(null);
+  const [activeProcessCount, setActiveProcessCount] = useState(0);
 
   // tRPC utils
-  const utils = trpc.useUtils()
+  const utils = trpc.useUtils();
 
   // Load pinned IDs from localStorage when project changes
   useEffect(() => {
     if (!selectedProject?.id) {
-      setPinnedChatIds(new Set())
-      return
+      setPinnedChatIds(new Set());
+      return;
     }
     try {
-      const windowId = getWindowId()
-      const stored = localStorage.getItem(`${windowId}:agent-pinned-chats-${selectedProject.id}`)
-      setPinnedChatIds(stored ? new Set(JSON.parse(stored)) : new Set())
+      const windowId = getWindowId();
+      const stored = localStorage.getItem(`${windowId}:agent-pinned-chats-${selectedProject.id}`);
+      setPinnedChatIds(stored ? new Set(JSON.parse(stored)) : new Set());
     } catch {
-      setPinnedChatIds(new Set())
+      setPinnedChatIds(new Set());
     }
-  }, [selectedProject?.id])
+  }, [selectedProject?.id]);
 
   // Save pinned IDs to localStorage when they change
-  const prevPinnedRef = useRef<Set<string>>(new Set())
+  const prevPinnedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!selectedProject?.id) return
-    if (
-      (pinnedChatIds !== prevPinnedRef.current && pinnedChatIds.size > 0) ||
-      prevPinnedRef.current.size > 0
-    ) {
-      const windowId = getWindowId()
-      localStorage.setItem(
-        `${windowId}:agent-pinned-chats-${selectedProject.id}`,
-        JSON.stringify([...pinnedChatIds]),
-      )
+    if (!selectedProject?.id) return;
+    if ((pinnedChatIds !== prevPinnedRef.current && pinnedChatIds.size > 0) || prevPinnedRef.current.size > 0) {
+      const windowId = getWindowId();
+      localStorage.setItem(`${windowId}:agent-pinned-chats-${selectedProject.id}`, JSON.stringify([...pinnedChatIds]));
     }
-    prevPinnedRef.current = pinnedChatIds
-  }, [pinnedChatIds, selectedProject?.id])
+    prevPinnedRef.current = pinnedChatIds;
+  }, [pinnedChatIds, selectedProject?.id]);
 
   // Toggle pin handler
   const handleTogglePin = useCallback((chatId: string) => {
     setPinnedChatIds((prev) => {
-      const next = new Set(prev)
+      const next = new Set(prev);
       if (next.has(chatId)) {
-        next.delete(chatId)
+        next.delete(chatId);
       } else {
-        next.add(chatId)
+        next.add(chatId);
       }
-      return next
-    })
-  }, [])
+      return next;
+    });
+  }, []);
 
   // Drafts from localStorage
-  const drafts = useNewChatDrafts()
+  const drafts = useNewChatDrafts();
 
   // Fetch all chats (workspaces)
-  const { data: chats } = trpc.chats.list.useQuery({})
+  const { data: chats } = trpc.chats.list.useQuery({});
 
   // Fetch projects for metadata
-  const { data: projects } = trpc.projects.list.useQuery()
+  const { data: projects } = trpc.projects.list.useQuery();
 
   // Create projects map
-  type Project = NonNullable<typeof projects>[number]
+  type Project = NonNullable<typeof projects>[number];
   const projectsMap = useMemo(() => {
-    if (!projects) return new Map<string, Project>()
-    return new Map(projects.map((p) => [p.id, p]))
-  }, [projects])
+    if (!projects) return new Map<string, Project>();
+    return new Map(projects.map((p) => [p.id, p]));
+  }, [projects]);
 
   // Track open sub-chat changes for reactivity
-  const [openSubChatsVersion, setOpenSubChatsVersion] = useState(0)
+  const [openSubChatsVersion, setOpenSubChatsVersion] = useState(0);
   useEffect(() => {
-    const handleChange = () => setOpenSubChatsVersion((v) => v + 1)
-    window.addEventListener(OPEN_SUB_CHATS_CHANGE_EVENT, handleChange)
-    return () => window.removeEventListener(OPEN_SUB_CHATS_CHANGE_EVENT, handleChange)
-  }, [])
+    const handleChange = () => setOpenSubChatsVersion((v) => v + 1);
+    window.addEventListener(OPEN_SUB_CHATS_CHANGE_EVENT, handleChange);
+    return () => window.removeEventListener(OPEN_SUB_CHATS_CHANGE_EVENT, handleChange);
+  }, []);
 
   // Store previous value to avoid unnecessary React Query refetches
-  const prevOpenSubChatIdsRef = useRef<string[]>([])
+  const prevOpenSubChatIdsRef = useRef<string[]>([]);
 
   // Collect all open sub-chat IDs from localStorage for all workspaces
   const allOpenSubChatIds = useMemo(() => {
-    void openSubChatsVersion
-    if (!chats) return prevOpenSubChatIdsRef.current
+    void openSubChatsVersion;
+    if (!chats) return prevOpenSubChatIdsRef.current;
 
-    const windowId = getWindowId()
-    const allIds: string[] = []
+    const windowId = getWindowId();
+    const allIds: string[] = [];
     for (const chat of chats) {
       try {
-        const stored = localStorage.getItem(`${windowId}:agent-open-sub-chats-${chat.id}`)
+        const stored = localStorage.getItem(`${windowId}:agent-open-sub-chats-${chat.id}`);
         if (stored) {
-          const ids = JSON.parse(stored) as string[]
-          allIds.push(...ids)
+          const ids = JSON.parse(stored) as string[];
+          allIds.push(...ids);
         }
       } catch {
         // Skip invalid JSON
       }
     }
 
-    const prev = prevOpenSubChatIdsRef.current
-    const sorted = [...allIds].sort()
-    const prevSorted = [...prev].sort()
+    const prev = prevOpenSubChatIdsRef.current;
+    const sorted = [...allIds].sort();
+    const prevSorted = [...prev].sort();
     if (sorted.length === prevSorted.length && sorted.every((id, i) => id === prevSorted[i])) {
-      return prev
+      return prev;
     }
 
-    prevOpenSubChatIdsRef.current = allIds
-    return allIds
-  }, [chats, openSubChatsVersion])
+    prevOpenSubChatIdsRef.current = allIds;
+    return allIds;
+  }, [chats, openSubChatsVersion]);
 
   // Pending plan approvals from DB
   const { data: pendingPlanApprovalsData } = trpc.chats.getPendingPlanApprovals.useQuery(
     { openSubChatIds: allOpenSubChatIds },
     { refetchInterval: 5000, enabled: allOpenSubChatIds.length > 0, placeholderData: (prev) => prev }
-  )
+  );
 
   // File stats from DB
   const { data: fileStatsData } = trpc.chats.getFileStats.useQuery(
     { openSubChatIds: allOpenSubChatIds },
     { refetchInterval: 5000, enabled: allOpenSubChatIds.length > 0, placeholderData: (prev) => prev }
-  )
+  );
 
   // Build set of chatIds with pending plan approvals from DB
   const workspacesWithPendingApprovalsFromDb = useMemo(() => {
-    const set = new Set<string>()
+    const set = new Set<string>();
     if (pendingPlanApprovalsData) {
       for (const item of pendingPlanApprovalsData) {
-        set.add(item.chatId)
+        set.add(item.chatId);
       }
     }
-    return set
-  }, [pendingPlanApprovalsData])
+    return set;
+  }, [pendingPlanApprovalsData]);
 
   // Build set of chatIds with pending plan approvals from runtime atom
   const workspacesWithPendingApprovals = useMemo(() => {
-    const set = new Set<string>(workspacesWithPendingApprovalsFromDb)
+    const set = new Set<string>(workspacesWithPendingApprovalsFromDb);
     // Add from runtime atom (parentChatId is the workspace id)
     pendingPlanApprovals.forEach((parentChatId) => {
-      set.add(parentChatId)
-    })
-    return set
-  }, [workspacesWithPendingApprovalsFromDb, pendingPlanApprovals])
+      set.add(parentChatId);
+    });
+    return set;
+  }, [workspacesWithPendingApprovalsFromDb, pendingPlanApprovals]);
 
   // Build file stats map (chatId -> stats)
   const workspaceFileStats = useMemo(() => {
-    const statsMap = new Map<string, { fileCount: number; additions: number; deletions: number }>()
+    const statsMap = new Map<string, { fileCount: number; additions: number; deletions: number }>();
     if (fileStatsData) {
       for (const stat of fileStatsData) {
         statsMap.set(stat.chatId, {
           fileCount: stat.fileCount,
           additions: stat.additions,
-          deletions: stat.deletions,
-        })
+          deletions: stat.deletions
+        });
       }
     }
-    return statsMap
-  }, [fileStatsData])
+    return statsMap;
+  }, [fileStatsData]);
 
   // Build set of chatIds with pending questions (active + expired-but-still-answerable)
   const workspacesWithPendingQuestions = useMemo(() => {
-    const set = new Set<string>()
+    const set = new Set<string>();
     pendingQuestions.forEach((q) => {
-      set.add(q.parentChatId)
-    })
+      set.add(q.parentChatId);
+    });
     expiredQuestions.forEach((q) => {
-      set.add(q.parentChatId)
-    })
-    return set
-  }, [pendingQuestions, expiredQuestions])
+      set.add(q.parentChatId);
+    });
+    return set;
+  }, [pendingQuestions, expiredQuestions]);
 
   // Build set of chatIds (workspace IDs) that are loading
   // loadingSubChats is Map<subChatId, parentChatId>, we need the VALUES (parentChatId)
-  const workspacesLoading = useMemo(
-    () => new Set([...loadingSubChats.values()]),
-    [loadingSubChats],
-  )
+  const workspacesLoading = useMemo(() => new Set([...loadingSubChats.values()]), [loadingSubChats]);
 
   // Build kanban cards from workspaces (chats) + drafts
   const cards = useMemo(() => {
-    const result: KanbanCardData[] = []
+    const result: KanbanCardData[] = [];
 
     // Add drafts first (they go to "draft" column)
     for (const draft of drafts) {
       result.push({
         id: draft.id,
-        name: draft.text.slice(0, 50) + (draft.text.length > 50 ? "..." : ""),
+        name: draft.text.slice(0, 50) + (draft.text.length > 50 ? '...' : ''),
         chatId: draft.id, // Use draft id as chatId for navigation
         chatName: null,
         projectName: draft.project?.gitRepo || draft.project?.name || null,
         branch: null,
-        mode: "agent",
-        status: "draft",
+        mode: 'agent',
+        status: 'draft',
         hasUnseenChanges: false,
         hasPendingPlan: false,
         hasPendingQuestion: false,
@@ -261,20 +248,20 @@ export function KanbanView() {
         updatedAt: new Date(draft.updatedAt),
         isDraft: true,
         isPinned: false,
-        isSelected: false,
-      })
+        isSelected: false
+      });
     }
 
     // Add workspaces
     if (chats) {
       for (const chat of chats) {
-        const project = projectsMap.get(chat.projectId)
+        const project = projectsMap.get(chat.projectId);
 
         const status = deriveWorkspaceStatus(chat.id, {
           workspacesLoading,
           workspacesWithPendingQuestions,
-          workspacesWithPendingApprovals,
-        })
+          workspacesWithPendingApprovals
+        });
 
         result.push({
           id: chat.id,
@@ -283,7 +270,7 @@ export function KanbanView() {
           chatName: chat.name,
           projectName: project?.gitRepo || project?.name || null,
           branch: chat.branch,
-          mode: "agent",
+          mode: 'agent',
           status,
           hasUnseenChanges: unseenChanges.has(chat.id),
           hasPendingPlan: workspacesWithPendingApprovals.has(chat.id),
@@ -293,13 +280,24 @@ export function KanbanView() {
           isDraft: false,
           stats: workspaceFileStats.get(chat.id),
           isPinned: pinnedChatIds.has(chat.id),
-          isSelected: selectedChatIds.has(chat.id),
-        })
+          isSelected: selectedChatIds.has(chat.id)
+        });
       }
     }
 
-    return result
-  }, [chats, drafts, projectsMap, workspacesLoading, workspacesWithPendingQuestions, workspacesWithPendingApprovals, unseenChanges, workspaceFileStats, pinnedChatIds, selectedChatIds])
+    return result;
+  }, [
+    chats,
+    drafts,
+    projectsMap,
+    workspacesLoading,
+    workspacesWithPendingQuestions,
+    workspacesWithPendingApprovals,
+    unseenChanges,
+    workspaceFileStats,
+    pinnedChatIds,
+    selectedChatIds
+  ]);
 
   // Navigation on card click
   const handleCardClick = useCallback(
@@ -307,110 +305,114 @@ export function KanbanView() {
       // In multi-select mode with shift/cmd, toggle selection instead of navigating
       if (isMultiSelectMode || e?.shiftKey || e?.metaKey) {
         if (!card.isDraft) {
-          toggleChatSelection(card.chatId)
+          toggleChatSelection(card.chatId);
         }
-        return
+        return;
       }
 
       if (card.isDraft) {
         // Navigate to NewChatForm with this draft selected
-        setSelectedChatId(null)
-        setSelectedDraftId(card.id)
-        setShowNewChatForm(false) // Clear explicit new form state
+        setSelectedChatId(null);
+        setSelectedDraftId(card.id);
+        setShowNewChatForm(false); // Clear explicit new form state
       } else {
         // Navigate to workspace
-        setSelectedChatId(card.chatId)
-        setShowNewChatForm(false) // Clear explicit new form state
+        setSelectedChatId(card.chatId);
+        setShowNewChatForm(false); // Clear explicit new form state
       }
     },
     [setSelectedChatId, setSelectedDraftId, setShowNewChatForm, isMultiSelectMode, toggleChatSelection]
-  )
+  );
 
   // Checkbox click handler for multi-select
-  const handleCheckboxClick = useCallback((e: React.MouseEvent, chatId: string) => {
-    e.stopPropagation()
-    toggleChatSelection(chatId)
-  }, [toggleChatSelection])
+  const handleCheckboxClick = useCallback(
+    (e: React.MouseEvent, chatId: string) => {
+      e.stopPropagation();
+      toggleChatSelection(chatId);
+    },
+    [toggleChatSelection]
+  );
 
   // Rename mutation
   const renameChatMutation = trpc.chats.rename.useMutation({
     onSuccess: () => {
-      utils.chats.list.invalidate()
+      utils.chats.list.invalidate();
     },
     onError: () => {
-      toast.error("Failed to rename workspace")
-    },
-  })
+      toast.error('Failed to rename workspace');
+    }
+  });
 
   // Rename handler
   const handleRenameClick = useCallback((chat: { id: string; name: string | null }) => {
-    setRenamingChat(chat)
-    setRenameDialogOpen(true)
-  }, [])
+    setRenamingChat(chat);
+    setRenameDialogOpen(true);
+  }, []);
 
   const handleRenameSave = async (newName: string) => {
-    if (!renamingChat) return
-    await renameChatMutation.mutateAsync({ id: renamingChat.id, name: newName })
-    setRenameDialogOpen(false)
-    setRenamingChat(null)
-  }
+    if (!renamingChat) return;
+    await renameChatMutation.mutateAsync({ id: renamingChat.id, name: newName });
+    setRenameDialogOpen(false);
+    setRenamingChat(null);
+  };
 
   // Archive mutation
   const archiveChatMutation = trpc.chats.archive.useMutation({
     onSuccess: () => {
-      utils.chats.list.invalidate()
-      toast.success("Workspace archived")
+      utils.chats.list.invalidate();
+      toast.success('Workspace archived');
     },
     onError: () => {
-      toast.error("Failed to archive workspace")
-    },
-  })
+      toast.error('Failed to archive workspace');
+    }
+  });
 
   // Archive handler with confirmation for active processes
-  const handleArchive = useCallback(async (chatId: string) => {
-    const chat = chats?.find((c) => c.id === chatId)
-    const isLocalMode = !chat?.branch
-    // Local mode: terminals are shared and won't be killed on archive, so skip count
-    const sessionCount = isLocalMode
-      ? 0
-      : await utils.terminal.getActiveSessionCount.fetch({ workspaceId: chatId })
+  const handleArchive = useCallback(
+    async (chatId: string) => {
+      const chat = chats?.find((c) => c.id === chatId);
+      const isLocalMode = !chat?.branch;
+      // Local mode: terminals are shared and won't be killed on archive, so skip count
+      const sessionCount = isLocalMode ? 0 : await utils.terminal.getActiveSessionCount.fetch({ workspaceId: chatId });
 
-    if (sessionCount > 0) {
-      setArchivingChatId(chatId)
-      setActiveProcessCount(sessionCount)
-      setConfirmArchiveDialogOpen(true)
-    } else {
-      await archiveChatMutation.mutateAsync({ id: chatId })
-    }
-  }, [utils, archiveChatMutation, chats])
+      if (sessionCount > 0) {
+        setArchivingChatId(chatId);
+        setActiveProcessCount(sessionCount);
+        setConfirmArchiveDialogOpen(true);
+      } else {
+        await archiveChatMutation.mutateAsync({ id: chatId });
+      }
+    },
+    [utils, archiveChatMutation, chats]
+  );
 
   const handleConfirmArchive = useCallback(async () => {
-    if (!archivingChatId) return
-    await archiveChatMutation.mutateAsync({ id: archivingChatId })
-    setConfirmArchiveDialogOpen(false)
-    setArchivingChatId(null)
-  }, [archivingChatId, archiveChatMutation])
+    if (!archivingChatId) return;
+    await archiveChatMutation.mutateAsync({ id: archivingChatId });
+    setConfirmArchiveDialogOpen(false);
+    setArchivingChatId(null);
+  }, [archivingChatId, archiveChatMutation]);
 
   const handleCancelArchive = useCallback(() => {
-    setConfirmArchiveDialogOpen(false)
-    setArchivingChatId(null)
-  }, [])
+    setConfirmArchiveDialogOpen(false);
+    setArchivingChatId(null);
+  }, []);
 
   // Copy branch name to clipboard
   const handleCopyBranch = useCallback((branch: string) => {
-    navigator.clipboard.writeText(branch)
-    toast.success("Branch name copied", { description: branch })
-  }, [])
+    navigator.clipboard.writeText(branch);
+    toast.success('Branch name copied', { description: branch });
+  }, []);
 
   // Export chat handler
-  const handleExportChat = useCallback((params: { chatId: string; format: "markdown" | "json" | "text" }) => {
-    exportChat(params)
-  }, [])
+  const handleExportChat = useCallback((params: { chatId: string; format: 'markdown' | 'json' | 'text' }) => {
+    exportChat(params);
+  }, []);
 
   // Copy chat handler
-  const handleCopyChat = useCallback((params: { chatId: string; format: "markdown" | "json" | "text" }) => {
-    copyChat(params)
-  }, [])
+  const handleCopyChat = useCallback((params: { chatId: string; format: 'markdown' | 'json' | 'text' }) => {
+    copyChat(params);
+  }, []);
 
   return (
     <div className="flex flex-col h-full w-full bg-background">
@@ -419,13 +421,9 @@ export function KanbanView() {
       <div
         className="flex-shrink-0 flex items-center p-1.5"
         style={{
-          WebkitAppRegion: "drag",
-        }}
-      >
-        <AgentsHeaderControls
-          isSidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-        />
+          WebkitAppRegion: 'drag'
+        }}>
+        <AgentsHeaderControls isSidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((prev) => !prev)} />
       </div>
 
       {/* Board */}
@@ -450,7 +448,7 @@ export function KanbanView() {
       <AgentsRenameSubChatDialog
         isOpen={renameDialogOpen}
         onClose={() => setRenameDialogOpen(false)}
-        currentName={renamingChat?.name || ""}
+        currentName={renamingChat?.name || ''}
         onSave={handleRenameSave}
       />
 
@@ -462,5 +460,5 @@ export function KanbanView() {
         activeProcessCount={activeProcessCount}
       />
     </div>
-  )
+  );
 }

@@ -1,4 +1,4 @@
-@import "./agents-styles.css";
+@import './agents-styles.css';
 
 @tailwind base;
 @tailwind components;
@@ -86,8 +86,8 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings:
-      "rlig" 1,
-      "calt" 1;
+      'rlig' 1,
+      'calt' 1;
   }
 }
 
@@ -225,7 +225,7 @@
   --error-text: hsl(var(--popover-foreground)) !important;
 }
 
-[data-sonner-toast][data-styled="true"] {
+[data-sonner-toast][data-styled='true'] {
   padding: 12px 16px;
   padding-right: 32px;
   gap: 8px;
@@ -277,7 +277,7 @@
 }
 
 /* Action button - on its own row at the bottom right */
-[data-sonner-toast][data-styled="true"] [data-button] {
+[data-sonner-toast][data-styled='true'] [data-button] {
   position: absolute;
   bottom: 12px;
   right: 8px;
@@ -290,19 +290,21 @@
   border: 1px solid hsl(var(--border)) !important;
   border-radius: 6px;
   margin: 0 !important;
-  transition: background-color 150ms ease-out, transform 150ms ease-out;
+  transition:
+    background-color 150ms ease-out,
+    transform 150ms ease-out;
 }
 
-[data-sonner-toast][data-styled="true"] [data-button]:hover {
+[data-sonner-toast][data-styled='true'] [data-button]:hover {
   background: hsl(var(--foreground) / 0.1) !important;
 }
 
-[data-sonner-toast][data-styled="true"] [data-button]:active {
+[data-sonner-toast][data-styled='true'] [data-button]:active {
   transform: scale(0.97);
 }
 
 /* Add bottom padding when button exists */
-[data-sonner-toast][data-styled="true"]:has([data-button]) {
+[data-sonner-toast][data-styled='true']:has([data-button]) {
   padding-bottom: 44px;
 }
 
@@ -328,7 +330,7 @@
 
 /* Terminal link popup */
 .xterm-link-popup {
-  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-family: var(--font-geist-mono), 'Geist Mono', ui-monospace, monospace;
   font-size: 12px;
   line-height: 1.4;
   padding: 4px 8px;
@@ -524,15 +526,27 @@
  * cell boundary. Scoped to `.dv-dockview` so the OUTER gridview (which
  * uses `.dv-split-view-container` too) is not affected; the gridview's
  * inter-cell gaps are owned by the rail wrapper paddings. */
-.dv-dockview .dv-split-view-container.dv-horizontal:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:first-child) {
+.dv-dockview
+  .dv-split-view-container.dv-horizontal:has(> .dv-view-container > .dv-view + .dv-view)
+  > .dv-view-container
+  > .dv-view:not(:first-child) {
   padding-left: calc(var(--shell-gap) / 2);
 }
-.dv-dockview .dv-split-view-container.dv-horizontal:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:last-child) {
+.dv-dockview
+  .dv-split-view-container.dv-horizontal:has(> .dv-view-container > .dv-view + .dv-view)
+  > .dv-view-container
+  > .dv-view:not(:last-child) {
   padding-right: calc(var(--shell-gap) / 2);
 }
-.dv-dockview .dv-split-view-container.dv-vertical:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:first-child) {
+.dv-dockview
+  .dv-split-view-container.dv-vertical:has(> .dv-view-container > .dv-view + .dv-view)
+  > .dv-view-container
+  > .dv-view:not(:first-child) {
   padding-top: calc(var(--shell-gap) / 2);
 }
-.dv-dockview .dv-split-view-container.dv-vertical:has(> .dv-view-container > .dv-view + .dv-view) > .dv-view-container > .dv-view:not(:last-child) {
+.dv-dockview
+  .dv-split-view-container.dv-vertical:has(> .dv-view-container > .dv-view + .dv-view)
+  > .dv-view-container
+  > .dv-view:not(:last-child) {
   padding-bottom: calc(var(--shell-gap) / 2);
 }

@@ -27,8 +27,8 @@
  * without spinning up `ChatViewInner`.
  */
 
-import { useAtom } from "jotai"
-import { useMemo } from "react"
+import { useAtom } from 'jotai';
+import { useMemo } from 'react';
 import {
   subChatModeAtomFamily,
   subChatModelIdAtomFamily,
@@ -38,23 +38,23 @@ import {
   subChatProviderOverrideAtomFamily,
   type AgentMode,
   type CodexThinkingPreference,
-  type ClaudeThinkingPreference,
-} from "../atoms"
+  type ClaudeThinkingPreference
+} from '../atoms';
 
-export type ChatProvider = "claude-code" | "codex"
+export type ChatProvider = 'claude-code' | 'codex';
 
 /**
  * Read-side of the hook return. Snapshot of the per-subChatId atoms at
  * the time React rendered.
  */
 export interface ChatViewStateValues {
-  mode: AgentMode
-  modelId: string
-  codexModelId: string
-  codexThinking: CodexThinkingPreference
-  claudeThinking: ClaudeThinkingPreference
+  mode: AgentMode;
+  modelId: string;
+  codexModelId: string;
+  codexThinking: CodexThinkingPreference;
+  claudeThinking: ClaudeThinkingPreference;
   /** `undefined` when no override (the per-mode default applies). */
-  providerOverride: ChatProvider | undefined
+  providerOverride: ChatProvider | undefined;
 }
 
 /**
@@ -64,49 +64,34 @@ export interface ChatViewStateValues {
  * thin atom-binding layer.
  */
 export interface ChatViewStateSetters {
-  setMode: (mode: AgentMode) => void
-  setModelId: (modelId: string) => void
-  setCodexModelId: (modelId: string) => void
-  setCodexThinking: (thinking: CodexThinkingPreference) => void
-  setClaudeThinking: (thinking: ClaudeThinkingPreference) => void
+  setMode: (mode: AgentMode) => void;
+  setModelId: (modelId: string) => void;
+  setCodexModelId: (modelId: string) => void;
+  setCodexThinking: (thinking: CodexThinkingPreference) => void;
+  setClaudeThinking: (thinking: ClaudeThinkingPreference) => void;
   /** Pass `null` to clear the override and fall back to the per-mode default. */
-  setProviderOverride: (provider: ChatProvider | null) => void
+  setProviderOverride: (provider: ChatProvider | null) => void;
 }
 
-export type UseChatViewStateReturn = ChatViewStateValues & ChatViewStateSetters
+export type UseChatViewStateReturn = ChatViewStateValues & ChatViewStateSetters;
 
 export function useChatViewState(subChatId: string): UseChatViewStateReturn {
   // useMemo guards against re-creating the atomFamily entry on every render
   // (atomFamily memoizes internally, but the function-identity check
   // matters for `useAtom`'s dependency tracking).
-  const modeAtom = useMemo(() => subChatModeAtomFamily(subChatId), [subChatId])
-  const modelAtom = useMemo(
-    () => subChatModelIdAtomFamily(subChatId),
-    [subChatId],
-  )
-  const codexModelAtom = useMemo(
-    () => subChatCodexModelIdAtomFamily(subChatId),
-    [subChatId],
-  )
-  const codexThinkingAtom = useMemo(
-    () => subChatCodexThinkingAtomFamily(subChatId),
-    [subChatId],
-  )
-  const claudeThinkingAtom = useMemo(
-    () => subChatClaudeThinkingAtomFamily(subChatId),
-    [subChatId],
-  )
-  const providerOverrideAtom = useMemo(
-    () => subChatProviderOverrideAtomFamily(subChatId),
-    [subChatId],
-  )
+  const modeAtom = useMemo(() => subChatModeAtomFamily(subChatId), [subChatId]);
+  const modelAtom = useMemo(() => subChatModelIdAtomFamily(subChatId), [subChatId]);
+  const codexModelAtom = useMemo(() => subChatCodexModelIdAtomFamily(subChatId), [subChatId]);
+  const codexThinkingAtom = useMemo(() => subChatCodexThinkingAtomFamily(subChatId), [subChatId]);
+  const claudeThinkingAtom = useMemo(() => subChatClaudeThinkingAtomFamily(subChatId), [subChatId]);
+  const providerOverrideAtom = useMemo(() => subChatProviderOverrideAtomFamily(subChatId), [subChatId]);
 
-  const [mode, setMode] = useAtom(modeAtom)
-  const [modelId, setModelId] = useAtom(modelAtom)
-  const [codexModelId, setCodexModelId] = useAtom(codexModelAtom)
-  const [codexThinking, setCodexThinking] = useAtom(codexThinkingAtom)
-  const [claudeThinking, setClaudeThinking] = useAtom(claudeThinkingAtom)
-  const [providerOverride, setProviderOverride] = useAtom(providerOverrideAtom)
+  const [mode, setMode] = useAtom(modeAtom);
+  const [modelId, setModelId] = useAtom(modelAtom);
+  const [codexModelId, setCodexModelId] = useAtom(codexModelAtom);
+  const [codexThinking, setCodexThinking] = useAtom(codexThinkingAtom);
+  const [claudeThinking, setClaudeThinking] = useAtom(claudeThinkingAtom);
+  const [providerOverride, setProviderOverride] = useAtom(providerOverrideAtom);
 
   return {
     mode,
@@ -120,6 +105,6 @@ export function useChatViewState(subChatId: string): UseChatViewStateReturn {
     setCodexModelId,
     setCodexThinking,
     setClaudeThinking,
-    setProviderOverride,
-  }
+    setProviderOverride
+  };
 }

@@ -32,23 +32,16 @@
  * which is stable across renders for a given mutation hook).
  */
 
-import { useMemo } from "react"
-import { useAgentSubChatStore } from "../stores/sub-chat-store"
-import { applyModeDefaultModel } from "../lib/model-switching"
-import { appStore } from "../../../lib/jotai-store"
-import {
-  chatModeFsmStateAtomFamily,
-  subChatModeAtomFamily,
-} from "../atoms"
-import type { ModeSwitchDeps } from "../services/mode-switch-service"
-import type { ProviderId } from "../machines/transport-lifecycle"
+import { useMemo } from 'react';
+import { useAgentSubChatStore } from '../stores/sub-chat-store';
+import { applyModeDefaultModel } from '../lib/model-switching';
+import { appStore } from '../../../lib/jotai-store';
+import { chatModeFsmStateAtomFamily, subChatModeAtomFamily } from '../atoms';
+import type { ModeSwitchDeps } from '../services/mode-switch-service';
+import type { ProviderId } from '../machines/transport-lifecycle';
 
 export interface ModeSwitchMutationLike {
-  mutateAsync: (input: {
-    subChatId: string
-    mode: "agent" | "plan"
-    exitPlan?: boolean
-  }) => Promise<unknown>
+  mutateAsync: (input: { subChatId: string; mode: 'agent' | 'plan'; exitPlan?: boolean }) => Promise<unknown>;
 }
 
 /**
@@ -59,42 +52,39 @@ export interface ModeSwitchMutationLike {
  * @param updateSubChatModeMutation - tRPC mutation for persisting mode to DB.
  *   `mutateAsync` is awaited inside `persistMode`.
  */
-export function useModeSwitchDeps(
-  updateSubChatModeMutation: ModeSwitchMutationLike,
-): ModeSwitchDeps {
+export function useModeSwitchDeps(updateSubChatModeMutation: ModeSwitchMutationLike): ModeSwitchDeps {
   return useMemo<ModeSwitchDeps>(
     () => ({
       readState: (id) => appStore.get(chatModeFsmStateAtomFamily(id)),
-      writeState: (id, state) =>
-        appStore.set(chatModeFsmStateAtomFamily(id), state),
+      writeState: (id, state) => appStore.set(chatModeFsmStateAtomFamily(id), state),
       setMode: (id, mode) => {
         // The chat-mode FSM allows "review", but the renderer's surface
         // only persists "plan" / "agent". Drop "review" writes here —
         // applyDefaultModel still applies the right model + thinking.
-        if (mode === "review") return
-        appStore.set(subChatModeAtomFamily(id), mode)
-        useAgentSubChatStore.getState().updateSubChatMode(id, mode)
+        if (mode === 'review') return;
+        appStore.set(subChatModeAtomFamily(id), mode);
+        useAgentSubChatStore.getState().updateSubChatMode(id, mode);
       },
       applyDefaultModel: (id, mode) => {
-        const result = applyModeDefaultModel(id, mode)
+        const result = applyModeDefaultModel(id, mode);
         return {
           modelId: result.modelId,
-          provider: result.provider as ProviderId,
-        }
+          provider: result.provider as ProviderId
+        };
       },
       persistMode: async ({ subChatId: id, mode }) => {
-        if (id.startsWith("temp-")) return
+        if (id.startsWith('temp-')) return;
         await updateSubChatModeMutation.mutateAsync({
           subChatId: id,
-          mode,
-        })
+          mode
+        });
       },
       log: (msg) => {
-        if (process.env.NODE_ENV === "development") {
-          console.log(msg)
+        if (process.env.NODE_ENV === 'development') {
+          console.log(msg);
         }
-      },
+      }
     }),
-    [updateSubChatModeMutation],
-  )
+    [updateSubChatModeMutation]
+  );
 }

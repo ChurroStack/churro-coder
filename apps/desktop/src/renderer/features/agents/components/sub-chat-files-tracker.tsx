@@ -1,40 +1,32 @@
-import { memo, useEffect, useMemo } from "react"
-import { useSetAtom } from "jotai"
-import {
-  subChatFilesAtom,
-  subChatToChatMapAtom,
-  type SubChatFileChange,
-} from "../atoms"
-import { computeSubChatFiles } from "../hooks/use-changed-files-tracking"
+import { memo, useEffect, useMemo } from 'react';
+import { useSetAtom } from 'jotai';
+import { subChatFilesAtom, subChatToChatMapAtom, type SubChatFileChange } from '../atoms';
+import { computeSubChatFiles } from '../hooks/use-changed-files-tracking';
 
 interface SubChatRow {
-  id: string
-  messages?: unknown
+  id: string;
+  messages?: unknown;
 }
 
 interface Props {
-  chatId: string
-  subChats: SubChatRow[] | null | undefined
-  projectPath?: string
+  chatId: string;
+  subChats: SubChatRow[] | null | undefined;
+  projectPath?: string;
 }
 
 function parseMessages(raw: unknown): any[] {
-  if (Array.isArray(raw)) return raw
-  if (typeof raw !== "string") return []
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string') return [];
   // Cheap pre-filter mirroring file-stats.ts — skip JSON.parse if there's
   // nothing for the algorithm to find.
-  if (
-    !raw.includes("tool-Edit") &&
-    !raw.includes("tool-Write") &&
-    !raw.includes("changedFiles")
-  ) {
-    return []
+  if (!raw.includes('tool-Edit') && !raw.includes('tool-Write') && !raw.includes('changedFiles')) {
+    return [];
   }
   try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return []
+    return [];
   }
 }
 
@@ -53,48 +45,41 @@ function parseMessages(raw: unknown): any[] {
  * memory via `chats.get`) and writes the result for every sub-chat in one
  * batched atom update — no N-instance render cascade.
  */
-export const SubChatFilesTracker = memo(function SubChatFilesTracker({
-  chatId,
-  subChats,
-  projectPath,
-}: Props) {
-  const setSubChatFiles = useSetAtom(subChatFilesAtom)
-  const setSubChatToChatMap = useSetAtom(subChatToChatMapAtom)
+export const SubChatFilesTracker = memo(function SubChatFilesTracker({ chatId, subChats, projectPath }: Props) {
+  const setSubChatFiles = useSetAtom(subChatFilesAtom);
+  const setSubChatToChatMap = useSetAtom(subChatToChatMapAtom);
 
   const computed = useMemo(() => {
     if (!subChats || subChats.length === 0) {
-      return [] as Array<[string, SubChatFileChange[]]>
+      return [] as Array<[string, SubChatFileChange[]]>;
     }
     return subChats.map((sc) => {
-      const messages = parseMessages(sc.messages)
-      return [sc.id, computeSubChatFiles(messages, projectPath)] as [
-        string,
-        SubChatFileChange[],
-      ]
-    })
-  }, [subChats, projectPath])
+      const messages = parseMessages(sc.messages);
+      return [sc.id, computeSubChatFiles(messages, projectPath)] as [string, SubChatFileChange[]];
+    });
+  }, [subChats, projectPath]);
 
   useEffect(() => {
-    if (computed.length === 0) return
+    if (computed.length === 0) return;
     setSubChatFiles((prev) => {
-      const next = new Map(prev)
+      const next = new Map(prev);
       for (const [id, files] of computed) {
-        next.set(id, files)
+        next.set(id, files);
       }
-      return next
-    })
-  }, [computed, setSubChatFiles])
+      return next;
+    });
+  }, [computed, setSubChatFiles]);
 
   useEffect(() => {
-    if (!chatId || computed.length === 0) return
+    if (!chatId || computed.length === 0) return;
     setSubChatToChatMap((prev) => {
-      const next = new Map(prev)
+      const next = new Map(prev);
       for (const [id] of computed) {
-        next.set(id, chatId)
+        next.set(id, chatId);
       }
-      return next
-    })
-  }, [chatId, computed, setSubChatToChatMap])
+      return next;
+    });
+  }, [chatId, computed, setSubChatToChatMap]);
 
-  return null
-})
+  return null;
+});

@@ -1,50 +1,46 @@
-"use client"
+'use client';
 
-import { memo } from "react"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../../../components/ui/tooltip"
-import { cn } from "../../../lib/utils"
+import { memo } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
+import { cn } from '../../../lib/utils';
 
 // Claude model context windows
 const CONTEXT_WINDOWS = {
   opus: 200_000,
-  "opus[1m]": 1_000_000,
+  'opus[1m]': 1_000_000,
   sonnet: 200_000,
-  "sonnet[1m]": 1_000_000,
-  haiku: 200_000,
-} as const
+  'sonnet[1m]': 1_000_000,
+  haiku: 200_000
+} as const;
 
-type ModelId = keyof typeof CONTEXT_WINDOWS
+type ModelId = keyof typeof CONTEXT_WINDOWS;
 
 // Pre-computed token data to avoid re-computing on every render
 export interface MessageTokenData {
-  totalInputTokens: number
-  totalOutputTokens: number
-  totalCostUsd: number
-  messageCount: number
-  contextWindow?: number
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  messageCount: number;
+  contextWindow?: number;
 }
 
 interface AgentContextIndicatorProps {
-  tokenData: MessageTokenData
-  modelId?: ModelId
-  className?: string
-  onCompact?: () => void
-  isCompacting?: boolean
-  disabled?: boolean
+  tokenData: MessageTokenData;
+  modelId?: ModelId;
+  className?: string;
+  onCompact?: () => void;
+  isCompacting?: boolean;
+  disabled?: boolean;
 }
 
 function formatTokens(tokens: number): string {
   if (tokens >= 1_000_000) {
-    return `${(tokens / 1_000_000).toFixed(1)}M`
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
   }
   if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}K`
+    return `${(tokens / 1000).toFixed(1)}K`;
   }
-  return tokens.toString()
+  return tokens.toString();
 }
 
 // Circular progress component
@@ -52,23 +48,19 @@ function CircularProgress({
   percent,
   size = 18,
   strokeWidth = 2,
-  className,
+  className
 }: {
-  percent: number
-  size?: number
-  strokeWidth?: number
-  className?: string
+  percent: number;
+  size?: number;
+  strokeWidth?: number;
+  className?: string;
 }) {
-  const radius = (size - strokeWidth) / 2
-  const circumference = 2 * Math.PI * radius
-  const offset = circumference - (percent / 100) * circumference
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (percent / 100) * circumference;
 
   return (
-    <svg
-      width={size}
-      height={size}
-      className={cn("transform -rotate-90", className)}
-    >
+    <svg width={size} height={size} className={cn('transform -rotate-90', className)}>
       {/* Background circle */}
       <circle
         cx={size / 2}
@@ -93,23 +85,23 @@ function CircularProgress({
         className="transition-all duration-300 text-muted-foreground/60"
       />
     </svg>
-  )
+  );
 }
 
 export const AgentContextIndicator = memo(function AgentContextIndicator({
   tokenData,
-  modelId = "sonnet",
+  modelId = 'sonnet',
   className,
   onCompact,
   isCompacting,
-  disabled,
+  disabled
 }: AgentContextIndicatorProps) {
-  const contextTokens = tokenData.totalInputTokens
-  const contextWindow = tokenData.contextWindow ?? CONTEXT_WINDOWS[modelId]
-  const percentUsed = Math.min(100, (contextTokens / contextWindow) * 100)
-  const isEmpty = contextTokens === 0
+  const contextTokens = tokenData.totalInputTokens;
+  const contextWindow = tokenData.contextWindow ?? CONTEXT_WINDOWS[modelId];
+  const percentUsed = Math.min(100, (contextTokens / contextWindow) * 100);
+  const isEmpty = contextTokens === 0;
 
-  const isClickable = onCompact && !disabled && !isCompacting
+  const isClickable = onCompact && !disabled && !isCompacting;
 
   return (
     <Tooltip delayDuration={300}>
@@ -117,42 +109,34 @@ export const AgentContextIndicator = memo(function AgentContextIndicator({
         <div
           onClick={isClickable ? onCompact : undefined}
           className={cn(
-            "h-4 w-4 flex items-center justify-center",
-            isClickable
-              ? "cursor-pointer hover:opacity-70 transition-opacity"
-              : "cursor-default",
-            disabled && "opacity-50",
-            className,
-          )}
-        >
+            'h-4 w-4 flex items-center justify-center',
+            isClickable ? 'cursor-pointer hover:opacity-70 transition-opacity' : 'cursor-default',
+            disabled && 'opacity-50',
+            className
+          )}>
           <CircularProgress
             percent={percentUsed}
             size={14}
             strokeWidth={2.5}
-            className={isCompacting ? "animate-pulse" : undefined}
+            className={isCompacting ? 'animate-pulse' : undefined}
           />
         </div>
       </TooltipTrigger>
       <TooltipContent side="top" sideOffset={8}>
         <p className="text-xs">
           {isEmpty ? (
-            <span className="text-muted-foreground">
-              Context: 0 / {formatTokens(contextWindow)}
-            </span>
+            <span className="text-muted-foreground">Context: 0 / {formatTokens(contextWindow)}</span>
           ) : (
             <>
-              <span className="font-mono font-medium text-foreground">
-                {percentUsed.toFixed(1)}%
-              </span>
+              <span className="font-mono font-medium text-foreground">{percentUsed.toFixed(1)}%</span>
               <span className="text-muted-foreground mx-1">·</span>
               <span className="text-muted-foreground">
-                {formatTokens(contextTokens)} /{" "}
-                {formatTokens(contextWindow)} context
+                {formatTokens(contextTokens)} / {formatTokens(contextWindow)} context
               </span>
             </>
           )}
         </p>
       </TooltipContent>
     </Tooltip>
-  )
-})
+  );
+});

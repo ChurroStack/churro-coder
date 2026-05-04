@@ -1,22 +1,18 @@
-"use client"
+'use client';
 
-import { memo } from "react"
-import { TextShimmer } from "../../../components/ui/text-shimmer"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../../../components/ui/tooltip"
+import { memo } from 'react';
+import { TextShimmer } from '../../../components/ui/text-shimmer';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 
 interface AgentToolCallProps {
-  icon: React.ComponentType<{ className?: string }>
-  title: string
-  subtitle?: string
-  tooltipContent?: string
-  isPending: boolean
-  isError: boolean
-  isNested?: boolean
-  onClick?: () => void
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  subtitle?: string;
+  tooltipContent?: string;
+  isPending: boolean;
+  isError: boolean;
+  isNested?: boolean;
+  onClick?: () => void;
 }
 
 export const AgentToolCall = memo(
@@ -28,16 +24,14 @@ export const AgentToolCall = memo(
     isPending,
     isError,
     isNested,
-    onClick,
+    onClick
   }: AgentToolCallProps) {
     // Ensure title and subtitle are strings (copied from canvas)
-    const titleStr = String(title)
-    const subtitleStr = subtitle ? String(subtitle) : undefined
+    const titleStr = String(title);
+    const subtitleStr = subtitle ? String(subtitle) : undefined;
 
     // Render subtitle with optional tooltip
-    const clickableClass = onClick
-      ? " cursor-pointer hover:text-muted-foreground transition-colors"
-      : ""
+    const clickableClass = onClick ? ' cursor-pointer hover:text-muted-foreground transition-colors' : '';
 
     const subtitleElement = subtitleStr ? (
       tooltipContent ? (
@@ -51,8 +45,7 @@ export const AgentToolCall = memo(
           </TooltipTrigger>
           <TooltipContent
             side="top"
-            className="px-2 py-1.5 w-fit max-w-[min(420px,calc(100vw-24px))] flex items-center justify-center overflow-hidden"
-          >
+            className="px-2 py-1.5 w-fit max-w-[min(420px,calc(100vw-24px))] flex items-center justify-center overflow-hidden">
             <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground leading-none">
               {tooltipContent}
             </span>
@@ -65,18 +58,12 @@ export const AgentToolCall = memo(
           onClick={onClick}
         />
       )
-    ) : null
+    ) : null;
 
-    const iconColorClass = isError
-      ? "text-destructive/70"
-      : "text-muted-foreground/70"
+    const iconColorClass = isError ? 'text-destructive/70' : 'text-muted-foreground/70';
 
     return (
-      <div
-        className={`flex items-start gap-1.5 py-0.5 ${
-          isNested ? "" : "rounded-md px-2"
-        }`}
-      >
+      <div className={`flex items-start gap-1.5 py-0.5 ${isNested ? '' : 'rounded-md px-2'}`}>
         <div className="flex-shrink-0 flex items-start pt-[1px]">
           <Icon className={`w-3.5 h-3.5 ${iconColorClass}`} />
         </div>
@@ -86,11 +73,7 @@ export const AgentToolCall = memo(
           <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
             <span className="font-medium whitespace-nowrap flex-shrink-0">
               {isPending ? (
-                <TextShimmer
-                  as="span"
-                  duration={1.2}
-                  className="inline-flex items-center text-xs leading-none h-4 m-0"
-                >
+                <TextShimmer as="span" duration={1.2} className="inline-flex items-center text-xs leading-none h-4 m-0">
                   {titleStr}
                 </TextShimmer>
               ) : (
@@ -101,7 +84,7 @@ export const AgentToolCall = memo(
           </div>
         </div>
       </div>
-    )
+    );
   },
   (prevProps, nextProps) => {
     // Custom comparison for memoization (copied from canvas)
@@ -113,6 +96,6 @@ export const AgentToolCall = memo(
       prevProps.isError === nextProps.isError &&
       prevProps.isNested === nextProps.isNested &&
       prevProps.onClick === nextProps.onClick
-    )
-  },
-)
+    );
+  }
+);

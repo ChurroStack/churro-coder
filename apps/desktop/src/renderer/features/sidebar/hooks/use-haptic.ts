@@ -1,4 +1,4 @@
-type HapticIntensity = "light" | "medium" | "heavy" | "selection" | "success" | "warning" | "error"
+type HapticIntensity = 'light' | 'medium' | 'heavy' | 'selection' | 'success' | 'warning' | 'error';
 
 /**
  * Mock haptic feedback hook for desktop
@@ -8,6 +8,6 @@ export function useHaptic() {
   return {
     trigger: (_intensity?: HapticIntensity) => {
       // No-op on desktop - haptics are for mobile only
-    },
-  }
+    }
+  };
 }

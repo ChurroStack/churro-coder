@@ -1,75 +1,64 @@
-"use client"
+'use client';
 
-import { memo, useEffect, useState } from "react"
-import { useAtomValue } from "jotai"
-import {
-  Check,
-  CircleDashed,
-  ExternalLink,
-  MessageSquare,
-  TriangleAlert,
-  X,
-} from "lucide-react"
-import { trpc } from "@/lib/trpc"
-import { cn } from "@/lib/utils"
-import { agentFinishedTickAtomFamily } from "@/features/agents/atoms"
-import { IconSpinner } from "@/components/ui/icons"
-import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { PRIcon } from "@/features/changes/components/pr-icon"
-import { RenamePrTitleDialog } from "./rename-pr-title-dialog"
-import { PrCommentsList } from "./pr-comments-section"
+import { memo, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
+import { Check, CircleDashed, ExternalLink, MessageSquare, TriangleAlert, X } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
+import { agentFinishedTickAtomFamily } from '@/features/agents/atoms';
+import { IconSpinner } from '@/components/ui/icons';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { PRIcon } from '@/features/changes/components/pr-icon';
+import { RenamePrTitleDialog } from './rename-pr-title-dialog';
+import { PrCommentsList } from './pr-comments-section';
 
 interface PrWidgetProps {
-  chatId: string
+  chatId: string;
   /** Click handler for the "Review pending" / "Changes requested" line.
    *  Wired from DetailsSidebar to launch the PR-flow review (`/review <PR#>`). */
-  onReviewClick?: () => void
+  onReviewClick?: () => void;
 }
 
-type ReviewDecision = "approved" | "changes_requested" | "pending"
+type ReviewDecision = 'approved' | 'changes_requested' | 'pending';
 
 function reviewLabel(decision?: ReviewDecision | null): string | null {
-  if (!decision) return null
-  if (decision === "approved") return "Approved"
-  if (decision === "changes_requested") return "Changes requested"
-  return "Review pending"
+  if (!decision) return null;
+  if (decision === 'approved') return 'Approved';
+  if (decision === 'changes_requested') return 'Changes requested';
+  return 'Review pending';
 }
 
 function reviewTone(decision?: ReviewDecision | null): string {
-  if (decision === "approved") return "text-emerald-600 dark:text-emerald-400"
-  if (decision === "changes_requested") return "text-amber-600 dark:text-amber-400"
-  return "text-muted-foreground"
+  if (decision === 'approved') return 'text-emerald-600 dark:text-emerald-400';
+  if (decision === 'changes_requested') return 'text-amber-600 dark:text-amber-400';
+  return 'text-muted-foreground';
 }
 
 function stateLabel(state: string, isDraft?: boolean): string {
-  if (state === "merged") return "Merged"
-  if (state === "closed") return "Closed"
-  if (isDraft || state === "draft") return "Draft"
-  return "Open"
+  if (state === 'merged') return 'Merged';
+  if (state === 'closed') return 'Closed';
+  if (isDraft || state === 'draft') return 'Draft';
+  return 'Open';
 }
 
 export const PrWidget = memo(function PrWidget({ chatId, onReviewClick }: PrWidgetProps) {
   const { data: status, isLoading } = trpc.chats.getPrStatus.useQuery(
     { chatId },
-    { refetchInterval: 30000, enabled: !!chatId },
-  )
+    { refetchInterval: 30000, enabled: !!chatId }
+  );
 
   // Refresh PR status immediately after any agent run finishes for this chat,
   // instead of waiting up to 30s for the next poll.
-  const utils = trpc.useUtils()
-  const finishedTick = useAtomValue(agentFinishedTickAtomFamily(chatId))
+  const utils = trpc.useUtils();
+  const finishedTick = useAtomValue(agentFinishedTickAtomFamily(chatId));
   useEffect(() => {
-    if (finishedTick === 0) return
-    utils.chats.getPrStatus.invalidate({ chatId })
-  }, [finishedTick, chatId, utils])
+    if (finishedTick === 0) return;
+    utils.chats.getPrStatus.invalidate({ chatId });
+  }, [finishedTick, chatId, utils]);
 
-  const [isRenameOpen, setIsRenameOpen] = useState(false)
-  const [showComments, setShowComments] = useState(false)
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [showComments, setShowComments] = useState(false);
 
   if (isLoading && !status) {
     return (
@@ -77,26 +66,22 @@ export const PrWidget = memo(function PrWidget({ chatId, onReviewClick }: PrWidg
         <IconSpinner className="h-3.5 w-3.5" />
         Loading PR status…
       </div>
-    )
+    );
   }
 
-  const pr = status?.pr
+  const pr = status?.pr;
   if (!pr) {
-    return (
-      <div className="px-3 py-3 text-xs text-muted-foreground">
-        No pull request for this branch yet.
-      </div>
-    )
+    return <div className="px-3 py-3 text-xs text-muted-foreground">No pull request for this branch yet.</div>;
   }
 
   const openPr = () => {
-    window.desktopApi.openExternal(pr.url)
-  }
+    window.desktopApi.openExternal(pr.url);
+  };
 
-  const checks = pr.checks ?? []
-  const successCount = checks.filter((c) => c.status === "success").length
-  const failureCount = checks.filter((c) => c.status === "failure").length
-  const pendingCount = checks.filter((c) => c.status === "pending").length
+  const checks = pr.checks ?? [];
+  const successCount = checks.filter((c) => c.status === 'success').length;
+  const failureCount = checks.filter((c) => c.status === 'failure').length;
+  const pendingCount = checks.filter((c) => c.status === 'pending').length;
 
   return (
     <div className="flex flex-col">
@@ -114,19 +99,13 @@ export const PrWidget = memo(function PrWidget({ chatId, onReviewClick }: PrWidg
               type="button"
               onClick={() => setIsRenameOpen(true)}
               className="text-left text-sm font-medium text-foreground hover:underline decoration-muted-foreground/50 underline-offset-2 break-words"
-              title="Click to rename PR title"
-            >
+              title="Click to rename PR title">
               {pr.title}
             </button>
           </div>
           <Tooltip delayDuration={500}>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={openPr}
-                className="h-6 w-6 flex-shrink-0"
-              >
+              <Button variant="ghost" size="icon" onClick={openPr} className="h-6 w-6 flex-shrink-0">
                 <ExternalLink className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
@@ -141,46 +120,36 @@ export const PrWidget = memo(function PrWidget({ chatId, onReviewClick }: PrWidg
           {reviewLabel(pr.reviewDecision) &&
             (() => {
               const reviewActionable =
-                !!onReviewClick &&
-                (pr.reviewDecision === "pending" ||
-                  pr.reviewDecision === "changes_requested")
+                !!onReviewClick && (pr.reviewDecision === 'pending' || pr.reviewDecision === 'changes_requested');
               const content = (
                 <>
-                  {pr.reviewDecision === "approved" ? (
+                  {pr.reviewDecision === 'approved' ? (
                     <Check className="h-3 w-3" />
-                  ) : pr.reviewDecision === "changes_requested" ? (
+                  ) : pr.reviewDecision === 'changes_requested' ? (
                     <TriangleAlert className="h-3 w-3" />
                   ) : (
                     <CircleDashed className="h-3 w-3" />
                   )}
                   {reviewLabel(pr.reviewDecision)}
                 </>
-              )
+              );
               if (reviewActionable) {
                 return (
                   <button
                     type="button"
                     onClick={onReviewClick}
                     className={cn(
-                      "inline-flex items-center gap-1 rounded-sm hover:underline decoration-dotted underline-offset-2 transition-colors",
-                      reviewTone(pr.reviewDecision),
+                      'inline-flex items-center gap-1 rounded-sm hover:underline decoration-dotted underline-offset-2 transition-colors',
+                      reviewTone(pr.reviewDecision)
                     )}
-                    title="Run AI review on this PR"
-                  >
+                    title="Run AI review on this PR">
                     {content}
                   </button>
-                )
+                );
               }
               return (
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1",
-                    reviewTone(pr.reviewDecision),
-                  )}
-                >
-                  {content}
-                </span>
-              )
+                <span className={cn('inline-flex items-center gap-1', reviewTone(pr.reviewDecision))}>{content}</span>
+              );
             })()}
           {checks.length > 0 && (
             <span className="inline-flex items-center gap-2 text-muted-foreground">
@@ -206,12 +175,8 @@ export const PrWidget = memo(function PrWidget({ chatId, onReviewClick }: PrWidg
           )}
           {(pr.additions !== undefined || pr.deletions !== undefined) && (
             <span className="text-muted-foreground">
-              <span className="text-emerald-600 dark:text-emerald-400">
-                +{pr.additions ?? 0}
-              </span>{" "}
-              <span className="text-red-600 dark:text-red-400">
-                −{pr.deletions ?? 0}
-              </span>
+              <span className="text-emerald-600 dark:text-emerald-400">+{pr.additions ?? 0}</span>{' '}
+              <span className="text-red-600 dark:text-red-400">−{pr.deletions ?? 0}</span>
             </span>
           )}
         </div>
@@ -220,10 +185,9 @@ export const PrWidget = memo(function PrWidget({ chatId, onReviewClick }: PrWidg
         <button
           type="button"
           onClick={() => setShowComments((v) => !v)}
-          className="self-start inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-        >
+          className="self-start inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
           <MessageSquare className="h-3 w-3" />
-          {showComments ? "Hide comments" : "Show comments"}
+          {showComments ? 'Hide comments' : 'Show comments'}
         </button>
       </div>
 
@@ -237,5 +201,5 @@ export const PrWidget = memo(function PrWidget({ chatId, onReviewClick }: PrWidg
         onOpenChange={setIsRenameOpen}
       />
     </div>
-  )
-})
+  );
+});

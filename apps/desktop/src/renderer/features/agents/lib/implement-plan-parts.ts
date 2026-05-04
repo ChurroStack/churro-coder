@@ -15,8 +15,8 @@
  */
 
 export interface ApprovedPlanContent {
-  content: string
-  source?: string
+  content: string;
+  source?: string;
 }
 
 // Many models (especially Sonnet) skip TodoWrite for "single deliverable"
@@ -25,11 +25,11 @@ export interface ApprovedPlanContent {
 // useful — the user can see the plan's structure as the agent executes
 // because the message stream has events to display.
 const IMPLEMENT_PLAN_TASK_TRACKING_INSTRUCTION =
-  "Track progress through each plan step using your task-management tool: " +
+  'Track progress through each plan step using your task-management tool: ' +
   "open a task list at the start and update each item's status " +
-  "(pending → in_progress → completed) as you work."
+  '(pending → in_progress → completed) as you work.';
 
-export const IMPLEMENT_PLAN_BASE_TEXT = `Implement plan. ${IMPLEMENT_PLAN_TASK_TRACKING_INSTRUCTION}`
+export const IMPLEMENT_PLAN_BASE_TEXT = `Implement plan. ${IMPLEMENT_PLAN_TASK_TRACKING_INSTRUCTION}`;
 
 /**
  * Build the AI SDK message parts for "Implement plan".
@@ -41,32 +41,30 @@ export const IMPLEMENT_PLAN_BASE_TEXT = `Implement plan. ${IMPLEMENT_PLAN_TASK_T
  * @returns text-only parts when `plan` is null/empty; text + file-content
  *   parts when the plan needs to be re-attached.
  */
-export function buildImplementPlanParts(
-  plan: ApprovedPlanContent | null,
-): unknown[] {
-  const content = plan?.content.trim()
+export function buildImplementPlanParts(plan: ApprovedPlanContent | null): unknown[] {
+  const content = plan?.content.trim();
   if (!plan || !content) {
-    return [{ type: "text", text: IMPLEMENT_PLAN_BASE_TEXT }]
+    return [{ type: 'text', text: IMPLEMENT_PLAN_BASE_TEXT }];
   }
 
-  const source = plan.source ? `Plan source: ${plan.source}` : ""
+  const source = plan.source ? `Plan source: ${plan.source}` : '';
   const hiddenPlanContent = [
-    "Approved plan for implementation.",
-    "Use this plan text as the source of truth even if it was written by a different provider or model.",
+    'Approved plan for implementation.',
+    'Use this plan text as the source of truth even if it was written by a different provider or model.',
     source,
-    "",
-    content,
-  ].join("\n")
+    '',
+    content
+  ].join('\n');
 
   return [
     {
-      type: "text",
-      text: `${IMPLEMENT_PLAN_BASE_TEXT} Use the attached approved plan as the source of truth.`,
+      type: 'text',
+      text: `${IMPLEMENT_PLAN_BASE_TEXT} Use the attached approved plan as the source of truth.`
     },
     {
-      type: "file-content",
-      filePath: "approved-plan.md",
-      content: hiddenPlanContent,
-    },
-  ]
+      type: 'file-content',
+      filePath: 'approved-plan.md',
+      content: hiddenPlanContent
+    }
+  ];
 }

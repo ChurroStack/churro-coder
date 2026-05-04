@@ -1,21 +1,16 @@
-"use client"
+'use client';
 
-import { cn } from "../../../lib/utils"
-import { motion } from "motion/react"
+import { cn } from '../../../lib/utils';
+import { motion } from 'motion/react';
 
 interface ResizeHandleProps {
-  side: "left" | "right"
-  onPointerDown: (e: React.PointerEvent) => void
-  isResizing?: boolean
-  className?: string
+  side: 'left' | 'right';
+  onPointerDown: (e: React.PointerEvent) => void;
+  isResizing?: boolean;
+  className?: string;
 }
 
-export function ResizeHandle({
-  side,
-  onPointerDown,
-  isResizing = false,
-  className,
-}: ResizeHandleProps) {
+export function ResizeHandle({ side, onPointerDown, isResizing = false, className }: ResizeHandleProps) {
   return (
     <motion.div
       data-side={side}
@@ -25,15 +20,14 @@ export function ResizeHandle({
       exit={{ width: 0, opacity: 0 }}
       transition={{
         duration: 0.3,
-        ease: "easeInOut",
+        ease: 'easeInOut'
       }}
       className={cn(
-        "h-16 bg-muted-foreground/20 rounded-full cursor-ew-resize hover:bg-muted-foreground/40 transition-colors flex-shrink-0 pointer-events-auto select-none touch-none",
-        isResizing && "bg-muted-foreground/60",
-        className,
+        'h-16 bg-muted-foreground/20 rounded-full cursor-ew-resize hover:bg-muted-foreground/40 transition-colors flex-shrink-0 pointer-events-auto select-none touch-none',
+        isResizing && 'bg-muted-foreground/60',
+        className
       )}
-      style={{ touchAction: "none" }}
+      style={{ touchAction: 'none' }}
     />
-  )
+  );
 }
-

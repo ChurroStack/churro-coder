@@ -7,13 +7,12 @@ import {
   GLOBAL_MCP_PATH,
   readClaudeConfig,
   updateClaudeConfigAtomic,
-  updateMcpServerConfig,
+  updateMcpServerConfig
 } from './claude-config';
 import { getClaudeShellEnvironment } from './claude/env';
 import { CraftOAuth, fetchOAuthMetadata, getMcpBaseUrl, type OAuthMetadata, type OAuthTokens } from './oauth';
 import { discoverPluginMcpServers } from './plugins';
 import { bringToFront } from './window';
-
 
 /**
  * Fetch tools from an MCP server using the official MCP SDK
@@ -25,17 +24,14 @@ export interface McpToolInfo {
   description?: string;
 }
 
-export async function fetchMcpTools(
-  serverUrl: string,
-  headers?: Record<string, string>
-): Promise<McpToolInfo[]> {
+export async function fetchMcpTools(serverUrl: string, headers?: Record<string, string>): Promise<McpToolInfo[]> {
   let client: Client | null = null;
   let transport: StreamableHTTPClientTransport | null = null;
 
   try {
     client = new Client({
       name: 'cscode-desktop',
-      version: '1.0.0',
+      version: '1.0.0'
     });
 
     const requestInit: RequestInit = {};
@@ -44,7 +40,7 @@ export async function fetchMcpTools(
     }
 
     transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
-      requestInit,
+      requestInit
     });
 
     await client.connect(transport);
@@ -53,7 +49,7 @@ export async function fetchMcpTools(
     const tools = result.tools || [];
 
     console.log(`[MCP] Fetched ${tools.length} tools via SDK`);
-    return tools.map(t => ({ name: t.name, description: t.description }));
+    return tools.map((t) => ({ name: t.name, description: t.description }));
   } catch (error) {
     console.error('[MCP] Failed to fetch tools:', error);
     return [];
@@ -80,7 +76,7 @@ const BLOCKED_ENV_VARS = [
   'AWS_SESSION_TOKEN',
   'GITHUB_TOKEN',
   'GH_TOKEN',
-  'OPENAI_API_KEY',
+  'OPENAI_API_KEY'
 ];
 
 /**
@@ -97,7 +93,7 @@ export async function fetchMcpToolsStdio(config: {
   try {
     const client = new Client({
       name: 'cscode-desktop',
-      version: '1.0.0',
+      version: '1.0.0'
     });
 
     // Get shell environment with proper PATH (includes homebrew, nvm, etc.)
@@ -116,7 +112,7 @@ export async function fetchMcpToolsStdio(config: {
     transport = new StdioClientTransport({
       command: config.command,
       args: config.args,
-      env: { ...safeEnv, ...config.env },
+      env: { ...safeEnv, ...config.env }
     });
 
     await client.connect(transport);
@@ -124,7 +120,7 @@ export async function fetchMcpToolsStdio(config: {
     const tools = result.tools || [];
 
     console.log(`[MCP] Fetched ${tools.length} tools via stdio`);
-    return tools.map(t => ({ name: t.name, description: t.description }));
+    return tools.map((t) => ({ name: t.name, description: t.description }));
   } catch (error) {
     console.error('[MCP] Failed to fetch tools via stdio:', error);
     return [];
@@ -144,9 +140,7 @@ import { AUTH_SERVER_PORT, IS_DEV } from '../constants';
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
 
 function getMcpOAuthRedirectUri(): string {
-  return IS_DEV
-    ? `http://localhost:${AUTH_SERVER_PORT}/callback`
-    : `http://127.0.0.1:${AUTH_SERVER_PORT}/callback`;
+  return IS_DEV ? `http://localhost:${AUTH_SERVER_PORT}/callback` : `http://127.0.0.1:${AUTH_SERVER_PORT}/callback`;
 }
 
 interface PendingOAuth {
@@ -186,7 +180,7 @@ export async function startMcpOAuth(
           return updateMcpServerConfig(cfg, GLOBAL_MCP_PATH, serverName, {
             url: serverConfig!.url,
             type: serverConfig!.url?.endsWith('/sse') ? 'sse' : 'http',
-            authType: 'oauth',
+            authType: 'oauth'
           });
         });
         break;
@@ -233,7 +227,7 @@ export async function startMcpOAuth(
       clientSecret,
       redirectUri,
       resolve,
-      timeoutId,
+      timeoutId
     });
 
     // Open browser
@@ -285,7 +279,7 @@ export async function handleMcpOAuthCallback(code: string, state: string): Promi
       win.webContents.send('mcp-auth-completed', {
         serverName: pending.serverName,
         projectPath: pending.projectPath,
-        success: true,
+        success: true
       });
     });
 
@@ -298,7 +292,6 @@ export async function handleMcpOAuthCallback(code: string, state: string): Promi
     pending.resolve({ success: false, error: msg });
   }
 }
-
 
 /**
  * Check if MCP token needs refresh (within 5 minutes of expiry)
@@ -313,10 +306,7 @@ function needsRefresh(expiresAt: number | undefined): boolean {
  * Refresh MCP OAuth token for a server
  * Returns the new access token, or null if refresh fails
  */
-export async function refreshMcpToken(
-  serverName: string,
-  projectPath: string
-): Promise<string | null> {
+export async function refreshMcpToken(serverName: string, projectPath: string): Promise<string | null> {
   try {
     const config = await readClaudeConfig();
     let serverConfig = getMcpServerConfig(config, projectPath, serverName);
@@ -336,12 +326,14 @@ export async function refreshMcpToken(
       return null;
     }
 
-    const oauth = serverConfig._oauth as {
-      accessToken?: string;
-      refreshToken?: string;
-      clientId?: string;
-      expiresAt?: number;
-    } | undefined;
+    const oauth = serverConfig._oauth as
+      | {
+          accessToken?: string;
+          refreshToken?: string;
+          clientId?: string;
+          expiresAt?: number;
+        }
+      | undefined;
 
     if (!oauth?.refreshToken || !oauth?.clientId) {
       console.log(`[MCP Refresh] No refresh token or clientId for ${serverName}`);
@@ -379,12 +371,14 @@ export async function ensureMcpTokensFresh(
   const updatedServers = { ...mcpServers };
 
   for (const [serverName, serverConfig] of Object.entries(mcpServers)) {
-    const oauth = serverConfig._oauth as {
-      accessToken?: string;
-      refreshToken?: string;
-      clientId?: string;
-      expiresAt?: number;
-    } | undefined;
+    const oauth = serverConfig._oauth as
+      | {
+          accessToken?: string;
+          refreshToken?: string;
+          clientId?: string;
+          expiresAt?: number;
+        }
+      | undefined;
 
     // Skip servers without OAuth
     if (!oauth?.accessToken) continue;
@@ -400,12 +394,12 @@ export async function ensureMcpTokensFresh(
           ...serverConfig,
           headers: {
             ...(serverConfig.headers || {}),
-            Authorization: `Bearer ${newToken}`,
+            Authorization: `Bearer ${newToken}`
           },
           _oauth: {
             ...oauth,
-            accessToken: newToken,
-          },
+            accessToken: newToken
+          }
         };
       }
     }
@@ -437,7 +431,7 @@ async function saveTokensToClaudeJson(
     const existingHeaders = (existingConfig.headers as Record<string, string>) || {};
     const headers = {
       ...existingHeaders,
-      Authorization: `Bearer ${tokens.accessToken}`,
+      Authorization: `Bearer ${tokens.accessToken}`
     };
 
     return updateMcpServerConfig(config, projectPath, serverName, {
@@ -449,8 +443,8 @@ async function saveTokensToClaudeJson(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         clientId,
-        expiresAt: tokens.expiresAt,
-      },
+        expiresAt: tokens.expiresAt
+      }
     });
   });
 }

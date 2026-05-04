@@ -41,8 +41,8 @@ import {
   decideTransportAction,
   type ProviderId,
   type TransportInput,
-  type TransportAction,
-} from "../machines/transport-lifecycle"
+  type TransportAction
+} from '../machines/transport-lifecycle';
 
 /**
  * The minimum surface a `Chat` instance needs to expose to the factory's
@@ -50,9 +50,9 @@ import {
  * type here so the test can pass a plain object.
  */
 export interface ChatLike {
-  readonly id: string
+  readonly id: string;
   /** The transport instance — used for `provider` detection and teardown. */
-  transport?: { __kind?: "mock-transport" } | unknown
+  transport?: { __kind?: 'mock-transport' } | unknown;
 }
 
 export interface TransportFactoryDeps<TChat extends ChatLike = ChatLike> {
@@ -60,52 +60,49 @@ export interface TransportFactoryDeps<TChat extends ChatLike = ChatLike> {
    * Look up an existing Chat instance for `subChatId` (typically the
    * `agentChatStore` map in active-chat.tsx). Return null if none.
    */
-  readExistingChat: (subChatId: string) => TChat | null
+  readExistingChat: (subChatId: string) => TChat | null;
 
   /** Read the messages already attached to an existing Chat. */
-  readChatMessages: (chat: TChat) => unknown[]
+  readChatMessages: (chat: TChat) => unknown[];
 
   /** Read messages persisted in DB / atom store for the sub-chat. */
-  readPersistedMessages: (subChatId: string) => unknown[]
+  readPersistedMessages: (subChatId: string) => unknown[];
 
   /** Whether the existing chat is currently mid-stream. */
-  isStreaming: (subChatId: string) => boolean
+  isStreaming: (subChatId: string) => boolean;
 
   /** Whether queued messages are waiting (don't tear down). */
-  hasQueue: (subChatId: string) => boolean
+  hasQueue: (subChatId: string) => boolean;
 
   /**
    * Pure check returning true when the runtime cache outlived the persisted
    * messages (typical after optimistic create + slow DB write). The renderer
    * already has `shouldRecreateStaleRuntimeChat` — wire it through here.
    */
-  isStaleRuntime: (existingMessages: unknown[], persistedMessages: unknown[]) => boolean
+  isStaleRuntime: (existingMessages: unknown[], persistedMessages: unknown[]) => boolean;
 
   /**
    * Detect the provider of an existing transport. The renderer's wiring is:
    *   `existing.transport instanceof CodexChatTransport ? "codex" : "claude-code"`.
    * Tests pass a stub returning whichever provider the test wants to simulate.
    */
-  getExistingProvider: (chat: TChat) => ProviderId | null
+  getExistingProvider: (chat: TChat) => ProviderId | null;
 
   /**
    * Remove the chat from the runtime cache (the renderer wires this to
    * `agentChatStore.delete(subChatId)`). Called after the FSM decides
    * RECREATE so the next read finds nothing.
    */
-  deleteExistingChat: (subChatId: string) => void
+  deleteExistingChat: (subChatId: string) => void;
 
   /** Create a new Chat instance for the given action + persisted messages. */
-  createChat: (
-    input: ResolvedCreateInput,
-    persistedMessages: unknown[],
-  ) => TChat
+  createChat: (input: ResolvedCreateInput, persistedMessages: unknown[]) => TChat;
 
   /** Save a freshly created chat into the runtime cache + record streamId. */
-  storeChat: (subChatId: string, chat: TChat) => void
+  storeChat: (subChatId: string, chat: TChat) => void;
 
   /** Optional logger. */
-  log?: (msg: string) => void
+  log?: (msg: string) => void;
 }
 
 /**
@@ -113,11 +110,11 @@ export interface TransportFactoryDeps<TChat extends ChatLike = ChatLike> {
  * uses this to compute the action and execute it.
  */
 export interface FactoryInput {
-  subChatId: string
+  subChatId: string;
   /** Provider the next message wants to use (read from per-mode default + override). */
-  targetProvider: ProviderId
+  targetProvider: ProviderId;
   /** Whether the chat is a remote/sandbox chat (different transport entirely). */
-  targetIsRemote: boolean
+  targetIsRemote: boolean;
 }
 
 /**
@@ -126,21 +123,21 @@ export interface FactoryInput {
  * receives only what it needs to instantiate a transport + Chat.
  */
 export interface ResolvedCreateInput {
-  subChatId: string
-  provider: ProviderId
-  isRemote: boolean
+  subChatId: string;
+  provider: ProviderId;
+  isRemote: boolean;
   /** Reason for creation, for logging. */
-  reason: "create" | "recreate"
+  reason: 'create' | 'recreate';
 }
 
 export interface FactoryResult<TChat extends ChatLike> {
   /** The Chat instance the caller should use. Null when the action can't be executed
       (e.g. no existing AND no transport could be built). */
-  chat: TChat | null
+  chat: TChat | null;
   /** What the FSM decided. Useful for assertion + logging. */
-  action: TransportAction
+  action: TransportAction;
   /** Provider of the returned Chat. */
-  provider: ProviderId | null
+  provider: ProviderId | null;
 }
 
 /**
@@ -153,13 +150,13 @@ export interface FactoryResult<TChat extends ChatLike> {
  */
 export function getOrCreateChat<TChat extends ChatLike>(
   input: FactoryInput,
-  deps: TransportFactoryDeps<TChat>,
+  deps: TransportFactoryDeps<TChat>
 ): FactoryResult<TChat> {
-  const log = deps.log ?? (() => {})
+  const log = deps.log ?? (() => {});
 
-  const existing = deps.readExistingChat(input.subChatId)
-  const persistedMessages = deps.readPersistedMessages(input.subChatId)
-  const existingMessages = existing ? deps.readChatMessages(existing) : []
+  const existing = deps.readExistingChat(input.subChatId);
+  const persistedMessages = deps.readPersistedMessages(input.subChatId);
+  const existingMessages = existing ? deps.readChatMessages(existing) : [];
 
   const fsmInput: TransportInput = {
     hasExisting: !!existing,
@@ -169,56 +166,54 @@ export function getOrCreateChat<TChat extends ChatLike>(
     targetIsRemote: input.targetIsRemote,
     isStreaming: deps.isStreaming(input.subChatId),
     hasQueue: deps.hasQueue(input.subChatId),
-    isStaleRuntime: existing
-      ? deps.isStaleRuntime(existingMessages, persistedMessages)
-      : false,
-    hasMessages: persistedMessages.length > 0,
-  }
+    isStaleRuntime: existing ? deps.isStaleRuntime(existingMessages, persistedMessages) : false,
+    hasMessages: persistedMessages.length > 0
+  };
 
-  const action = decideTransportAction(fsmInput)
+  const action = decideTransportAction(fsmInput);
 
   log(
     `[TFAC] sub=${input.subChatId.slice(-8)} action=${action.kind} ` +
-      `target=${input.targetProvider}/${input.targetIsRemote ? "remote" : "local"}`,
-  )
+      `target=${input.targetProvider}/${input.targetIsRemote ? 'remote' : 'local'}`
+  );
 
   switch (action.kind) {
-    case "keep": {
+    case 'keep': {
       return {
         chat: existing,
         action,
-        provider: existing ? deps.getExistingProvider(existing) : null,
-      }
+        provider: existing ? deps.getExistingProvider(existing) : null
+      };
     }
 
-    case "create": {
+    case 'create': {
       const chat = deps.createChat(
         {
           subChatId: input.subChatId,
           provider: action.provider,
           isRemote: action.isRemote,
-          reason: "create",
+          reason: 'create'
         },
-        persistedMessages,
-      )
-      deps.storeChat(input.subChatId, chat)
-      return { chat, action, provider: action.provider }
+        persistedMessages
+      );
+      deps.storeChat(input.subChatId, chat);
+      return { chat, action, provider: action.provider };
     }
 
-    case "recreate": {
+    case 'recreate': {
       // Delete first so any references to the old chat see it gone.
-      deps.deleteExistingChat(input.subChatId)
+      deps.deleteExistingChat(input.subChatId);
       const chat = deps.createChat(
         {
           subChatId: input.subChatId,
           provider: action.provider,
           isRemote: action.isRemote,
-          reason: "recreate",
+          reason: 'recreate'
         },
-        persistedMessages,
-      )
-      deps.storeChat(input.subChatId, chat)
-      return { chat, action, provider: action.provider }
+        persistedMessages
+      );
+      deps.storeChat(input.subChatId, chat);
+      return { chat, action, provider: action.provider };
     }
   }
 }

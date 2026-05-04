@@ -1,31 +1,25 @@
-import { useState, useMemo } from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "../../../ui/dialog"
-import { Button } from "../../../ui/button"
-import { Input } from "../../../ui/input"
-import { Label } from "../../../ui/label"
-import { Switch } from "../../../ui/switch"
-import { trpc } from "../../../../lib/trpc"
-import { toast } from "sonner"
-import { cn } from "../../../../lib/utils"
-import { Eye, EyeOff, Trash2 } from "lucide-react"
-import { DeleteServerConfirm } from "./delete-server-confirm"
-import { StatusDot, getStatusText } from "./mcp-server-row"
-import type { McpServer, ScopeType } from "./types"
+import { useState, useMemo } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../../ui/dialog';
+import { Button } from '../../../ui/button';
+import { Input } from '../../../ui/input';
+import { Label } from '../../../ui/label';
+import { Switch } from '../../../ui/switch';
+import { trpc } from '../../../../lib/trpc';
+import { toast } from 'sonner';
+import { cn } from '../../../../lib/utils';
+import { Eye, EyeOff, Trash2 } from 'lucide-react';
+import { DeleteServerConfirm } from './delete-server-confirm';
+import { StatusDot, getStatusText } from './mcp-server-row';
+import type { McpServer, ScopeType } from './types';
 
 interface EditMcpServerDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  server: McpServer | null
-  scope: ScopeType
-  projectPath?: string
-  onServerUpdated?: () => void
-  onServerDeleted?: () => void
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  server: McpServer | null;
+  scope: ScopeType;
+  projectPath?: string;
+  onServerUpdated?: () => void;
+  onServerDeleted?: () => void;
 }
 
 export function EditMcpServerDialog({
@@ -35,28 +29,28 @@ export function EditMcpServerDialog({
   scope,
   projectPath,
   onServerUpdated,
-  onServerDeleted,
+  onServerDeleted
 }: EditMcpServerDialogProps) {
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [bearerToken, setBearerToken] = useState("")
-  const [showToken, setShowToken] = useState(false)
-  const [isSavingToken, setIsSavingToken] = useState(false)
-  const [isStartingOAuth, setIsStartingOAuth] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [bearerToken, setBearerToken] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [isSavingToken, setIsSavingToken] = useState(false);
+  const [isStartingOAuth, setIsStartingOAuth] = useState(false);
 
-  const updateServerMutation = trpc.claude.updateMcpServer.useMutation()
-  const removeServerMutation = trpc.claude.removeMcpServer.useMutation()
-  const setBearerTokenMutation = trpc.claude.setMcpBearerToken.useMutation()
-  const startOAuthMutation = trpc.claude.startMcpOAuth.useMutation()
+  const updateServerMutation = trpc.claude.updateMcpServer.useMutation();
+  const removeServerMutation = trpc.claude.removeMcpServer.useMutation();
+  const setBearerTokenMutation = trpc.claude.setMcpBearerToken.useMutation();
+  const startOAuthMutation = trpc.claude.startMcpOAuth.useMutation();
 
   const isDisabled = useMemo(() => {
-    if (!server?.config) return false
-    return (server.config as Record<string, unknown>).disabled === true
-  }, [server?.config])
+    if (!server?.config) return false;
+    return (server.config as Record<string, unknown>).disabled === true;
+  }, [server?.config]);
 
-  if (!server) return null
+  if (!server) return null;
 
-  const isConnected = server.status === "connected"
-  const hasTools = server.tools.length > 0
+  const isConnected = server.status === 'connected';
+  const hasTools = server.tools.length > 0;
 
   const handleToggleEnabled = async (enabled: boolean) => {
     try {
@@ -64,77 +58,73 @@ export function EditMcpServerDialog({
         name: server.name,
         scope,
         projectPath,
-        disabled: !enabled,
-      })
-      toast.success(enabled ? "Server enabled" : "Server disabled")
-      onServerUpdated?.()
+        disabled: !enabled
+      });
+      toast.success(enabled ? 'Server enabled' : 'Server disabled');
+      onServerUpdated?.();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to update server"
-      toast.error(message)
+      const message = error instanceof Error ? error.message : 'Failed to update server';
+      toast.error(message);
     }
-  }
+  };
 
   const handleSetBearerToken = async () => {
-    if (!bearerToken.trim()) return
-    setIsSavingToken(true)
+    if (!bearerToken.trim()) return;
+    setIsSavingToken(true);
     try {
       await setBearerTokenMutation.mutateAsync({
         name: server.name,
         scope,
         projectPath,
-        token: bearerToken.trim(),
-      })
-      toast.success("Bearer token saved")
-      setBearerToken("")
-      onServerUpdated?.()
+        token: bearerToken.trim()
+      });
+      toast.success('Bearer token saved');
+      setBearerToken('');
+      onServerUpdated?.();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to save token"
-      toast.error(message)
+      const message = error instanceof Error ? error.message : 'Failed to save token';
+      toast.error(message);
     } finally {
-      setIsSavingToken(false)
+      setIsSavingToken(false);
     }
-  }
+  };
 
   const handleStartOAuth = async () => {
-    setIsStartingOAuth(true)
+    setIsStartingOAuth(true);
     try {
       const result = await startOAuthMutation.mutateAsync({
         serverName: server.name,
-        projectPath: projectPath ?? "__global__",
-      })
+        projectPath: projectPath ?? '__global__'
+      });
       if (result.success) {
-        toast.success("Authentication started, check your browser")
-        onServerUpdated?.()
+        toast.success('Authentication started, check your browser');
+        onServerUpdated?.();
       } else {
-        toast.error(result.error || "OAuth failed")
+        toast.error(result.error || 'OAuth failed');
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Authentication failed"
-      toast.error(message)
+      const message = error instanceof Error ? error.message : 'Authentication failed';
+      toast.error(message);
     } finally {
-      setIsStartingOAuth(false)
+      setIsStartingOAuth(false);
     }
-  }
+  };
 
   const handleDelete = async () => {
     try {
       await removeServerMutation.mutateAsync({
         name: server.name,
         scope,
-        projectPath,
-      })
-      toast.success("Server removed", { description: server.name })
-      onOpenChange(false)
-      onServerDeleted?.()
+        projectPath
+      });
+      toast.success('Server removed', { description: server.name });
+      onOpenChange(false);
+      onServerDeleted?.();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to remove server"
-      toast.error(message)
+      const message = error instanceof Error ? error.message : 'Failed to remove server';
+      toast.error(message);
     }
-  }
+  };
 
   return (
     <>
@@ -160,10 +150,7 @@ export function EditMcpServerDialog({
                   Disable to prevent this server from connecting
                 </p>
               </div>
-              <Switch
-                checked={!isDisabled}
-                onCheckedChange={handleToggleEnabled}
-              />
+              <Switch checked={!isDisabled} onCheckedChange={handleToggleEnabled} />
             </div>
 
             {/* Error */}
@@ -171,9 +158,7 @@ export function EditMcpServerDialog({
               <div>
                 <Label className="text-red-500">Error</Label>
                 <div className="mt-1.5 rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2">
-                  <p className="text-xs text-red-400 font-mono break-all">
-                    {server.error}
-                  </p>
+                  <p className="text-xs text-red-400 font-mono break-all">{server.error}</p>
                 </div>
               </div>
             )}
@@ -187,14 +172,13 @@ export function EditMcpServerDialog({
                   size="sm"
                   className="w-full"
                   onClick={handleStartOAuth}
-                  disabled={isStartingOAuth}
-                >
-                  {isStartingOAuth ? "Starting OAuth..." : "Start OAuth Flow"}
+                  disabled={isStartingOAuth}>
+                  {isStartingOAuth ? 'Starting OAuth...' : 'Start OAuth Flow'}
                 </Button>
 
                 <div className="relative">
                   <Input
-                    type={showToken ? "text" : "password"}
+                    type={showToken ? 'text' : 'password'}
                     value={bearerToken}
                     onChange={(e) => setBearerToken(e.target.value)}
                     placeholder="Set bearer token..."
@@ -204,22 +188,16 @@ export function EditMcpServerDialog({
                     <button
                       type="button"
                       onClick={() => setShowToken(!showToken)}
-                      className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showToken ? (
-                        <EyeOff className="h-3.5 w-3.5" />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5" />
-                      )}
+                      className="p-1 text-muted-foreground hover:text-foreground transition-colors">
+                      {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </button>
                     <Button
                       variant="secondary"
                       size="sm"
                       className="h-6 px-2 text-[11px]"
                       onClick={handleSetBearerToken}
-                      disabled={!bearerToken.trim() || isSavingToken}
-                    >
-                      {isSavingToken ? "..." : "Set"}
+                      disabled={!bearerToken.trim() || isSavingToken}>
+                      {isSavingToken ? '...' : 'Set'}
                     </Button>
                   </div>
                 </div>
@@ -232,15 +210,14 @@ export function EditMcpServerDialog({
                 <Label>Tools ({server.tools.length})</Label>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {server.tools.map((tool) => {
-                    const toolName = typeof tool === "string" ? tool : tool.name
+                    const toolName = typeof tool === 'string' ? tool : tool.name;
                     return (
                       <span
                         key={toolName}
-                        className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
-                      >
+                        className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                         {toolName}
                       </span>
-                    )
+                    );
                   })}
                 </div>
               </div>
@@ -252,8 +229,7 @@ export function EditMcpServerDialog({
                 variant="ghost"
                 size="sm"
                 className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                onClick={() => setShowDeleteConfirm(true)}
-              >
+                onClick={() => setShowDeleteConfirm(true)}>
                 <Trash2 className="h-3.5 w-3.5 mr-1.5" />
                 Delete Server
               </Button>
@@ -270,5 +246,5 @@ export function EditMcpServerDialog({
         isDeleting={removeServerMutation.isPending}
       />
     </>
-  )
+  );
 }

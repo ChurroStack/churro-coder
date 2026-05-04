@@ -1,81 +1,79 @@
-import { useState, useEffect, useCallback, useRef } from "react"
-import { Input } from "../../ui/input"
-import { Label } from "../../ui/label"
-import { IconSpinner } from "../../../icons"
-import { toast } from "sonner"
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Input } from '../../ui/input';
+import { Label } from '../../ui/label';
+import { IconSpinner } from '../../../icons';
+import { toast } from 'sonner';
 
 // Hook to detect narrow screen
 function useIsNarrowScreen(): boolean {
-  const [isNarrow, setIsNarrow] = useState(false)
+  const [isNarrow, setIsNarrow] = useState(false);
 
   useEffect(() => {
     const checkWidth = () => {
-      setIsNarrow(window.innerWidth <= 768)
-    }
+      setIsNarrow(window.innerWidth <= 768);
+    };
 
-    checkWidth()
-    window.addEventListener("resize", checkWidth)
-    return () => window.removeEventListener("resize", checkWidth)
-  }, [])
+    checkWidth();
+    window.addEventListener('resize', checkWidth);
+    return () => window.removeEventListener('resize', checkWidth);
+  }, []);
 
-  return isNarrow
+  return isNarrow;
 }
 
 interface DesktopUser {
-  id: string
-  email: string
-  name: string | null
-  imageUrl: string | null
-  username: string | null
+  id: string;
+  email: string;
+  name: string | null;
+  imageUrl: string | null;
+  username: string | null;
 }
 
 export function AgentsProfileTab() {
-  const [user, setUser] = useState<DesktopUser | null>(null)
-  const [fullName, setFullName] = useState("")
-  const [isLoading, setIsLoading] = useState(true)
-  const isNarrowScreen = useIsNarrowScreen()
-  const savedNameRef = useRef("")
+  const [user, setUser] = useState<DesktopUser | null>(null);
+  const [fullName, setFullName] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const isNarrowScreen = useIsNarrowScreen();
+  const savedNameRef = useRef('');
 
   // Fetch real user data from desktop API
   useEffect(() => {
     async function fetchUser() {
       if (window.desktopApi?.getUser) {
-        const userData = await window.desktopApi.getUser()
-        setUser(userData)
-        setFullName(userData?.name || "")
-        savedNameRef.current = userData?.name || ""
+        const userData = await window.desktopApi.getUser();
+        setUser(userData);
+        setFullName(userData?.name || '');
+        savedNameRef.current = userData?.name || '';
       }
-      setIsLoading(false)
+      setIsLoading(false);
     }
-    fetchUser()
-  }, [])
+    fetchUser();
+  }, []);
 
   const handleBlurSave = useCallback(async () => {
-    const trimmed = fullName.trim()
-    if (trimmed === savedNameRef.current) return
+    const trimmed = fullName.trim();
+    if (trimmed === savedNameRef.current) return;
     try {
       if (window.desktopApi?.updateUser) {
-        const updatedUser = await window.desktopApi.updateUser({ name: trimmed })
+        const updatedUser = await window.desktopApi.updateUser({ name: trimmed });
         if (updatedUser) {
-          setUser(updatedUser)
-          savedNameRef.current = updatedUser.name || ""
-          setFullName(updatedUser.name || "")
+          setUser(updatedUser);
+          savedNameRef.current = updatedUser.name || '';
+          setFullName(updatedUser.name || '');
         }
       }
     } catch (error) {
-      console.error("Error updating profile:", error)
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update profile"
-      )
+      console.error('Error updating profile:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to update profile');
     }
-  }, [fullName])
+  }, [fullName]);
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <IconSpinner className="h-6 w-6" />
       </div>
-    )
+    );
   }
 
   return (
@@ -93,9 +91,7 @@ export function AgentsProfileTab() {
           <div className="flex items-center justify-between p-4">
             <div className="flex-1">
               <Label className="text-sm font-medium">Full Name</Label>
-              <p className="text-sm text-muted-foreground">
-                This is your display name
-              </p>
+              <p className="text-sm text-muted-foreground">This is your display name</p>
             </div>
             <div className="flex-shrink-0 w-80">
               <Input
@@ -112,22 +108,14 @@ export function AgentsProfileTab() {
           <div className="flex items-center justify-between p-4 border-t border-border">
             <div className="flex-1">
               <Label className="text-sm font-medium">Email</Label>
-              <p className="text-sm text-muted-foreground">
-                Your account email
-              </p>
+              <p className="text-sm text-muted-foreground">Your account email</p>
             </div>
             <div className="flex-shrink-0 w-80">
-              <Input
-                value={user?.email || ""}
-                disabled
-                className="w-full opacity-60"
-              />
+              <Input value={user?.email || ''} disabled className="w-full opacity-60" />
             </div>
           </div>
-
         </div>
       </div>
-
     </div>
-  )
+  );
 }

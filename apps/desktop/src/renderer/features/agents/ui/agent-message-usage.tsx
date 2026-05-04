@@ -1,51 +1,47 @@
-"use client"
+'use client';
 
-import { memo } from "react"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "../../../components/ui/hover-card"
-import { cn } from "../../../lib/utils"
-import { formatDuration, formatTokens } from "./agent-format-utils"
+import { memo } from 'react';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '../../../components/ui/hover-card';
+import { cn } from '../../../lib/utils';
+import { formatDuration, formatTokens } from './agent-format-utils';
 
 export type AgentSubagentInfo = {
-  model?: string
-  inputTokens?: number
-  outputTokens?: number
-  cacheReadInputTokens?: number
-  cacheCreationInputTokens?: number
-}
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+};
 
 export interface AgentMessageMetadata {
-  model?: string
-  sessionId?: string
-  totalCostUsd?: number
-  inputTokens?: number
-  outputTokens?: number
-  cacheReadInputTokens?: number
-  cacheCreationInputTokens?: number
-  totalTokens?: number
-  modelContextWindow?: number
-  finalTextId?: string
-  durationMs?: number
-  resultSubtype?: string
-  stopReason?: string
-  subagentInfo?: Record<string, AgentSubagentInfo>
+  model?: string;
+  sessionId?: string;
+  totalCostUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  totalTokens?: number;
+  modelContextWindow?: number;
+  finalTextId?: string;
+  durationMs?: number;
+  resultSubtype?: string;
+  stopReason?: string;
+  subagentInfo?: Record<string, AgentSubagentInfo>;
 }
 
 interface AgentMessageUsageProps {
-  metadata?: AgentMessageMetadata
-  isStreaming?: boolean
-  isMobile?: boolean
+  metadata?: AgentMessageMetadata;
+  isStreaming?: boolean;
+  isMobile?: boolean;
 }
 
 export const AgentMessageUsage = memo(function AgentMessageUsage({
   metadata,
   isStreaming = false,
-  isMobile = false,
+  isMobile = false
 }: AgentMessageUsageProps) {
-  if (!metadata || isStreaming) return null
+  if (!metadata || isStreaming) return null;
 
   const {
     model,
@@ -54,19 +50,18 @@ export const AgentMessageUsage = memo(function AgentMessageUsage({
     cacheReadInputTokens = 0,
     totalTokens = 0,
     durationMs,
-    resultSubtype,
-  } = metadata
+    resultSubtype
+  } = metadata;
 
-  const hasUsage = inputTokens > 0 || outputTokens > 0 || totalTokens > 0
+  const hasUsage = inputTokens > 0 || outputTokens > 0 || totalTokens > 0;
 
-  if (!hasUsage) return null
+  if (!hasUsage) return null;
 
-  const normalizedModel = typeof model === "string" ? model.toLowerCase() : ""
-  const isCodexModel =
-    normalizedModel.includes("codex") || normalizedModel.startsWith("gpt-")
+  const normalizedModel = typeof model === 'string' ? model.toLowerCase() : '';
+  const isCodexModel = normalizedModel.includes('codex') || normalizedModel.startsWith('gpt-');
   const displayTokens = isCodexModel
     ? totalTokens || inputTokens + cacheReadInputTokens + outputTokens
-    : totalTokens || inputTokens + outputTokens
+    : totalTokens || inputTokens + outputTokens;
 
   return (
     <HoverCard openDelay={400} closeDelay={100}>
@@ -74,19 +69,17 @@ export const AgentMessageUsage = memo(function AgentMessageUsage({
         <button
           tabIndex={-1}
           className={cn(
-            "h-5 px-1.5 flex items-center text-[10px] rounded-md",
-            "text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50",
-            "transition-[background-color,transform] duration-150 ease-out",
-          )}
-        >
+            'h-5 px-1.5 flex items-center text-[10px] rounded-md',
+            'text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50',
+            'transition-[background-color,transform] duration-150 ease-out'
+          )}>
           <span className="font-mono">{formatTokens(displayTokens)}</span>
         </button>
       </HoverCardTrigger>
       <HoverCardContent
         sideOffset={4}
         align="end"
-        className="w-auto pt-2 px-2 pb-0 shadow-sm rounded-lg border-border/50 overflow-hidden"
-      >
+        className="w-auto pt-2 px-2 pb-0 shadow-sm rounded-lg border-border/50 overflow-hidden">
         <div className="space-y-1.5 pb-2">
           {/* Status & Duration group */}
           {(resultSubtype || (durationMs !== undefined && durationMs > 0)) && (
@@ -95,7 +88,7 @@ export const AgentMessageUsage = memo(function AgentMessageUsage({
                 <div className="flex justify-between text-xs gap-4">
                   <span className="text-muted-foreground">Status:</span>
                   <span className="font-mono text-foreground">
-                    {resultSubtype === "success" ? "Success" : "Failed"}
+                    {resultSubtype === 'success' ? 'Success' : 'Failed'}
                   </span>
                 </div>
               )}
@@ -103,9 +96,7 @@ export const AgentMessageUsage = memo(function AgentMessageUsage({
               {durationMs !== undefined && durationMs > 0 && (
                 <div className="flex justify-between text-xs gap-4">
                   <span className="text-muted-foreground">Duration:</span>
-                  <span className="font-mono text-foreground">
-                    {formatDuration(durationMs)}
-                  </span>
+                  <span className="font-mono text-foreground">{formatDuration(durationMs)}</span>
                 </div>
               )}
             </div>
@@ -115,13 +106,11 @@ export const AgentMessageUsage = memo(function AgentMessageUsage({
           {displayTokens > 0 && (
             <div className="flex justify-between text-xs gap-4 pt-1.5 mt-1 border-t border-border/50">
               <span className="text-muted-foreground">Tokens:</span>
-              <span className="font-mono font-medium text-foreground">
-                {displayTokens.toLocaleString()}
-              </span>
+              <span className="font-mono font-medium text-foreground">{displayTokens.toLocaleString()}</span>
             </div>
           )}
         </div>
       </HoverCardContent>
     </HoverCard>
-  )
-})
+  );
+});

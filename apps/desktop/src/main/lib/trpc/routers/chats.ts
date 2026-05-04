@@ -1,71 +1,60 @@
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
-import { getProviderForModelId } from "../../../../shared/provider-from-model"
-import { BrowserWindow, safeStorage } from "electron"
-import * as fs from "fs/promises"
-import * as path from "path"
-import simpleGit from "simple-git"
-import { z } from "zod"
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { getProviderForModelId } from '../../../../shared/provider-from-model';
+import { BrowserWindow, safeStorage } from 'electron';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import simpleGit from 'simple-git';
+import { z } from 'zod';
+import { trackPRCreated, trackWorkspaceArchived, trackWorkspaceCreated, trackWorkspaceDeleted } from '../../analytics';
 import {
-  trackPRCreated,
-  trackWorkspaceArchived,
-  trackWorkspaceCreated,
-  trackWorkspaceDeleted,
-} from "../../analytics"
-import { anthropicAccounts, anthropicSettings, chats, claudeCodeCredentials, getDatabase, projects, subChats } from "../../db"
-import { computeFileStatsFromMessages } from "../../file-stats"
-import {
-  createWorktreeForChat,
-  getWorktreeDiff,
-  removeWorktree,
-  sanitizeProjectName,
-} from "../../git"
-import {
-  fetchPRStatus,
-  fetchPRComments,
-  invalidatePRCache,
-  mergePR,
-  updatePRTitle,
-} from "../../git/providers"
-import type { WorktreeSetupResult } from "../../git/worktree-config"
-import { computeContentHash, gitCache } from "../../git/cache"
-import { splitUnifiedDiffByFile } from "../../git/diff-parser"
-import { applyRollbackStash } from "../../git/stash"
-import { checkOllamaStatus } from "../../ollama"
-import { terminalManager } from "../../terminal/manager"
-import { publicProcedure, router } from "../index"
-import { abortClaudeSessionsForSubChats } from "./claude"
+  anthropicAccounts,
+  anthropicSettings,
+  chats,
+  claudeCodeCredentials,
+  getDatabase,
+  projects,
+  subChats
+} from '../../db';
+import { computeFileStatsFromMessages } from '../../file-stats';
+import { createWorktreeForChat, getWorktreeDiff, removeWorktree, sanitizeProjectName } from '../../git';
+import { fetchPRStatus, fetchPRComments, invalidatePRCache, mergePR, updatePRTitle } from '../../git/providers';
+import type { WorktreeSetupResult } from '../../git/worktree-config';
+import { computeContentHash, gitCache } from '../../git/cache';
+import { splitUnifiedDiffByFile } from '../../git/diff-parser';
+import { applyRollbackStash } from '../../git/stash';
+import { checkOllamaStatus } from '../../ollama';
+import { terminalManager } from '../../terminal/manager';
+import { publicProcedure, router } from '../index';
+import { abortClaudeSessionsForSubChats } from './claude';
 import {
   parseClaudeCommitResponse,
   parseOllamaCommitResponse,
-  buildHeuristicCommitMessage,
-} from "./commit-message-helpers"
+  buildHeuristicCommitMessage
+} from './commit-message-helpers';
 
 type WorktreeSetupFailurePayload = {
-  kind: "create-failed" | "setup-failed"
-  message: string
-  projectId: string
-}
+  kind: 'create-failed' | 'setup-failed';
+  message: string;
+  projectId: string;
+};
 
-function sendWorktreeSetupFailure(
-  windowId: number | null,
-  payload: WorktreeSetupFailurePayload,
-): void {
-  const targets: BrowserWindow[] = []
+function sendWorktreeSetupFailure(windowId: number | null, payload: WorktreeSetupFailurePayload): void {
+  const targets: BrowserWindow[] = [];
 
   if (windowId !== null) {
-    const window = BrowserWindow.fromId(windowId)
+    const window = BrowserWindow.fromId(windowId);
     if (window && !window.isDestroyed()) {
-      targets.push(window)
+      targets.push(window);
     }
   }
 
   if (targets.length === 0) {
-    targets.push(...BrowserWindow.getAllWindows())
+    targets.push(...BrowserWindow.getAllWindows());
   }
 
   for (const window of targets) {
-    if (window.isDestroyed()) continue
-    window.webContents.send("worktree:setup-failed", payload)
+    if (window.isDestroyed()) continue;
+    window.webContents.send('worktree:setup-failed', payload);
   }
 }
 
@@ -73,18 +62,18 @@ function sendWorktreeSetupFailure(
 // safety floor against pathological pasted prompts bloating the row;
 // any sane title fits well within it and the UI handles overflow.
 function getFallbackName(userMessage: string): string {
-  return userMessage.trim().slice(0, 255) || "New Chat"
+  return userMessage.trim().slice(0, 255) || 'New Chat';
 }
 
 function parseMcpContentJson(value: any): any | null {
-  const content = Array.isArray(value?.content) ? value.content : []
-  const firstText = content.find((item: any) => typeof item?.text === "string")
-  if (!firstText?.text) return null
+  const content = Array.isArray(value?.content) ? value.content : [];
+  const firstText = content.find((item: any) => typeof item?.text === 'string');
+  if (!firstText?.text) return null;
 
   try {
-    return JSON.parse(firstText.text)
+    return JSON.parse(firstText.text);
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -99,10 +88,10 @@ function getPlanFromPlanWritePart(part: any): any | null {
     part?.output?.structuredContent?.plan,
     part?.result?.structuredContent?.plan,
     parseMcpContentJson(part?.output)?.plan,
-    parseMcpContentJson(part?.result)?.plan,
-  ]
+    parseMcpContentJson(part?.result)?.plan
+  ];
 
-  return candidates.find((plan) => plan && typeof plan === "object") || null
+  return candidates.find((plan) => plan && typeof plan === 'object') || null;
 }
 
 /**
@@ -111,120 +100,122 @@ function getPlanFromPlanWritePart(part: any): any | null {
  * @param userMessage - The user message to generate a title for
  * @param model - Optional model to use (if not provided, uses recommended model)
  */
-async function generateChatNameWithOllama(
-  userMessage: string,
-  model?: string | null
-): Promise<string | null> {
+async function generateChatNameWithOllama(userMessage: string, model?: string | null): Promise<string | null> {
   try {
-    const ollamaStatus = await checkOllamaStatus()
+    const ollamaStatus = await checkOllamaStatus();
     if (!ollamaStatus.available) {
-      return null
+      return null;
     }
 
     // Use provided model, or recommended, or first available
-    const modelToUse = model || ollamaStatus.recommendedModel || ollamaStatus.models[0]
+    const modelToUse = model || ollamaStatus.recommendedModel || ollamaStatus.models[0];
     if (!modelToUse) {
-      console.error("[Ollama] No model available")
-      return null
+      console.error('[Ollama] No model available');
+      return null;
     }
 
     const prompt = `Generate a very short (2-5 words) title for a coding chat that starts with this message. The title MUST be in the same language as the user's message. Only output the title, nothing else. No quotes, no explanations.
 
 User message: "${userMessage.slice(0, 500)}"
 
-Title:`
+Title:`;
 
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    const response = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: modelToUse,
         prompt,
         stream: false,
         options: {
           temperature: 0.3,
-          num_predict: 50,
-        },
-      }),
-    })
+          num_predict: 50
+        }
+      })
+    });
 
     if (!response.ok) {
-      console.error("[Ollama] Generate chat name failed:", response.status)
-      return null
+      console.error('[Ollama] Generate chat name failed:', response.status);
+      return null;
     }
 
-    const data = await response.json()
-    const result = data.response?.trim()
+    const data = await response.json();
+    const result = data.response?.trim();
     if (result) {
       // Clean up the result - remove quotes and trim
       const cleaned = result
-        .replace(/^["']|["']$/g, "")
-        .replace(/^title:\s*/i, "")
-        .trim()
+        .replace(/^["']|["']$/g, '')
+        .replace(/^title:\s*/i, '')
+        .trim();
       if (cleaned.length > 0) {
-        return cleaned
+        return cleaned;
       }
     }
-    return null
+    return null;
   } catch (error) {
-    console.error("[Ollama] Generate chat name error:", error)
-    return null
+    console.error('[Ollama] Generate chat name error:', error);
+    return null;
   }
 }
 
 function decryptStoredToken(encrypted: string): string {
   if (!safeStorage.isEncryptionAvailable()) {
-    return Buffer.from(encrypted, "base64").toString("utf-8")
+    return Buffer.from(encrypted, 'base64').toString('utf-8');
   }
-  return safeStorage.decryptString(Buffer.from(encrypted, "base64"))
+  return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
 }
 
 function getActiveOAuthToken(): string | null {
   try {
-    const db = getDatabase()
-    const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, "singleton")).get()
+    const db = getDatabase();
+    const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, 'singleton')).get();
     if (settings?.activeAccountId) {
-      const account = db.select().from(anthropicAccounts).where(eq(anthropicAccounts.id, settings.activeAccountId)).get()
-      if (account?.oauthToken) return decryptStoredToken(account.oauthToken)
+      const account = db
+        .select()
+        .from(anthropicAccounts)
+        .where(eq(anthropicAccounts.id, settings.activeAccountId))
+        .get();
+      if (account?.oauthToken) return decryptStoredToken(account.oauthToken);
     }
-    const legacy = db.select().from(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, "default")).get()
-    if (legacy?.oauthToken) return decryptStoredToken(legacy.oauthToken)
-    return null
+    const legacy = db.select().from(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, 'default')).get();
+    if (legacy?.oauthToken) return decryptStoredToken(legacy.oauthToken);
+    return null;
   } catch {
-    return null
+    return null;
   }
 }
 
 function buildChatContextFromMessages(db: ReturnType<typeof getDatabase>, chatId: string): string | undefined {
   try {
-    const rows = db.select({ messages: subChats.messages })
-      .from(subChats)
-      .where(eq(subChats.chatId, chatId))
-      .all()
+    const rows = db.select({ messages: subChats.messages }).from(subChats).where(eq(subChats.chatId, chatId)).all();
 
-    const userTexts: string[] = []
+    const userTexts: string[] = [];
     for (const row of rows) {
-      let msgs: Array<{ role: string; parts?: Array<{ type: string; text?: string }> }>
-      try { msgs = JSON.parse(row.messages) } catch { continue }
+      let msgs: Array<{ role: string; parts?: Array<{ type: string; text?: string }> }>;
+      try {
+        msgs = JSON.parse(row.messages);
+      } catch {
+        continue;
+      }
       for (const msg of msgs) {
-        if (msg.role !== "user") continue
+        if (msg.role !== 'user') continue;
         const text = msg.parts
-          ?.filter(p => p.type === "text" && p.text)
-          .map(p => p.text!)
-          .join(" ")
-          .trim()
-        if (text) userTexts.push(text)
+          ?.filter((p) => p.type === 'text' && p.text)
+          .map((p) => p.text!)
+          .join(' ')
+          .trim();
+        if (text) userTexts.push(text);
       }
     }
 
-    if (userTexts.length === 0) return undefined
+    if (userTexts.length === 0) return undefined;
     // Take the last 4 user messages, cap each at 300 chars to stay concise
     return userTexts
       .slice(-4)
-      .map(t => t.slice(0, 300))
-      .join("\n")
+      .map((t) => t.slice(0, 300))
+      .join('\n');
   } catch {
-    return undefined
+    return undefined;
   }
 }
 
@@ -237,19 +228,17 @@ async function generateCommitMessageWithClaude(
   chatContext?: string
 ): Promise<{ title: string; description: string } | null> {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    const oauthToken = apiKey ? null : getActiveOAuthToken()
-    if (!apiKey && !oauthToken) return null
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const oauthToken = apiKey ? null : getActiveOAuthToken();
+    if (!apiKey && !oauthToken) return null;
 
     const authHeaders: Record<string, string> = apiKey
-      ? { "x-api-key": apiKey }
-      : { "Authorization": `Bearer ${oauthToken}` }
+      ? { 'x-api-key': apiKey }
+      : { Authorization: `Bearer ${oauthToken}` };
 
-    const contextBlock = chatContext
-      ? `Task context (what the developer was working on):\n${chatContext}\n\n`
-      : ""
+    const contextBlock = chatContext ? `Task context (what the developer was working on):\n${chatContext}\n\n` : '';
 
-    let userPrompt: string
+    let userPrompt: string;
     if (existingTitle) {
       userPrompt = `Write a commit description body for: "${existingTitle}"
 
@@ -260,7 +249,7 @@ ${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
 Diff:
 ${diff.slice(0, 6000)}
 
-Output only the description text, no title, no prefix:`
+Output only the description text, no title, no prefix:`;
     } else {
       userPrompt = `Generate a git commit message for these changes. Return a JSON object with "title" and "description" fields.
 
@@ -275,37 +264,37 @@ ${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
 Diff:
 ${diff.slice(0, 6000)}
 
-Return only valid JSON, no markdown. Example: {"title":"feat: add OAuth login via GitHub","description":"Replaces the email/password form with GitHub OAuth to reduce signup friction. Uses the existing session table; no schema changes needed. The redirect URI is configured per-environment via .env."}`
+Return only valid JSON, no markdown. Example: {"title":"feat: add OAuth login via GitHub","description":"Replaces the email/password form with GitHub OAuth to reduce signup friction. Uses the existing session table; no schema changes needed. The redirect URI is configured per-environment via .env."}`;
     }
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01",
-        ...authHeaders,
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        ...authHeaders
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
-        messages: [{ role: "user", content: userPrompt }],
+        messages: [{ role: 'user', content: userPrompt }]
       }),
-      signal: AbortSignal.timeout(15000),
-    })
+      signal: AbortSignal.timeout(15000)
+    });
 
     if (!response.ok) {
-      console.error("[Claude] Commit message generation failed:", response.status)
-      return null
+      console.error('[Claude] Commit message generation failed:', response.status);
+      return null;
     }
 
-    const data = await response.json()
-    const text = data.content?.[0]?.text?.trim()
-    if (!text) return null
+    const data = await response.json();
+    const text = data.content?.[0]?.text?.trim();
+    if (!text) return null;
 
-    return parseClaudeCommitResponse(text, existingTitle)
+    return parseClaudeCommitResponse(text, existingTitle);
   } catch (error) {
-    console.error("[Claude] Commit message generation error:", error)
-    return null
+    console.error('[Claude] Commit message generation error:', error);
+    return null;
   }
 }
 
@@ -319,22 +308,20 @@ async function generateCommitMessageWithOllama(
   chatContext?: string
 ): Promise<{ title: string; description: string } | null> {
   try {
-    const ollamaStatus = await checkOllamaStatus()
+    const ollamaStatus = await checkOllamaStatus();
     if (!ollamaStatus.available) {
-      return null
+      return null;
     }
 
-    const modelToUse = model || ollamaStatus.recommendedModel || ollamaStatus.models[0]
+    const modelToUse = model || ollamaStatus.recommendedModel || ollamaStatus.models[0];
     if (!modelToUse) {
-      console.error("[Ollama] No model available")
-      return null
+      console.error('[Ollama] No model available');
+      return null;
     }
 
-    const contextBlock = chatContext
-      ? `Task context (what the developer was working on):\n${chatContext}\n\n`
-      : ""
+    const contextBlock = chatContext ? `Task context (what the developer was working on):\n${chatContext}\n\n` : '';
 
-    let prompt: string
+    let prompt: string;
     if (existingTitle) {
       prompt = `Write a commit description body for: "${existingTitle}"
 
@@ -345,7 +332,7 @@ ${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
 Diff:
 ${diff.slice(0, 6000)}
 
-Description:`
+Description:`;
     } else {
       prompt = `Generate a git commit message for these changes.
 
@@ -359,33 +346,33 @@ ${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
 Diff:
 ${diff.slice(0, 6000)}
 
-Commit message:`
+Commit message:`;
     }
 
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    const response = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: modelToUse,
         prompt,
         stream: false,
-        options: { temperature: 0.3, num_predict: 300 },
-      }),
-    })
+        options: { temperature: 0.3, num_predict: 300 }
+      })
+    });
 
     if (!response.ok) {
-      console.error("[Ollama] Generate commit message failed:", response.status)
-      return null
+      console.error('[Ollama] Generate commit message failed:', response.status);
+      return null;
     }
 
-    const data = await response.json()
-    const result = data.response?.trim()
-    if (!result) return null
+    const data = await response.json();
+    const result = data.response?.trim();
+    if (!result) return null;
 
-    return parseOllamaCommitResponse(result, existingTitle)
+    return parseOllamaCommitResponse(result, existingTitle);
   } catch (error) {
-    console.error("[Ollama] Generate commit message error:", error)
-    return null
+    console.error('[Ollama] Generate commit message error:', error);
+    return null;
   }
 }
 
@@ -393,63 +380,53 @@ export const chatsRouter = router({
   /**
    * List all non-archived chats (optionally filter by project)
    */
-  list: publicProcedure
-    .input(z.object({ projectId: z.string().optional() }))
-    .query(({ input }) => {
-      const db = getDatabase()
-      const conditions = [isNull(chats.archivedAt)]
-      if (input.projectId) {
-        conditions.push(eq(chats.projectId, input.projectId))
-      }
-      return db
-        .select()
-        .from(chats)
-        .where(and(...conditions))
-        .orderBy(desc(chats.updatedAt))
-        .all()
-    }),
+  list: publicProcedure.input(z.object({ projectId: z.string().optional() })).query(({ input }) => {
+    const db = getDatabase();
+    const conditions = [isNull(chats.archivedAt)];
+    if (input.projectId) {
+      conditions.push(eq(chats.projectId, input.projectId));
+    }
+    return db
+      .select()
+      .from(chats)
+      .where(and(...conditions))
+      .orderBy(desc(chats.updatedAt))
+      .all();
+  }),
 
-  listArchived: publicProcedure
-    .input(z.object({ projectId: z.string().optional() }))
-    .query(({ input }) => {
-      const db = getDatabase()
-      const conditions = [isNotNull(chats.archivedAt)]
-      if (input.projectId) {
-        conditions.push(eq(chats.projectId, input.projectId))
-      }
-      return db
-        .select()
-        .from(chats)
-        .where(and(...conditions))
-        .orderBy(desc(chats.archivedAt))
-        .all()
-    }),
+  listArchived: publicProcedure.input(z.object({ projectId: z.string().optional() })).query(({ input }) => {
+    const db = getDatabase();
+    const conditions = [isNotNull(chats.archivedAt)];
+    if (input.projectId) {
+      conditions.push(eq(chats.projectId, input.projectId));
+    }
+    return db
+      .select()
+      .from(chats)
+      .where(and(...conditions))
+      .orderBy(desc(chats.archivedAt))
+      .all();
+  }),
 
   /**
    * Get a single chat with all sub-chats
    */
-  get: publicProcedure
-    .input(z.object({ id: z.string() }))
-    .query(({ input }) => {
-      const db = getDatabase()
-      const chat = db.select().from(chats).where(eq(chats.id, input.id)).get()
-      if (!chat) return null
+  get: publicProcedure.input(z.object({ id: z.string() })).query(({ input }) => {
+    const db = getDatabase();
+    const chat = db.select().from(chats).where(eq(chats.id, input.id)).get();
+    if (!chat) return null;
 
-      const chatSubChats = db
-        .select()
-        .from(subChats)
-        .where(eq(subChats.chatId, input.id))
-        .orderBy(subChats.createdAt)
-        .all()
+    const chatSubChats = db
+      .select()
+      .from(subChats)
+      .where(eq(subChats.chatId, input.id))
+      .orderBy(subChats.createdAt)
+      .all();
 
-      const project = db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, chat.projectId))
-        .get()
+    const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 
-      return { ...chat, subChats: chatSubChats, project }
-    }),
+    return { ...chat, subChats: chatSubChats, project };
+  }),
 
   /**
    * Create a new chat with optional git worktree
@@ -464,79 +441,75 @@ export const chatsRouter = router({
         initialMessageParts: z
           .array(
             z.union([
-              z.object({ type: z.literal("text"), text: z.string() }),
+              z.object({ type: z.literal('text'), text: z.string() }),
               z.object({
-                type: z.literal("data-image"),
+                type: z.literal('data-image'),
                 data: z.object({
                   url: z.string(),
                   mediaType: z.string().optional(),
                   filename: z.string().optional(),
-                  base64Data: z.string().optional(),
-                }),
+                  base64Data: z.string().optional()
+                })
               }),
               // Hidden file content - sent to agent but not displayed in UI
               z.object({
-                type: z.literal("file-content"),
+                type: z.literal('file-content'),
                 filePath: z.string(),
-                content: z.string(),
-              }),
-            ]),
+                content: z.string()
+              })
+            ])
           )
           .optional(),
         baseBranch: z.string().optional(), // Branch to base the worktree off
-        branchType: z.enum(["local", "remote"]).optional(), // Whether baseBranch is local or remote
+        branchType: z.enum(['local', 'remote']).optional(), // Whether baseBranch is local or remote
         useWorktree: z.boolean().default(true), // If false, work directly in project dir
-        mode: z.enum(["plan", "agent"]).default("agent"),
-      }),
+        mode: z.enum(['plan', 'agent']).default('agent')
+      })
     )
     .mutation(async ({ input, ctx }) => {
-      console.log("[chats.create] called with:", input)
-      const db = getDatabase()
-      const requestingWindowId = ctx.getWindow?.()?.id ?? null
+      console.log('[chats.create] called with:', input);
+      const db = getDatabase();
+      const requestingWindowId = ctx.getWindow?.()?.id ?? null;
 
       // Get project path
-      const project = db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, input.projectId))
-        .get()
-      console.log("[chats.create] found project:", project)
-      if (!project) throw new Error("Project not found")
+      const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
+      console.log('[chats.create] found project:', project);
+      if (!project) throw new Error('Project not found');
 
       // Create chat (fast path)
       const chat = db
         .insert(chats)
         .values({
           name: input.name,
-          projectId: input.projectId,
+          projectId: input.projectId
         })
         .returning()
-        .get()
-      console.log("[chats.create] created chat:", chat)
+        .get();
+      console.log('[chats.create] created chat:', chat);
 
       // Create initial sub-chat with user message (AI SDK format)
       // If initialMessageParts is provided, use it; otherwise fallback to text-only message
-      let initialMessages = "[]"
-      const initialMetadata = input.model ? { model: input.model } : undefined
+      let initialMessages = '[]';
+      const initialMetadata = input.model ? { model: input.model } : undefined;
 
       if (input.initialMessageParts && input.initialMessageParts.length > 0) {
         initialMessages = JSON.stringify([
           {
             id: `msg-${Date.now()}`,
-            role: "user",
+            role: 'user',
             parts: input.initialMessageParts,
-            ...(initialMetadata ? { metadata: initialMetadata } : {}),
-          },
-        ])
+            ...(initialMetadata ? { metadata: initialMetadata } : {})
+          }
+        ]);
       } else if (input.initialMessage) {
         initialMessages = JSON.stringify([
           {
             id: `msg-${Date.now()}`,
-            role: "user",
-            parts: [{ type: "text", text: input.initialMessage }],
-            ...(initialMetadata ? { metadata: initialMetadata } : {}),
-          },
-        ])
+            role: 'user',
+            parts: [{ type: 'text', text: input.initialMessage }],
+            ...(initialMetadata ? { metadata: initialMetadata } : {})
+          }
+        ]);
       }
 
       const subChat = db
@@ -544,27 +517,22 @@ export const chatsRouter = router({
         .values({
           chatId: chat.id,
           mode: input.mode,
-          messages: initialMessages,
+          messages: initialMessages
         })
         .returning()
-        .get()
-      console.log("[chats.create] created subChat:", subChat)
+        .get();
+      console.log('[chats.create] created subChat:', subChat);
 
       // Worktree creation result (will be set if useWorktree is true)
       let worktreeResult: {
-        worktreePath?: string
-        branch?: string
-        baseBranch?: string
-      } = {}
+        worktreePath?: string;
+        branch?: string;
+        baseBranch?: string;
+      } = {};
 
       // Only create worktree if useWorktree is true
       if (input.useWorktree) {
-        console.log(
-          "[chats.create] creating worktree with baseBranch:",
-          input.baseBranch,
-          "type:",
-          input.branchType,
-        )
+        console.log('[chats.create] creating worktree with baseBranch:', input.baseBranch, 'type:', input.branchType);
         const result = await createWorktreeForChat(
           project.path,
           sanitizeProjectName(project.name),
@@ -573,56 +541,48 @@ export const chatsRouter = router({
           input.branchType,
           {
             onSetupComplete: (setupResult: WorktreeSetupResult) => {
-              if (setupResult.success) return
-              const message =
-                setupResult.errors[0] ||
-                "Worktree setup failed. Check your setup commands."
+              if (setupResult.success) return;
+              const message = setupResult.errors[0] || 'Worktree setup failed. Check your setup commands.';
               sendWorktreeSetupFailure(requestingWindowId, {
-                kind: "setup-failed",
+                kind: 'setup-failed',
                 message,
-                projectId: project.id,
-              })
-            },
-          },
-        )
-        console.log("[chats.create] worktree result:", result)
+                projectId: project.id
+              });
+            }
+          }
+        );
+        console.log('[chats.create] worktree result:', result);
 
         if (result.success && result.worktreePath) {
           db.update(chats)
             .set({
               worktreePath: result.worktreePath,
               branch: result.branch,
-              baseBranch: result.baseBranch,
+              baseBranch: result.baseBranch
             })
             .where(eq(chats.id, chat.id))
-            .run()
+            .run();
           worktreeResult = {
             worktreePath: result.worktreePath,
             branch: result.branch,
-            baseBranch: result.baseBranch,
-          }
+            baseBranch: result.baseBranch
+          };
         } else {
-          console.warn(`[Worktree] Failed: ${result.error}`)
+          console.warn(`[Worktree] Failed: ${result.error}`);
           sendWorktreeSetupFailure(requestingWindowId, {
-            kind: "create-failed",
-            message: result.error || "Worktree creation failed.",
-            projectId: project.id,
-          })
+            kind: 'create-failed',
+            message: result.error || 'Worktree creation failed.',
+            projectId: project.id
+          });
           // Fallback to project path
-          db.update(chats)
-            .set({ worktreePath: project.path })
-            .where(eq(chats.id, chat.id))
-            .run()
-          worktreeResult = { worktreePath: project.path }
+          db.update(chats).set({ worktreePath: project.path }).where(eq(chats.id, chat.id)).run();
+          worktreeResult = { worktreePath: project.path };
         }
       } else {
         // Local mode: use project path directly, no branch info
-        console.log("[chats.create] local mode - using project path directly")
-        db.update(chats)
-          .set({ worktreePath: project.path })
-          .where(eq(chats.id, chat.id))
-          .run()
-        worktreeResult = { worktreePath: project.path }
+        console.log('[chats.create] local mode - using project path directly');
+        db.update(chats).set({ worktreePath: project.path }).where(eq(chats.id, chat.id)).run();
+        worktreeResult = { worktreePath: project.path };
       }
 
       const response = {
@@ -630,42 +590,42 @@ export const chatsRouter = router({
         worktreePath: worktreeResult.worktreePath || project.path,
         branch: worktreeResult.branch,
         baseBranch: worktreeResult.baseBranch,
-        subChats: [subChat],
-      }
+        subChats: [subChat]
+      };
 
       // Track workspace created
       trackWorkspaceCreated({
         id: chat.id,
         projectId: input.projectId,
-        useWorktree: input.useWorktree,
-      })
+        useWorktree: input.useWorktree
+      });
 
-      const initialModel = input.model ?? null
+      const initialModel = input.model ?? null;
       const initialProvider =
-        typeof initialModel === "string" &&
-        (initialModel.toLowerCase().includes("codex") || initialModel.toLowerCase().startsWith("gpt-"))
-          ? "codex"
-          : "claude-code"
-      console.log(`[chats.create] initialModel=${initialModel ?? "none"} expectedProvider=${initialProvider} mode=${input.mode}`)
+        typeof initialModel === 'string' &&
+        (initialModel.toLowerCase().includes('codex') || initialModel.toLowerCase().startsWith('gpt-'))
+          ? 'codex'
+          : 'claude-code';
+      console.log(
+        `[chats.create] initialModel=${initialModel ?? 'none'} expectedProvider=${initialProvider} mode=${input.mode}`
+      );
 
-      console.log("[chats.create] returning:", response)
-      return response
+      console.log('[chats.create] returning:', response);
+      return response;
     }),
 
   /**
    * Rename a chat
    */
-  rename: publicProcedure
-    .input(z.object({ id: z.string(), name: z.string().min(1) }))
-    .mutation(({ input }) => {
-      const db = getDatabase()
-      return db
-        .update(chats)
-        .set({ name: input.name, updatedAt: new Date() })
-        .where(eq(chats.id, input.id))
-        .returning()
-        .get()
-    }),
+  rename: publicProcedure.input(z.object({ id: z.string(), name: z.string().min(1) })).mutation(({ input }) => {
+    const db = getDatabase();
+    return db
+      .update(chats)
+      .set({ name: input.name, updatedAt: new Date() })
+      .where(eq(chats.id, input.id))
+      .returning()
+      .get();
+  }),
 
   /**
    * Archive a chat (also kills any terminal processes in the workspace)
@@ -675,142 +635,121 @@ export const chatsRouter = router({
     .input(
       z.object({
         id: z.string(),
-        deleteWorktree: z.boolean().default(false),
-      }),
+        deleteWorktree: z.boolean().default(false)
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
+      const db = getDatabase();
 
       // Get chat to check for worktree (before archiving)
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.id))
-        .get()
+      const chat = db.select().from(chats).where(eq(chats.id, input.id)).get();
 
       // Archive immediately (optimistic)
-      const result = db
-        .update(chats)
-        .set({ archivedAt: new Date() })
-        .where(eq(chats.id, input.id))
-        .returning()
-        .get()
+      const result = db.update(chats).set({ archivedAt: new Date() }).where(eq(chats.id, input.id)).returning().get();
 
       // Track workspace archived
-      trackWorkspaceArchived(input.id)
+      trackWorkspaceArchived(input.id);
 
       // Kill terminal processes only for worktree-mode workspaces.
       // Local-mode terminals are shared across workspaces on the same project path,
       // so they should not be killed when a single workspace is archived.
-      const isLocalMode = !chat?.branch
+      const isLocalMode = !chat?.branch;
       if (!isLocalMode) {
-        terminalManager.killByWorkspaceId(input.id).then((killResult) => {
-          if (killResult.killed > 0) {
-            console.log(
-              `[chats.archive] Killed ${killResult.killed} terminal session(s) for workspace ${input.id}`,
-            )
-          }
-        }).catch((error) => {
-          console.error(`[chats.archive] Error killing processes:`, error)
-        })
+        terminalManager
+          .killByWorkspaceId(input.id)
+          .then((killResult) => {
+            if (killResult.killed > 0) {
+              console.log(`[chats.archive] Killed ${killResult.killed} terminal session(s) for workspace ${input.id}`);
+            }
+          })
+          .catch((error) => {
+            console.error(`[chats.archive] Error killing processes:`, error);
+          });
       }
 
       // Optionally delete worktree in background (don't await)
       if (input.deleteWorktree && chat?.worktreePath && chat?.branch) {
-        const project = db
-          .select()
-          .from(projects)
-          .where(eq(projects.id, chat.projectId))
-          .get()
+        const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 
         if (project) {
-          removeWorktree(project.path, chat.worktreePath).then((worktreeResult) => {
-            if (worktreeResult.success) {
-              console.log(
-                `[chats.archive] Deleted worktree for workspace ${input.id}`,
-              )
-              // Clear worktreePath since it's deleted (keep branch for reference)
-              db.update(chats)
-                .set({ worktreePath: null })
-                .where(eq(chats.id, input.id))
-                .run()
-            } else {
-              console.warn(
-                `[chats.archive] Failed to delete worktree: ${worktreeResult.error}`,
-              )
-            }
-          }).catch((error) => {
-            console.error(`[chats.archive] Error removing worktree:`, error)
-          })
+          removeWorktree(project.path, chat.worktreePath)
+            .then((worktreeResult) => {
+              if (worktreeResult.success) {
+                console.log(`[chats.archive] Deleted worktree for workspace ${input.id}`);
+                // Clear worktreePath since it's deleted (keep branch for reference)
+                db.update(chats).set({ worktreePath: null }).where(eq(chats.id, input.id)).run();
+              } else {
+                console.warn(`[chats.archive] Failed to delete worktree: ${worktreeResult.error}`);
+              }
+            })
+            .catch((error) => {
+              console.error(`[chats.archive] Error removing worktree:`, error);
+            });
         }
       }
 
       // Invalidate git cache for this worktree
       if (chat?.worktreePath) {
-        gitCache.invalidateStatus(chat.worktreePath)
-        gitCache.invalidateParsedDiff(chat.worktreePath)
+        gitCache.invalidateStatus(chat.worktreePath);
+        gitCache.invalidateParsedDiff(chat.worktreePath);
       }
 
-      return result
+      return result;
     }),
 
-  restore: publicProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(({ input }) => {
-      const db = getDatabase()
-      return db
-        .update(chats)
-        .set({ archivedAt: null, updatedAt: new Date() })
-        .where(eq(chats.id, input.id))
-        .returning()
-        .get()
-    }),
+  restore: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+    const db = getDatabase();
+    return db
+      .update(chats)
+      .set({ archivedAt: null, updatedAt: new Date() })
+      .where(eq(chats.id, input.id))
+      .returning()
+      .get();
+  }),
 
   /**
    * Archive multiple chats at once (also kills terminal processes in each workspace)
    */
-  archiveBatch: publicProcedure
-    .input(z.object({ chatIds: z.array(z.string()) }))
-    .mutation(({ input }) => {
-      const db = getDatabase()
-      if (input.chatIds.length === 0) return []
+  archiveBatch: publicProcedure.input(z.object({ chatIds: z.array(z.string()) })).mutation(({ input }) => {
+    const db = getDatabase();
+    if (input.chatIds.length === 0) return [];
 
-      // Identify worktree-mode workspaces before archiving (for terminal cleanup)
-      const worktreeChats = db
-        .select({ id: chats.id, branch: chats.branch })
-        .from(chats)
-        .where(inArray(chats.id, input.chatIds))
-        .all()
-        .filter((c) => c.branch != null)
+    // Identify worktree-mode workspaces before archiving (for terminal cleanup)
+    const worktreeChats = db
+      .select({ id: chats.id, branch: chats.branch })
+      .from(chats)
+      .where(inArray(chats.id, input.chatIds))
+      .all()
+      .filter((c) => c.branch != null);
 
-      // Archive immediately (optimistic)
-      const result = db
-        .update(chats)
-        .set({ archivedAt: new Date() })
-        .where(inArray(chats.id, input.chatIds))
-        .returning()
-        .all()
+    // Archive immediately (optimistic)
+    const result = db
+      .update(chats)
+      .set({ archivedAt: new Date() })
+      .where(inArray(chats.id, input.chatIds))
+      .returning()
+      .all();
 
-      // Kill terminal processes only for worktree-mode workspaces.
-      // Local-mode terminals are shared and should not be killed.
+    // Kill terminal processes only for worktree-mode workspaces.
+    // Local-mode terminals are shared and should not be killed.
 
-      if (worktreeChats.length > 0) {
-        Promise.all(
-          worktreeChats.map((c) => terminalManager.killByWorkspaceId(c.id)),
-        ).then((killResults) => {
-          const totalKilled = killResults.reduce((sum, r) => sum + r.killed, 0)
+    if (worktreeChats.length > 0) {
+      Promise.all(worktreeChats.map((c) => terminalManager.killByWorkspaceId(c.id)))
+        .then((killResults) => {
+          const totalKilled = killResults.reduce((sum, r) => sum + r.killed, 0);
           if (totalKilled > 0) {
             console.log(
-              `[chats.archiveBatch] Killed ${totalKilled} terminal session(s) for ${worktreeChats.length} worktree workspace(s)`,
-            )
+              `[chats.archiveBatch] Killed ${totalKilled} terminal session(s) for ${worktreeChats.length} worktree workspace(s)`
+            );
           }
-        }).catch((error) => {
-          console.error(`[chats.archiveBatch] Error killing processes:`, error)
         })
-      }
+        .catch((error) => {
+          console.error(`[chats.archiveBatch] Error killing processes:`, error);
+        });
+    }
 
-      return result
-    }),
+    return result;
+  }),
 
   /**
    * Delete a chat permanently. Worktree directory is preserved by default;
@@ -821,14 +760,14 @@ export const chatsRouter = router({
     .input(
       z.object({
         id: z.string(),
-        deleteWorktree: z.boolean().default(false),
-      }),
+        deleteWorktree: z.boolean().default(false)
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
+      const db = getDatabase();
 
       // Get chat before deletion
-      const chat = db.select().from(chats).where(eq(chats.id, input.id)).get()
+      const chat = db.select().from(chats).where(eq(chats.id, input.id)).get();
 
       // Abort any active Claude sessions for this chat's sub-chats before cascade delete
       const subChatIds = db
@@ -836,22 +775,18 @@ export const chatsRouter = router({
         .from(subChats)
         .where(eq(subChats.chatId, input.id))
         .all()
-        .map((row) => row.id)
+        .map((row) => row.id);
       if (subChatIds.length > 0) {
-        abortClaudeSessionsForSubChats(subChatIds)
+        abortClaudeSessionsForSubChats(subChatIds);
       }
 
       // Only delete worktree if the caller explicitly opted in.
       if (input.deleteWorktree && chat?.worktreePath && chat?.branch) {
-        const project = db
-          .select()
-          .from(projects)
-          .where(eq(projects.id, chat.projectId))
-          .get()
+        const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
         if (project) {
-          const result = await removeWorktree(project.path, chat.worktreePath)
+          const result = await removeWorktree(project.path, chat.worktreePath);
           if (!result.success) {
-            console.warn(`[Worktree] Cleanup failed: ${result.error}`)
+            console.warn(`[Worktree] Cleanup failed: ${result.error}`);
           }
         }
       }
@@ -860,90 +795,80 @@ export const chatsRouter = router({
       // Local-mode terminals are shared and should not be killed on delete.
       if (chat?.branch) {
         terminalManager.killByWorkspaceId(input.id).catch((error) => {
-          console.error(`[chats.delete] Error killing processes:`, error)
-        })
+          console.error(`[chats.delete] Error killing processes:`, error);
+        });
       }
 
       // Track workspace deleted
-      trackWorkspaceDeleted(input.id)
+      trackWorkspaceDeleted(input.id);
 
       // Invalidate git cache for this worktree
       if (chat?.worktreePath) {
-        gitCache.invalidateStatus(chat.worktreePath)
-        gitCache.invalidateParsedDiff(chat.worktreePath)
+        gitCache.invalidateStatus(chat.worktreePath);
+        gitCache.invalidateParsedDiff(chat.worktreePath);
       }
 
-      return db.delete(chats).where(eq(chats.id, input.id)).returning().get()
+      return db.delete(chats).where(eq(chats.id, input.id)).returning().get();
     }),
 
-  deleteAllArchived: publicProcedure
-    .mutation(async () => {
-      const db = getDatabase()
-      const archived = db
-        .select({ id: chats.id, worktreePath: chats.worktreePath, branch: chats.branch, projectId: chats.projectId })
-        .from(chats)
-        .where(isNotNull(chats.archivedAt))
-        .all()
-      if (archived.length === 0) return { deleted: 0 }
+  deleteAllArchived: publicProcedure.mutation(async () => {
+    const db = getDatabase();
+    const archived = db
+      .select({ id: chats.id, worktreePath: chats.worktreePath, branch: chats.branch, projectId: chats.projectId })
+      .from(chats)
+      .where(isNotNull(chats.archivedAt))
+      .all();
+    if (archived.length === 0) return { deleted: 0 };
 
-      // Delete DB rows first (cascade removes sub-chats)
-      db.delete(chats).where(inArray(chats.id, archived.map((c) => c.id))).run()
+    // Delete DB rows first (cascade removes sub-chats)
+    db.delete(chats)
+      .where(
+        inArray(
+          chats.id,
+          archived.map((c) => c.id)
+        )
+      )
+      .run();
 
-      // Clean up worktree directories in background (only worktree-mode chats with a path)
-      const worktreeChats = archived.filter((c) => c.branch && c.worktreePath)
-      if (worktreeChats.length > 0) {
-        Promise.all(
-          worktreeChats.map(async (c) => {
-            const project = db.select().from(projects).where(eq(projects.id, c.projectId)).get()
-            if (!project) return
-            const result = await removeWorktree(project.path, c.worktreePath!)
-            if (!result.success) {
-              console.warn(`[chats.deleteAllArchived] Worktree cleanup failed for ${c.id}: ${result.error}`)
-            }
-            gitCache.invalidateStatus(c.worktreePath!)
-            gitCache.invalidateParsedDiff(c.worktreePath!)
-          }),
-        ).catch((error) => {
-          console.error("[chats.deleteAllArchived] Error cleaning up worktrees:", error)
+    // Clean up worktree directories in background (only worktree-mode chats with a path)
+    const worktreeChats = archived.filter((c) => c.branch && c.worktreePath);
+    if (worktreeChats.length > 0) {
+      Promise.all(
+        worktreeChats.map(async (c) => {
+          const project = db.select().from(projects).where(eq(projects.id, c.projectId)).get();
+          if (!project) return;
+          const result = await removeWorktree(project.path, c.worktreePath!);
+          if (!result.success) {
+            console.warn(`[chats.deleteAllArchived] Worktree cleanup failed for ${c.id}: ${result.error}`);
+          }
+          gitCache.invalidateStatus(c.worktreePath!);
+          gitCache.invalidateParsedDiff(c.worktreePath!);
         })
-      }
+      ).catch((error) => {
+        console.error('[chats.deleteAllArchived] Error cleaning up worktrees:', error);
+      });
+    }
 
-      return { deleted: archived.length }
-    }),
+    return { deleted: archived.length };
+  }),
 
   // ============ Sub-chat procedures ============
 
   /**
    * Get a single sub-chat
    */
-  getSubChat: publicProcedure
-    .input(z.object({ id: z.string() }))
-    .query(({ input }) => {
-      const db = getDatabase()
-      const subChat = db
-        .select()
-        .from(subChats)
-        .where(eq(subChats.id, input.id))
-        .get()
+  getSubChat: publicProcedure.input(z.object({ id: z.string() })).query(({ input }) => {
+    const db = getDatabase();
+    const subChat = db.select().from(subChats).where(eq(subChats.id, input.id)).get();
 
-      if (!subChat) return null
+    if (!subChat) return null;
 
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, subChat.chatId))
-        .get()
+    const chat = db.select().from(chats).where(eq(chats.id, subChat.chatId)).get();
 
-      const project = chat
-        ? db
-            .select()
-            .from(projects)
-            .where(eq(projects.id, chat.projectId))
-            .get()
-        : null
+    const project = chat ? db.select().from(projects).where(eq(projects.id, chat.projectId)).get() : null;
 
-      return { ...subChat, chat: chat ? { ...chat, project } : null }
-    }),
+    return { ...subChat, chat: chat ? { ...chat, project } : null };
+  }),
 
   /**
    * Create a new sub-chat
@@ -957,11 +882,11 @@ export const chatsRouter = router({
         id: z.string().optional(),
         chatId: z.string(),
         name: z.string().optional(),
-        mode: z.enum(["plan", "agent"]).default("agent"),
-      }),
+        mode: z.enum(['plan', 'agent']).default('agent')
+      })
     )
     .mutation(({ input }) => {
-      const db = getDatabase()
+      const db = getDatabase();
       return db
         .insert(subChats)
         .values({
@@ -969,10 +894,10 @@ export const chatsRouter = router({
           chatId: input.chatId,
           name: input.name,
           mode: input.mode,
-          messages: "[]",
+          messages: '[]'
         })
         .returning()
-        .get()
+        .get();
     }),
 
   /**
@@ -986,41 +911,33 @@ export const chatsRouter = router({
         subChatId: z.string(),
         messageId: z.string(),
         messageIndex: z.number().int().nonnegative().optional(),
-        name: z.string().optional(),
-      }),
+        name: z.string().optional()
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
+      const db = getDatabase();
 
       // 1. Get the source sub-chat
-      const sourceSubChat = db
-        .select()
-        .from(subChats)
-        .where(eq(subChats.id, input.subChatId))
-        .get()
-      if (!sourceSubChat) throw new Error("Source sub-chat not found")
+      const sourceSubChat = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
+      if (!sourceSubChat) throw new Error('Source sub-chat not found');
 
       // 2. Parse messages and find the cutoff point
-      const allMessages = JSON.parse(sourceSubChat.messages || "[]")
-      let cutoffIndex = allMessages.findIndex(
-        (m: any) => m.id === input.messageId,
-      )
+      const allMessages = JSON.parse(sourceSubChat.messages || '[]');
+      let cutoffIndex = allMessages.findIndex((m: any) => m.id === input.messageId);
       // Fallback: AI SDK generates its own message IDs on the client which differ
       // from the server-generated UUIDs stored in the DB. Use the message index
       // (passed from the client) as a fallback when the ID doesn't match.
       if (cutoffIndex === -1 && input.messageIndex !== undefined && input.messageIndex < allMessages.length) {
-        cutoffIndex = input.messageIndex
+        cutoffIndex = input.messageIndex;
       }
-      if (cutoffIndex === -1) throw new Error("Message not found")
+      if (cutoffIndex === -1) throw new Error('Message not found');
 
       // 3. Slice messages up to and including the target
-      const messagesToFork = allMessages.slice(0, cutoffIndex + 1)
+      const messagesToFork = allMessages.slice(0, cutoffIndex + 1);
 
       // 4. Find sdkMessageUuid of last assistant message (for resumeSessionAt)
-      const lastAssistant = [...messagesToFork]
-        .reverse()
-        .find((m: any) => m.role === "assistant")
-      const forkAtSdkUuid = lastAssistant?.metadata?.sdkMessageUuid || null
+      const lastAssistant = [...messagesToFork].reverse().find((m: any) => m.role === 'assistant');
+      const forkAtSdkUuid = lastAssistant?.metadata?.sdkMessageUuid || null;
 
       // 5. Generate new IDs for all messages + set shouldForkResume on last assistant
       const forkedMessages = messagesToFork.map((msg: any, i: number) => ({
@@ -1031,34 +948,34 @@ export const chatsRouter = router({
           shouldResume: undefined,
           ...(msg === lastAssistant &&
             forkAtSdkUuid && {
-              shouldForkResume: true,
-            }),
-        },
-      }))
+              shouldForkResume: true
+            })
+        }
+      }));
 
       // 6. Generate fork name: [N] originalName
-      let forkName = input.name
+      let forkName = input.name;
       if (!forkName) {
         // Strip existing [N] prefix from source name to get base name
-        const sourceName = sourceSubChat.name || "Chat"
-        const baseName = sourceName.replace(/^\[\d+\]\s*/, "")
+        const sourceName = sourceSubChat.name || 'Chat';
+        const baseName = sourceName.replace(/^\[\d+\]\s*/, '');
 
         // Find highest [N] among all sibling sub-chats
         const siblings = db
           .select({ name: subChats.name })
           .from(subChats)
           .where(eq(subChats.chatId, sourceSubChat.chatId))
-          .all()
+          .all();
 
-        let maxN = 0
+        let maxN = 0;
         for (const s of siblings) {
-          const match = s.name?.match(/^\[(\d+)\]/)
+          const match = s.name?.match(/^\[(\d+)\]/);
           if (match) {
-            maxN = Math.max(maxN, parseInt(match[1], 10))
+            maxN = Math.max(maxN, parseInt(match[1], 10));
           }
         }
 
-        forkName = `[${maxN + 1}] ${baseName}`
+        forkName = `[${maxN + 1}] ${baseName}`;
       }
 
       // 7. Insert new sub-chat with sessionId from original (needed for resume)
@@ -1069,62 +986,52 @@ export const chatsRouter = router({
           name: forkName,
           mode: sourceSubChat.mode,
           messages: JSON.stringify(forkedMessages),
-          sessionId: sourceSubChat.sessionId,
+          sessionId: sourceSubChat.sessionId
         })
         .returning()
-        .get()
+        .get();
 
       // 8. Copy .jsonl session files to the new isolated config dir
       if (sourceSubChat.sessionId) {
         try {
-          const { app } = await import("electron")
-          const userDataPath = app.getPath("userData")
-          const sourceDir = path.join(
-            userDataPath,
-            "claude-sessions",
-            input.subChatId,
-            "projects",
-          )
-          const targetDir = path.join(
-            userDataPath,
-            "claude-sessions",
-            newSubChat.id,
-            "projects",
-          )
+          const { app } = await import('electron');
+          const userDataPath = app.getPath('userData');
+          const sourceDir = path.join(userDataPath, 'claude-sessions', input.subChatId, 'projects');
+          const targetDir = path.join(userDataPath, 'claude-sessions', newSubChat.id, 'projects');
 
           const sourceDirExists = await fs
             .stat(sourceDir)
             .then(() => true)
-            .catch(() => false)
+            .catch(() => false);
 
           if (sourceDirExists) {
-            await fs.cp(sourceDir, targetDir, { recursive: true })
+            await fs.cp(sourceDir, targetDir, { recursive: true });
           }
         } catch (err) {
-          console.warn("[forkSubChat] Failed to copy session files:", err)
+          console.warn('[forkSubChat] Failed to copy session files:', err);
           // Clear shouldForkResume since there's no .jsonl to fork from
           for (const m of forkedMessages) {
             if (m.metadata?.shouldForkResume) {
-              delete m.metadata.shouldForkResume
+              delete m.metadata.shouldForkResume;
             }
           }
           {
-            const forkedJson = JSON.stringify(forkedMessages)
+            const forkedJson = JSON.stringify(forkedMessages);
             db.update(subChats)
               .set({ messages: forkedJson, ...computeFileStatsFromMessages(forkedJson) })
               .where(eq(subChats.id, newSubChat.id))
-              .run()
+              .run();
           }
         }
       }
 
-      console.log("[forkSubChat] Created", { id: newSubChat.id, name: forkName, messages: forkedMessages.length })
+      console.log('[forkSubChat] Created', { id: newSubChat.id, name: forkName, messages: forkedMessages.length });
 
       return {
         subChat: newSubChat,
         messageCount: forkedMessages.length,
-        forkAtSdkUuid,
-      }
+        forkAtSdkUuid
+      };
     }),
 
   /**
@@ -1133,17 +1040,17 @@ export const chatsRouter = router({
   updateSubChatMessages: publicProcedure
     .input(z.object({ id: z.string(), messages: z.string() }))
     .mutation(({ input }) => {
-      const db = getDatabase()
+      const db = getDatabase();
       return db
         .update(subChats)
         .set({
           messages: input.messages,
           ...computeFileStatsFromMessages(input.messages),
-          updatedAt: new Date(),
+          updatedAt: new Date()
         })
         .where(eq(subChats.id, input.id))
         .returning()
-        .get()
+        .get();
     }),
 
   /**
@@ -1155,88 +1062,75 @@ export const chatsRouter = router({
     .input(
       z.object({
         subChatId: z.string(),
-        sdkMessageUuid: z.string(),
-      }),
+        sdkMessageUuid: z.string()
+      })
     )
-    .mutation(async ({ input }): Promise<
-      | { success: false; error: string }
-      | { success: true; messages: any[] }
-    > => {
-      const db = getDatabase()
+    .mutation(async ({ input }): Promise<{ success: false; error: string } | { success: true; messages: any[] }> => {
+      const db = getDatabase();
 
       // 1. Get the sub-chat and its messages
-      const subChat = db
-        .select()
-        .from(subChats)
-        .where(eq(subChats.id, input.subChatId))
-        .get()
+      const subChat = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
       if (!subChat) {
-        return { success: false, error: "Sub-chat not found" }
+        return { success: false, error: 'Sub-chat not found' };
       }
 
       // 2. Parse messages and find the target message by sdkMessageUuid
-      const messages = JSON.parse(subChat.messages || "[]")
-      const targetIndex = messages.findIndex(
-        (m: any) => m.metadata?.sdkMessageUuid === input.sdkMessageUuid,
-      )
+      const messages = JSON.parse(subChat.messages || '[]');
+      const targetIndex = messages.findIndex((m: any) => m.metadata?.sdkMessageUuid === input.sdkMessageUuid);
 
       if (targetIndex === -1) {
-        return { success: false, error: "Message not found" }
+        return { success: false, error: 'Message not found' };
       }
 
       // 3. Get the parent chat for worktreePath
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, subChat.chatId))
-        .get()
+      const chat = db.select().from(chats).where(eq(chats.id, subChat.chatId)).get();
 
       // 4. Rollback git state first - if this fails, abort the whole operation
       if (chat?.worktreePath) {
-        const res = await applyRollbackStash(chat.worktreePath, input.sdkMessageUuid)
+        const res = await applyRollbackStash(chat.worktreePath, input.sdkMessageUuid);
         if (!res.success) {
-          return { success: false, error: `Git rollback failed: ${res.error}` }
+          return { success: false, error: `Git rollback failed: ${res.error}` };
         }
         // If checkpoint wasn't found, we still fail because we can't safely rollback
         // without reverting the git state to match the message history
         if (!res.checkpointFound) {
-          return { success: false, error: "Checkpoint not found - cannot rollback git state" }
+          return { success: false, error: 'Checkpoint not found - cannot rollback git state' };
         }
       }
 
       // 5. Truncate messages to include up to and including the target message
-      let truncatedMessages = messages.slice(0, targetIndex + 1)
+      let truncatedMessages = messages.slice(0, targetIndex + 1);
 
       // 5.5. Clear any old shouldResume flags, then set on the target message
       truncatedMessages = truncatedMessages.map((m: any, i: number) => {
-        const { shouldResume, ...restMeta } = m.metadata || {}
+        const { shouldResume, ...restMeta } = m.metadata || {};
         return {
           ...m,
           metadata: {
             ...restMeta,
-            ...(i === truncatedMessages.length - 1 && { shouldResume: true }),
-          },
-        }
-      })
+            ...(i === truncatedMessages.length - 1 && { shouldResume: true })
+          }
+        };
+      });
 
       // 6. Update the sub-chat with truncated messages
       {
-        const truncatedJson = JSON.stringify(truncatedMessages)
+        const truncatedJson = JSON.stringify(truncatedMessages);
         db.update(subChats)
           .set({
             messages: truncatedJson,
             ...computeFileStatsFromMessages(truncatedJson),
-            updatedAt: new Date(),
+            updatedAt: new Date()
           })
           .where(eq(subChats.id, input.subChatId))
           .returning()
-          .get()
+          .get();
       }
 
       return {
         success: true,
-        messages: truncatedMessages,
-      }
+        messages: truncatedMessages
+      };
     }),
 
   /**
@@ -1245,352 +1139,318 @@ export const chatsRouter = router({
   updateSubChatSession: publicProcedure
     .input(z.object({ id: z.string(), sessionId: z.string().nullable() }))
     .mutation(({ input }) => {
-      const db = getDatabase()
-      return db
-        .update(subChats)
-        .set({ sessionId: input.sessionId })
-        .where(eq(subChats.id, input.id))
-        .returning()
-        .get()
+      const db = getDatabase();
+      return db.update(subChats).set({ sessionId: input.sessionId }).where(eq(subChats.id, input.id)).returning().get();
     }),
 
   /**
    * Update sub-chat mode
    */
   updateSubChatMode: publicProcedure
-    .input(z.object({ id: z.string(), mode: z.enum(["plan", "agent"]), exitPlan: z.boolean().optional() }))
+    .input(z.object({ id: z.string(), mode: z.enum(['plan', 'agent']), exitPlan: z.boolean().optional() }))
     .mutation(({ input }) => {
-      const db = getDatabase()
+      const db = getDatabase();
       return db
         .update(subChats)
         .set({
           mode: input.mode,
-          ...(input.exitPlan ? { sessionId: null, sessionMode: null } : {}),
+          ...(input.exitPlan ? { sessionId: null, sessionMode: null } : {})
         })
         .where(eq(subChats.id, input.id))
         .returning()
-        .get()
+        .get();
     }),
 
   /**
    * Rename a sub-chat
    */
-  renameSubChat: publicProcedure
-    .input(z.object({ id: z.string(), name: z.string().min(1) }))
-    .mutation(({ input }) => {
-      const db = getDatabase()
-      return db
-        .update(subChats)
-        .set({ name: input.name })
-        .where(eq(subChats.id, input.id))
-        .returning()
-        .get()
-    }),
+  renameSubChat: publicProcedure.input(z.object({ id: z.string(), name: z.string().min(1) })).mutation(({ input }) => {
+    const db = getDatabase();
+    return db.update(subChats).set({ name: input.name }).where(eq(subChats.id, input.id)).returning().get();
+  }),
 
   /**
    * Delete a sub-chat
    */
-  deleteSubChat: publicProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(({ input }) => {
-      const db = getDatabase()
-      abortClaudeSessionsForSubChats([input.id])
-      return db
-        .delete(subChats)
-        .where(eq(subChats.id, input.id))
-        .returning()
-        .get()
-    }),
+  deleteSubChat: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+    const db = getDatabase();
+    abortClaudeSessionsForSubChats([input.id]);
+    return db.delete(subChats).where(eq(subChats.id, input.id)).returning().get();
+  }),
 
   /**
    * Delete a sub-chat only if it has no messages.
    * Used for auto-cleanup when a tab is closed without ever being used.
    * Idempotent — returns null if the sub-chat doesn't exist or has messages.
    */
-  deleteSubChatIfEmpty: publicProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(({ input }) => {
-      const db = getDatabase()
-      // Conservative match: keep any sub-chat the user invested effort
-      // in. A renamed-but-never-typed-in sub-chat must survive — only
-      // the truly-untouched (no name, no messages) rows are eligible.
-      // Mirrors the shutdown sweep in [main/index.ts]'s before-quit
-      // handler.
-      return db
+  deleteSubChatIfEmpty: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+    const db = getDatabase();
+    // Conservative match: keep any sub-chat the user invested effort
+    // in. A renamed-but-never-typed-in sub-chat must survive — only
+    // the truly-untouched (no name, no messages) rows are eligible.
+    // Mirrors the shutdown sweep in [main/index.ts]'s before-quit
+    // handler.
+    return (
+      db
         .delete(subChats)
-        .where(
-          and(
-            eq(subChats.id, input.id),
-            eq(subChats.messages, "[]"),
-            isNull(subChats.name),
-          ),
-        )
+        .where(and(eq(subChats.id, input.id), eq(subChats.messages, '[]'), isNull(subChats.name)))
         .returning()
         .get() ?? null
-    }),
+    );
+  }),
 
   /**
    * Bulk-delete any sub-chats from the given id list that have no messages.
    * Used on window/app close to sweep up sub-chats created in the session
    * that the user never sent a message in.
    */
-  deleteEmptySubChatsByIds: publicProcedure
-    .input(z.object({ ids: z.array(z.string()) }))
-    .mutation(({ input }) => {
-      if (input.ids.length === 0) return { deleted: 0 }
-      const db = getDatabase()
-      // Same conservative predicate as `deleteSubChatIfEmpty` — keep
-      // anything named (the rename is a user investment) or
-      // message-bearing.
-      const result = db
-        .delete(subChats)
-        .where(
-          and(
-            inArray(subChats.id, input.ids),
-            eq(subChats.messages, "[]"),
-            isNull(subChats.name),
-          ),
-        )
-        .returning()
-        .all()
-      return { deleted: result.length }
-    }),
+  deleteEmptySubChatsByIds: publicProcedure.input(z.object({ ids: z.array(z.string()) })).mutation(({ input }) => {
+    if (input.ids.length === 0) return { deleted: 0 };
+    const db = getDatabase();
+    // Same conservative predicate as `deleteSubChatIfEmpty` — keep
+    // anything named (the rename is a user investment) or
+    // message-bearing.
+    const result = db
+      .delete(subChats)
+      .where(and(inArray(subChats.id, input.ids), eq(subChats.messages, '[]'), isNull(subChats.name)))
+      .returning()
+      .all();
+    return { deleted: result.length };
+  }),
 
   /**
    * Get git diff for a chat's worktree
    */
-  getDiff: publicProcedure
-    .input(z.object({ chatId: z.string() }))
-    .query(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+  getDiff: publicProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
+    const db = getDatabase();
+    const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
-      if (!chat?.worktreePath) {
-        return { diff: null, error: "No worktree path" }
-      }
+    if (!chat?.worktreePath) {
+      return { diff: null, error: 'No worktree path' };
+    }
 
-      const result = await getWorktreeDiff(
-        chat.worktreePath,
-        chat.baseBranch ?? undefined,
-      )
+    const result = await getWorktreeDiff(chat.worktreePath, chat.baseBranch ?? undefined);
 
-      if (!result.success) {
-        return { diff: null, error: result.error }
-      }
+    if (!result.success) {
+      return { diff: null, error: result.error };
+    }
 
-      return { diff: result.diff || "" }
-    }),
+    return { diff: result.diff || '' };
+  }),
 
   /**
    * Get parsed diff with prefetched file contents
    * This endpoint does all diff parsing on the server side to avoid blocking UI
    * Uses GitCache for instant responses when diff hasn't changed
    */
-  getParsedDiff: publicProcedure
-    .input(z.object({ chatId: z.string() }))
-    .query(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+  getParsedDiff: publicProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
+    const db = getDatabase();
+    const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
-      if (!chat?.worktreePath) {
-        return {
-          files: [],
-          totalAdditions: 0,
-          totalDeletions: 0,
-          fileContents: {},
-          error: "No worktree path",
-        }
-      }
+    if (!chat?.worktreePath) {
+      return {
+        files: [],
+        totalAdditions: 0,
+        totalDeletions: 0,
+        fileContents: {},
+        error: 'No worktree path'
+      };
+    }
 
-      // 1. Get raw diff (only uncommitted changes - don't show branch diff after commit)
-      const result = await getWorktreeDiff(
-        chat.worktreePath,
-        chat.baseBranch ?? undefined,
-        { onlyUncommitted: true },
-      )
+    // 1. Get raw diff (only uncommitted changes - don't show branch diff after commit)
+    const result = await getWorktreeDiff(chat.worktreePath, chat.baseBranch ?? undefined, { onlyUncommitted: true });
 
-      if (!result.success) {
-        return {
-          files: [],
-          totalAdditions: 0,
-          totalDeletions: 0,
-          fileContents: {},
-          error: result.error,
-        }
-      }
+    if (!result.success) {
+      return {
+        files: [],
+        totalAdditions: 0,
+        totalDeletions: 0,
+        fileContents: {},
+        error: result.error
+      };
+    }
 
-      // 2. Check cache using diff hash
-      const diffHash = computeContentHash(result.diff || "")
-      type ParsedDiffResponse = {
-        files: ReturnType<typeof splitUnifiedDiffByFile>
-        totalAdditions: number
-        totalDeletions: number
-        fileContents: Record<string, string>
-      }
-      const cached = gitCache.getParsedDiff<ParsedDiffResponse>(chat.worktreePath, diffHash)
-      if (cached) {
-        return cached
-      }
+    // 2. Check cache using diff hash
+    const diffHash = computeContentHash(result.diff || '');
+    type ParsedDiffResponse = {
+      files: ReturnType<typeof splitUnifiedDiffByFile>;
+      totalAdditions: number;
+      totalDeletions: number;
+      fileContents: Record<string, string>;
+    };
+    const cached = gitCache.getParsedDiff<ParsedDiffResponse>(chat.worktreePath, diffHash);
+    if (cached) {
+      return cached;
+    }
 
-      // 3. Parse diff into files
-      const files = splitUnifiedDiffByFile(result.diff || "")
+    // 3. Parse diff into files
+    const files = splitUnifiedDiffByFile(result.diff || '');
 
-      // 4. Calculate totals
-      const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0)
-      const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0)
+    // 4. Calculate totals
+    const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0);
+    const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0);
 
-      // 5. Prefetch file contents (first 20 files, non-deleted, non-binary)
-      const MAX_PREFETCH = 20
-      const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
+    // 5. Prefetch file contents (first 20 files, non-deleted, non-binary)
+    const MAX_PREFETCH = 20;
+    const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 
-      const filesToFetch = files
-        .filter((f) => !f.isBinary && !f.isDeletedFile)
-        .slice(0, MAX_PREFETCH)
-        .map((f) => ({
-          key: f.key,
-          filePath: f.newPath !== "/dev/null" ? f.newPath : f.oldPath,
-        }))
-        .filter((f) => f.filePath && f.filePath !== "/dev/null")
+    const filesToFetch = files
+      .filter((f) => !f.isBinary && !f.isDeletedFile)
+      .slice(0, MAX_PREFETCH)
+      .map((f) => ({
+        key: f.key,
+        filePath: f.newPath !== '/dev/null' ? f.newPath : f.oldPath
+      }))
+      .filter((f) => f.filePath && f.filePath !== '/dev/null');
 
-      const fileContents: Record<string, string> = {}
+    const fileContents: Record<string, string> = {};
 
-      // Read files in parallel
-      await Promise.all(
-        filesToFetch.map(async ({ key, filePath }) => {
-          try {
-            const fullPath = path.join(chat.worktreePath!, filePath)
+    // Read files in parallel
+    await Promise.all(
+      filesToFetch.map(async ({ key, filePath }) => {
+        try {
+          const fullPath = path.join(chat.worktreePath!, filePath);
 
-            // Check file size first
-            const stats = await fs.stat(fullPath)
-            if (stats.size > MAX_FILE_SIZE) {
-              return // Skip large files
-            }
-
-            const content = await fs.readFile(fullPath, "utf-8")
-
-            // Quick binary check (NUL bytes in first 8KB)
-            const checkLength = Math.min(content.length, 8192)
-            for (let i = 0; i < checkLength; i++) {
-              if (content.charCodeAt(i) === 0) {
-                return // Skip binary files
-              }
-            }
-
-            fileContents[key] = content
-          } catch {
-            // File might not exist or be unreadable - skip
+          // Check file size first
+          const stats = await fs.stat(fullPath);
+          if (stats.size > MAX_FILE_SIZE) {
+            return; // Skip large files
           }
-        }),
-      )
 
-      const response: ParsedDiffResponse = {
-        files,
-        totalAdditions,
-        totalDeletions,
-        fileContents,
-      }
+          const content = await fs.readFile(fullPath, 'utf-8');
 
-      // 6. Store in cache
-      gitCache.setParsedDiff(chat.worktreePath, diffHash, response)
-      return response
-    }),
+          // Quick binary check (NUL bytes in first 8KB)
+          const checkLength = Math.min(content.length, 8192);
+          for (let i = 0; i < checkLength; i++) {
+            if (content.charCodeAt(i) === 0) {
+              return; // Skip binary files
+            }
+          }
+
+          fileContents[key] = content;
+        } catch {
+          // File might not exist or be unreadable - skip
+        }
+      })
+    );
+
+    const response: ParsedDiffResponse = {
+      files,
+      totalAdditions,
+      totalDeletions,
+      fileContents
+    };
+
+    // 6. Store in cache
+    gitCache.setParsedDiff(chat.worktreePath, diffHash, response);
+    return response;
+  }),
 
   generateCommitMessage: publicProcedure
-    .input(z.object({
-      chatId: z.string(),
-      filePaths: z.array(z.string()).optional(),
-      ollamaModel: z.string().nullish(),
-      existingTitle: z.string().optional(),
-      useOllamaFallback: z.boolean().optional(),
-    }))
+    .input(
+      z.object({
+        chatId: z.string(),
+        filePaths: z.array(z.string()).optional(),
+        ollamaModel: z.string().nullish(),
+        existingTitle: z.string().optional(),
+        useOllamaFallback: z.boolean().optional()
+      })
+    )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get()
+      const db = getDatabase();
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
       if (!chat?.worktreePath) {
-        throw new Error("No worktree path")
+        throw new Error('No worktree path');
       }
 
-      const result = await getWorktreeDiff(chat.worktreePath, chat.baseBranch ?? undefined)
+      const result = await getWorktreeDiff(chat.worktreePath, chat.baseBranch ?? undefined);
       if (!result.success || !result.diff) {
-        throw new Error("Failed to get diff")
+        throw new Error('Failed to get diff');
       }
 
-      let files = splitUnifiedDiffByFile(result.diff)
+      let files = splitUnifiedDiffByFile(result.diff);
 
       if (input.filePaths && input.filePaths.length > 0) {
-        const selectedPaths = new Set(input.filePaths)
+        const selectedPaths = new Set(input.filePaths);
         files = files.filter((f) => {
-          const filePath = f.newPath !== "/dev/null" ? f.newPath : f.oldPath
-          return selectedPaths.has(filePath) ||
-            [...selectedPaths].some(sp => filePath.endsWith(sp) || sp.endsWith(filePath))
-        })
+          const filePath = f.newPath !== '/dev/null' ? f.newPath : f.oldPath;
+          return (
+            selectedPaths.has(filePath) ||
+            [...selectedPaths].some((sp) => filePath.endsWith(sp) || sp.endsWith(filePath))
+          );
+        });
       }
 
       if (files.length === 0) {
-        throw new Error("No changes to commit")
+        throw new Error('No changes to commit');
       }
 
-      const filteredDiff = files.map(f => f.diffText).join('\n')
-      const additions = files.reduce((sum, f) => sum + f.additions, 0)
-      const deletions = files.reduce((sum, f) => sum + f.deletions, 0)
+      const filteredDiff = files.map((f) => f.diffText).join('\n');
+      const additions = files.reduce((sum, f) => sum + f.additions, 0);
+      const deletions = files.reduce((sum, f) => sum + f.deletions, 0);
 
       // Build chat context from recent user messages so the AI understands the task intent
-      const chatContext = buildChatContextFromMessages(db, input.chatId)
+      const chatContext = buildChatContextFromMessages(db, input.chatId);
 
       // 1. Try Claude (primary AI)
       const claudeResult = await generateCommitMessageWithClaude(
-        filteredDiff, files.length, additions, deletions, input.existingTitle, chatContext
-      )
+        filteredDiff,
+        files.length,
+        additions,
+        deletions,
+        input.existingTitle,
+        chatContext
+      );
       if (claudeResult) {
-        console.log("[generateCommitMessage] Generated via Claude, provider: claude")
-        return { title: claudeResult.title, description: claudeResult.description, provider: "claude" as const }
+        console.log('[generateCommitMessage] Generated via Claude, provider: claude');
+        return { title: claudeResult.title, description: claudeResult.description, provider: 'claude' as const };
       }
 
       // 2. Try Ollama (fallback, only when enabled)
       if (input.useOllamaFallback) {
         const ollamaResult = await generateCommitMessageWithOllama(
-          filteredDiff, files.length, additions, deletions, input.ollamaModel, input.existingTitle, chatContext
-        )
+          filteredDiff,
+          files.length,
+          additions,
+          deletions,
+          input.ollamaModel,
+          input.existingTitle,
+          chatContext
+        );
         if (ollamaResult) {
-          console.log("[generateCommitMessage] Generated via Ollama, provider: ollama")
-          return { title: ollamaResult.title, description: ollamaResult.description, provider: "ollama" as const }
+          console.log('[generateCommitMessage] Generated via Ollama, provider: ollama');
+          return { title: ollamaResult.title, description: ollamaResult.description, provider: 'ollama' as const };
         }
       }
 
       // 3. Heuristic fallback — always succeeds
-      const heuristic = buildHeuristicCommitMessage(files, input.existingTitle)
+      const heuristic = buildHeuristicCommitMessage(files, input.existingTitle);
 
-      console.log("[generateCommitMessage] Generated via heuristic")
-      return { title: heuristic.title, description: heuristic.description, provider: "heuristic" as const }
+      console.log('[generateCommitMessage] Generated via heuristic');
+      return { title: heuristic.title, description: heuristic.description, provider: 'heuristic' as const };
     }),
 
   /**
    * Generate a name for a sub-chat using Ollama (local) or heuristic fallback
    */
   generateSubChatName: publicProcedure
-    .input(z.object({
-      userMessage: z.string(),
-      ollamaModel: z.string().nullish(),
-    }))
+    .input(
+      z.object({
+        userMessage: z.string(),
+        ollamaModel: z.string().nullish()
+      })
+    )
     .mutation(async ({ input }) => {
       try {
-        const ollamaName = await generateChatNameWithOllama(input.userMessage, input.ollamaModel)
+        const ollamaName = await generateChatNameWithOllama(input.userMessage, input.ollamaModel);
         if (ollamaName) {
-          return { name: ollamaName }
+          return { name: ollamaName };
         }
-        return { name: getFallbackName(input.userMessage) }
+        return { name: getFallbackName(input.userMessage) };
       } catch (error) {
-        console.error("[generateSubChatName] Error:", error)
-        return { name: getFallbackName(input.userMessage) }
+        console.error('[generateSubChatName] Error:', error);
+        return { name: getFallbackName(input.userMessage) };
       }
     }),
 
@@ -1599,74 +1459,55 @@ export const chatsRouter = router({
   /**
    * Get PR context for message generation (branch info, uncommitted changes, etc.)
    */
-  getPrContext: publicProcedure
-    .input(z.object({ chatId: z.string() }))
-    .query(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+  getPrContext: publicProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
+    const db = getDatabase();
+    const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
-      if (!chat?.worktreePath) {
-        return null
-      }
+    if (!chat?.worktreePath) {
+      return null;
+    }
 
-      const project = db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, chat.projectId))
-        .get()
+    const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 
+    try {
+      const git = simpleGit(chat.worktreePath);
+      const status = await git.status();
+
+      // Check if upstream exists
+      let hasUpstream = false;
       try {
-        const git = simpleGit(chat.worktreePath)
-        const status = await git.status()
-
-        // Check if upstream exists
-        let hasUpstream = false
-        try {
-          const tracking = await git.raw([
-            "rev-parse",
-            "--abbrev-ref",
-            "@{upstream}",
-          ])
-          hasUpstream = !!tracking.trim()
-        } catch {
-          hasUpstream = false
-        }
-
-        // Provider info for agent prompt generation. Null/undefined for
-        // unsupported providers keeps the renderer on the GitHub default.
-        const provider =
-          project?.gitProvider === "github" || project?.gitProvider === "azure"
-            ? project.gitProvider
-            : null
-        const azure =
-          provider === "azure" &&
-          project?.gitOwner &&
-          project?.gitProject &&
-          project?.gitRepo
-            ? {
-                organization: project.gitOwner,
-                project: project.gitProject,
-                repository: project.gitRepo,
-              }
-            : undefined
-
-        return {
-          branch: chat.branch || status.current || "unknown",
-          baseBranch: chat.baseBranch || "main",
-          uncommittedCount: status.files.length,
-          hasUpstream,
-          provider,
-          azure,
-        }
-      } catch (error) {
-        console.error("[getPrContext] Error:", error)
-        return null
+        const tracking = await git.raw(['rev-parse', '--abbrev-ref', '@{upstream}']);
+        hasUpstream = !!tracking.trim();
+      } catch {
+        hasUpstream = false;
       }
-    }),
+
+      // Provider info for agent prompt generation. Null/undefined for
+      // unsupported providers keeps the renderer on the GitHub default.
+      const provider =
+        project?.gitProvider === 'github' || project?.gitProvider === 'azure' ? project.gitProvider : null;
+      const azure =
+        provider === 'azure' && project?.gitOwner && project?.gitProject && project?.gitRepo
+          ? {
+              organization: project.gitOwner,
+              project: project.gitProject,
+              repository: project.gitRepo
+            }
+          : undefined;
+
+      return {
+        branch: chat.branch || status.current || 'unknown',
+        baseBranch: chat.baseBranch || 'main',
+        uncommittedCount: status.files.length,
+        hasUpstream,
+        provider,
+        azure
+      };
+    } catch (error) {
+      console.error('[getPrContext] Error:', error);
+      return null;
+    }
+  }),
 
   /**
    * Update PR info after Claude creates a PR
@@ -1676,28 +1517,28 @@ export const chatsRouter = router({
       z.object({
         chatId: z.string(),
         prUrl: z.string(),
-        prNumber: z.number(),
-      }),
+        prNumber: z.number()
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
+      const db = getDatabase();
       const result = db
         .update(chats)
         .set({
           prUrl: input.prUrl,
-          prNumber: input.prNumber,
+          prNumber: input.prNumber
         })
         .where(eq(chats.id, input.chatId))
         .returning()
-        .get()
+        .get();
 
       // Track PR created
       trackPRCreated({
         workspaceId: input.chatId,
-        prNumber: input.prNumber,
-      })
+        prNumber: input.prNumber
+      });
 
-      return result
+      return result;
     }),
 
   /**
@@ -1707,78 +1548,63 @@ export const chatsRouter = router({
    * PR — this keeps the sidebar workspace card (which reads from the DB) in
    * sync without requiring callers to write those columns manually.
    */
-  getPrStatus: publicProcedure
-    .input(z.object({ chatId: z.string() }))
-    .query(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+  getPrStatus: publicProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
+    const db = getDatabase();
+    const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
-      if (!chat?.worktreePath) {
-        return null
-      }
+    if (!chat?.worktreePath) {
+      return null;
+    }
 
-      const status = await fetchPRStatus(chat.worktreePath)
+    const status = await fetchPRStatus(chat.worktreePath);
 
-      // Compute how many commits the current branch is behind its base branch
-      // (e.g. main). Used by the Status widget to flag "Base branch has new
-      // commits" before the PR is created.
-      //
-      // First do a quiet `git fetch origin <baseBranch>` so the origin ref is
-      // actually fresh — without this, the count reflects whatever was last
-      // fetched manually / by an agent push and silently under-reports when
-      // teammates push to main. The fetch is bounded by an 8 s timeout so a
-      // stalled network can't block the 30 s poll. All errors swallowed
-      // (offline, no remote, auth failure, timeout) — we fall back to whatever
-      // origin/<baseBranch> we already have, which matches the previous
-      // behaviour.
-      let baseBranchBehind = 0
+    // Compute how many commits the current branch is behind its base branch
+    // (e.g. main). Used by the Status widget to flag "Base branch has new
+    // commits" before the PR is created.
+    //
+    // First do a quiet `git fetch origin <baseBranch>` so the origin ref is
+    // actually fresh — without this, the count reflects whatever was last
+    // fetched manually / by an agent push and silently under-reports when
+    // teammates push to main. The fetch is bounded by an 8 s timeout so a
+    // stalled network can't block the 30 s poll. All errors swallowed
+    // (offline, no remote, auth failure, timeout) — we fall back to whatever
+    // origin/<baseBranch> we already have, which matches the previous
+    // behaviour.
+    let baseBranchBehind = 0;
+    try {
+      const git = simpleGit(chat.worktreePath);
+      const baseBranch = chat.baseBranch || 'main';
       try {
-        const git = simpleGit(chat.worktreePath)
-        const baseBranch = chat.baseBranch || "main"
-        try {
-          await Promise.race([
-            git.fetch("origin", baseBranch, ["--quiet"]),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("fetch timeout")), 8000),
-            ),
-          ])
-        } catch {
-          // Stale origin ref is acceptable — better than blocking the poll.
-        }
-        const out = await git.raw([
-          "rev-list",
-          "--count",
-          `HEAD..origin/${baseBranch}`,
-        ])
-        baseBranchBehind = Number.parseInt(out.trim(), 10) || 0
+        await Promise.race([
+          git.fetch('origin', baseBranch, ['--quiet']),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('fetch timeout')), 8000))
+        ]);
       } catch {
-        baseBranchBehind = 0
+        // Stale origin ref is acceptable — better than blocking the poll.
       }
+      const out = await git.raw(['rev-list', '--count', `HEAD..origin/${baseBranch}`]);
+      baseBranchBehind = Number.parseInt(out.trim(), 10) || 0;
+    } catch {
+      baseBranchBehind = 0;
+    }
 
-      // Back-fill DB so the sidebar badge can render from cached fields
-      const pr = status?.pr
-      const nextNumber = pr?.number ?? null
-      const nextUrl = pr?.url ?? null
-      if (nextNumber !== chat.prNumber || nextUrl !== chat.prUrl) {
-        try {
-          db.update(chats)
-            .set({ prNumber: nextNumber, prUrl: nextUrl })
-            .where(eq(chats.id, input.chatId))
-            .run()
-        } catch (err) {
-          console.error("[getPrStatus] Failed to back-fill PR fields:", err)
-        }
+    // Back-fill DB so the sidebar badge can render from cached fields
+    const pr = status?.pr;
+    const nextNumber = pr?.number ?? null;
+    const nextUrl = pr?.url ?? null;
+    if (nextNumber !== chat.prNumber || nextUrl !== chat.prUrl) {
+      try {
+        db.update(chats).set({ prNumber: nextNumber, prUrl: nextUrl }).where(eq(chats.id, input.chatId)).run();
+      } catch (err) {
+        console.error('[getPrStatus] Failed to back-fill PR fields:', err);
       }
+    }
 
-      if (status === null) {
-        return null
-      }
-      return { ...status, baseBranchBehind }
-    }),
+    if (status === null) {
+      return null;
+    }
+    return { ...status, baseBranchBehind };
+  }),
 
   /**
    * Merge PR via gh CLI
@@ -1788,76 +1614,65 @@ export const chatsRouter = router({
     .input(
       z.object({
         chatId: z.string(),
-        method: z.enum(["merge", "squash", "rebase"]).default("squash"),
-      }),
+        method: z.enum(['merge', 'squash', 'rebase']).default('squash')
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+      const db = getDatabase();
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
       if (!chat?.worktreePath || !chat?.prNumber) {
-        throw new Error("No PR to merge")
+        throw new Error('No PR to merge');
       }
 
       // Check PR mergeability before attempting merge (provider-agnostic)
-      const prStatus = await fetchPRStatus(chat.worktreePath)
-      if (prStatus?.pr?.mergeable === "CONFLICTING") {
+      const prStatus = await fetchPRStatus(chat.worktreePath);
+      if (prStatus?.pr?.mergeable === 'CONFLICTING') {
         throw new Error(
-          "MERGE_CONFLICT: This PR has merge conflicts with the base branch. " +
-          "Please sync your branch with the latest changes from main to resolve conflicts."
-        )
+          'MERGE_CONFLICT: This PR has merge conflicts with the base branch. ' +
+            'Please sync your branch with the latest changes from main to resolve conflicts.'
+        );
       }
 
       try {
         return await mergePR({
           worktreePath: chat.worktreePath,
           prNumber: chat.prNumber,
-          method: input.method,
-        })
+          method: input.method
+        });
       } catch (error) {
-        console.error("[mergePr] Error:", error)
-        const errorMsg =
-          error instanceof Error ? error.message : "Failed to merge PR"
+        console.error('[mergePr] Error:', error);
+        const errorMsg = error instanceof Error ? error.message : 'Failed to merge PR';
 
         // Normalize non-prefixed conflict messages to the MERGE_CONFLICT: contract
         // so the renderer surfaces the "Sync with Main" action.
         if (
-          !errorMsg.startsWith("MERGE_CONFLICT:") &&
-          (errorMsg.includes("not mergeable") ||
-            errorMsg.includes("merge conflict") ||
-            errorMsg.includes("cannot be cleanly created") ||
-            errorMsg.includes("CONFLICTING"))
+          !errorMsg.startsWith('MERGE_CONFLICT:') &&
+          (errorMsg.includes('not mergeable') ||
+            errorMsg.includes('merge conflict') ||
+            errorMsg.includes('cannot be cleanly created') ||
+            errorMsg.includes('CONFLICTING'))
         ) {
           throw new Error(
-            "MERGE_CONFLICT: This PR has merge conflicts with the base branch. " +
-              "Please sync your branch with the latest changes from main to resolve conflicts."
-          )
+            'MERGE_CONFLICT: This PR has merge conflicts with the base branch. ' +
+              'Please sync your branch with the latest changes from main to resolve conflicts.'
+          );
         }
 
-        throw new Error(errorMsg)
+        throw new Error(errorMsg);
       }
     }),
 
   /**
    * Fetch issue + review comments for the current branch's PR.
    */
-  getPrComments: publicProcedure
-    .input(z.object({ chatId: z.string() }))
-    .query(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+  getPrComments: publicProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
+    const db = getDatabase();
+    const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
-      if (!chat?.worktreePath) return []
-      return await fetchPRComments(chat.worktreePath)
-    }),
+    if (!chat?.worktreePath) return [];
+    return await fetchPRComments(chat.worktreePath);
+  }),
 
   /**
    * Rename a PR title via `gh pr edit`.
@@ -1871,37 +1686,32 @@ export const chatsRouter = router({
       z.object({
         chatId: z.string(),
         title: z.string().trim().min(1).max(256),
-        prNumber: z.number().int().positive().optional(),
-      }),
+        prNumber: z.number().int().positive().optional()
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+      const db = getDatabase();
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
       if (!chat?.worktreePath) {
-        throw new Error("No worktree path for this chat")
+        throw new Error('No worktree path for this chat');
       }
 
       try {
         const result = await updatePRTitle({
           worktreePath: chat.worktreePath,
           title: input.title,
-          prNumber: input.prNumber,
-        })
-        invalidatePRCache(chat.worktreePath)
-        return result
+          prNumber: input.prNumber
+        });
+        invalidatePRCache(chat.worktreePath);
+        return result;
       } catch (error) {
-        const errorMsg =
-          error instanceof Error ? error.message : "Failed to update PR title"
-        console.error("[updatePrTitle] Error:", error)
-        if (errorMsg.includes("no pull requests found")) {
-          throw new Error("No pull request exists for the current branch")
+        const errorMsg = error instanceof Error ? error.message : 'Failed to update PR title';
+        console.error('[updatePrTitle] Error:', error);
+        if (errorMsg.includes('no pull requests found')) {
+          throw new Error('No pull request exists for the current branch');
         }
-        throw new Error(errorMsg)
+        throw new Error(errorMsg);
       }
     }),
 
@@ -1914,44 +1724,49 @@ export const chatsRouter = router({
    * - chatIds: query all sub-chats for given chats (used by archive popover)
    */
   getFileStats: publicProcedure
-    .input(z.object({
-      openSubChatIds: z.array(z.string()).optional(),
-      chatIds: z.array(z.string()).optional(),
-    }))
-    .query(({ input }) => {
-    const db = getDatabase()
-
-    // Early return if nothing to check
-    if ((!input.openSubChatIds || input.openSubChatIds.length === 0) &&
-        (!input.chatIds || input.chatIds.length === 0)) {
-      return []
-    }
-
-    const whereClause = input.chatIds && input.chatIds.length > 0
-      ? inArray(subChats.chatId, input.chatIds)
-      : inArray(subChats.id, input.openSubChatIds!)
-
-    const rows = db
-      .select({
-        chatId: subChats.chatId,
-        additions: sql<number>`COALESCE(SUM(${subChats.fileStatsAdditions}), 0)`,
-        deletions: sql<number>`COALESCE(SUM(${subChats.fileStatsDeletions}), 0)`,
-        fileCount: sql<number>`COALESCE(SUM(${subChats.fileStatsFileCount}), 0)`,
+    .input(
+      z.object({
+        openSubChatIds: z.array(z.string()).optional(),
+        chatIds: z.array(z.string()).optional()
       })
-      .from(subChats)
-      .where(whereClause)
-      .groupBy(subChats.chatId)
-      .all()
+    )
+    .query(({ input }) => {
+      const db = getDatabase();
 
-    return rows
-      .filter((r) => r.chatId !== null && r.fileCount > 0)
-      .map((r) => ({
-        chatId: r.chatId as string,
-        additions: Number(r.additions),
-        deletions: Number(r.deletions),
-        fileCount: Number(r.fileCount),
-      }))
-  }),
+      // Early return if nothing to check
+      if (
+        (!input.openSubChatIds || input.openSubChatIds.length === 0) &&
+        (!input.chatIds || input.chatIds.length === 0)
+      ) {
+        return [];
+      }
+
+      const whereClause =
+        input.chatIds && input.chatIds.length > 0
+          ? inArray(subChats.chatId, input.chatIds)
+          : inArray(subChats.id, input.openSubChatIds!);
+
+      const rows = db
+        .select({
+          chatId: subChats.chatId,
+          additions: sql<number>`COALESCE(SUM(${subChats.fileStatsAdditions}), 0)`,
+          deletions: sql<number>`COALESCE(SUM(${subChats.fileStatsDeletions}), 0)`,
+          fileCount: sql<number>`COALESCE(SUM(${subChats.fileStatsFileCount}), 0)`
+        })
+        .from(subChats)
+        .where(whereClause)
+        .groupBy(subChats.chatId)
+        .all();
+
+      return rows
+        .filter((r) => r.chatId !== null && r.fileCount > 0)
+        .map((r) => ({
+          chatId: r.chatId as string,
+          additions: Number(r.additions),
+          deletions: Number(r.deletions),
+          fileCount: Number(r.fileCount)
+        }));
+    }),
 
   /**
    * Get sub-chats with pending plan approvals
@@ -1962,158 +1777,140 @@ export const chatsRouter = router({
   getPendingPlanApprovals: publicProcedure
     .input(z.object({ openSubChatIds: z.array(z.string()) }))
     .query(({ input }) => {
-    const db = getDatabase()
+      const db = getDatabase();
 
-    // Early return if no sub-chats to check
-    if (input.openSubChatIds.length === 0) {
-      return []
-    }
+      // Early return if no sub-chats to check
+      if (input.openSubChatIds.length === 0) {
+        return [];
+      }
 
-    // Query only the specified sub-chats, including mode for filtering
-    const allSubChats = db
-      .select({
-        chatId: subChats.chatId,
-        subChatId: subChats.id,
-        mode: subChats.mode,
-        messages: subChats.messages,
-      })
-      .from(subChats)
-      .where(inArray(subChats.id, input.openSubChatIds))
-      .all()
+      // Query only the specified sub-chats, including mode for filtering
+      const allSubChats = db
+        .select({
+          chatId: subChats.chatId,
+          subChatId: subChats.id,
+          mode: subChats.mode,
+          messages: subChats.messages
+        })
+        .from(subChats)
+        .where(inArray(subChats.id, input.openSubChatIds))
+        .all();
 
-    const pendingApprovals: Array<{ subChatId: string; chatId: string }> = []
+      const pendingApprovals: Array<{ subChatId: string; chatId: string }> = [];
 
-    for (const row of allSubChats) {
-      if (!row.subChatId || !row.chatId) continue
+      for (const row of allSubChats) {
+        if (!row.subChatId || !row.chatId) continue;
 
-      // If mode is "agent", plan is already approved - skip
-      if (row.mode === "agent") continue
+        // If mode is "agent", plan is already approved - skip
+        if (row.mode === 'agent') continue;
 
-      // Only check for ExitPlanMode in plan mode sub-chats
-      if (!row.messages) continue
+        // Only check for ExitPlanMode in plan mode sub-chats
+        if (!row.messages) continue;
 
-      try {
-        const messages = JSON.parse(row.messages) as Array<{
-          role: string
-          content?: string
-          parts?: Array<{
-            type: string
-            text?: string
-            output?: unknown
-          }>
-        }>
+        try {
+          const messages = JSON.parse(row.messages) as Array<{
+            role: string;
+            content?: string;
+            parts?: Array<{
+              type: string;
+              text?: string;
+              output?: unknown;
+            }>;
+          }>;
 
-        // Check if there's a completed ExitPlanMode (Claude), PlanWrite awaiting_approval (Codex widget),
-        // or a legacy Codex text response in plan mode.
-        const hasPendingPlanApproval = (): boolean => {
-          for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i]
-            if (!msg) continue
+          // Check if there's a completed ExitPlanMode (Claude), PlanWrite awaiting_approval (Codex widget),
+          // or a legacy Codex text response in plan mode.
+          const hasPendingPlanApproval = (): boolean => {
+            for (let i = messages.length - 1; i >= 0; i--) {
+              const msg = messages[i];
+              if (!msg) continue;
 
-            if (msg.role === "assistant" && msg.parts) {
-              const exitPlanPart = msg.parts.find(
-                (p) => p.type === "tool-ExitPlanMode"
-              )
-              if (exitPlanPart && exitPlanPart.output !== undefined) {
-                return true
-              }
-
-              const planWritePart = msg.parts.find(
-                (p: any) => {
-                  if (p.type !== "tool-PlanWrite") return false
-                  if (p.output === undefined && p.result === undefined) return false
-                  const plan = getPlanFromPlanWritePart(p)
-                  return Boolean(plan) && (plan.status ?? "awaiting_approval") === "awaiting_approval"
+              if (msg.role === 'assistant' && msg.parts) {
+                const exitPlanPart = msg.parts.find((p) => p.type === 'tool-ExitPlanMode');
+                if (exitPlanPart && exitPlanPart.output !== undefined) {
+                  return true;
                 }
-              )
-              if (planWritePart) {
-                return true
-              }
 
-              const hasAnyPlanWrite = msg.parts.some(
-                (p: any) => p.type === "tool-PlanWrite",
-              )
-              if (hasAnyPlanWrite) {
-                return false
-              }
+                const planWritePart = msg.parts.find((p: any) => {
+                  if (p.type !== 'tool-PlanWrite') return false;
+                  if (p.output === undefined && p.result === undefined) return false;
+                  const plan = getPlanFromPlanWritePart(p);
+                  return Boolean(plan) && (plan.status ?? 'awaiting_approval') === 'awaiting_approval';
+                });
+                if (planWritePart) {
+                  return true;
+                }
 
-              const hasPendingAskUserQuestion = msg.parts.some(
-                (p: any) =>
-                  p.type === "tool-AskUserQuestion" &&
-                  p.input?.questions &&
-                  p.state !== "output-available" &&
-                  p.state !== "output-error" &&
-                  p.state !== "result",
-              )
-              if (hasPendingAskUserQuestion) {
-                return false
-              }
+                const hasAnyPlanWrite = msg.parts.some((p: any) => p.type === 'tool-PlanWrite');
+                if (hasAnyPlanWrite) {
+                  return false;
+                }
 
-              // Legacy Codex plans were text-only. Keep supporting those, but
-              // do not treat a live AskUserQuestion turn as plan approval.
-              const msgModel = (msg as any).metadata?.model
-              const hasTextPlan = msg.parts.some(
-                (p: any) => p.type === "text" && p.text?.trim(),
-              )
-              if (
-                msgModel &&
-                getProviderForModelId(String(msgModel)) === "codex" &&
-                hasTextPlan
-              ) {
-                return true
+                const hasPendingAskUserQuestion = msg.parts.some(
+                  (p: any) =>
+                    p.type === 'tool-AskUserQuestion' &&
+                    p.input?.questions &&
+                    p.state !== 'output-available' &&
+                    p.state !== 'output-error' &&
+                    p.state !== 'result'
+                );
+                if (hasPendingAskUserQuestion) {
+                  return false;
+                }
+
+                // Legacy Codex plans were text-only. Keep supporting those, but
+                // do not treat a live AskUserQuestion turn as plan approval.
+                const msgModel = (msg as any).metadata?.model;
+                const hasTextPlan = msg.parts.some((p: any) => p.type === 'text' && p.text?.trim());
+                if (msgModel && getProviderForModelId(String(msgModel)) === 'codex' && hasTextPlan) {
+                  return true;
+                }
               }
             }
+            return false;
+          };
+
+          if (hasPendingPlanApproval()) {
+            pendingApprovals.push({
+              subChatId: row.subChatId,
+              chatId: row.chatId
+            });
           }
-          return false
+        } catch {
+          // Skip invalid JSON
         }
-
-        if (hasPendingPlanApproval()) {
-          pendingApprovals.push({
-            subChatId: row.subChatId,
-            chatId: row.chatId,
-          })
-        }
-      } catch {
-        // Skip invalid JSON
       }
-    }
 
-    return pendingApprovals
-  }),
+      return pendingApprovals;
+    }),
 
   /**
    * Get worktree status for archive dialog
    * Returns whether workspace has a worktree and uncommitted changes count
    */
-  getWorktreeStatus: publicProcedure
-    .input(z.object({ chatId: z.string() }))
-    .query(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+  getWorktreeStatus: publicProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
+    const db = getDatabase();
+    const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
-      // No worktree if no branch (local mode)
-      if (!chat?.worktreePath || !chat?.branch) {
-        return { hasWorktree: false, uncommittedCount: 0 }
-      }
+    // No worktree if no branch (local mode)
+    if (!chat?.worktreePath || !chat?.branch) {
+      return { hasWorktree: false, uncommittedCount: 0 };
+    }
 
-      try {
-        const git = simpleGit(chat.worktreePath)
-        const status = await git.status()
+    try {
+      const git = simpleGit(chat.worktreePath);
+      const status = await git.status();
 
-        return {
-          hasWorktree: true,
-          uncommittedCount: status.files.length,
-        }
-      } catch (error) {
-        // Worktree path doesn't exist or git error
-        console.warn("[getWorktreeStatus] Error checking worktree:", error)
-        return { hasWorktree: false, uncommittedCount: 0 }
-      }
-    }),
+      return {
+        hasWorktree: true,
+        uncommittedCount: status.files.length
+      };
+    } catch (error) {
+      // Worktree path doesn't exist or git error
+      console.warn('[getWorktreeStatus] Error checking worktree:', error);
+      return { hasWorktree: false, uncommittedCount: 0 };
+    }
+  }),
 
   /**
    * Export a chat conversation to various formats.
@@ -2125,44 +1922,38 @@ export const chatsRouter = router({
       z.object({
         chatId: z.string(),
         subChatId: z.string().optional(), // If provided, export only this sub-chat
-        format: z.enum(["json", "markdown", "text"]).default("markdown"),
-      }),
+        format: z.enum(['json', 'markdown', 'text']).default('markdown')
+      })
     )
     .query(async ({ input }) => {
-      const db = getDatabase()
-      const chat = db
-        .select()
-        .from(chats)
-        .where(eq(chats.id, input.chatId))
-        .get()
+      const db = getDatabase();
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
       if (!chat) {
-        throw new Error("Chat not found")
+        throw new Error('Chat not found');
       }
 
-      const project = db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, chat.projectId))
-        .get()
+      const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 
       // Query sub-chats: either a specific one or all for the chat
-      let chatSubChats
+      let chatSubChats;
       if (input.subChatId) {
         // Export single sub-chat
         const singleSubChat = db
           .select()
           .from(subChats)
-          .where(and(
-            eq(subChats.id, input.subChatId),
-            eq(subChats.chatId, input.chatId) // Ensure sub-chat belongs to this chat
-          ))
-          .get()
+          .where(
+            and(
+              eq(subChats.id, input.subChatId),
+              eq(subChats.chatId, input.chatId) // Ensure sub-chat belongs to this chat
+            )
+          )
+          .get();
 
         if (!singleSubChat) {
-          throw new Error("Sub-chat not found")
+          throw new Error('Sub-chat not found');
         }
-        chatSubChats = [singleSubChat]
+        chatSubChats = [singleSubChat];
       } else {
         // Export all sub-chats
         chatSubChats = db
@@ -2170,29 +1961,29 @@ export const chatsRouter = router({
           .from(subChats)
           .where(eq(subChats.chatId, input.chatId))
           .orderBy(subChats.createdAt)
-          .all()
+          .all();
       }
 
       // parse messages from sub-chats
       const allMessages: Array<{
-        subChatId: string
-        subChatName: string | null
+        subChatId: string;
+        subChatName: string | null;
         messages: Array<{
-          id: string
-          role: string
-          parts: Array<{ type: string; text?: string; [key: string]: any }>
-          metadata?: any
-        }>
-      }> = []
+          id: string;
+          role: string;
+          parts: Array<{ type: string; text?: string; [key: string]: any }>;
+          metadata?: any;
+        }>;
+      }> = [];
 
       for (const subChat of chatSubChats) {
         try {
-          const messages = JSON.parse(subChat.messages || "[]")
+          const messages = JSON.parse(subChat.messages || '[]');
           allMessages.push({
             subChatId: subChat.id,
             subChatName: subChat.name,
-            messages,
-          })
+            messages
+          });
         } catch {
           // skip invalid json
         }
@@ -2200,24 +1991,27 @@ export const chatsRouter = router({
 
       // Sanitize filename - remove characters that are invalid on Windows/macOS/Linux
       const sanitizeFilename = (name: string): string => {
-        return name
-          .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_") // Invalid chars
-          .replace(/\s+/g, "_") // Replace spaces with underscores
-          .replace(/_+/g, "_") // Collapse multiple underscores
-          .replace(/^_|_$/g, "") // Trim underscores from ends
-          .slice(0, 100) // Limit length
-          || "chat" // Fallback if empty
-      }
+        return (
+          name
+            .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_') // Invalid chars
+            .replace(/\s+/g, '_') // Replace spaces with underscores
+            .replace(/_+/g, '_') // Collapse multiple underscores
+            .replace(/^_|_$/g, '') // Trim underscores from ends
+            .slice(0, 100) || // Limit length
+          'chat'
+        ); // Fallback if empty
+      };
 
       // Use sub-chat name if exporting single sub-chat, otherwise use chat name
-      const exportName = input.subChatId && chatSubChats[0]?.name
-        ? `${chat.name || "chat"}-${chatSubChats[0].name}`
-        : (chat.name || "chat")
-      const safeFilename = sanitizeFilename(exportName)
+      const exportName =
+        input.subChatId && chatSubChats[0]?.name
+          ? `${chat.name || 'chat'}-${chatSubChats[0].name}`
+          : chat.name || 'chat';
+      const safeFilename = sanitizeFilename(exportName);
 
-      if (input.format === "json") {
+      if (input.format === 'json') {
         return {
-          format: "json" as const,
+          format: 'json' as const,
           content: JSON.stringify(
             {
               exportedAt: new Date().toISOString(),
@@ -2227,99 +2021,96 @@ export const chatsRouter = router({
                 createdAt: chat.createdAt,
                 branch: chat.branch,
                 baseBranch: chat.baseBranch,
-                prUrl: chat.prUrl,
+                prUrl: chat.prUrl
               },
               project: project
                 ? {
                     id: project.id,
                     name: project.name,
-                    path: project.path,
+                    path: project.path
                   }
                 : null,
-              conversations: allMessages,
+              conversations: allMessages
             },
             null,
-            2,
+            2
           ),
-          filename: `${safeFilename}-${chat.id.slice(0, 8)}.json`,
-        }
+          filename: `${safeFilename}-${chat.id.slice(0, 8)}.json`
+        };
       }
 
-      if (input.format === "text") {
+      if (input.format === 'text') {
         // plain text format
-        let text = `# ${chat.name || "Untitled Chat"}\n`
-        text += `exported: ${new Date().toISOString()}\n`
+        let text = `# ${chat.name || 'Untitled Chat'}\n`;
+        text += `exported: ${new Date().toISOString()}\n`;
         if (project) {
-          text += `project: ${project.name}\n`
+          text += `project: ${project.name}\n`;
         }
-        text += `\n---\n\n`
+        text += `\n---\n\n`;
 
         for (const subChatData of allMessages) {
           if (subChatData.subChatName) {
-            text += `## ${subChatData.subChatName}\n\n`
+            text += `## ${subChatData.subChatName}\n\n`;
           }
 
           for (const msg of subChatData.messages) {
-            const role = msg.role === "user" ? "You" : "Assistant"
-            text += `${role}:\n`
+            const role = msg.role === 'user' ? 'You' : 'Assistant';
+            text += `${role}:\n`;
 
             for (const part of msg.parts || []) {
-              if (part.type === "text" && part.text) {
-                text += `${part.text}\n`
-              } else if (part.type?.startsWith("tool-") && part.toolName) {
-                text += `[used ${part.toolName} tool]\n`
+              if (part.type === 'text' && part.text) {
+                text += `${part.text}\n`;
+              } else if (part.type?.startsWith('tool-') && part.toolName) {
+                text += `[used ${part.toolName} tool]\n`;
               }
             }
-            text += "\n"
+            text += '\n';
           }
         }
 
         return {
-          format: "text" as const,
+          format: 'text' as const,
           content: text,
-          filename: `${safeFilename}-${chat.id.slice(0, 8)}.txt`,
-        }
+          filename: `${safeFilename}-${chat.id.slice(0, 8)}.txt`
+        };
       }
 
       // markdown format (default)
-      let markdown = `# ${chat.name || "Untitled Chat"}\n\n`
-      markdown += `**Exported:** ${new Date().toISOString()}\n\n`
+      let markdown = `# ${chat.name || 'Untitled Chat'}\n\n`;
+      markdown += `**Exported:** ${new Date().toISOString()}\n\n`;
       if (project) {
-        markdown += `**Project:** ${project.name}\n\n`
+        markdown += `**Project:** ${project.name}\n\n`;
       }
       if (chat.branch) {
-        markdown += `**Branch:** \`${chat.branch}\`\n\n`
+        markdown += `**Branch:** \`${chat.branch}\`\n\n`;
       }
       if (chat.prUrl) {
-        markdown += `**PR:** [${chat.prUrl}](${chat.prUrl})\n\n`
+        markdown += `**PR:** [${chat.prUrl}](${chat.prUrl})\n\n`;
       }
-      markdown += `---\n\n`
+      markdown += `---\n\n`;
 
       for (const subChatData of allMessages) {
         if (subChatData.subChatName) {
-          markdown += `## ${subChatData.subChatName}\n\n`
+          markdown += `## ${subChatData.subChatName}\n\n`;
         }
 
         for (const msg of subChatData.messages) {
-          const role = msg.role === "user" ? "**You**" : "**Assistant**"
-          markdown += `### ${role}\n\n`
+          const role = msg.role === 'user' ? '**You**' : '**Assistant**';
+          markdown += `### ${role}\n\n`;
 
           for (const part of msg.parts || []) {
-            if (part.type === "text" && part.text) {
-              markdown += `${part.text}\n\n`
-            } else if (part.type?.startsWith("tool-") && part.toolName) {
-              const toolName = part.toolName
-              if (toolName === "Bash" && part.input?.command) {
-                markdown += `\`\`\`bash\n${part.input.command}\n\`\`\`\n\n`
-              } else if (
-                (toolName === "Edit" || toolName === "Write") &&
-                part.input?.file_path
-              ) {
-                markdown += `> Modified: \`${part.input.file_path}\`\n\n`
-              } else if (toolName === "Read" && part.input?.file_path) {
-                markdown += `> Read: \`${part.input.file_path}\`\n\n`
+            if (part.type === 'text' && part.text) {
+              markdown += `${part.text}\n\n`;
+            } else if (part.type?.startsWith('tool-') && part.toolName) {
+              const toolName = part.toolName;
+              if (toolName === 'Bash' && part.input?.command) {
+                markdown += `\`\`\`bash\n${part.input.command}\n\`\`\`\n\n`;
+              } else if ((toolName === 'Edit' || toolName === 'Write') && part.input?.file_path) {
+                markdown += `> Modified: \`${part.input.file_path}\`\n\n`;
+              } else if (toolName === 'Read' && part.input?.file_path) {
+                markdown += `> Read: \`${part.input.file_path}\`\n\n`;
               } else {
-                markdown += `> *Used ${toolName} tool*\n\n`
+                markdown += `> *Used ${toolName} tool*\n\n`;
               }
             }
           }
@@ -2327,10 +2118,10 @@ export const chatsRouter = router({
       }
 
       return {
-        format: "markdown" as const,
+        format: 'markdown' as const,
         content: markdown,
-        filename: `${safeFilename}-${chat.id.slice(0, 8)}.md`,
-      }
+        filename: `${safeFilename}-${chat.id.slice(0, 8)}.md`
+      };
     }),
 
   /**
@@ -2339,70 +2130,65 @@ export const chatsRouter = router({
    * Useful for showing chat summary in sidebar or export dialogs.
    */
   getChatStats: publicProcedure
-    .input(z.object({
-      chatId: z.string(),
-      subChatId: z.string().optional(), // If provided, return stats for only this sub-chat
-    }))
+    .input(
+      z.object({
+        chatId: z.string(),
+        subChatId: z.string().optional() // If provided, return stats for only this sub-chat
+      })
+    )
     .query(({ input }) => {
-      const db = getDatabase()
+      const db = getDatabase();
 
-      let chatSubChats
+      let chatSubChats;
       if (input.subChatId) {
         // Get stats for a single sub-chat
         const singleSubChat = db
           .select()
           .from(subChats)
-          .where(and(
-            eq(subChats.id, input.subChatId),
-            eq(subChats.chatId, input.chatId)
-          ))
-          .get()
+          .where(and(eq(subChats.id, input.subChatId), eq(subChats.chatId, input.chatId)))
+          .get();
 
-        chatSubChats = singleSubChat ? [singleSubChat] : []
+        chatSubChats = singleSubChat ? [singleSubChat] : [];
       } else {
         // Get stats for all sub-chats
-        chatSubChats = db
-          .select()
-          .from(subChats)
-          .where(eq(subChats.chatId, input.chatId))
-          .all()
+        chatSubChats = db.select().from(subChats).where(eq(subChats.chatId, input.chatId)).all();
       }
 
-      let messageCount = 0
-      let userMessageCount = 0
-      let assistantMessageCount = 0
-      let toolCalls = 0
-      const toolUsage: Record<string, number> = {}
-      let totalInputTokens = 0
-      let totalOutputTokens = 0
+      let messageCount = 0;
+      let userMessageCount = 0;
+      let assistantMessageCount = 0;
+      let toolCalls = 0;
+      const toolUsage: Record<string, number> = {};
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
 
       for (const subChat of chatSubChats) {
         try {
-          const messages = JSON.parse(subChat.messages || "[]") as Array<{
-            role: string
-            parts?: Array<{ type: string; toolName?: string }>
-            metadata?: { usage?: { inputTokens?: number; outputTokens?: number } }
-          }>
+          const messages = JSON.parse(subChat.messages || '[]') as Array<{
+            role: string;
+            parts?: Array<{ type: string; toolName?: string }>;
+            metadata?: { usage?: { inputTokens?: number; outputTokens?: number } };
+          }>;
 
           for (const msg of messages) {
-            messageCount++
-            if (msg.role === "user") {
-              userMessageCount++
-            } else if (msg.role === "assistant") {
-              assistantMessageCount++
+            messageCount++;
+            if (msg.role === 'user') {
+              userMessageCount++;
+            } else if (msg.role === 'assistant') {
+              assistantMessageCount++;
 
               // count tool calls
               for (const part of msg.parts || []) {
-                if (part.type?.startsWith("tool-") && part.toolName) {
-                  toolCalls++
-                  toolUsage[part.toolName] = (toolUsage[part.toolName] || 0) + 1
+                if (part.type?.startsWith('tool-') && part.toolName) {
+                  toolCalls++;
+                  toolUsage[part.toolName] = (toolUsage[part.toolName] || 0) + 1;
                 }
               }
 
               // aggregate token usage
               if (msg.metadata?.usage) {
-                totalInputTokens += msg.metadata.usage.inputTokens || 0
-                totalOutputTokens += msg.metadata.usage.outputTokens || 0
+                totalInputTokens += msg.metadata.usage.inputTokens || 0;
+                totalOutputTokens += msg.metadata.usage.outputTokens || 0;
               }
             }
           }
@@ -2419,7 +2205,7 @@ export const chatsRouter = router({
         toolUsage,
         totalInputTokens,
         totalOutputTokens,
-        subChatCount: chatSubChats.length,
-      }
-    }),
-})
+        subChatCount: chatSubChats.length
+      };
+    })
+});

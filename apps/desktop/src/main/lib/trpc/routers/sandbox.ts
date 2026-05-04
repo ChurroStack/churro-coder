@@ -1,32 +1,24 @@
-import { z } from "zod"
-import { eq } from "drizzle-orm"
-import { getDatabase, sandboxSettings, projects, chats } from "../../db"
-import { publicProcedure, router } from "../index"
-import {
-  detectSandboxCapabilities,
-  osSandboxAvailable,
-  resolveSandboxPolicy,
-} from "../../sandbox/policy"
+import { z } from 'zod';
+import { eq } from 'drizzle-orm';
+import { getDatabase, sandboxSettings, projects, chats } from '../../db';
+import { publicProcedure, router } from '../index';
+import { detectSandboxCapabilities, osSandboxAvailable, resolveSandboxPolicy } from '../../sandbox/policy';
 
 export const sandboxRouter = router({
   getSettings: publicProcedure.query(async () => {
-    const db = getDatabase()
-    const settings = db
-      .select()
-      .from(sandboxSettings)
-      .where(eq(sandboxSettings.id, "singleton"))
-      .get()
+    const db = getDatabase();
+    const settings = db.select().from(sandboxSettings).where(eq(sandboxSettings.id, 'singleton')).get();
 
     return (
       settings ?? {
-        id: "singleton",
+        id: 'singleton',
         sandboxEnabled: true,
-        extraWritablePaths: "[]",
-        extraDeniedPaths: "[]",
+        extraWritablePaths: '[]',
+        extraDeniedPaths: '[]',
         allowToolchainCaches: true,
-        updatedAt: null,
+        updatedAt: null
       }
-    )
+    );
   }),
 
   setSettings: publicProcedure
@@ -35,58 +27,54 @@ export const sandboxRouter = router({
         sandboxEnabled: z.boolean().optional(),
         extraWritablePaths: z.string().optional(),
         extraDeniedPaths: z.string().optional(),
-        allowToolchainCaches: z.boolean().optional(),
-      }),
+        allowToolchainCaches: z.boolean().optional()
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
-      const existing = db
-        .select()
-        .from(sandboxSettings)
-        .where(eq(sandboxSettings.id, "singleton"))
-        .get()
+      const db = getDatabase();
+      const existing = db.select().from(sandboxSettings).where(eq(sandboxSettings.id, 'singleton')).get();
 
       if (existing) {
         db.update(sandboxSettings)
           .set({
             ...(input.sandboxEnabled !== undefined && {
-              sandboxEnabled: input.sandboxEnabled,
+              sandboxEnabled: input.sandboxEnabled
             }),
             ...(input.extraWritablePaths !== undefined && {
-              extraWritablePaths: input.extraWritablePaths,
+              extraWritablePaths: input.extraWritablePaths
             }),
             ...(input.extraDeniedPaths !== undefined && {
-              extraDeniedPaths: input.extraDeniedPaths,
+              extraDeniedPaths: input.extraDeniedPaths
             }),
             ...(input.allowToolchainCaches !== undefined && {
-              allowToolchainCaches: input.allowToolchainCaches,
+              allowToolchainCaches: input.allowToolchainCaches
             }),
-            updatedAt: new Date(),
+            updatedAt: new Date()
           })
-          .where(eq(sandboxSettings.id, "singleton"))
-          .run()
+          .where(eq(sandboxSettings.id, 'singleton'))
+          .run();
       } else {
         db.insert(sandboxSettings)
           .values({
-            id: "singleton",
+            id: 'singleton',
             sandboxEnabled: input.sandboxEnabled ?? true,
-            extraWritablePaths: input.extraWritablePaths ?? "[]",
-            extraDeniedPaths: input.extraDeniedPaths ?? "[]",
+            extraWritablePaths: input.extraWritablePaths ?? '[]',
+            extraDeniedPaths: input.extraDeniedPaths ?? '[]',
             allowToolchainCaches: input.allowToolchainCaches ?? true,
-            updatedAt: new Date(),
+            updatedAt: new Date()
           })
-          .run()
+          .run();
       }
-      return { ok: true }
+      return { ok: true };
     }),
 
   getCapabilities: publicProcedure.query(async () => {
-    const caps = detectSandboxCapabilities()
+    const caps = detectSandboxCapabilities();
     return {
       ...caps,
       osSandboxAvailable: osSandboxAvailable(),
-      platform: process.platform,
-    }
+      platform: process.platform
+    };
   }),
 
   getStatus: publicProcedure
@@ -94,51 +82,41 @@ export const sandboxRouter = router({
       z.object({
         chatId: z.string(),
         cwd: z.string(),
-        projectPath: z.string().optional(),
-      }),
+        projectPath: z.string().optional()
+      })
     )
     .query(async ({ input }) => {
-      const policy = await resolveSandboxPolicy(
-        input.chatId,
-        input.cwd,
-        input.projectPath ?? input.cwd,
-      )
+      const policy = await resolveSandboxPolicy(input.chatId, input.cwd, input.projectPath ?? input.cwd);
       return {
         enabled: policy.enabled,
         osSandboxAvailable: policy.osSandboxAvailable,
-        degraded: policy.enabled && !policy.osSandboxAvailable,
-      }
+        degraded: policy.enabled && !policy.osSandboxAvailable
+      };
     }),
 
   setProjectOverride: publicProcedure
     .input(
       z.object({
         projectId: z.string(),
-        sandboxEnabled: z.boolean().nullable(),
-      }),
+        sandboxEnabled: z.boolean().nullable()
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
-      db.update(projects)
-        .set({ sandboxEnabled: input.sandboxEnabled })
-        .where(eq(projects.id, input.projectId))
-        .run()
-      return { ok: true }
+      const db = getDatabase();
+      db.update(projects).set({ sandboxEnabled: input.sandboxEnabled }).where(eq(projects.id, input.projectId)).run();
+      return { ok: true };
     }),
 
   setChatOverride: publicProcedure
     .input(
       z.object({
         chatId: z.string(),
-        sandboxEnabled: z.boolean().nullable(),
-      }),
+        sandboxEnabled: z.boolean().nullable()
+      })
     )
     .mutation(async ({ input }) => {
-      const db = getDatabase()
-      db.update(chats)
-        .set({ sandboxEnabled: input.sandboxEnabled })
-        .where(eq(chats.id, input.chatId))
-        .run()
-      return { ok: true }
-    }),
-})
+      const db = getDatabase();
+      db.update(chats).set({ sandboxEnabled: input.sandboxEnabled }).where(eq(chats.id, input.chatId)).run();
+      return { ok: true };
+    })
+});

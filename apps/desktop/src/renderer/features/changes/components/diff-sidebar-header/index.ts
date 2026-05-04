@@ -1,1 +1,1 @@
-export { DiffSidebarHeader } from "./diff-sidebar-header";
+export { DiffSidebarHeader } from './diff-sidebar-header';

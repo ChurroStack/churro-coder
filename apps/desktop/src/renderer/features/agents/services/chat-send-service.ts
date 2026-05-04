@@ -32,26 +32,26 @@
  */
 
 export interface PendingMessage {
-  subChatId: string
+  subChatId: string;
   /** Plain text body (most pending atoms carry this shape). */
-  text?: string
+  text?: string;
   /** Pre-built parts (used by handleApprovePlan's deferred send). */
-  parts?: unknown[]
+  parts?: unknown[];
 }
 
 export interface SendDeps {
   /** Wraps the AI SDK `sendMessage` callback. Async because the SDK is. */
-  sendMessage: (msg: { role: "user"; parts: unknown[] }) => Promise<void> | void
+  sendMessage: (msg: { role: 'user'; parts: unknown[] }) => Promise<void> | void;
   /** Read current streaming activity. The renderer wires this to `isStreaming` from `useChat`. */
-  isStreaming: () => boolean
+  isStreaming: () => boolean;
   /** Optional logger. */
-  log?: (msg: string) => void
+  log?: (msg: string) => void;
 }
 
 export interface SendResult {
-  sent: boolean
+  sent: boolean;
   /** Set when sent=false; explains why the gate rejected. */
-  reason?: "no-pending" | "wrong-sub-chat" | "busy"
+  reason?: 'no-pending' | 'wrong-sub-chat' | 'busy';
 }
 
 /**
@@ -72,40 +72,35 @@ export async function sendPendingMessage(
   mountSubChatId: string,
   pending: PendingMessage | null,
   clearPending: () => void,
-  deps: SendDeps,
+  deps: SendDeps
 ): Promise<SendResult> {
-  const log = deps.log ?? (() => {})
+  const log = deps.log ?? (() => {});
 
   if (!pending) {
-    return { sent: false, reason: "no-pending" }
+    return { sent: false, reason: 'no-pending' };
   }
   if (pending.subChatId !== mountSubChatId) {
-    return { sent: false, reason: "wrong-sub-chat" }
+    return { sent: false, reason: 'wrong-sub-chat' };
   }
   if (deps.isStreaming()) {
-    return { sent: false, reason: "busy" }
+    return { sent: false, reason: 'busy' };
   }
 
   // Clear the pending atom FIRST. If we were to clear it after the send,
   // a re-render between the read and the await could see the stale value
   // and fire the prompt again. (This is the invariant from active-chat.tsx
   // line 2983 / 3010 / 3027 / 3043 / 3058 / 3493.)
-  clearPending()
+  clearPending();
 
-  const parts: unknown[] = pending.parts ?? [{ type: "text", text: pending.text ?? "" }]
+  const parts: unknown[] = pending.parts ?? [{ type: 'text', text: pending.text ?? '' }];
 
   try {
-    await deps.sendMessage({ role: "user", parts })
-    log(
-      `[SEND] sent sub=${mountSubChatId.slice(-8)} kind=${pending.parts ? "parts" : "text"}`,
-    )
-    return { sent: true }
+    await deps.sendMessage({ role: 'user', parts });
+    log(`[SEND] sent sub=${mountSubChatId.slice(-8)} kind=${pending.parts ? 'parts' : 'text'}`);
+    return { sent: true };
   } catch (err) {
-    log(
-      `[SEND] failed sub=${mountSubChatId.slice(-8)} ` +
-        `${err instanceof Error ? err.message : String(err)}`,
-    )
-    throw err
+    log(`[SEND] failed sub=${mountSubChatId.slice(-8)} ` + `${err instanceof Error ? err.message : String(err)}`);
+    throw err;
   }
 }
 
@@ -122,18 +117,18 @@ export async function sendPendingMessage(
 export async function drainFirstPending(
   mountSubChatId: string,
   candidates: ReadonlyArray<{
-    pending: PendingMessage | null
-    clearPending: () => void
+    pending: PendingMessage | null;
+    clearPending: () => void;
   }>,
-  deps: SendDeps,
+  deps: SendDeps
 ): Promise<SendResult> {
   if (deps.isStreaming()) {
-    return { sent: false, reason: "busy" }
+    return { sent: false, reason: 'busy' };
   }
 
   for (const { pending, clearPending } of candidates) {
-    if (!pending || pending.subChatId !== mountSubChatId) continue
-    return await sendPendingMessage(mountSubChatId, pending, clearPending, deps)
+    if (!pending || pending.subChatId !== mountSubChatId) continue;
+    return await sendPendingMessage(mountSubChatId, pending, clearPending, deps);
   }
-  return { sent: false, reason: "no-pending" }
+  return { sent: false, reason: 'no-pending' };
 }

@@ -1,44 +1,44 @@
 // Why Did You Render - MUST be first import (before React)
-import "./wdyr"
+import './wdyr';
 
-import ReactDOM from "react-dom/client"
-import { App } from "./App"
+import ReactDOM from 'react-dom/client';
+import { App } from './App';
 // Import dockview's stylesheet first so globals.css can override --dv-*
 // custom properties below. CSS source order = specificity tiebreaker.
-import "dockview-react/dist/styles/dockview.css"
-import "./styles/globals.css"
-import { preloadDiffHighlighter } from "./lib/themes/diff-view-highlighter"
+import 'dockview-react/dist/styles/dockview.css';
+import './styles/globals.css';
+import { preloadDiffHighlighter } from './lib/themes/diff-view-highlighter';
 
 // Preload shiki highlighter for diff view (prevents delay when opening diff sidebar)
-preloadDiffHighlighter()
+preloadDiffHighlighter();
 
 // Suppress ResizeObserver loop error - this is a non-fatal browser warning
 // that can occur when layout changes trigger observation callbacks
 // Common with virtualization libraries and diff viewers
-const resizeObserverErr = /ResizeObserver loop/
+const resizeObserverErr = /ResizeObserver loop/;
 
 // Handle both error event and unhandledrejection
-window.addEventListener("error", (e) => {
+window.addEventListener('error', (e) => {
   if (e.message && resizeObserverErr.test(e.message)) {
-    e.stopImmediatePropagation()
-    e.preventDefault()
-    return false
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    return false;
   }
-})
+});
 
 // Also override window.onerror for broader coverage
-const originalOnError = window.onerror
+const originalOnError = window.onerror;
 window.onerror = (message, source, lineno, colno, error) => {
-  if (typeof message === "string" && resizeObserverErr.test(message)) {
-    return true // Suppress the error
+  if (typeof message === 'string' && resizeObserverErr.test(message)) {
+    return true; // Suppress the error
   }
   if (originalOnError) {
-    return originalOnError(message, source, lineno, colno, error)
+    return originalOnError(message, source, lineno, colno, error);
   }
-  return false
-}
+  return false;
+};
 
-const rootElement = document.getElementById("root")
+const rootElement = document.getElementById('root');
 
 if (rootElement) {
   ReactDOM.createRoot(rootElement, {
@@ -47,8 +47,8 @@ if (rootElement) {
       // which auto-reloads. Log here for dev visibility, but don't let
       // React's default re-throw to window.onerror — the global handler
       // in index.html would race the boundary's recovery.
-      console.error("[React] Recoverable error:", error, errorInfo)
-    },
-  }).render(<App />)
-  ;(window as unknown as { __churroReactMounted: boolean }).__churroReactMounted = true
+      console.error('[React] Recoverable error:', error, errorInfo);
+    }
+  }).render(<App />);
+  (window as unknown as { __churroReactMounted: boolean }).__churroReactMounted = true;
 }

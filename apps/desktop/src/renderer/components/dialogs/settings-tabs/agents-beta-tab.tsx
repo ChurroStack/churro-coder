@@ -1,56 +1,50 @@
-import { useAtom } from "jotai"
-import { Check, Copy, RefreshCw } from "lucide-react"
-import { useEffect, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useAtom } from 'jotai';
+import { Check, Copy, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   autoOfflineModeAtom,
   betaAutomationsEnabledAtom,
   betaUpdatesEnabledAtom,
   historyEnabledAtom,
   selectedOllamaModelAtom,
-  showOfflineModeFeaturesAtom,
-} from "../../../lib/atoms"
-import { trpc } from "../../../lib/trpc"
-import { remoteTrpc } from "../../../lib/remote-trpc"
-import { cn } from "../../../lib/utils"
-import { Button } from "../../ui/button"
-import { ExternalLinkIcon } from "../../ui/icons"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../ui/select"
-import { Switch } from "../../ui/switch"
+  showOfflineModeFeaturesAtom
+} from '../../../lib/atoms';
+import { trpc } from '../../../lib/trpc';
+import { remoteTrpc } from '../../../lib/remote-trpc';
+import { cn } from '../../../lib/utils';
+import { Button } from '../../ui/button';
+import { ExternalLinkIcon } from '../../ui/icons';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
+import { Switch } from '../../ui/switch';
 
 // Hook to detect narrow screen
 function useIsNarrowScreen(): boolean {
-  const [isNarrow, setIsNarrow] = useState(false)
+  const [isNarrow, setIsNarrow] = useState(false);
 
   useEffect(() => {
     const checkWidth = () => {
-      setIsNarrow(window.innerWidth <= 768)
-    }
+      setIsNarrow(window.innerWidth <= 768);
+    };
 
-    checkWidth()
-    window.addEventListener("resize", checkWidth)
-    return () => window.removeEventListener("resize", checkWidth)
-  }, [])
+    checkWidth();
+    window.addEventListener('resize', checkWidth);
+    return () => window.removeEventListener('resize', checkWidth);
+  }, []);
 
-  return isNarrow
+  return isNarrow;
 }
 
-const MINIMUM_OLLAMA_VERSION = "0.14.2"
-const RECOMMENDED_MODEL = "qwen3-coder:30b"
+const MINIMUM_OLLAMA_VERSION = '0.14.2';
+const RECOMMENDED_MODEL = 'qwen3-coder:30b';
 
 export function AgentsBetaTab() {
-  const isNarrowScreen = useIsNarrowScreen()
-  const [historyEnabled, setHistoryEnabled] = useAtom(historyEnabledAtom)
-  const [showOfflineFeatures, setShowOfflineFeatures] = useAtom(showOfflineModeFeaturesAtom)
-  const [autoOffline, setAutoOffline] = useAtom(autoOfflineModeAtom)
-  const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom)
-  const [automationsEnabled, setAutomationsEnabled] = useAtom(betaAutomationsEnabledAtom)
+  const isNarrowScreen = useIsNarrowScreen();
+  const [historyEnabled, setHistoryEnabled] = useAtom(historyEnabledAtom);
+  const [showOfflineFeatures, setShowOfflineFeatures] = useAtom(showOfflineModeFeaturesAtom);
+  const [autoOffline, setAutoOffline] = useAtom(autoOfflineModeAtom);
+  const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom);
+  const [automationsEnabled, setAutomationsEnabled] = useAtom(betaAutomationsEnabledAtom);
   // UPDATES-DISABLED: re-enable to restore beta updates toggle
   // const [betaUpdatesEnabled, setBetaUpdatesEnabled] = useAtom(betaUpdatesEnabledAtom)
 
@@ -62,7 +56,7 @@ export function AgentsBetaTab() {
   // const isPaidPlan = subscription?.type !== "free" && !!subscription?.type
   // const isDev = process.env.NODE_ENV === "development"
   // const canEnableAutomations = isPaidPlan || isDev
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState(false);
   // UPDATES-DISABLED: re-enable to restore update check state + handlers
   /*
   const [updateStatus, setUpdateStatus] = useState<"idle" | "checking" | "available" | "not-available" | "error">("idle")
@@ -107,14 +101,14 @@ export function AgentsBetaTab() {
   // Get Ollama status
   const { data: ollamaStatus } = trpc.ollama.getStatus.useQuery(undefined, {
     refetchInterval: showOfflineFeatures ? 30000 : false, // Only poll when feature is enabled
-    enabled: showOfflineFeatures,
-  })
+    enabled: showOfflineFeatures
+  });
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(`ollama pull ${RECOMMENDED_MODEL}`)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+    navigator.clipboard.writeText(`ollama pull ${RECOMMENDED_MODEL}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -133,33 +127,23 @@ export function AgentsBetaTab() {
         {/* Rollback Toggle */}
         <div className="flex items-center justify-between p-4">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Rollback
-            </span>
+            <span className="text-sm font-medium text-foreground">Rollback</span>
             <span className="text-xs text-muted-foreground">
               Allow rolling back to previous messages and restoring files.
             </span>
           </div>
-          <Switch
-            checked={historyEnabled}
-            onCheckedChange={setHistoryEnabled}
-          />
+          <Switch checked={historyEnabled} onCheckedChange={setHistoryEnabled} />
         </div>
 
         {/* Ollama Fallback Mode Toggle */}
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Ollama fallback mode
-            </span>
+            <span className="text-sm font-medium text-foreground">Ollama fallback mode</span>
             <span className="text-xs text-muted-foreground">
               Enable Ollama integration for local LLM fallback (commit messages, chat names).
             </span>
           </div>
-          <Switch
-            checked={showOfflineFeatures}
-            onCheckedChange={setShowOfflineFeatures}
-          />
+          <Switch checked={showOfflineFeatures} onCheckedChange={setShowOfflineFeatures} />
         </div>
 
         {/* OFFLINE-MODE: Automations & Inbox toggle hidden (require cloud backend) */}
@@ -184,7 +168,6 @@ export function AgentsBetaTab() {
             disabled={!canEnableAutomations}
           />
         </div> */}
-
       </div>
 
       {/* Ollama Fallback Settings - only show when feature is enabled */}
@@ -199,9 +182,7 @@ export function AgentsBetaTab() {
               {/* Status */}
               <div className="flex items-center justify-between gap-4">
                 <div className="flex-1">
-                  <span className="text-sm font-medium text-foreground">
-                    Ollama Status
-                  </span>
+                  <span className="text-sm font-medium text-foreground">Ollama Status</span>
                   <p className="text-xs text-muted-foreground">
                     {ollamaStatus?.ollama.available
                       ? `Running - ${ollamaStatus.ollama.models.length} model${ollamaStatus.ollama.models.length !== 1 ? 's' : ''} installed`
@@ -227,23 +208,18 @@ export function AgentsBetaTab() {
               {ollamaStatus?.ollama.available && ollamaStatus.ollama.models.length > 0 && (
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-foreground">
-                      Model
-                    </span>
-                    <p className="text-xs text-muted-foreground">
-                      Select which model to use for offline mode
-                    </p>
+                    <span className="text-sm font-medium text-foreground">Model</span>
+                    <p className="text-xs text-muted-foreground">Select which model to use for offline mode</p>
                   </div>
                   <Select
                     value={selectedOllamaModel || ollamaStatus.ollama.recommendedModel || ollamaStatus.ollama.models[0]}
-                    onValueChange={(value) => setSelectedOllamaModel(value)}
-                  >
+                    onValueChange={(value) => setSelectedOllamaModel(value)}>
                     <SelectTrigger className="w-auto shrink-0">
                       <SelectValue placeholder="Select model" />
                     </SelectTrigger>
                     <SelectContent>
                       {ollamaStatus.ollama.models.map((model) => {
-                        const isRecommended = model === ollamaStatus.ollama.recommendedModel
+                        const isRecommended = model === ollamaStatus.ollama.recommendedModel;
                         return (
                           <SelectItem key={model} value={model}>
                             <span className="truncate">
@@ -253,7 +229,7 @@ export function AgentsBetaTab() {
                               )}
                             </span>
                           </SelectItem>
-                        )
+                        );
                       })}
                     </SelectContent>
                   </Select>
@@ -263,17 +239,12 @@ export function AgentsBetaTab() {
               {/* Auto-fallback toggle */}
               <div className="flex items-center justify-between gap-4">
                 <div className="flex-1">
-                  <span className="text-sm font-medium text-foreground">
-                    Auto Ollama Fallback
-                  </span>
+                  <span className="text-sm font-medium text-foreground">Auto Ollama Fallback</span>
                   <p className="text-xs text-muted-foreground">
                     Automatically use Ollama for commit messages and chat names
                   </p>
                 </div>
-                <Switch
-                  checked={autoOffline}
-                  onCheckedChange={setAutoOffline}
-                />
+                <Switch checked={autoOffline} onCheckedChange={setAutoOffline} />
               </div>
 
               {/* Installation instructions - always show */}
@@ -281,38 +252,36 @@ export function AgentsBetaTab() {
                 <p className="font-medium">Setup Instructions:</p>
                 <ol className="list-decimal list-inside space-y-1 ml-2">
                   <li>
-                    Install Ollama {MINIMUM_OLLAMA_VERSION}+ from{" "}
+                    Install Ollama {MINIMUM_OLLAMA_VERSION}+ from{' '}
                     <a
                       href="https://ollama.com"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="underline inline-flex items-center gap-0.5"
-                    >
+                      className="underline inline-flex items-center gap-0.5">
                       ollama.com
                       <ExternalLinkIcon className="h-3 w-3" />
                     </a>
                   </li>
                   <li>
-                    Pull the recommended model:{" "}
+                    Pull the recommended model:{' '}
                     <code className="relative inline-flex items-center gap-1 bg-background pl-1.5 pr-0.5 py-0.5 rounded-md">
                       <span>ollama pull {RECOMMENDED_MODEL}</span>
                       <button
                         type="button"
                         onClick={handleCopy}
                         className="p-1 hover:bg-muted rounded transition-colors"
-                        title={copied ? "Copied!" : "Copy command"}
-                      >
+                        title={copied ? 'Copied!' : 'Copy command'}>
                         <div className="relative w-3 h-3">
                           <Copy
                             className={cn(
-                              "absolute inset-0 w-3 h-3 text-muted-foreground transition-[opacity,transform] duration-200 ease-out hover:text-foreground",
-                              copied ? "opacity-0 scale-50" : "opacity-100 scale-100",
+                              'absolute inset-0 w-3 h-3 text-muted-foreground transition-[opacity,transform] duration-200 ease-out hover:text-foreground',
+                              copied ? 'opacity-0 scale-50' : 'opacity-100 scale-100'
                             )}
                           />
                           <Check
                             className={cn(
-                              "absolute inset-0 w-3 h-3 text-muted-foreground transition-[opacity,transform] duration-200 ease-out",
-                              copied ? "opacity-100 scale-100" : "opacity-0 scale-50",
+                              'absolute inset-0 w-3 h-3 text-muted-foreground transition-[opacity,transform] duration-200 ease-out',
+                              copied ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
                             )}
                           />
                         </div>
@@ -385,5 +354,5 @@ export function AgentsBetaTab() {
       </div>
       */}
     </div>
-  )
+  );
 }

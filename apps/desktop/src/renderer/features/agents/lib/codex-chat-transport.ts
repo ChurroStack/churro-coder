@@ -1,5 +1,5 @@
-import type { ChatTransport, UIMessage } from "ai"
-import { toast } from "sonner"
+import type { ChatTransport, UIMessage } from 'ai';
+import { toast } from 'sonner';
 import {
   codexApiKeyAtom,
   codexLoginModalOpenAtom,
@@ -7,10 +7,10 @@ import {
   codexOnboardingCompletedAtom,
   enableTasksAtom,
   normalizeCodexApiKey,
-  sessionInfoAtom,
-} from "../../../lib/atoms"
-import { appStore } from "../../../lib/jotai-store"
-import { trpcClient } from "../../../lib/trpc"
+  sessionInfoAtom
+} from '../../../lib/atoms';
+import { appStore } from '../../../lib/jotai-store';
+import { trpcClient } from '../../../lib/trpc';
 import {
   askUserQuestionResultsAtom,
   expiredUserQuestionsAtom,
@@ -18,171 +18,162 @@ import {
   pendingAuthRetryMessageAtom,
   pendingUserQuestionsAtom,
   subChatCodexModelIdAtomFamily,
-  subChatCodexThinkingAtomFamily,
-} from "../atoms"
-import { CODEX_MODELS, type CodexThinkingLevel } from "./models"
-import { getCurrentSubChatMode } from "./get-current-sub-chat-mode"
-import type { AgentMessageMetadata } from "../ui/agent-message-usage"
+  subChatCodexThinkingAtomFamily
+} from '../atoms';
+import { CODEX_MODELS, type CodexThinkingLevel } from './models';
+import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
+import type { AgentMessageMetadata } from '../ui/agent-message-usage';
 
-type UIMessageChunk = any
+type UIMessageChunk = any;
 
 type CodexChatTransportConfig = {
-  chatId: string
-  subChatId: string
-  cwd: string
-  projectPath?: string
-  provider: "codex"
-}
+  chatId: string;
+  subChatId: string;
+  cwd: string;
+  projectPath?: string;
+  provider: 'codex';
+};
 
 type ImageAttachment = {
-  base64Data: string
-  mediaType: string
-  filename?: string
-}
+  base64Data: string;
+  mediaType: string;
+  filename?: string;
+};
 
 // When a sub-chat hits auth-error, force one fresh Codex app-server thread on next send.
-const forceFreshSessionSubChats = new Set<string>()
-const DEFAULT_CODEX_MODEL = "gpt-5.3-codex/high"
+const forceFreshSessionSubChats = new Set<string>();
+const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex/high';
 function getStoredCodexCredentials(): {
-  hasApiKey: boolean
-  hasSubscription: boolean
-  hasAny: boolean
+  hasApiKey: boolean;
+  hasSubscription: boolean;
+  hasAny: boolean;
 } {
-  const hasApiKey = Boolean(normalizeCodexApiKey(appStore.get(codexApiKeyAtom)))
+  const hasApiKey = Boolean(normalizeCodexApiKey(appStore.get(codexApiKeyAtom)));
   const hasSubscription =
-    appStore.get(codexOnboardingCompletedAtom) &&
-    appStore.get(codexOnboardingAuthMethodAtom) === "chatgpt"
+    appStore.get(codexOnboardingCompletedAtom) && appStore.get(codexOnboardingAuthMethodAtom) === 'chatgpt';
 
   return {
     hasApiKey,
     hasSubscription,
-    hasAny: hasApiKey || hasSubscription,
-  }
+    hasAny: hasApiKey || hasSubscription
+  };
 }
 
 async function resolveCodexCredentialsForAuthError(): Promise<{
-  hasApiKey: boolean
-  hasSubscription: boolean
-  hasAny: boolean
+  hasApiKey: boolean;
+  hasSubscription: boolean;
+  hasAny: boolean;
 }> {
-  const snapshot = getStoredCodexCredentials()
+  const snapshot = getStoredCodexCredentials();
 
-  let hasSubscription = false
+  let hasSubscription = false;
   try {
-    const integration = await trpcClient.codex.getIntegration.query()
-    hasSubscription = integration.state === "connected_chatgpt"
+    const integration = await trpcClient.codex.getIntegration.query();
+    hasSubscription = integration.state === 'connected_chatgpt';
   } catch {
-    hasSubscription = false
+    hasSubscription = false;
   }
 
   return {
     hasApiKey: snapshot.hasApiKey,
     hasSubscription,
-    hasAny: snapshot.hasApiKey || hasSubscription,
-  }
+    hasAny: snapshot.hasApiKey || hasSubscription
+  };
 }
 
 function getSelectedCodexModel(subChatId: string): string {
-  const selectedModelId = appStore.get(subChatCodexModelIdAtomFamily(subChatId))
-  const selectedThinking = appStore.get(subChatCodexThinkingAtomFamily(subChatId))
+  const selectedModelId = appStore.get(subChatCodexModelIdAtomFamily(subChatId));
+  const selectedThinking = appStore.get(subChatCodexThinkingAtomFamily(subChatId));
   const selectedModel =
     CODEX_MODELS.find((model) => model.id === selectedModelId) ||
-    CODEX_MODELS.find((model) => model.id === "gpt-5.3-codex") ||
-    CODEX_MODELS[0]
+    CODEX_MODELS.find((model) => model.id === 'gpt-5.3-codex') ||
+    CODEX_MODELS[0];
 
   if (!selectedModel) {
-    return DEFAULT_CODEX_MODEL
+    return DEFAULT_CODEX_MODEL;
   }
 
-  const normalizedThinking = selectedModel.thinkings.includes(
-    selectedThinking as CodexThinkingLevel,
-  )
+  const normalizedThinking = selectedModel.thinkings.includes(selectedThinking as CodexThinkingLevel)
     ? (selectedThinking as CodexThinkingLevel)
-    : selectedModel.thinkings.includes("high")
-      ? "high"
-      : selectedModel.thinkings[0]
+    : selectedModel.thinkings.includes('high')
+      ? 'high'
+      : selectedModel.thinkings[0];
 
   if (!normalizedThinking) {
-    return DEFAULT_CODEX_MODEL
+    return DEFAULT_CODEX_MODEL;
   }
 
-  return `${selectedModel.id}/${normalizedThinking}`
+  return `${selectedModel.id}/${normalizedThinking}`;
 }
 
 export class CodexChatTransport implements ChatTransport<UIMessage> {
   constructor(private config: CodexChatTransportConfig) {}
 
   async sendMessages(options: {
-    messages: UIMessage[]
-    abortSignal?: AbortSignal
+    messages: UIMessage[];
+    abortSignal?: AbortSignal;
   }): Promise<ReadableStream<UIMessageChunk>> {
-    const lastUser = [...options.messages]
-      .reverse()
-      .find((message) => message.role === "user")
+    const lastUser = [...options.messages].reverse().find((message) => message.role === 'user');
 
-    const prompt = this.extractText(lastUser)
-    const images = this.extractImages(lastUser)
+    const prompt = this.extractText(lastUser);
+    const images = this.extractImages(lastUser);
 
-    const lastAssistant = [...options.messages]
-      .reverse()
-      .find((message) => message.role === "assistant")
-    const metadata = lastAssistant?.metadata as AgentMessageMetadata | undefined
-    const sessionId = metadata?.sessionId
+    const lastAssistant = [...options.messages].reverse().find((message) => message.role === 'assistant');
+    const metadata = lastAssistant?.metadata as AgentMessageMetadata | undefined;
+    const sessionId = metadata?.sessionId;
 
-    const currentMode = getCurrentSubChatMode(this.config.subChatId)
-    const forceNewSession = forceFreshSessionSubChats.has(this.config.subChatId)
+    const currentMode = getCurrentSubChatMode(this.config.subChatId);
+    const forceNewSession = forceFreshSessionSubChats.has(this.config.subChatId);
     if (forceNewSession) {
-      forceFreshSessionSubChats.delete(this.config.subChatId)
+      forceFreshSessionSubChats.delete(this.config.subChatId);
     }
-    const codexApiKey = normalizeCodexApiKey(appStore.get(codexApiKeyAtom))
-    const selectedModel = getSelectedCodexModel(this.config.subChatId)
-    const enableTasks = appStore.get(enableTasksAtom)
+    const codexApiKey = normalizeCodexApiKey(appStore.get(codexApiKeyAtom));
+    const selectedModel = getSelectedCodexModel(this.config.subChatId);
+    const enableTasks = appStore.get(enableTasksAtom);
 
-    const lastAssistantModel = (metadata as any)?.model
+    const lastAssistantModel = (metadata as any)?.model;
 
     // Drop Claude session UUIDs before they reach the Codex router — the Codex
     // router's getLastSessionId already filters to Codex-only thread IDs, but
     // passing a Claude UUID as input.sessionId bypasses that filter.
     const sessionLooksLikeClaude =
-      typeof sessionId === "string" &&
-      typeof lastAssistantModel === "string" &&
-      lastAssistantModel in MODEL_ID_MAP
+      typeof sessionId === 'string' && typeof lastAssistantModel === 'string' && lastAssistantModel in MODEL_ID_MAP;
 
-    const codexSessionId = sessionLooksLikeClaude ? undefined : sessionId
+    const codexSessionId = sessionLooksLikeClaude ? undefined : sessionId;
     if (sessionLooksLikeClaude) {
       console.warn(
         `[SD] R:CLAUDE-SESSION-DROP sub=${this.config.subChatId.slice(-8)} ` +
-        `lastAssistantModel=${lastAssistantModel} → dropping leaked Claude session UUID`,
-      )
+          `lastAssistantModel=${lastAssistantModel} → dropping leaked Claude session UUID`
+      );
     }
 
     console.log(
       `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
-      `provider=codex mode=${currentMode} ` +
-      `sessionIdShort=${codexSessionId?.slice(-8) ?? "none"} ` +
-      `lastAssistantModel=${lastAssistantModel ?? "none"} ` +
-      `selectedModel=${selectedModel}`,
-    )
+        `provider=codex mode=${currentMode} ` +
+        `sessionIdShort=${codexSessionId?.slice(-8) ?? 'none'} ` +
+        `lastAssistantModel=${lastAssistantModel ?? 'none'} ` +
+        `selectedModel=${selectedModel}`
+    );
 
     return new ReadableStream({
       start: (controller) => {
-        const runId = crypto.randomUUID()
-        let sub: { unsubscribe: () => void } | null = null
-        let didUnsubscribe = false
-        let forcedUnsubscribeTimer: ReturnType<typeof setTimeout> | null = null
+        const runId = crypto.randomUUID();
+        let sub: { unsubscribe: () => void } | null = null;
+        let didUnsubscribe = false;
+        let forcedUnsubscribeTimer: ReturnType<typeof setTimeout> | null = null;
 
         const clearForcedUnsubscribeTimer = () => {
-          if (!forcedUnsubscribeTimer) return
-          clearTimeout(forcedUnsubscribeTimer)
-          forcedUnsubscribeTimer = null
-        }
+          if (!forcedUnsubscribeTimer) return;
+          clearTimeout(forcedUnsubscribeTimer);
+          forcedUnsubscribeTimer = null;
+        };
 
         const safeUnsubscribe = () => {
-          if (didUnsubscribe) return
-          didUnsubscribe = true
-          clearForcedUnsubscribeTimer()
-          sub?.unsubscribe()
-        }
+          if (didUnsubscribe) return;
+          didUnsubscribe = true;
+          clearForcedUnsubscribeTimer();
+          sub?.unsubscribe();
+        };
 
         sub = trpcClient.codex.chat.subscribe(
           {
@@ -191,9 +182,7 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
             runId,
             prompt,
             cwd: this.config.cwd,
-            ...(this.config.projectPath
-              ? { projectPath: this.config.projectPath }
-              : {}),
+            ...(this.config.projectPath ? { projectPath: this.config.projectPath } : {}),
             model: selectedModel,
             mode: currentMode,
             ...(codexSessionId ? { sessionId: codexSessionId } : {}),
@@ -203,157 +192,155 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
             ...(codexApiKey
               ? {
                   authConfig: {
-                    apiKey: codexApiKey,
-                  },
+                    apiKey: codexApiKey
+                  }
                 }
-              : {}),
+              : {})
           },
           {
             onData: (chunk: UIMessageChunk) => {
-              if (chunk.type === "session-init") {
+              if (chunk.type === 'session-init') {
                 appStore.set(sessionInfoAtom, {
                   tools: chunk.tools || [],
                   mcpServers: chunk.mcpServers || [],
                   plugins: chunk.plugins || [],
-                  skills: chunk.skills || [],
-                })
+                  skills: chunk.skills || []
+                });
               }
 
-              if (chunk.type === "ask-user-question") {
-                const currentMap = appStore.get(pendingUserQuestionsAtom)
-                const newMap = new Map(currentMap)
+              if (chunk.type === 'ask-user-question') {
+                const currentMap = appStore.get(pendingUserQuestionsAtom);
+                const newMap = new Map(currentMap);
                 newMap.set(this.config.subChatId, {
                   subChatId: this.config.subChatId,
                   parentChatId: this.config.chatId,
                   toolUseId: chunk.toolUseId,
-                  questions: chunk.questions,
-                })
-                appStore.set(pendingUserQuestionsAtom, newMap)
+                  questions: chunk.questions
+                });
+                appStore.set(pendingUserQuestionsAtom, newMap);
 
-                const currentExpired = appStore.get(expiredUserQuestionsAtom)
+                const currentExpired = appStore.get(expiredUserQuestionsAtom);
                 if (currentExpired.has(this.config.subChatId)) {
-                  const newExpiredMap = new Map(currentExpired)
-                  newExpiredMap.delete(this.config.subChatId)
-                  appStore.set(expiredUserQuestionsAtom, newExpiredMap)
+                  const newExpiredMap = new Map(currentExpired);
+                  newExpiredMap.delete(this.config.subChatId);
+                  appStore.set(expiredUserQuestionsAtom, newExpiredMap);
                 }
               }
 
-              if (chunk.type === "ask-user-question-timeout") {
-                const currentMap = appStore.get(pendingUserQuestionsAtom)
-                const pending = currentMap.get(this.config.subChatId)
+              if (chunk.type === 'ask-user-question-timeout') {
+                const currentMap = appStore.get(pendingUserQuestionsAtom);
+                const pending = currentMap.get(this.config.subChatId);
                 if (pending && pending.toolUseId === chunk.toolUseId) {
-                  const newPendingMap = new Map(currentMap)
-                  newPendingMap.delete(this.config.subChatId)
-                  appStore.set(pendingUserQuestionsAtom, newPendingMap)
+                  const newPendingMap = new Map(currentMap);
+                  newPendingMap.delete(this.config.subChatId);
+                  appStore.set(pendingUserQuestionsAtom, newPendingMap);
 
-                  const currentExpired = appStore.get(expiredUserQuestionsAtom)
-                  const newExpiredMap = new Map(currentExpired)
-                  newExpiredMap.set(this.config.subChatId, pending)
-                  appStore.set(expiredUserQuestionsAtom, newExpiredMap)
+                  const currentExpired = appStore.get(expiredUserQuestionsAtom);
+                  const newExpiredMap = new Map(currentExpired);
+                  newExpiredMap.set(this.config.subChatId, pending);
+                  appStore.set(expiredUserQuestionsAtom, newExpiredMap);
                 }
               }
 
-              if (chunk.type === "ask-user-question-result") {
-                const currentResults = appStore.get(askUserQuestionResultsAtom)
-                const newResults = new Map(currentResults)
-                newResults.set(chunk.toolUseId, chunk.result)
-                appStore.set(askUserQuestionResultsAtom, newResults)
+              if (chunk.type === 'ask-user-question-result') {
+                const currentResults = appStore.get(askUserQuestionResultsAtom);
+                const newResults = new Map(currentResults);
+                newResults.set(chunk.toolUseId, chunk.result);
+                appStore.set(askUserQuestionResultsAtom, newResults);
               }
 
               const shouldClearQuestionOnChunk =
-                chunk.type !== "ask-user-question" &&
-                chunk.type !== "ask-user-question-timeout" &&
-                chunk.type !== "ask-user-question-result" &&
-                !chunk.type.startsWith("tool-input") &&
-                chunk.type !== "start" &&
-                chunk.type !== "start-step"
+                chunk.type !== 'ask-user-question' &&
+                chunk.type !== 'ask-user-question-timeout' &&
+                chunk.type !== 'ask-user-question-result' &&
+                !chunk.type.startsWith('tool-input') &&
+                chunk.type !== 'start' &&
+                chunk.type !== 'start-step';
 
               if (shouldClearQuestionOnChunk) {
-                const currentMap = appStore.get(pendingUserQuestionsAtom)
+                const currentMap = appStore.get(pendingUserQuestionsAtom);
                 if (currentMap.has(this.config.subChatId)) {
-                  const newMap = new Map(currentMap)
-                  newMap.delete(this.config.subChatId)
-                  appStore.set(pendingUserQuestionsAtom, newMap)
+                  const newMap = new Map(currentMap);
+                  newMap.delete(this.config.subChatId);
+                  appStore.set(pendingUserQuestionsAtom, newMap);
                 }
               }
 
-              if (chunk.type === "auth-error") {
-                forceFreshSessionSubChats.add(this.config.subChatId)
+              if (chunk.type === 'auth-error') {
+                forceFreshSessionSubChats.add(this.config.subChatId);
 
                 void (async () => {
-                  const credentials = await resolveCodexCredentialsForAuthError()
-                  const shouldAutoRetryOnce = credentials.hasAny && !forceNewSession
+                  const credentials = await resolveCodexCredentialsForAuthError();
+                  const shouldAutoRetryOnce = credentials.hasAny && !forceNewSession;
 
                   appStore.set(pendingAuthRetryMessageAtom, {
                     subChatId: this.config.subChatId,
-                    provider: "codex",
+                    provider: 'codex',
                     prompt,
                     ...(images.length > 0 && { images }),
-                    readyToRetry: shouldAutoRetryOnce,
-                  })
+                    readyToRetry: shouldAutoRetryOnce
+                  });
 
                   if (!credentials.hasAny) {
-                    appStore.set(codexLoginModalOpenAtom, true)
+                    appStore.set(codexLoginModalOpenAtom, true);
                   } else if (!shouldAutoRetryOnce) {
-                    toast.error("Codex authentication failed", {
+                    toast.error('Codex authentication failed', {
                       description: credentials.hasApiKey
-                        ? "Saved Codex API key was rejected. Update it in Settings."
-                        : "Saved Codex subscription auth failed. Reconnect subscription in Settings.",
-                    })
+                        ? 'Saved Codex API key was rejected. Update it in Settings.'
+                        : 'Saved Codex subscription auth failed. Reconnect subscription in Settings.'
+                    });
                   }
-                })()
+                })();
 
-                void trpcClient.codex.cleanup
-                  .mutate({ subChatId: this.config.subChatId })
-                  .catch(() => {
-                    // No-op
-                  })
+                void trpcClient.codex.cleanup.mutate({ subChatId: this.config.subChatId }).catch(() => {
+                  // No-op
+                });
 
                 // Force stream status reset so retry can start once auth succeeds.
-                controller.error(new Error("Codex authentication required"))
-                return
+                controller.error(new Error('Codex authentication required'));
+                return;
               }
 
-              if (chunk.type === "error") {
-                toast.error("Codex error", {
-                  description: chunk.errorText || "An unexpected Codex error occurred.",
-                })
+              if (chunk.type === 'error') {
+                toast.error('Codex error', {
+                  description: chunk.errorText || 'An unexpected Codex error occurred.'
+                });
               }
 
               try {
-                controller.enqueue(chunk)
+                controller.enqueue(chunk);
               } catch {
                 // Stream already closed
               }
 
-              if (chunk.type === "finish") {
+              if (chunk.type === 'finish') {
                 try {
-                  controller.close()
+                  controller.close();
                 } catch {
                   // Stream already closed
                 }
               }
             },
             onError: (error: Error) => {
-              toast.error("Codex request failed", {
-                description: error.message,
-              })
-              controller.error(error)
-              safeUnsubscribe()
+              toast.error('Codex request failed', {
+                description: error.message
+              });
+              controller.error(error);
+              safeUnsubscribe();
             },
             onComplete: () => {
               try {
-                controller.close()
+                controller.close();
               } catch {
                 // Stream already closed
               }
-              safeUnsubscribe()
-            },
-          },
-        )
+              safeUnsubscribe();
+            }
+          }
+        );
 
         options.abortSignal?.addEventListener(
-          "abort",
+          'abort',
           () => {
             // Start server-side cancellation first so the router still has
             // active run ownership when processing cancel(runId).
@@ -361,11 +348,11 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               .mutate({ subChatId: this.config.subChatId, runId })
               .catch(() => {
                 // No-op
-              })
+              });
 
             // Keep stop UX immediate in the client.
             try {
-              controller.close()
+              controller.close();
             } catch {
               // Stream already closed
             }
@@ -374,73 +361,70 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
             // interrupted response state before cleanup unsubscribe runs.
             void (async () => {
               try {
-                await cancelPromise
+                await cancelPromise;
               } finally {
-                clearForcedUnsubscribeTimer()
+                clearForcedUnsubscribeTimer();
                 forcedUnsubscribeTimer = setTimeout(() => {
-                  safeUnsubscribe()
-                }, 10000)
+                  safeUnsubscribe();
+                }, 10000);
               }
-            })()
+            })();
           },
-          { once: true },
-        )
-      },
-    })
+          { once: true }
+        );
+      }
+    });
   }
 
   async reconnectToStream(): Promise<ReadableStream<UIMessageChunk> | null> {
-    return null
+    return null;
   }
 
   cleanup(): void {
-    void trpcClient.codex.cleanup
-      .mutate({ subChatId: this.config.subChatId })
-      .catch(() => {
-        // No-op
-      })
+    void trpcClient.codex.cleanup.mutate({ subChatId: this.config.subChatId }).catch(() => {
+      // No-op
+    });
   }
 
   private extractText(message: UIMessage | undefined): string {
-    if (!message) return ""
+    if (!message) return '';
 
-    if (!message.parts) return ""
+    if (!message.parts) return '';
 
-    const textParts: string[] = []
-    const fileContents: string[] = []
+    const textParts: string[] = [];
+    const fileContents: string[] = [];
 
     for (const part of message.parts) {
-      if (part.type === "text" && (part as any).text) {
-        textParts.push((part as any).text)
-      } else if ((part as any).type === "file-content") {
-        const filePart = part as any
-        const fileName =
-          filePart.filePath?.split("/").pop() || filePart.filePath || "file"
-        fileContents.push(`\n--- ${fileName} ---\n${filePart.content}`)
+      if (part.type === 'text' && (part as any).text) {
+        textParts.push((part as any).text);
+      } else if ((part as any).type === 'file-content') {
+        const filePart = part as any;
+        const fileName = filePart.filePath?.split('/').pop() || filePart.filePath || 'file';
+        fileContents.push(`\n--- ${fileName} ---\n${filePart.content}`);
       }
     }
 
-    return textParts.join("\n") + fileContents.join("")
+    return textParts.join('\n') + fileContents.join('');
   }
 
   private extractImages(message: UIMessage | undefined): ImageAttachment[] {
-    if (!message?.parts) return []
+    if (!message?.parts) return [];
 
-    const images: ImageAttachment[] = []
+    const images: ImageAttachment[] = [];
 
     for (const part of message.parts) {
-      if (part.type === "data-image" && (part as any).data) {
-        const data = (part as any).data
+      if (part.type === 'data-image' && (part as any).data) {
+        const data = (part as any).data;
         if (data.base64Data && data.mediaType) {
           images.push({
             base64Data: data.base64Data,
             mediaType: data.mediaType,
-            filename: data.filename,
-          })
+            filename: data.filename
+          });
         }
       }
     }
 
-    return images
+    return images;
   }
 }

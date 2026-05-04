@@ -1,1 +1,1 @@
-export { CollapsibleRow } from "./collapsible-row";
+export { CollapsibleRow } from './collapsible-row';

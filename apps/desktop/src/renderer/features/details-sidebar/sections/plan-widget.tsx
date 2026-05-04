@@ -1,34 +1,31 @@
-"use client"
+'use client';
 
-import { memo, useState, useCallback, useEffect, useMemo, useRef } from "react"
-import { useAtom, useAtomValue } from "jotai"
-import { Button } from "@/components/ui/button"
-import { Kbd } from "@/components/ui/kbd"
-import { cn } from "@/lib/utils"
-import { PlanIcon, ExpandIcon, CollapseIcon, IconSpinner } from "@/components/ui/icons"
-import { ChatMarkdownRenderer } from "@/components/chat-markdown-renderer"
-import { trpc } from "@/lib/trpc"
-import { planContentCacheAtomFamily } from "../atoms"
-import {
-  type AgentMode,
-  virtualPlanContentAtomFamily,
-} from "../../agents/atoms"
-import { useWidgetPanel } from "../../dock"
-import { PromotedToPanelStub } from "./promoted-to-panel-stub"
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useAtom, useAtomValue } from 'jotai';
+import { Button } from '@/components/ui/button';
+import { Kbd } from '@/components/ui/kbd';
+import { cn } from '@/lib/utils';
+import { PlanIcon, ExpandIcon, CollapseIcon, IconSpinner } from '@/components/ui/icons';
+import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer';
+import { trpc } from '@/lib/trpc';
+import { planContentCacheAtomFamily } from '../atoms';
+import { type AgentMode, virtualPlanContentAtomFamily } from '../../agents/atoms';
+import { useWidgetPanel } from '../../dock';
+import { PromotedToPanelStub } from './promoted-to-panel-stub';
 
 interface PlanWidgetProps {
   /** Chat ID for cache */
-  chatId: string
+  chatId: string;
   /** Active sub-chat ID for plan fetching */
-  activeSubChatId?: string | null
+  activeSubChatId?: string | null;
   /** Path to the plan file */
-  planPath: string | null
+  planPath: string | null;
   /** Plan refetch trigger */
-  refetchTrigger?: number
+  refetchTrigger?: number;
   /** Current agent mode (plan or agent) */
-  mode?: AgentMode
+  mode?: AgentMode;
   /** Callback when "Approve" is clicked */
-  onApprovePlan?: () => void
+  onApprovePlan?: () => void;
 }
 
 /**
@@ -42,63 +39,57 @@ export const PlanWidget = memo(function PlanWidget({
   activeSubChatId,
   planPath,
   refetchTrigger,
-  mode = "agent",
-  onApprovePlan,
+  mode = 'agent',
+  onApprovePlan
 }: PlanWidgetProps) {
   // Use activeSubChatId for fetching if available
-  const effectiveChatId = activeSubChatId || chatId
+  const effectiveChatId = activeSubChatId || chatId;
 
   // Widget ↔ panel mutex: when promoted to a dockview panel, hide the summary
   // and render a small "return to summary" stub instead. The mutex key is the
   // (effectiveChatId, planPath) pair so different chats can be promoted
   // independently.
-  const widgetPanel = useWidgetPanel("plan", {
-    kind: "plan",
-    data: { chatId: effectiveChatId, planPath: planPath ?? "" },
-  })
+  const widgetPanel = useWidgetPanel('plan', {
+    kind: 'plan',
+    data: { chatId: effectiveChatId, planPath: planPath ?? '' }
+  });
 
   // Expanded/collapsed state
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Refs for scroll gradients
-  const contentRef = useRef<HTMLDivElement>(null)
-  const bottomGradientRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null);
+  const bottomGradientRef = useRef<HTMLDivElement>(null);
 
   // Plan content cache to avoid flashing loading state
-  const [planCache, setPlanCache] = useAtom(planContentCacheAtomFamily(effectiveChatId))
-  const virtualPlanAtom = useMemo(
-    () => virtualPlanContentAtomFamily(planPath || ""),
-    [planPath],
-  )
-  const virtualPlan = useAtomValue(virtualPlanAtom)
+  const [planCache, setPlanCache] = useAtom(planContentCacheAtomFamily(effectiveChatId));
+  const virtualPlanAtom = useMemo(() => virtualPlanContentAtomFamily(planPath || ''), [planPath]);
+  const virtualPlan = useAtomValue(virtualPlanAtom);
 
   // Codex plans live in `virtualPlanContentAtomFamily` only — they have no
   // on-disk backing. Skip the readFile fetch so we don't ENOENT on the URI.
-  const isCodexPlan = !!planPath && planPath.startsWith("codex-plan://")
+  const isCodexPlan = !!planPath && planPath.startsWith('codex-plan://');
   // Fetch plan file content using tRPC
-  const shouldReadPlanFile = !!planPath && !virtualPlan && !isCodexPlan
+  const shouldReadPlanFile = !!planPath && !virtualPlan && !isCodexPlan;
   const {
     data: filePlanContent,
     isLoading: isFileLoading,
     error: fileError,
-    refetch,
-  } = trpc.files.readFile.useQuery(
-    { filePath: planPath || "" },
-    { enabled: shouldReadPlanFile },
-  )
-  const planContent = virtualPlan?.content ?? filePlanContent
-  const isLoading = !virtualPlan && !isCodexPlan && isFileLoading
-  const error = virtualPlan ? null : fileError
+    refetch
+  } = trpc.files.readFile.useQuery({ filePath: planPath || '' }, { enabled: shouldReadPlanFile });
+  const planContent = virtualPlan?.content ?? filePlanContent;
+  const isLoading = !virtualPlan && !isCodexPlan && isFileLoading;
+  const error = virtualPlan ? null : fileError;
 
   useEffect(() => {
-    if (!planPath) return
+    if (!planPath) return;
     console.log(
       `[PLAN] widget=plan-widget planPath=${planPath} ` +
-      `isCodexPlan=${isCodexPlan} hasVirtualPlan=${!!virtualPlan} ` +
-      `hasCachedContent=${!!planCache?.content} shouldReadPlanFile=${shouldReadPlanFile} ` +
-      `chatId=${effectiveChatId.slice(-8)}`,
-    )
-  }, [planPath, isCodexPlan, virtualPlan, planCache?.content, shouldReadPlanFile, effectiveChatId])
+        `isCodexPlan=${isCodexPlan} hasVirtualPlan=${!!virtualPlan} ` +
+        `hasCachedContent=${!!planCache?.content} shouldReadPlanFile=${shouldReadPlanFile} ` +
+        `chatId=${effectiveChatId.slice(-8)}`
+    );
+  }, [planPath, isCodexPlan, virtualPlan, planCache?.content, shouldReadPlanFile, effectiveChatId]);
 
   // Update cache when content loads successfully
   useEffect(() => {
@@ -106,77 +97,75 @@ export const PlanWidget = memo(function PlanWidget({
       setPlanCache({
         content: planContent,
         planPath,
-        isReady: true,
-      })
+        isReady: true
+      });
     }
-  }, [planContent, planPath, setPlanCache])
+  }, [planContent, planPath, setPlanCache]);
 
   // Refetch when trigger changes
   useEffect(() => {
     if (refetchTrigger && shouldReadPlanFile) {
-      refetch()
+      refetch();
     }
-  }, [refetchTrigger, shouldReadPlanFile, refetch])
+  }, [refetchTrigger, shouldReadPlanFile, refetch]);
 
   // Use cached content while loading new content to prevent flashing
   const displayContent = useMemo(() => {
-    if (planContent) return planContent
+    if (planContent) return planContent;
     if (planCache?.isReady && planCache.planPath === planPath) {
-      return planCache.content
+      return planCache.content;
     }
-    return null
-  }, [planContent, planCache, planPath])
+    return null;
+  }, [planContent, planCache, planPath]);
 
   // Only show loading if we have no content to display
-  const showLoading = isLoading && !displayContent
+  const showLoading = isLoading && !displayContent;
 
   // Only show error if we have no content to display
-  const showError = error && !displayContent
+  const showError = error && !displayContent;
 
   // Toggle expand state
   const handleToggleExpand = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    setIsExpanded((prev) => !prev)
-  }, [])
+    e.stopPropagation();
+    setIsExpanded((prev) => !prev);
+  }, []);
 
   // Update scroll gradient via DOM (no state, no re-renders)
   const updateScrollGradient = useCallback(() => {
-    const content = contentRef.current
-    const bottomGradient = bottomGradientRef.current
-    if (!content || !bottomGradient) return
+    const content = contentRef.current;
+    const bottomGradient = bottomGradientRef.current;
+    if (!content || !bottomGradient) return;
 
-    const { scrollTop, scrollHeight, clientHeight } = content
-    const isScrollable = scrollHeight > clientHeight
-    const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1
+    const { scrollTop, scrollHeight, clientHeight } = content;
+    const isScrollable = scrollHeight > clientHeight;
+    const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
 
-    bottomGradient.style.opacity = isScrollable && !isAtBottom ? "1" : "0"
-  }, [])
+    bottomGradient.style.opacity = isScrollable && !isAtBottom ? '1' : '0';
+  }, []);
 
   // Update gradient on scroll and content changes
   useEffect(() => {
-    const content = contentRef.current
-    if (!content) return
+    const content = contentRef.current;
+    if (!content) return;
 
-    content.addEventListener("scroll", updateScrollGradient)
-    updateScrollGradient()
+    content.addEventListener('scroll', updateScrollGradient);
+    updateScrollGradient();
 
-    return () => content.removeEventListener("scroll", updateScrollGradient)
-  }, [updateScrollGradient, isExpanded])
+    return () => content.removeEventListener('scroll', updateScrollGradient);
+  }, [updateScrollGradient, isExpanded]);
 
   useEffect(() => {
-    updateScrollGradient()
-  }, [displayContent, updateScrollGradient])
+    updateScrollGradient();
+  }, [displayContent, updateScrollGradient]);
 
   // No plan path - don't render anything
   if (!planPath) {
-    return null
+    return null;
   }
 
   // Widget is promoted to a dockview panel — show stub instead of summary.
   if (widgetPanel.isOpen) {
-    return (
-      <PromotedToPanelStub label="Plan" onReturnToSummary={widgetPanel.closePanel} />
-    )
+    return <PromotedToPanelStub label="Plan" onReturnToSummary={widgetPanel.closePanel} />;
   }
 
   return (
@@ -193,22 +182,20 @@ export const PlanWidget = memo(function PlanWidget({
               variant="ghost"
               size="sm"
               onClick={(e) => {
-                e.stopPropagation()
-                if (planPath) widgetPanel.openAsPanel()
+                e.stopPropagation();
+                if (planPath) widgetPanel.openAsPanel();
               }}
-              className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
-            >
+              className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground">
               View plan
             </Button>
-            {mode === "plan" && onApprovePlan && (
+            {mode === 'plan' && onApprovePlan && (
               <Button
                 size="sm"
                 onClick={(e) => {
-                  e.stopPropagation()
-                  onApprovePlan()
+                  e.stopPropagation();
+                  onApprovePlan();
                 }}
-                className="h-5 px-2 mx-0.5 text-[10px] font-medium rounded transition-transform duration-150 active:scale-[0.97]"
-              >
+                className="h-5 px-2 mx-0.5 text-[10px] font-medium rounded transition-transform duration-150 active:scale-[0.97]">
                 Approve
                 <Kbd className="ml-1 text-primary-foreground/70">⌘↵</Kbd>
               </Button>
@@ -220,19 +207,18 @@ export const PlanWidget = memo(function PlanWidget({
               size="icon"
               onClick={handleToggleExpand}
               className="h-5 w-5 p-0 hover:bg-foreground/10 text-muted-foreground hover:text-foreground rounded-md transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0"
-              aria-label={isExpanded ? "Collapse plan" : "Expand plan"}
-            >
+              aria-label={isExpanded ? 'Collapse plan' : 'Expand plan'}>
               <div className="relative w-3.5 h-3.5">
                 <ExpandIcon
                   className={cn(
-                    "absolute inset-0 w-3.5 h-3.5 transition-[opacity,transform] duration-200 ease-out",
-                    isExpanded ? "opacity-0 scale-75" : "opacity-100 scale-100",
+                    'absolute inset-0 w-3.5 h-3.5 transition-[opacity,transform] duration-200 ease-out',
+                    isExpanded ? 'opacity-0 scale-75' : 'opacity-100 scale-100'
                   )}
                 />
                 <CollapseIcon
                   className={cn(
-                    "absolute inset-0 w-3.5 h-3.5 transition-[opacity,transform] duration-200 ease-out",
-                    isExpanded ? "opacity-100 scale-100" : "opacity-0 scale-75",
+                    'absolute inset-0 w-3.5 h-3.5 transition-[opacity,transform] duration-200 ease-out',
+                    isExpanded ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
                   )}
                 />
               </div>
@@ -258,11 +244,7 @@ export const PlanWidget = memo(function PlanWidget({
             <div className="relative">
               <div
                 ref={contentRef}
-                className={cn(
-                  "px-2 py-2 allow-text-selection",
-                  isExpanded ? "" : "max-h-64 overflow-hidden"
-                )}
-              >
+                className={cn('px-2 py-2 allow-text-selection', isExpanded ? '' : 'max-h-64 overflow-hidden')}>
                 <ChatMarkdownRenderer content={displayContent} size="sm" />
               </div>
 
@@ -272,8 +254,7 @@ export const PlanWidget = memo(function PlanWidget({
                 className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
                 style={{
                   opacity: 1,
-                  background:
-                    "linear-gradient(to top, hsl(var(--background)) 0%, transparent 100%)",
+                  background: 'linear-gradient(to top, hsl(var(--background)) 0%, transparent 100%)'
                 }}
               />
             </div>
@@ -281,5 +262,5 @@ export const PlanWidget = memo(function PlanWidget({
         </div>
       </div>
     </div>
-  )
-})
+  );
+});

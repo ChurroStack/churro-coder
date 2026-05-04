@@ -11,28 +11,28 @@
  * - Automatic lifecycle management (activate/deactivate)
  */
 
-import { atom, useAtomValue } from "jotai"
-import { useEffect, useState, useMemo } from "react"
-import type { MentionProvider, MentionProviderId } from "./types"
+import { atom, useAtomValue } from 'jotai';
+import { useEffect, useState, useMemo } from 'react';
+import type { MentionProvider, MentionProviderId } from './types';
 
 /**
  * Listener type for registry changes
  */
-type RegistryListener = () => void
+type RegistryListener = () => void;
 
 /**
  * Provider Registry class - manages all registered providers
  */
 class MentionProviderRegistry {
-  private providers = new Map<MentionProviderId, MentionProvider>()
-  private listeners = new Set<RegistryListener>()
-  private activationPromises = new Map<MentionProviderId, Promise<void>>()
+  private providers = new Map<MentionProviderId, MentionProvider>();
+  private listeners = new Set<RegistryListener>();
+  private activationPromises = new Map<MentionProviderId, Promise<void>>();
 
   // Memoization for preventing re-renders
-  private cachedProviders: MentionProvider[] | null = null
-  private cachedByTrigger = new Map<string, MentionProvider[]>()
-  private cachedCategories: Array<{ id: string; label: string; priority: number }> | null = null
-  private cacheVersion = 0
+  private cachedProviders: MentionProvider[] | null = null;
+  private cachedByTrigger = new Map<string, MentionProvider[]>();
+  private cachedCategories: Array<{ id: string; label: string; priority: number }> | null = null;
+  private cacheVersion = 0;
 
   /**
    * Register a provider
@@ -42,51 +42,46 @@ class MentionProviderRegistry {
    */
   register(provider: MentionProvider): () => void {
     if (this.providers.has(provider.id)) {
-      console.warn(
-        `[MentionRegistry] Provider "${provider.id}" already registered, replacing`
-      )
+      console.warn(`[MentionRegistry] Provider "${provider.id}" already registered, replacing`);
       // Deactivate existing provider
-      const existing = this.providers.get(provider.id)
-      existing?.deactivate?.()
+      const existing = this.providers.get(provider.id);
+      existing?.deactivate?.();
     }
 
-    this.providers.set(provider.id, provider)
+    this.providers.set(provider.id, provider);
 
     // Activate provider asynchronously
     if (provider.activate) {
       const activationPromise = provider.activate().catch((error) => {
-        console.error(
-          `[MentionRegistry] Failed to activate provider "${provider.id}":`,
-          error
-        )
-      })
-      this.activationPromises.set(provider.id, activationPromise)
+        console.error(`[MentionRegistry] Failed to activate provider "${provider.id}":`, error);
+      });
+      this.activationPromises.set(provider.id, activationPromise);
     }
 
-    this.notifyListeners()
+    this.notifyListeners();
 
     // Return unregister function
-    return () => this.unregister(provider.id)
+    return () => this.unregister(provider.id);
   }
 
   /**
    * Register multiple providers at once
    */
   registerAll(providers: MentionProvider[]): () => void {
-    const unregisterFns = providers.map((p) => this.register(p))
-    return () => unregisterFns.forEach((fn) => fn())
+    const unregisterFns = providers.map((p) => this.register(p));
+    return () => unregisterFns.forEach((fn) => fn());
   }
 
   /**
    * Unregister a provider by ID
    */
   unregister(id: MentionProviderId): void {
-    const provider = this.providers.get(id)
+    const provider = this.providers.get(id);
     if (provider) {
-      provider.deactivate?.()
-      this.providers.delete(id)
-      this.activationPromises.delete(id)
-      this.notifyListeners()
+      provider.deactivate?.();
+      this.providers.delete(id);
+      this.activationPromises.delete(id);
+      this.notifyListeners();
     }
   }
 
@@ -96,13 +91,11 @@ class MentionProviderRegistry {
    */
   getAll(): MentionProvider[] {
     if (this.cachedProviders !== null) {
-      return this.cachedProviders
+      return this.cachedProviders;
     }
 
-    this.cachedProviders = Array.from(this.providers.values()).sort(
-      (a, b) => b.priority - a.priority
-    )
-    return this.cachedProviders
+    this.cachedProviders = Array.from(this.providers.values()).sort((a, b) => b.priority - a.priority);
+    return this.cachedProviders;
   }
 
   /**
@@ -110,51 +103,46 @@ class MentionProviderRegistry {
    * Returns cached array to prevent re-renders
    */
   getByTrigger(char: string): MentionProvider[] {
-    const cached = this.cachedByTrigger.get(char)
+    const cached = this.cachedByTrigger.get(char);
     if (cached !== undefined) {
-      return cached
+      return cached;
     }
 
-    const result = this.getAll().filter((p) => p.trigger.char === char)
-    this.cachedByTrigger.set(char, result)
-    return result
+    const result = this.getAll().filter((p) => p.trigger.char === char);
+    this.cachedByTrigger.set(char, result);
+    return result;
   }
 
   /**
    * Get provider by ID
    */
   get(id: MentionProviderId): MentionProvider | undefined {
-    return this.providers.get(id)
+    return this.providers.get(id);
   }
 
   /**
    * Check if a provider is registered
    */
   has(id: MentionProviderId): boolean {
-    return this.providers.has(id)
+    return this.providers.has(id);
   }
 
   /**
    * Get available providers for a context
    */
-  getAvailable(context: {
-    projectPath?: string
-    sessionId?: string
-  }): MentionProvider[] {
-    return this.getAll().filter(
-      (p) => p.isAvailable?.(context) ?? true
-    )
+  getAvailable(context: { projectPath?: string; sessionId?: string }): MentionProvider[] {
+    return this.getAll().filter((p) => p.isAvailable?.(context) ?? true);
   }
 
   /**
    * Get unique trigger characters from all providers
    */
   getTriggers(): string[] {
-    const triggers = new Set<string>()
+    const triggers = new Set<string>();
     Array.from(this.providers.values()).forEach((provider) => {
-      triggers.add(provider.trigger.char)
-    })
-    return Array.from(triggers)
+      triggers.add(provider.trigger.char);
+    });
+    return Array.from(triggers);
   }
 
   /**
@@ -163,43 +151,38 @@ class MentionProviderRegistry {
    */
   getCategories(): Array<{ id: string; label: string; priority: number }> {
     if (this.cachedCategories !== null) {
-      return this.cachedCategories
+      return this.cachedCategories;
     }
 
-    const categories = new Map<
-      string,
-      { id: string; label: string; priority: number }
-    >()
+    const categories = new Map<string, { id: string; label: string; priority: number }>();
 
     Array.from(this.providers.values()).forEach((provider) => {
       if (!categories.has(provider.category.id)) {
         categories.set(provider.category.id, {
           id: provider.category.id,
           label: provider.category.label,
-          priority: provider.category.priority,
-        })
+          priority: provider.category.priority
+        });
       }
-    })
+    });
 
-    this.cachedCategories = Array.from(categories.values()).sort(
-      (a, b) => b.priority - a.priority
-    )
-    return this.cachedCategories
+    this.cachedCategories = Array.from(categories.values()).sort((a, b) => b.priority - a.priority);
+    return this.cachedCategories;
   }
 
   /**
    * Wait for all providers to be activated
    */
   async waitForActivation(): Promise<void> {
-    await Promise.all(Array.from(this.activationPromises.values()))
+    await Promise.all(Array.from(this.activationPromises.values()));
   }
 
   /**
    * Subscribe to registry changes
    */
   subscribe(listener: RegistryListener): () => void {
-    this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /**
@@ -207,52 +190,52 @@ class MentionProviderRegistry {
    */
   clear(): void {
     Array.from(this.providers.values()).forEach((provider) => {
-      provider.deactivate?.()
-    })
-    this.providers.clear()
-    this.activationPromises.clear()
-    this.notifyListeners()
+      provider.deactivate?.();
+    });
+    this.providers.clear();
+    this.activationPromises.clear();
+    this.notifyListeners();
   }
 
   /**
    * Invalidate all caches (called when providers change)
    */
   private invalidateCache(): void {
-    this.cachedProviders = null
-    this.cachedByTrigger.clear()
-    this.cachedCategories = null
-    this.cacheVersion++
+    this.cachedProviders = null;
+    this.cachedByTrigger.clear();
+    this.cachedCategories = null;
+    this.cacheVersion++;
   }
 
   private notifyListeners(): void {
     // Invalidate cache before notifying listeners
-    this.invalidateCache()
+    this.invalidateCache();
 
     Array.from(this.listeners).forEach((listener) => {
       try {
-        listener()
+        listener();
       } catch (error) {
-        console.error("[MentionRegistry] Listener error:", error)
+        console.error('[MentionRegistry] Listener error:', error);
       }
-    })
+    });
   }
 }
 
 /**
  * Singleton registry instance
  */
-export const mentionRegistry = new MentionProviderRegistry()
+export const mentionRegistry = new MentionProviderRegistry();
 
 /**
  * Jotai atom for reactive provider list
  * Updates automatically when registry changes
  */
-export const mentionProvidersAtom = atom<MentionProvider[]>([])
+export const mentionProvidersAtom = atom<MentionProvider[]>([]);
 
 /**
  * Internal atom to track registry version
  */
-const registryVersionAtom = atom(0)
+const registryVersionAtom = atom(0);
 
 /**
  * Writable atom that syncs with registry
@@ -260,97 +243,86 @@ const registryVersionAtom = atom(0)
 export const syncedMentionProvidersAtom = atom(
   (get) => {
     // Subscribe to version changes
-    get(registryVersionAtom)
-    return mentionRegistry.getAll()
+    get(registryVersionAtom);
+    return mentionRegistry.getAll();
   },
   (_, set) => {
     // Increment version to trigger re-read
-    set(registryVersionAtom, (v) => v + 1)
+    set(registryVersionAtom, (v) => v + 1);
   }
-)
+);
 
 /**
  * Hook to get all providers (reactive)
  */
 export function useMentionProviders(): MentionProvider[] {
-  const [providers, setProviders] = useState(() => mentionRegistry.getAll())
+  const [providers, setProviders] = useState(() => mentionRegistry.getAll());
 
   useEffect(() => {
     return mentionRegistry.subscribe(() => {
-      setProviders(mentionRegistry.getAll())
-    })
-  }, [])
+      setProviders(mentionRegistry.getAll());
+    });
+  }, []);
 
-  return providers
+  return providers;
 }
 
 /**
  * Hook to get providers by trigger (reactive)
  */
-export function useMentionProvidersByTrigger(
-  trigger: string
-): MentionProvider[] {
-  const [providers, setProviders] = useState(() =>
-    mentionRegistry.getByTrigger(trigger)
-  )
+export function useMentionProvidersByTrigger(trigger: string): MentionProvider[] {
+  const [providers, setProviders] = useState(() => mentionRegistry.getByTrigger(trigger));
 
   useEffect(() => {
     return mentionRegistry.subscribe(() => {
-      setProviders(mentionRegistry.getByTrigger(trigger))
-    })
-  }, [trigger])
+      setProviders(mentionRegistry.getByTrigger(trigger));
+    });
+  }, [trigger]);
 
-  return providers
+  return providers;
 }
 
 /**
  * Hook to get available providers for context (reactive)
  */
-export function useAvailableMentionProviders(context: {
-  projectPath?: string
-  sessionId?: string
-}): MentionProvider[] {
-  const providers = useMentionProviders()
+export function useAvailableMentionProviders(context: { projectPath?: string; sessionId?: string }): MentionProvider[] {
+  const providers = useMentionProviders();
 
-  return providers.filter((p) => p.isAvailable?.(context) ?? true)
+  return providers.filter((p) => p.isAvailable?.(context) ?? true);
 }
 
 /**
  * Hook to get categories (reactive)
  */
 export function useMentionCategories(): Array<{
-  id: string
-  label: string
-  priority: number
+  id: string;
+  label: string;
+  priority: number;
 }> {
-  const [categories, setCategories] = useState(() =>
-    mentionRegistry.getCategories()
-  )
+  const [categories, setCategories] = useState(() => mentionRegistry.getCategories());
 
   useEffect(() => {
     return mentionRegistry.subscribe(() => {
-      setCategories(mentionRegistry.getCategories())
-    })
-  }, [])
+      setCategories(mentionRegistry.getCategories());
+    });
+  }, []);
 
-  return categories
+  return categories;
 }
 
 /**
  * Hook to get a specific provider by ID
  * Uses memoized atom to prevent re-subscriptions on every render
  */
-export function useMentionProvider(
-  id: MentionProviderId
-): MentionProvider | undefined {
+export function useMentionProvider(id: MentionProviderId): MentionProvider | undefined {
   const derivedAtom = useMemo(
     () =>
       atom((get) => {
-        get(registryVersionAtom)
-        return mentionRegistry.get(id)
+        get(registryVersionAtom);
+        return mentionRegistry.get(id);
       }),
     [id]
-  )
+  );
 
-  return useAtomValue(derivedAtom)
+  return useAtomValue(derivedAtom);
 }

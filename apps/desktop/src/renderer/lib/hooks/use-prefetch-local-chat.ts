@@ -1,13 +1,13 @@
-import { useCallback } from "react"
-import { trpc } from "../trpc"
+import { useCallback } from 'react';
+import { trpc } from '../trpc';
 
 export function usePrefetchLocalChat() {
-  const utils = trpc.useUtils()
+  const utils = trpc.useUtils();
 
   return useCallback(
     (chatId: string) => {
-      utils.chats.get.prefetch({ id: chatId }, { staleTime: 5000 })
+      utils.chats.get.prefetch({ id: chatId }, { staleTime: 5000 });
     },
     [utils]
-  )
+  );
 }

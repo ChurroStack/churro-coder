@@ -8,7 +8,9 @@ export function capture(_eventName: string, _properties?: unknown): void {}
 export function setSubscriptionPlan(_plan: string): void {}
 export async function shutdown(): Promise<void> {}
 export function setOptOut(_optedOut: boolean): void {}
-export function isOptedOut(): boolean { return true }
+export function isOptedOut(): boolean {
+  return true;
+}
 export function trackAppOpened(): void {}
 export function trackAuthCompleted(_userId: string, _email?: string): void {}
 export function trackProjectOpened(_project: unknown): void {}

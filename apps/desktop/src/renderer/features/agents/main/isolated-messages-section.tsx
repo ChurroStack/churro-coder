@@ -1,10 +1,10 @@
-"use client"
+'use client';
 
-import { memo } from "react"
-import { useAtomValue } from "jotai"
-import { userMessageIdsPerChatAtom } from "../stores/message-store"
-import { ContinueButton } from "../ui/continue-button"
-import { IsolatedMessageGroup } from "./isolated-message-group"
+import { memo } from 'react';
+import { useAtomValue } from 'jotai';
+import { userMessageIdsPerChatAtom } from '../stores/message-store';
+import { ContinueButton } from '../ui/continue-button';
+import { IsolatedMessageGroup } from './isolated-message-group';
 
 // ============================================================================
 // ISOLATED MESSAGES SECTION (LAYER 3)
@@ -20,36 +20,33 @@ import { IsolatedMessageGroup } from "./isolated-message-group"
 // ============================================================================
 
 interface IsolatedMessagesSectionProps {
-  subChatId: string
-  chatId: string
-  isMobile: boolean
-  sandboxSetupStatus: "cloning" | "ready" | "error"
-  stickyTopClass: string
-  sandboxSetupError?: string
-  onRetrySetup?: () => void
-  onRollback?: (msg: any) => void
-  onFork?: (messageId: string) => void
+  subChatId: string;
+  chatId: string;
+  isMobile: boolean;
+  sandboxSetupStatus: 'cloning' | 'ready' | 'error';
+  stickyTopClass: string;
+  sandboxSetupError?: string;
+  onRetrySetup?: () => void;
+  onRollback?: (msg: any) => void;
+  onFork?: (messageId: string) => void;
   // Components passed from parent - must be stable references
   UserBubbleComponent: React.ComponentType<{
-    messageId: string
-    textContent: string
-    imageParts: any[]
-    skipTextMentionBlocks?: boolean
-  }>
+    messageId: string;
+    textContent: string;
+    imageParts: any[];
+    skipTextMentionBlocks?: boolean;
+  }>;
   ToolCallComponent: React.ComponentType<{
-    icon: any
-    title: string
-    isPending: boolean
-    isError: boolean
-  }>
-  MessageGroupWrapper: React.ComponentType<{ children: React.ReactNode; isLastGroup?: boolean }>
-  toolRegistry: Record<string, { icon: any; title: (args: any) => string }>
+    icon: any;
+    title: string;
+    isPending: boolean;
+    isError: boolean;
+  }>;
+  MessageGroupWrapper: React.ComponentType<{ children: React.ReactNode; isLastGroup?: boolean }>;
+  toolRegistry: Record<string, { icon: any; title: (args: any) => string }>;
 }
 
-function areSectionPropsEqual(
-  prev: IsolatedMessagesSectionProps,
-  next: IsolatedMessagesSectionProps
-): boolean {
+function areSectionPropsEqual(prev: IsolatedMessagesSectionProps, next: IsolatedMessagesSectionProps): boolean {
   return (
     prev.subChatId === next.subChatId &&
     prev.chatId === next.chatId &&
@@ -64,7 +61,7 @@ function areSectionPropsEqual(
     prev.ToolCallComponent === next.ToolCallComponent &&
     prev.MessageGroupWrapper === next.MessageGroupWrapper &&
     prev.toolRegistry === next.toolRegistry
-  )
+  );
 }
 
 export const IsolatedMessagesSection = memo(function IsolatedMessagesSection({
@@ -80,10 +77,10 @@ export const IsolatedMessagesSection = memo(function IsolatedMessagesSection({
   UserBubbleComponent,
   ToolCallComponent,
   MessageGroupWrapper,
-  toolRegistry,
+  toolRegistry
 }: IsolatedMessagesSectionProps) {
   // Per-subchat selector - split panes render fully independently.
-  const userMsgIds = useAtomValue(userMessageIdsPerChatAtom(subChatId))
+  const userMsgIds = useAtomValue(userMessageIdsPerChatAtom(subChatId));
 
   return (
     <>
@@ -108,5 +105,5 @@ export const IsolatedMessagesSection = memo(function IsolatedMessagesSection({
       ))}
       <ContinueButton subChatId={subChatId} />
     </>
-  )
-}, areSectionPropsEqual)
+  );
+}, areSectionPropsEqual);

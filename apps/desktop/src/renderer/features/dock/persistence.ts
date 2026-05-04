@@ -1,4 +1,4 @@
-import type { DockviewApi, GridviewApi } from "dockview-react"
+import type { DockviewApi, GridviewApi } from 'dockview-react';
 
 /**
  * Layout persistence is split into two stores:
@@ -16,30 +16,28 @@ import type { DockviewApi, GridviewApi } from "dockview-react"
  * per workspace. Old v2 entries are simply ignored (the user falls back to
  * defaults on first launch after the upgrade).
  */
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 3;
 
 export interface ShellSnapshot {
-  version: typeof SCHEMA_VERSION
+  version: typeof SCHEMA_VERSION;
   /** Result of gridApi.toJSON(). */
-  shell: unknown | null
+  shell: unknown | null;
 }
 
 export interface DockSnapshot {
-  version: typeof SCHEMA_VERSION
+  version: typeof SCHEMA_VERSION;
   /** Result of dockApi.toJSON(). */
-  dock: unknown | null
+  dock: unknown | null;
 }
 
-const SHELL_KEY = "agents:shell:v3"
+const SHELL_KEY = 'agents:shell:v3';
 
 export function shellStorageKey(): string {
-  return SHELL_KEY
+  return SHELL_KEY;
 }
 
 export function dockStorageKeyForWorkspace(workspaceId: string | null): string {
-  return workspaceId
-    ? `agents:dock:project:${workspaceId}`
-    : "agents:dock:no-workspace"
+  return workspaceId ? `agents:dock:project:${workspaceId}` : 'agents:dock:no-workspace';
 }
 
 /**
@@ -50,97 +48,86 @@ export function dockStorageKeyForWorkspace(workspaceId: string | null): string {
  * exist anymore is harmless because tryRestoreDock filters unknown panels.
  */
 export function layoutStorageKey(): string {
-  return SHELL_KEY
+  return SHELL_KEY;
 }
 
 export function loadShellSnapshot(): ShellSnapshot | null {
   try {
-    const raw = localStorage.getItem(SHELL_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as ShellSnapshot
-    if (parsed?.version !== SCHEMA_VERSION) return null
-    return parsed
+    const raw = localStorage.getItem(SHELL_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ShellSnapshot;
+    if (parsed?.version !== SCHEMA_VERSION) return null;
+    return parsed;
   } catch {
-    return null
+    return null;
   }
 }
 
 export function saveShellSnapshot(snapshot: ShellSnapshot): void {
   try {
-    localStorage.setItem(SHELL_KEY, JSON.stringify(snapshot))
+    localStorage.setItem(SHELL_KEY, JSON.stringify(snapshot));
   } catch (err) {
-    console.warn("[layout] Failed to persist shell snapshot:", err)
+    console.warn('[layout] Failed to persist shell snapshot:', err);
   }
 }
 
-export function loadDockSnapshotForWorkspace(
-  workspaceId: string | null,
-): DockSnapshot | null {
-  const key = dockStorageKeyForWorkspace(workspaceId)
+export function loadDockSnapshotForWorkspace(workspaceId: string | null): DockSnapshot | null {
+  const key = dockStorageKeyForWorkspace(workspaceId);
   try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as DockSnapshot
-    if (parsed?.version !== SCHEMA_VERSION) return null
-    return parsed
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DockSnapshot;
+    if (parsed?.version !== SCHEMA_VERSION) return null;
+    return parsed;
   } catch {
-    return null
+    return null;
   }
 }
 
-export function saveDockSnapshotForWorkspace(
-  workspaceId: string | null,
-  snapshot: DockSnapshot,
-): void {
-  const key = dockStorageKeyForWorkspace(workspaceId)
+export function saveDockSnapshotForWorkspace(workspaceId: string | null, snapshot: DockSnapshot): void {
+  const key = dockStorageKeyForWorkspace(workspaceId);
   try {
-    localStorage.setItem(key, JSON.stringify(snapshot))
+    localStorage.setItem(key, JSON.stringify(snapshot));
   } catch (err) {
-    console.warn("[layout] Failed to persist dock snapshot:", err)
+    console.warn('[layout] Failed to persist dock snapshot:', err);
   }
 }
 
 export function captureShell(grid: GridviewApi | null): ShellSnapshot {
   return {
     version: SCHEMA_VERSION,
-    shell: grid ? grid.toJSON() : null,
-  }
+    shell: grid ? grid.toJSON() : null
+  };
 }
 
 export function captureDock(dock: DockviewApi | null): DockSnapshot {
   return {
     version: SCHEMA_VERSION,
-    dock: dock ? dock.toJSON() : null,
+    dock: dock ? dock.toJSON() : null
+  };
+}
+
+export function tryRestoreShell(grid: GridviewApi | null, snapshot: ShellSnapshot | null): boolean {
+  if (!snapshot?.shell || !grid) return false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    grid.fromJSON(snapshot.shell as any);
+    return true;
+  } catch (err) {
+    console.warn('[layout] Failed to restore gridview layout:', err);
+    return false;
   }
 }
 
-export function tryRestoreShell(
-  grid: GridviewApi | null,
-  snapshot: ShellSnapshot | null,
-): boolean {
-  if (!snapshot?.shell || !grid) return false
+export function tryRestoreDock(dock: DockviewApi | null, snapshot: DockSnapshot | null): boolean {
+  if (!snapshot?.dock || !dock) return false;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    grid.fromJSON(snapshot.shell as any)
-    return true
+    dock.fromJSON(snapshot.dock as any);
+    return true;
   } catch (err) {
-    console.warn("[layout] Failed to restore gridview layout:", err)
-    return false
-  }
-}
-
-export function tryRestoreDock(
-  dock: DockviewApi | null,
-  snapshot: DockSnapshot | null,
-): boolean {
-  if (!snapshot?.dock || !dock) return false
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dock.fromJSON(snapshot.dock as any)
-    return true
-  } catch (err) {
-    console.warn("[layout] Failed to restore dockview layout:", err)
-    return false
+    console.warn('[layout] Failed to restore dockview layout:', err);
+    return false;
   }
 }
 
@@ -156,48 +143,40 @@ export function tryRestoreDock(
  * saves only.)
  */
 export function makeDebouncedSaver(delayMs = 300): {
-  schedule: (
-    grid: GridviewApi | null,
-    dock: DockviewApi | null,
-    workspaceId: string | null,
-  ) => void
-  flush: () => void
-  cancel: () => void
+  schedule: (grid: GridviewApi | null, dock: DockviewApi | null, workspaceId: string | null) => void;
+  flush: () => void;
+  cancel: () => void;
 } {
-  let timer: ReturnType<typeof setTimeout> | null = null
-  let pendingGrid: GridviewApi | null = null
-  let pendingDock: DockviewApi | null = null
-  let pendingWorkspaceId: string | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingGrid: GridviewApi | null = null;
+  let pendingDock: DockviewApi | null = null;
+  let pendingWorkspaceId: string | null = null;
 
   const flush = () => {
     if (timer) {
-      clearTimeout(timer)
-      timer = null
+      clearTimeout(timer);
+      timer = null;
     }
-    saveShellSnapshot(captureShell(pendingGrid))
-    saveDockSnapshotForWorkspace(pendingWorkspaceId, captureDock(pendingDock))
-  }
+    saveShellSnapshot(captureShell(pendingGrid));
+    saveDockSnapshotForWorkspace(pendingWorkspaceId, captureDock(pendingDock));
+  };
 
   const cancel = () => {
     if (timer) {
-      clearTimeout(timer)
-      timer = null
+      clearTimeout(timer);
+      timer = null;
     }
-  }
+  };
 
-  const schedule = (
-    grid: GridviewApi | null,
-    dock: DockviewApi | null,
-    workspaceId: string | null,
-  ) => {
-    pendingGrid = grid
-    pendingDock = dock
-    pendingWorkspaceId = workspaceId
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(flush, delayMs)
-  }
+  const schedule = (grid: GridviewApi | null, dock: DockviewApi | null, workspaceId: string | null) => {
+    pendingGrid = grid;
+    pendingDock = dock;
+    pendingWorkspaceId = workspaceId;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(flush, delayMs);
+  };
 
-  return { schedule, flush, cancel }
+  return { schedule, flush, cancel };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,56 +188,53 @@ export function makeDebouncedSaver(delayMs = 300): {
 // ---------------------------------------------------------------------------
 
 export interface AgentsLayoutSnapshot {
-  version: typeof SCHEMA_VERSION
-  shell: unknown | null
-  dock: unknown | null
+  version: typeof SCHEMA_VERSION;
+  shell: unknown | null;
+  dock: unknown | null;
 }
 
 export function loadLayoutSnapshot(): AgentsLayoutSnapshot | null {
-  const shell = loadShellSnapshot()
-  if (!shell) return null
-  return { version: SCHEMA_VERSION, shell: shell.shell, dock: null }
+  const shell = loadShellSnapshot();
+  if (!shell) return null;
+  return { version: SCHEMA_VERSION, shell: shell.shell, dock: null };
 }
 
 export function saveLayoutSnapshot(snapshot: AgentsLayoutSnapshot): void {
-  saveShellSnapshot({ version: SCHEMA_VERSION, shell: snapshot.shell })
+  saveShellSnapshot({ version: SCHEMA_VERSION, shell: snapshot.shell });
 }
 
-export function captureSnapshot(
-  grid: GridviewApi | null,
-  dock: DockviewApi | null,
-): AgentsLayoutSnapshot {
+export function captureSnapshot(grid: GridviewApi | null, dock: DockviewApi | null): AgentsLayoutSnapshot {
   return {
     version: SCHEMA_VERSION,
     shell: grid ? grid.toJSON() : null,
-    dock: dock ? dock.toJSON() : null,
-  }
+    dock: dock ? dock.toJSON() : null
+  };
 }
 
 export function tryRestore(
   grid: GridviewApi | null,
   dock: DockviewApi | null,
-  snapshot: AgentsLayoutSnapshot | null,
+  snapshot: AgentsLayoutSnapshot | null
 ): { shell: boolean; dock: boolean } {
-  let restoredShell = false
-  let restoredDock = false
+  let restoredShell = false;
+  let restoredDock = false;
   if (snapshot?.shell && grid) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      grid.fromJSON(snapshot.shell as any)
-      restoredShell = true
+      grid.fromJSON(snapshot.shell as any);
+      restoredShell = true;
     } catch (err) {
-      console.warn("[layout] Failed to restore gridview layout:", err)
+      console.warn('[layout] Failed to restore gridview layout:', err);
     }
   }
   if (snapshot?.dock && dock) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dock.fromJSON(snapshot.dock as any)
-      restoredDock = true
+      dock.fromJSON(snapshot.dock as any);
+      restoredDock = true;
     } catch (err) {
-      console.warn("[layout] Failed to restore dockview layout:", err)
+      console.warn('[layout] Failed to restore dockview layout:', err);
     }
   }
-  return { shell: restoredShell, dock: restoredDock }
+  return { shell: restoredShell, dock: restoredDock };
 }

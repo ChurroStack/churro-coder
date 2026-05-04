@@ -1,12 +1,12 @@
-"use client"
+'use client';
 
-import { memo, useMemo, useEffect, useRef, useSyncExternalStore, useCallback } from "react"
-import { useAtomValue } from "jotai"
-import { cn } from "../../../lib/utils"
-import { MemoizedMarkdown } from "../../../components/chat-markdown-renderer"
-import { getPerChatMessageKey, messageAtomFamily, isMessageStreamingAtomFamily } from "../stores/message-store"
-import { useSearchHighlight, useSearchQuery } from "../search"
-import { appStore } from "../../../lib/jotai-store"
+import { memo, useMemo, useEffect, useRef, useSyncExternalStore, useCallback } from 'react';
+import { useAtomValue } from 'jotai';
+import { cn } from '../../../lib/utils';
+import { MemoizedMarkdown } from '../../../components/chat-markdown-renderer';
+import { getPerChatMessageKey, messageAtomFamily, isMessageStreamingAtomFamily } from '../stores/message-store';
+import { useSearchHighlight, useSearchQuery } from '../search';
+import { appStore } from '../../../lib/jotai-store';
 
 // ============================================================================
 // TEXT PART STORE - External store for text parts to avoid re-renders
@@ -19,87 +19,92 @@ import { appStore } from "../../../lib/jotai-store"
 // re-renders when the specific text part actually changes.
 
 // Cache for text content per part
-const textPartStore = new Map<string, string>()
+const textPartStore = new Map<string, string>();
 
 // Subscribers per part key
-const textPartSubscribers = new Map<string, Set<() => void>>()
+const textPartSubscribers = new Map<string, Set<() => void>>();
 
 export function clearTextPartStoreByMessageIds(subChatId: string, messageIds: string[]) {
-  if (messageIds.length === 0) return
-  const subChatPrefix = `${subChatId}:`
-  const messageIdSet = new Set(messageIds)
+  if (messageIds.length === 0) return;
+  const subChatPrefix = `${subChatId}:`;
+  const messageIdSet = new Set(messageIds);
 
   for (const key of Array.from(textPartStore.keys())) {
-    if (!key.startsWith(subChatPrefix)) continue
-    const suffix = key.slice(subChatPrefix.length)
-    const separatorIndex = suffix.lastIndexOf(":")
-    if (separatorIndex === -1) continue
-    const messageId = suffix.slice(0, separatorIndex)
+    if (!key.startsWith(subChatPrefix)) continue;
+    const suffix = key.slice(subChatPrefix.length);
+    const separatorIndex = suffix.lastIndexOf(':');
+    if (separatorIndex === -1) continue;
+    const messageId = suffix.slice(0, separatorIndex);
     if (messageIdSet.has(messageId)) {
-      textPartStore.delete(key)
+      textPartStore.delete(key);
     }
   }
 
   for (const key of Array.from(textPartSubscribers.keys())) {
-    if (!key.startsWith(subChatPrefix)) continue
-    const suffix = key.slice(subChatPrefix.length)
-    const separatorIndex = suffix.lastIndexOf(":")
-    if (separatorIndex === -1) continue
-    const messageId = suffix.slice(0, separatorIndex)
+    if (!key.startsWith(subChatPrefix)) continue;
+    const suffix = key.slice(subChatPrefix.length);
+    const separatorIndex = suffix.lastIndexOf(':');
+    if (separatorIndex === -1) continue;
+    const messageId = suffix.slice(0, separatorIndex);
     if (messageIdSet.has(messageId)) {
-      textPartSubscribers.delete(key)
+      textPartSubscribers.delete(key);
     }
   }
 }
 
 // Get text from a specific part
 function getTextPart(subChatId: string, messageId: string, partIndex: number): string {
-  const key = `${subChatId}:${messageId}:${partIndex}`
-  const cached = textPartStore.get(key)
-  if (cached !== undefined) return cached
+  const key = `${subChatId}:${messageId}:${partIndex}`;
+  const cached = textPartStore.get(key);
+  if (cached !== undefined) return cached;
 
   // Get from Jotai store
-  const message = appStore.get(messageAtomFamily(getPerChatMessageKey(subChatId, messageId)))
-  const parts = message?.parts || []
-  const part = parts[partIndex]
-  const text = part?.type === "text" ? (part.text || "") : ""
-  textPartStore.set(key, text)
-  return text
+  const message = appStore.get(messageAtomFamily(getPerChatMessageKey(subChatId, messageId)));
+  const parts = message?.parts || [];
+  const part = parts[partIndex];
+  const text = part?.type === 'text' ? part.text || '' : '';
+  textPartStore.set(key, text);
+  return text;
 }
 
 // Subscribe to changes for a specific part
-function subscribeToTextPart(subChatId: string, messageId: string, partIndex: number, callback: () => void): () => void {
-  const key = `${subChatId}:${messageId}:${partIndex}`
-  const messageKey = getPerChatMessageKey(subChatId, messageId)
+function subscribeToTextPart(
+  subChatId: string,
+  messageId: string,
+  partIndex: number,
+  callback: () => void
+): () => void {
+  const key = `${subChatId}:${messageId}:${partIndex}`;
+  const messageKey = getPerChatMessageKey(subChatId, messageId);
 
   // Add to subscribers
   if (!textPartSubscribers.has(key)) {
-    textPartSubscribers.set(key, new Set())
+    textPartSubscribers.set(key, new Set());
   }
-  textPartSubscribers.get(key)!.add(callback)
+  textPartSubscribers.get(key)!.add(callback);
 
   // Subscribe to Jotai message atom
   const unsubscribe = appStore.sub(messageAtomFamily(messageKey), () => {
-    const message = appStore.get(messageAtomFamily(messageKey))
-    const parts = message?.parts || []
-    const part = parts[partIndex]
-    const newText = part?.type === "text" ? (part.text || "") : ""
+    const message = appStore.get(messageAtomFamily(messageKey));
+    const parts = message?.parts || [];
+    const part = parts[partIndex];
+    const newText = part?.type === 'text' ? part.text || '' : '';
 
-    const oldText = textPartStore.get(key)
+    const oldText = textPartStore.get(key);
     if (oldText !== newText) {
-      textPartStore.set(key, newText)
+      textPartStore.set(key, newText);
       // Only notify THIS part's subscribers
-      const subs = textPartSubscribers.get(key)
+      const subs = textPartSubscribers.get(key);
       if (subs) {
-        subs.forEach(cb => cb())
+        subs.forEach((cb) => cb());
       }
     }
-  })
+  });
 
   return () => {
-    textPartSubscribers.get(key)?.delete(callback)
-    unsubscribe()
-  }
+    textPartSubscribers.get(key)?.delete(callback);
+    unsubscribe();
+  };
 }
 
 // Hook to get text part with minimal re-renders
@@ -107,14 +112,14 @@ function useTextPart(subChatId: string, messageId: string, partIndex: number): s
   const subscribe = useCallback(
     (callback: () => void) => subscribeToTextPart(subChatId, messageId, partIndex, callback),
     [subChatId, messageId, partIndex]
-  )
+  );
 
   const getSnapshot = useCallback(
     () => getTextPart(subChatId, messageId, partIndex),
     [subChatId, messageId, partIndex]
-  )
+  );
 
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 // ============================================================================
@@ -142,11 +147,11 @@ function useTextPart(subChatId: string, messageId: string, partIndex: number): s
 // ============================================================================
 
 interface IsolatedTextPartProps {
-  subChatId: string
-  messageId: string
-  partIndex: number
-  isFinalText: boolean
-  visibleStepsCount: number
+  subChatId: string;
+  messageId: string;
+  partIndex: number;
+  isFinalText: boolean;
+  visibleStepsCount: number;
 }
 
 // Stable comparison - only re-render if props change (they don't during streaming)
@@ -157,90 +162,81 @@ function arePropsEqual(prev: IsolatedTextPartProps, next: IsolatedTextPartProps)
     prev.partIndex === next.partIndex &&
     prev.isFinalText === next.isFinalText &&
     prev.visibleStepsCount === next.visibleStepsCount
-  )
+  );
 }
-
 
 // Helper function to highlight text in DOM using TreeWalker
 // currentMatchIndex: which match (0-based) to mark as current, or null if none
-function highlightTextInDom(
-  container: HTMLElement,
-  searchText: string,
-  currentMatchIndex: number | null = null
-) {
+function highlightTextInDom(container: HTMLElement, searchText: string, currentMatchIndex: number | null = null) {
   // Remove existing highlights first
-  const existingHighlights = container.querySelectorAll(".search-highlight")
+  const existingHighlights = container.querySelectorAll('.search-highlight');
   existingHighlights.forEach((el) => {
-    const parent = el.parentNode
+    const parent = el.parentNode;
     if (parent) {
-      parent.replaceChild(document.createTextNode(el.textContent || ""), el)
-      parent.normalize()
+      parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+      parent.normalize();
     }
-  })
+  });
 
-  if (!searchText) return
+  if (!searchText) return;
 
-  const lowerSearch = searchText.toLowerCase()
-  const walker = document.createTreeWalker(
-    container,
-    NodeFilter.SHOW_TEXT,
-    null
-  )
+  const lowerSearch = searchText.toLowerCase();
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
 
-  const textNodes: Text[] = []
-  let node: Text | null
+  const textNodes: Text[] = [];
+  let node: Text | null;
   while ((node = walker.nextNode() as Text | null)) {
     if (node.nodeValue && node.nodeValue.toLowerCase().includes(lowerSearch)) {
-      textNodes.push(node)
+      textNodes.push(node);
     }
   }
 
-  let matchCounter = 0
+  let matchCounter = 0;
   for (const textNode of textNodes) {
-    const text = textNode.nodeValue || ""
-    const lowerText = text.toLowerCase()
-    let lastIndex = 0
-    const fragments: (string | HTMLElement)[] = []
-    let searchIndex = 0
+    const text = textNode.nodeValue || '';
+    const lowerText = text.toLowerCase();
+    let lastIndex = 0;
+    const fragments: (string | HTMLElement)[] = [];
+    let searchIndex = 0;
 
     while ((searchIndex = lowerText.indexOf(lowerSearch, lastIndex)) !== -1) {
       // Add text before match
       if (searchIndex > lastIndex) {
-        fragments.push(text.slice(lastIndex, searchIndex))
+        fragments.push(text.slice(lastIndex, searchIndex));
       }
 
       // Create highlight mark
-      const mark = document.createElement("mark")
-      mark.className = "search-highlight"
-      mark.textContent = text.slice(searchIndex, searchIndex + searchText.length)
+      const mark = document.createElement('mark');
+      mark.className = 'search-highlight';
+      mark.textContent = text.slice(searchIndex, searchIndex + searchText.length);
 
       // Mark match as current if it's the one we're looking for
       if (currentMatchIndex !== null && matchCounter === currentMatchIndex) {
-        mark.classList.add("search-highlight-current")
+        mark.classList.add('search-highlight-current');
       }
-      matchCounter++
+      matchCounter++;
 
-      fragments.push(mark)
-      lastIndex = searchIndex + searchText.length
+      fragments.push(mark);
+      lastIndex = searchIndex + searchText.length;
     }
 
     // Add remaining text
     if (lastIndex < text.length) {
-      fragments.push(text.slice(lastIndex))
+      fragments.push(text.slice(lastIndex));
     }
 
     // Replace text node with fragments
     if (fragments.length > 0) {
-      const parent = textNode.parentNode
+      const parent = textNode.parentNode;
       if (parent) {
         fragments.forEach((frag, i) => {
-          if (typeof frag === "string") {
-            parent.insertBefore(document.createTextNode(frag), textNode)
+          if (typeof frag === 'string') {
+            parent.insertBefore(document.createTextNode(frag), textNode);
           } else {
-            parent.insertBefore(frag, textNode)
+            parent.insertBefore(frag, textNode);
           }
-        })
-        parent.removeChild(textNode)
+        });
+        parent.removeChild(textNode);
       }
     }
   }
@@ -251,83 +247,69 @@ export const IsolatedTextPart = memo(function IsolatedTextPart({
   messageId,
   partIndex,
   isFinalText,
-  visibleStepsCount,
+  visibleStepsCount
 }: IsolatedTextPartProps) {
-  const contentRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Use external store to subscribe to ONLY this text part
   // This prevents re-renders when other parts of the same message change
-  const text = useTextPart(subChatId, messageId, partIndex)
+  const text = useTextPart(subChatId, messageId, partIndex);
 
   // Use per-message streaming atom instead of global isStreamingAtom
   // This prevents re-renders of old messages when streaming status changes
-  const isTextStreaming = useAtomValue(isMessageStreamingAtomFamily(messageId))
+  const isTextStreaming = useAtomValue(isMessageStreamingAtomFamily(messageId));
 
   // Get search highlights for this text part
-  const highlights = useSearchHighlight(messageId, partIndex, "text")
+  const highlights = useSearchHighlight(messageId, partIndex, 'text');
 
   // Get search query from context
-  const searchQuery = useSearchQuery()
+  const searchQuery = useSearchQuery();
 
   // Find current highlight (the one marked as current)
-  const currentHighlight = highlights.find(h => h.isCurrent)
+  const currentHighlight = highlights.find((h) => h.isCurrent);
   // Memoize the current index to ensure stable dependency for useEffect
-  const currentMatchIndexInPart = currentHighlight?.indexInPart ?? null
+  const currentMatchIndexInPart = currentHighlight?.indexInPart ?? null;
 
   // Apply DOM-based highlighting after render
   // If currentHighlight exists, use its indexInPart to mark the correct match as current
   useEffect(() => {
-    if (!contentRef.current || isTextStreaming) return
+    if (!contentRef.current || isTextStreaming) return;
 
     // Apply highlighting
-    highlightTextInDom(
-      contentRef.current,
-      searchQuery,
-      currentMatchIndexInPart
-    )
+    highlightTextInDom(contentRef.current, searchQuery, currentMatchIndexInPart);
 
     // Cleanup on unmount or when highlights change
     return () => {
       if (contentRef.current) {
-        const existingHighlights = contentRef.current.querySelectorAll(".search-highlight")
+        const existingHighlights = contentRef.current.querySelectorAll('.search-highlight');
         existingHighlights.forEach((el) => {
-          const parent = el.parentNode
+          const parent = el.parentNode;
           if (parent) {
-            parent.replaceChild(document.createTextNode(el.textContent || ""), el)
-            parent.normalize()
+            parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+            parent.normalize();
           }
-        })
+        });
       }
-    }
-  }, [searchQuery, currentMatchIndexInPart, isTextStreaming, text])
+    };
+  }, [searchQuery, currentMatchIndexInPart, isTextStreaming, text]);
 
-  if (!text?.trim()) return null
+  if (!text?.trim()) return null;
 
   return (
     <div
-      className={cn(
-        "text-foreground px-2",
-        isFinalText && visibleStepsCount > 0 && "pt-3 border-t border-border/50",
-      )}
+      className={cn('text-foreground px-2', isFinalText && visibleStepsCount > 0 && 'pt-3 border-t border-border/50')}
       data-message-id={messageId}
       data-part-index={partIndex}
-      data-part-type="text"
-    >
+      data-part-type="text">
       {isFinalText && visibleStepsCount > 0 && (
-        <div className="text-[12px] uppercase tracking-wider text-muted-foreground/60 font-medium mb-1">
-          Response
-        </div>
+        <div className="text-[12px] uppercase tracking-wider text-muted-foreground/60 font-medium mb-1">Response</div>
       )}
       <div ref={contentRef}>
-        <MemoizedMarkdown
-          content={text}
-          id={`${messageId}-${partIndex}`}
-          size="sm"
-        />
+        <MemoizedMarkdown content={text} id={`${messageId}-${partIndex}`} size="sm" />
       </div>
     </div>
-  )
-}, arePropsEqual)
+  );
+}, arePropsEqual);
 
 // ============================================================================
 // ISOLATED TEXT PARTS LIST - Renders all text parts for a message
@@ -337,12 +319,12 @@ export const IsolatedTextPart = memo(function IsolatedTextPart({
 // NOT when text content changes within existing parts.
 
 interface IsolatedTextPartsProps {
-  subChatId: string
-  messageId: string
+  subChatId: string;
+  messageId: string;
   // For determining which parts to show and how
-  finalTextIndex: number  // Index where "final text" starts (-1 if none)
-  visibleStepsCount: number
-  showOnlyFinalText?: boolean  // If true, only show parts >= finalTextIndex
+  finalTextIndex: number; // Index where "final text" starts (-1 if none)
+  visibleStepsCount: number;
+  showOnlyFinalText?: boolean; // If true, only show parts >= finalTextIndex
 }
 
 function areListPropsEqual(prev: IsolatedTextPartsProps, next: IsolatedTextPartsProps): boolean {
@@ -352,7 +334,7 @@ function areListPropsEqual(prev: IsolatedTextPartsProps, next: IsolatedTextParts
     prev.finalTextIndex === next.finalTextIndex &&
     prev.visibleStepsCount === next.visibleStepsCount &&
     prev.showOnlyFinalText === next.showOnlyFinalText
-  )
+  );
 }
 
 export const IsolatedTextPartsList = memo(function IsolatedTextPartsList({
@@ -360,37 +342,37 @@ export const IsolatedTextPartsList = memo(function IsolatedTextPartsList({
   messageId,
   finalTextIndex,
   visibleStepsCount,
-  showOnlyFinalText = false,
+  showOnlyFinalText = false
 }: IsolatedTextPartsProps) {
   // Subscribe to message just to get parts structure (not content)
-  const message = useAtomValue(messageAtomFamily(getPerChatMessageKey(subChatId, messageId)))
+  const message = useAtomValue(messageAtomFamily(getPerChatMessageKey(subChatId, messageId)));
 
   // Find indices of text parts that should be rendered
   // This is a stable calculation - only changes when parts array structure changes
   const textPartIndices = useMemo(() => {
-    const parts = message?.parts || []
-    const indices: number[] = []
+    const parts = message?.parts || [];
+    const indices: number[] = [];
 
     for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
-      if (part.type === "text" && part.text?.trim()) {
+      const part = parts[i];
+      if (part.type === 'text' && part.text?.trim()) {
         // Apply filtering based on finalTextIndex
         if (showOnlyFinalText) {
           if (finalTextIndex !== -1 && i >= finalTextIndex) {
-            indices.push(i)
+            indices.push(i);
           }
         } else {
           if (finalTextIndex === -1 || i < finalTextIndex) {
-            indices.push(i)
+            indices.push(i);
           }
         }
       }
     }
 
-    return indices
-  }, [message?.parts?.length, finalTextIndex, showOnlyFinalText])
+    return indices;
+  }, [message?.parts?.length, finalTextIndex, showOnlyFinalText]);
 
-  if (textPartIndices.length === 0) return null
+  if (textPartIndices.length === 0) return null;
 
   return (
     <>
@@ -405,5 +387,5 @@ export const IsolatedTextPartsList = memo(function IsolatedTextPartsList({
         />
       ))}
     </>
-  )
-}, areListPropsEqual)
+  );
+}, areListPropsEqual);

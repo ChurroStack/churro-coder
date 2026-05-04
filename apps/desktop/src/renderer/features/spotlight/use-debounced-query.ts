@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState } from 'react';
 
 export function useDebouncedQuery(value: string, delayMs = 120): string {
-  const [debounced, setDebounced] = useState(value)
+  const [debounced, setDebounced] = useState(value);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => setDebounced(value), delayMs)
-    return () => window.clearTimeout(handle)
-  }, [value, delayMs])
+    const handle = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(handle);
+  }, [value, delayMs]);
 
-  return debounced
+  return debounced;
 }

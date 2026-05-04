@@ -1,31 +1,31 @@
-import * as fs from "fs/promises"
-import * as path from "path"
-import * as os from "os"
-import matter from "gray-matter"
-import { discoverInstalledPlugins, getPluginComponentPaths } from "../../plugins"
-import { resolveDirentType } from "../../fs/dirent"
-import { getEnabledPlugins } from "./claude-settings"
-import { BUILTIN_SUBAGENTS } from "./builtin-agents"
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
+import matter from 'gray-matter';
+import { discoverInstalledPlugins, getPluginComponentPaths } from '../../plugins';
+import { resolveDirentType } from '../../fs/dirent';
+import { getEnabledPlugins } from './claude-settings';
+import { BUILTIN_SUBAGENTS } from './builtin-agents';
 
 // Valid model values for agents
-export const VALID_AGENT_MODELS = ["sonnet", "opus", "haiku", "inherit"] as const
-export type AgentModel = (typeof VALID_AGENT_MODELS)[number]
+export const VALID_AGENT_MODELS = ['sonnet', 'opus', 'haiku', 'inherit'] as const;
+export type AgentModel = (typeof VALID_AGENT_MODELS)[number];
 
 // Agent definition parsed from markdown file
 export interface ParsedAgent {
-  name: string
-  description: string
-  prompt: string
-  tools?: string[]
-  disallowedTools?: string[]
-  model?: AgentModel
+  name: string;
+  description: string;
+  prompt: string;
+  tools?: string[];
+  disallowedTools?: string[];
+  model?: AgentModel;
 }
 
 // Agent with source/path metadata
 export interface FileAgent extends ParsedAgent {
-  source: "user" | "project" | "plugin"
-  pluginName?: string
-  path: string
+  source: 'user' | 'project' | 'plugin';
+  pluginName?: string;
+  path: string;
 }
 
 /**
@@ -40,53 +40,46 @@ export interface FileAgent extends ParsedAgent {
  *
  * You are a code reviewer. When invoked...
  */
-export function parseAgentMd(
-  content: string,
-  filename: string
-): Partial<ParsedAgent> {
+export function parseAgentMd(content: string, filename: string): Partial<ParsedAgent> {
   try {
-    const { data, content: body } = matter(content)
+    const { data, content: body } = matter(content);
 
     // Parse tools - can be comma-separated string or array
-    let tools: string[] | undefined
-    if (typeof data.tools === "string") {
+    let tools: string[] | undefined;
+    if (typeof data.tools === 'string') {
       tools = data.tools
-        .split(",")
+        .split(',')
         .map((t: string) => t.trim())
-        .filter(Boolean)
+        .filter(Boolean);
     } else if (Array.isArray(data.tools)) {
-      tools = data.tools
+      tools = data.tools;
     }
 
     // Parse disallowedTools
-    let disallowedTools: string[] | undefined
-    if (typeof data.disallowedTools === "string") {
+    let disallowedTools: string[] | undefined;
+    if (typeof data.disallowedTools === 'string') {
       disallowedTools = data.disallowedTools
-        .split(",")
+        .split(',')
         .map((t: string) => t.trim())
-        .filter(Boolean)
+        .filter(Boolean);
     } else if (Array.isArray(data.disallowedTools)) {
-      disallowedTools = data.disallowedTools
+      disallowedTools = data.disallowedTools;
     }
 
     // Validate model
-    const model =
-      data.model && VALID_AGENT_MODELS.includes(data.model)
-        ? (data.model as AgentModel)
-        : undefined
+    const model = data.model && VALID_AGENT_MODELS.includes(data.model) ? (data.model as AgentModel) : undefined;
 
     return {
-      name:
-        typeof data.name === "string" ? data.name : filename.replace(".md", ""),
-      description: typeof data.description === "string" ? data.description : "",
+      name: typeof data.name === 'string' ? data.name : filename.replace('.md', ''),
+      description: typeof data.description === 'string' ? data.description : '',
       prompt: body.trim(),
       tools,
       disallowedTools,
-      model,
-    }
+      model
+    };
   } catch (err) {
-    console.error("[agents] Failed to parse markdown:", err)
-    return {}
+    console.error('[agents] Failed to parse markdown:', err);
+    return {};
   }
 }
 
@@ -94,47 +87,44 @@ export function parseAgentMd(
  * Generate markdown content for agent file
  */
 export function generateAgentMd(agent: {
-  name: string
-  description: string
-  prompt: string
-  tools?: string[]
-  disallowedTools?: string[]
-  model?: AgentModel
+  name: string;
+  description: string;
+  prompt: string;
+  tools?: string[];
+  disallowedTools?: string[];
+  model?: AgentModel;
 }): string {
-  const frontmatter: string[] = []
-  frontmatter.push(`name: ${agent.name}`)
-  frontmatter.push(`description: ${agent.description}`)
+  const frontmatter: string[] = [];
+  frontmatter.push(`name: ${agent.name}`);
+  frontmatter.push(`description: ${agent.description}`);
   if (agent.tools && agent.tools.length > 0) {
-    frontmatter.push(`tools: ${agent.tools.join(", ")}`)
+    frontmatter.push(`tools: ${agent.tools.join(', ')}`);
   }
   if (agent.disallowedTools && agent.disallowedTools.length > 0) {
-    frontmatter.push(`disallowedTools: ${agent.disallowedTools.join(", ")}`)
+    frontmatter.push(`disallowedTools: ${agent.disallowedTools.join(', ')}`);
   }
-  if (agent.model && agent.model !== "inherit") {
-    frontmatter.push(`model: ${agent.model}`)
+  if (agent.model && agent.model !== 'inherit') {
+    frontmatter.push(`model: ${agent.model}`);
   }
 
-  return `---\n${frontmatter.join("\n")}\n---\n\n${agent.prompt}`
+  return `---\n${frontmatter.join('\n')}\n---\n\n${agent.prompt}`;
 }
 
 /**
  * Load agent definition from filesystem by name
  * Searches in user (~/.claude/agents/) and project (.claude/agents/) directories
  */
-export async function loadAgent(
-  name: string,
-  cwd?: string
-): Promise<ParsedAgent | null> {
+export async function loadAgent(name: string, cwd?: string): Promise<ParsedAgent | null> {
   const locations = [
-    path.join(os.homedir(), ".claude", "agents"),
-    ...(cwd ? [path.join(cwd, ".claude", "agents")] : []),
-  ]
+    path.join(os.homedir(), '.claude', 'agents'),
+    ...(cwd ? [path.join(cwd, '.claude', 'agents')] : [])
+  ];
 
   for (const dir of locations) {
-    const agentPath = path.join(dir, `${name}.md`)
+    const agentPath = path.join(dir, `${name}.md`);
     try {
-      const content = await fs.readFile(agentPath, "utf-8")
-      const parsed = parseAgentMd(content, `${name}.md`)
+      const content = await fs.readFile(agentPath, 'utf-8');
+      const parsed = parseAgentMd(content, `${name}.md`);
 
       if (parsed.description && parsed.prompt) {
         return {
@@ -143,29 +133,24 @@ export async function loadAgent(
           prompt: parsed.prompt,
           tools: parsed.tools,
           disallowedTools: parsed.disallowedTools,
-          model: parsed.model,
-        }
+          model: parsed.model
+        };
       }
     } catch {
-      continue
+      continue;
     }
   }
 
   // Search in plugin directories
-  const [enabledPluginSources, installedPlugins] = await Promise.all([
-    getEnabledPlugins(),
-    discoverInstalledPlugins(),
-  ])
-  const enabledPlugins = installedPlugins.filter(
-    (p) => enabledPluginSources.includes(p.source),
-  )
+  const [enabledPluginSources, installedPlugins] = await Promise.all([getEnabledPlugins(), discoverInstalledPlugins()]);
+  const enabledPlugins = installedPlugins.filter((p) => enabledPluginSources.includes(p.source));
   const pluginResults = await Promise.all(
     enabledPlugins.map(async (plugin) => {
-      const paths = getPluginComponentPaths(plugin)
-      const agentPath = path.join(paths.agents, `${name}.md`)
+      const paths = getPluginComponentPaths(plugin);
+      const agentPath = path.join(paths.agents, `${name}.md`);
       try {
-        const content = await fs.readFile(agentPath, "utf-8")
-        const parsed = parseAgentMd(content, `${name}.md`)
+        const content = await fs.readFile(agentPath, 'utf-8');
+        const parsed = parseAgentMd(content, `${name}.md`);
         if (parsed.description && parsed.prompt) {
           return {
             name: parsed.name || name,
@@ -173,14 +158,14 @@ export async function loadAgent(
             prompt: parsed.prompt,
             tools: parsed.tools,
             disallowedTools: parsed.disallowedTools,
-            model: parsed.model,
-          }
+            model: parsed.model
+          };
         }
       } catch {}
-      return null
-    }),
-  )
-  return pluginResults.find((r) => r !== null) ?? null
+      return null;
+    })
+  );
+  return pluginResults.find((r) => r !== null) ?? null;
 }
 
 /**
@@ -189,82 +174,76 @@ export async function loadAgent(
  */
 export async function scanAgentsDirectory(
   dir: string,
-  source: "user" | "project" | "plugin",
+  source: 'user' | 'project' | 'plugin',
   basePath?: string // For project agents, the cwd to make paths relative to
 ): Promise<FileAgent[]> {
-  const agents: FileAgent[] = []
+  const agents: FileAgent[] = [];
 
   try {
-    await fs.access(dir)
-    const entries = await fs.readdir(dir, { withFileTypes: true })
+    await fs.access(dir);
+    const entries = await fs.readdir(dir, { withFileTypes: true });
 
     for (const entry of entries) {
       // Validate entry name for security (prevent path traversal)
-      if (
-        entry.name.includes("..") ||
-        entry.name.includes("/") ||
-        entry.name.includes("\\")
-      ) {
-        console.warn(`[agents] Skipping invalid filename: ${entry.name}`)
-        continue
+      if (entry.name.includes('..') || entry.name.includes('/') || entry.name.includes('\\')) {
+        console.warn(`[agents] Skipping invalid filename: ${entry.name}`);
+        continue;
       }
 
       // Accept .md files (Claude Code native format)
-      const { isFile } = await resolveDirentType(dir, entry)
-      if (isFile && entry.name.endsWith(".md")) {
-        const agentPath = path.join(dir, entry.name)
+      const { isFile } = await resolveDirentType(dir, entry);
+      if (isFile && entry.name.endsWith('.md')) {
+        const agentPath = path.join(dir, entry.name);
         try {
-          const content = await fs.readFile(agentPath, "utf-8")
-          const parsed = parseAgentMd(content, entry.name)
+          const content = await fs.readFile(agentPath, 'utf-8');
+          const parsed = parseAgentMd(content, entry.name);
 
           if (parsed.description && parsed.prompt) {
             // For project agents, show relative path; for user agents, show ~/.claude/... path
-            let displayPath: string
-            if (source === "project" && basePath) {
-              displayPath = path.relative(basePath, agentPath)
+            let displayPath: string;
+            if (source === 'project' && basePath) {
+              displayPath = path.relative(basePath, agentPath);
             } else {
               // For user agents, show ~/.claude/agents/... format
-              const homeDir = os.homedir()
-              displayPath = agentPath.startsWith(homeDir)
-                ? "~" + agentPath.slice(homeDir.length)
-                : agentPath
+              const homeDir = os.homedir();
+              displayPath = agentPath.startsWith(homeDir) ? '~' + agentPath.slice(homeDir.length) : agentPath;
             }
 
             agents.push({
-              name: parsed.name || entry.name.replace(".md", ""),
+              name: parsed.name || entry.name.replace('.md', ''),
               description: parsed.description,
               prompt: parsed.prompt,
               tools: parsed.tools,
               disallowedTools: parsed.disallowedTools,
               model: parsed.model,
               source,
-              path: displayPath,
-            })
+              path: displayPath
+            });
           }
         } catch (err) {
-          console.error(`[agents] Failed to read agent ${entry.name}:`, err)
+          console.error(`[agents] Failed to read agent ${entry.name}:`, err);
         }
       }
     }
   } catch (err) {
     // Directory doesn't exist or not accessible
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.warn(`[agents] Could not scan directory ${dir}:`, err)
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn(`[agents] Could not scan directory ${dir}:`, err);
     }
   }
 
-  return agents
+  return agents;
 }
 
 // Cache for loaded agents to avoid re-reading from disk
-const agentCache = new Map<string, ParsedAgent | null>()
+const agentCache = new Map<string, ParsedAgent | null>();
 
 /**
  * Clear the agent cache (for testing/debugging)
  */
 export function clearAgentCache() {
-  agentCache.clear()
-  console.log("[agents] Cache cleared")
+  agentCache.clear();
+  console.log('[agents] Cache cleared');
 }
 
 /**
@@ -279,11 +258,11 @@ export async function buildAgentsOption(
   Record<
     string,
     {
-      description: string
-      prompt: string
-      tools?: string[]
-      disallowedTools?: string[]
-      model?: AgentModel
+      description: string;
+      prompt: string;
+      tools?: string[];
+      disallowedTools?: string[];
+      model?: AgentModel;
     }
   >
 > {
@@ -297,27 +276,27 @@ export async function buildAgentsOption(
   const agents: Record<
     string,
     {
-      description: string
-      prompt: string
-      tools?: string[]
-      disallowedTools?: string[]
-      model?: AgentModel
+      description: string;
+      prompt: string;
+      tools?: string[];
+      disallowedTools?: string[];
+      model?: AgentModel;
     }
-  > = { ...BUILTIN_SUBAGENTS }
+  > = { ...BUILTIN_SUBAGENTS };
 
   for (const name of agentNames) {
     // Create cache key including cwd to handle project-specific agents
-    const cacheKey = cwd ? `${name}:${cwd}` : name
+    const cacheKey = cwd ? `${name}:${cwd}` : name;
 
     // Check cache first
-    let agent = agentCache.get(cacheKey)
+    let agent = agentCache.get(cacheKey);
     if (agent === undefined) {
       // Not in cache, load from disk
-      console.log(`[agents] Cache MISS for ${name} - loading from disk`)
-      agent = await loadAgent(name, cwd)
-      agentCache.set(cacheKey, agent)
+      console.log(`[agents] Cache MISS for ${name} - loading from disk`);
+      agent = await loadAgent(name, cwd);
+      agentCache.set(cacheKey, agent);
     } else {
-      console.log(`[agents] Cache HIT for ${name}`)
+      console.log(`[agents] Cache HIT for ${name}`);
     }
 
     if (agent) {
@@ -326,10 +305,10 @@ export async function buildAgentsOption(
         prompt: agent.prompt,
         ...(agent.tools && { tools: agent.tools }),
         ...(agent.disallowedTools && { disallowedTools: agent.disallowedTools }),
-        ...(agent.model && { model: agent.model }),
-      }
+        ...(agent.model && { model: agent.model })
+      };
     }
   }
 
-  return agents
+  return agents;
 }

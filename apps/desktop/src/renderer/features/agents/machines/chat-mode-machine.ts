@@ -21,45 +21,45 @@
  *     caller knows to invoke `applyModeDefaultModel` synchronously.
  */
 
-export type ChatMode = "plan" | "agent" | "review"
-export type ChatActivity = "idle" | "sending" | "streaming" | "errored"
+export type ChatMode = 'plan' | 'agent' | 'review';
+export type ChatActivity = 'idle' | 'sending' | 'streaming' | 'errored';
 
 export type ForcedModeReason =
   /** Plan approval flipped the mode to "agent". */
-  | "plan-approved"
+  | 'plan-approved'
   /** Session resume hydrated a mode from the DB / atom store. */
-  | "session-resumed"
+  | 'session-resumed';
 
 export interface ChatModeState {
-  mode: ChatMode
-  activity: ChatActivity
+  mode: ChatMode;
+  activity: ChatActivity;
   /**
    * Monotonically incremented whenever the machine commits a mode change.
    * Used to discard stale `HYDRATE` events that arrive after a forced flip.
    */
-  hydrationVersion: number
+  hydrationVersion: number;
   /** Whether the most recent transition requires the caller to re-apply mode defaults. */
-  mustApplyDefaults: boolean
+  mustApplyDefaults: boolean;
 }
 
 export type ChatModeEvent =
-  | { type: "USER_TOGGLED_MODE"; to: ChatMode }
-  | { type: "FORCE_MODE"; to: ChatMode; reason: ForcedModeReason }
-  | { type: "HYDRATE"; from: ChatMode; hydrationVersion: number }
-  | { type: "SEND_REQUESTED" }
-  | { type: "STREAM_STARTED" }
-  | { type: "STREAM_COMPLETED" }
-  | { type: "STREAM_ERRORED" }
-  | { type: "ERROR_CLEARED" }
-  | { type: "CANCEL_REQUESTED" }
+  | { type: 'USER_TOGGLED_MODE'; to: ChatMode }
+  | { type: 'FORCE_MODE'; to: ChatMode; reason: ForcedModeReason }
+  | { type: 'HYDRATE'; from: ChatMode; hydrationVersion: number }
+  | { type: 'SEND_REQUESTED' }
+  | { type: 'STREAM_STARTED' }
+  | { type: 'STREAM_COMPLETED' }
+  | { type: 'STREAM_ERRORED' }
+  | { type: 'ERROR_CLEARED' }
+  | { type: 'CANCEL_REQUESTED' };
 
-export function initialChatModeState(initial: ChatMode = "agent"): ChatModeState {
+export function initialChatModeState(initial: ChatMode = 'agent'): ChatModeState {
   return {
     mode: initial,
-    activity: "idle",
+    activity: 'idle',
     hydrationVersion: 0,
-    mustApplyDefaults: false,
-  }
+    mustApplyDefaults: false
+  };
 }
 
 /**
@@ -77,78 +77,78 @@ export function initialChatModeState(initial: ChatMode = "agent"): ChatModeState
  */
 export function reduceChatMode(state: ChatModeState, event: ChatModeEvent): ChatModeState {
   // Default: clear the one-shot mustApplyDefaults flag unless this transition sets it again.
-  const cleared: ChatModeState = { ...state, mustApplyDefaults: false }
+  const cleared: ChatModeState = { ...state, mustApplyDefaults: false };
 
   switch (event.type) {
-    case "USER_TOGGLED_MODE": {
+    case 'USER_TOGGLED_MODE': {
       // Reject toggle while busy. Caller MUST gate the UI.
-      if (state.activity !== "idle") return cleared
-      if (state.mode === event.to) return cleared
+      if (state.activity !== 'idle') return cleared;
+      if (state.mode === event.to) return cleared;
       return {
         ...cleared,
         mode: event.to,
         hydrationVersion: state.hydrationVersion + 1,
-        mustApplyDefaults: true,
-      }
+        mustApplyDefaults: true
+      };
     }
 
-    case "FORCE_MODE": {
+    case 'FORCE_MODE': {
       // Force always wins, even mid-stream — plan approval auto-flip happens
       // immediately after STREAM_COMPLETED and before the next SEND_REQUESTED.
       if (state.mode === event.to) {
         // Same target — still bump version so a stale HYDRATE can't revert.
-        return { ...cleared, hydrationVersion: state.hydrationVersion + 1 }
+        return { ...cleared, hydrationVersion: state.hydrationVersion + 1 };
       }
       return {
         ...cleared,
         mode: event.to,
         hydrationVersion: state.hydrationVersion + 1,
-        mustApplyDefaults: true,
-      }
+        mustApplyDefaults: true
+      };
     }
 
-    case "HYDRATE": {
+    case 'HYDRATE': {
       // Stale hydration race (PR #51): a refetch arriving after a forced flip
       // would otherwise overwrite the new mode back to the persisted one.
-      if (event.hydrationVersion < state.hydrationVersion) return cleared
+      if (event.hydrationVersion < state.hydrationVersion) return cleared;
       if (state.mode === event.from) {
-        return { ...cleared, hydrationVersion: event.hydrationVersion }
+        return { ...cleared, hydrationVersion: event.hydrationVersion };
       }
       return {
         ...cleared,
         mode: event.from,
         hydrationVersion: event.hydrationVersion,
-        mustApplyDefaults: true,
-      }
+        mustApplyDefaults: true
+      };
     }
 
-    case "SEND_REQUESTED": {
-      if (state.activity !== "idle") return cleared
-      return { ...cleared, activity: "sending" }
+    case 'SEND_REQUESTED': {
+      if (state.activity !== 'idle') return cleared;
+      return { ...cleared, activity: 'sending' };
     }
 
-    case "STREAM_STARTED": {
+    case 'STREAM_STARTED': {
       // Tolerate STREAM_STARTED from idle (server-initiated stream).
-      return { ...cleared, activity: "streaming" }
+      return { ...cleared, activity: 'streaming' };
     }
 
-    case "STREAM_COMPLETED": {
-      return { ...cleared, activity: "idle" }
+    case 'STREAM_COMPLETED': {
+      return { ...cleared, activity: 'idle' };
     }
 
-    case "STREAM_ERRORED": {
-      return { ...cleared, activity: "errored" }
+    case 'STREAM_ERRORED': {
+      return { ...cleared, activity: 'errored' };
     }
 
-    case "ERROR_CLEARED": {
-      if (state.activity !== "errored") return cleared
-      return { ...cleared, activity: "idle" }
+    case 'ERROR_CLEARED': {
+      if (state.activity !== 'errored') return cleared;
+      return { ...cleared, activity: 'idle' };
     }
 
-    case "CANCEL_REQUESTED": {
+    case 'CANCEL_REQUESTED': {
       // Cancel from any non-idle state returns to idle.
-      if (state.activity === "idle") return cleared
-      return { ...cleared, activity: "idle" }
+      if (state.activity === 'idle') return cleared;
+      return { ...cleared, activity: 'idle' };
     }
   }
 }
@@ -157,9 +157,6 @@ export function reduceChatMode(state: ChatModeState, event: ChatModeEvent): Chat
  * Convenience: replay a sequence of events on top of an initial state.
  * Useful for tests that simulate a full flow (sending → streaming → completed).
  */
-export function runChatMode(
-  initial: ChatModeState,
-  events: ReadonlyArray<ChatModeEvent>,
-): ChatModeState {
-  return events.reduce(reduceChatMode, initial)
+export function runChatMode(initial: ChatModeState, events: ReadonlyArray<ChatModeEvent>): ChatModeState {
+  return events.reduce(reduceChatMode, initial);
 }

@@ -6,16 +6,16 @@
  * This helper provides the correct base URL for API requests.
  */
 
-let cachedBaseUrl: string | null = null
+let cachedBaseUrl: string | null = null;
 
 /**
  * Get the API base URL (cached after first call)
  * Always returns an empty string today — remote calls are removed.
  */
 export async function getApiBaseUrl(): Promise<string> {
-  if (cachedBaseUrl) return cachedBaseUrl
-  cachedBaseUrl = await window.desktopApi.getApiBaseUrl()
-  return cachedBaseUrl
+  if (cachedBaseUrl) return cachedBaseUrl;
+  cachedBaseUrl = await window.desktopApi.getApiBaseUrl();
+  return cachedBaseUrl;
 }
 
 /**
@@ -31,9 +31,9 @@ export async function apiFetch(
   init?: RequestInit,
   options?: { withCredentials?: boolean }
 ): Promise<Response> {
-  const baseUrl = await getApiBaseUrl()
+  const baseUrl = await getApiBaseUrl();
   return fetch(`${baseUrl}${path}`, {
     ...init,
-    ...(options?.withCredentials && { credentials: "include" }),
-  })
+    ...(options?.withCredentials && { credentials: 'include' })
+  });
 }

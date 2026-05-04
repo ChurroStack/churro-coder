@@ -1,10 +1,10 @@
-"use client"
+'use client';
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef } from 'react';
 
 export interface MessageGroupProps {
-  children: React.ReactNode
-  isLastGroup?: boolean
+  children: React.ReactNode;
+  isLastGroup?: boolean;
 }
 
 /**
@@ -26,29 +26,29 @@ export interface MessageGroupProps {
  * Extracted from `active-chat.tsx` (Phase 3).
  */
 export function MessageGroup({ children, isLastGroup }: MessageGroupProps) {
-  const groupRef = useRef<HTMLDivElement>(null)
+  const groupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const groupEl = groupRef.current
-    if (!groupEl) return
+    const groupEl = groupRef.current;
+    if (!groupEl) return;
 
     // Find the actual bubble element (not the wrapper which includes the gradient overlay).
-    const bubbleEl = groupEl.querySelector("[data-user-bubble]") as HTMLDivElement | null
-    if (!bubbleEl) return
+    const bubbleEl = groupEl.querySelector('[data-user-bubble]') as HTMLDivElement | null;
+    if (!bubbleEl) return;
 
     const updateHeight = () => {
-      const height = bubbleEl.offsetHeight
+      const height = bubbleEl.offsetHeight;
       // Set the CSS variable directly on the DOM — no React state, no re-renders.
-      groupEl.style.setProperty("--user-message-height", `${height}px`)
-    }
+      groupEl.style.setProperty('--user-message-height', `${height}px`);
+    };
 
-    updateHeight()
+    updateHeight();
 
-    const observer = new ResizeObserver(updateHeight)
-    observer.observe(bubbleEl)
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(bubbleEl);
 
-    return () => observer.disconnect()
-  }, [])
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div
@@ -56,14 +56,13 @@ export function MessageGroup({ children, isLastGroup }: MessageGroupProps) {
       className="relative"
       style={{
         ...(!isLastGroup && {
-          contentVisibility: "auto",
-          containIntrinsicSize: "auto 200px",
+          contentVisibility: 'auto',
+          containIntrinsicSize: 'auto 200px'
         }),
-        ...(isLastGroup && { minHeight: "calc(var(--chat-container-height) - 32px)" }),
+        ...(isLastGroup && { minHeight: 'calc(var(--chat-container-height) - 32px)' })
       }}
-      data-last-group={isLastGroup || undefined}
-    >
+      data-last-group={isLastGroup || undefined}>
       {children}
     </div>
-  )
+  );
 }

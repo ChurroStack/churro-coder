@@ -6,21 +6,21 @@
  * https://github.com/21st-dev/1code/pull/16
  */
 
-import { app } from "electron"
-import { join } from "path"
-import { existsSync, lstatSync } from "fs"
-import { platform } from "./platform"
+import { app } from 'electron';
+import { join } from 'path';
+import { existsSync, lstatSync } from 'fs';
+import { platform } from './platform';
 
 // Launch directory from CLI (e.g., `cscode /path/to/project`)
-let launchDirectory: string | null = null
+let launchDirectory: string | null = null;
 
 /**
  * Get the launch directory passed via CLI args (consumed once)
  */
 export function getLaunchDirectory(): string | null {
-  const dir = launchDirectory
-  launchDirectory = null // consume once
-  return dir
+  const dir = launchDirectory;
+  launchDirectory = null; // consume once
+  return dir;
 }
 
 /**
@@ -30,20 +30,20 @@ export function getLaunchDirectory(): string | null {
 export function parseLaunchDirectory(): void {
   // Look for a directory argument in argv
   // Skip electron executable and script path
-  const args = process.argv.slice(process.defaultApp ? 2 : 1)
+  const args = process.argv.slice(process.defaultApp ? 2 : 1);
 
   for (const arg of args) {
     // Skip flags and protocol URLs
-    if (arg.startsWith("-") || arg.includes("://")) continue
+    if (arg.startsWith('-') || arg.includes('://')) continue;
 
     // Check if it's a valid directory
     if (existsSync(arg)) {
       try {
-        const stat = lstatSync(arg)
+        const stat = lstatSync(arg);
         if (stat.isDirectory()) {
-          console.log("[CLI] Launch directory:", arg)
-          launchDirectory = arg
-          return
+          console.log('[CLI] Launch directory:', arg);
+          launchDirectory = arg;
+          return;
         }
       } catch {
         // ignore
@@ -56,18 +56,18 @@ export function parseLaunchDirectory(): void {
  * Get the CLI source path (where the CLI script is bundled)
  */
 function getCliSourcePath(): string {
-  const cliName = platform.getCliConfig().scriptName
+  const cliName = platform.getCliConfig().scriptName;
   if (app.isPackaged) {
-    return join(process.resourcesPath, "cli", cliName)
+    return join(process.resourcesPath, 'cli', cliName);
   }
-  return join(__dirname, "..", "..", "resources", "cli", cliName)
+  return join(__dirname, '..', '..', 'resources', 'cli', cliName);
 }
 
 /**
  * Check if the CLI command is installed
  */
 export function isCliInstalled(): boolean {
-  return platform.isCliInstalled(getCliSourcePath())
+  return platform.isCliInstalled(getCliSourcePath());
 }
 
 /**
@@ -75,10 +75,10 @@ export function isCliInstalled(): boolean {
  * Platform-specific behavior is handled by the platform provider
  */
 export async function installCli(): Promise<{
-  success: boolean
-  error?: string
+  success: boolean;
+  error?: string;
 }> {
-  return platform.installCli(getCliSourcePath())
+  return platform.installCli(getCliSourcePath());
 }
 
 /**
@@ -86,8 +86,8 @@ export async function installCli(): Promise<{
  * Platform-specific behavior is handled by the platform provider
  */
 export async function uninstallCli(): Promise<{
-  success: boolean
-  error?: string
+  success: boolean;
+  error?: string;
 }> {
-  return platform.uninstallCli()
+  return platform.uninstallCli();
 }

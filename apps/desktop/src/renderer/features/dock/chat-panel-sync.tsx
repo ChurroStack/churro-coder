@@ -1,6 +1,6 @@
-import { useEffect } from "react"
-import type { DockviewApi } from "dockview-react"
-import { useAgentSubChatStore } from "../agents/stores/sub-chat-store"
+import { useEffect } from 'react';
+import type { DockviewApi } from 'dockview-react';
+import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
 
 /**
  * ChatPanelSync — keeps a workspace's dockview chat panels (`chat:*`) in
@@ -26,84 +26,80 @@ import { useAgentSubChatStore } from "../agents/stores/sub-chat-store"
 export interface ChatPanelSyncProps {
   /** This shell's workspace id. Used to gate effects: only the workspace
    *  matching the global `selectedChatId` reconciles its dockview. */
-  workspaceId: string | null
+  workspaceId: string | null;
   /** When false, every effect bails — the inactive shell stays frozen. */
-  active: boolean
+  active: boolean;
   /** The dockview instance owned by this shell. */
-  dockApi: DockviewApi | null
+  dockApi: DockviewApi | null;
 }
 
-export function ChatPanelSync({
-  workspaceId,
-  active,
-  dockApi,
-}: ChatPanelSyncProps) {
-  const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds)
-  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId)
-  const allSubChats = useAgentSubChatStore((s) => s.allSubChats)
-  const storeChatId = useAgentSubChatStore((s) => s.chatId)
+export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncProps) {
+  const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
+  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
+  const allSubChats = useAgentSubChatStore((s) => s.allSubChats);
+  const storeChatId = useAgentSubChatStore((s) => s.chatId);
 
   // Effect (1) — no chat selected: close chat panels, ensure `main`.
   useEffect(() => {
-    if (!active || !dockApi) return
-    if (workspaceId !== null) return
+    if (!active || !dockApi) return;
+    if (workspaceId !== null) return;
     for (const panel of dockApi.panels) {
-      if (panel.id.startsWith("chat:")) panel.api.close()
+      if (panel.id.startsWith('chat:')) panel.api.close();
     }
-    if (!dockApi.getPanel("main")) {
+    if (!dockApi.getPanel('main')) {
       dockApi.addPanel({
-        id: "main",
-        component: "main",
-        title: "Workspace",
-      })
+        id: 'main',
+        component: 'main',
+        title: 'Workspace'
+      });
     }
-  }, [active, dockApi, workspaceId])
+  }, [active, dockApi, workspaceId]);
 
   // Effect (2) — workspace selected: reconcile chat panels.
   useEffect(() => {
-    if (!active || !dockApi || !workspaceId) return
+    if (!active || !dockApi || !workspaceId) return;
     // The store loads its slice on `setChatId`; if it lags behind the
     // workspace switch we bail to wait for the next render.
-    if (storeChatId !== workspaceId) return
+    if (storeChatId !== workspaceId) return;
 
     if (openSubChatIds.length > 0) {
-      const main = dockApi.getPanel("main")
-      if (main) main.api.close()
+      const main = dockApi.getPanel('main');
+      if (main) main.api.close();
     }
 
     for (const subChatId of openSubChatIds) {
-      const id = `chat:${subChatId}`
-      if (dockApi.getPanel(id)) continue
-      const sc = allSubChats.find((x) => x.id === subChatId)
+      const id = `chat:${subChatId}`;
+      if (dockApi.getPanel(id)) continue;
+      const sc = allSubChats.find((x) => x.id === subChatId);
       dockApi.addPanel({
         id,
-        component: "chat",
-        title: sc?.name || "Conversation",
+        component: 'chat',
+        title: sc?.name || 'Conversation',
         params: {
           subChatId,
           chatId: workspaceId,
-          name: sc?.name,
-        },
-      })
+          name: sc?.name
+        }
+      });
     }
 
     for (const panel of dockApi.panels) {
-      if (!panel.id.startsWith("chat:")) continue
-      const subChatId = panel.id.slice("chat:".length)
+      if (!panel.id.startsWith('chat:')) continue;
+      const subChatId = panel.id.slice('chat:'.length);
       if (!openSubChatIds.includes(subChatId)) {
-        panel.api.close()
+        panel.api.close();
       }
     }
-  }, [active, dockApi, workspaceId, storeChatId, openSubChatIds, allSubChats])
+  }, [active, dockApi, workspaceId, storeChatId, openSubChatIds, allSubChats]);
 
   // Effect (3) — active sub-chat → setActive on the matching panel.
   useEffect(() => {
-    if (!active || !dockApi || !workspaceId) return
-    if (storeChatId !== workspaceId) return
-    if (!activeSubChatId) return
-    const panel = dockApi.getPanel(`chat:${activeSubChatId}`)
-    if (panel && !panel.api.isActive) panel.api.setActive()
-  }, [active, dockApi, workspaceId, storeChatId, activeSubChatId])
+    if (!active || !dockApi || !workspaceId) return;
+    if (storeChatId !== workspaceId) return;
+    if (!activeSubChatId) return;
+    const panel = dockApi.getPanel(`chat:${activeSubChatId}`);
+    if (panel && !panel.api.isActive) panel.api.setActive();
+  }, [active, dockApi, workspaceId, storeChatId, activeSubChatId]);
 
-  return null
+  return null;
 }

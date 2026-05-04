@@ -1,91 +1,91 @@
-import type { MCPServer, MCPServerStatus, MessageMetadata, SubagentInfo, UIMessageChunk } from "./types";
+import type { MCPServer, MCPServerStatus, MessageMetadata, SubagentInfo, UIMessageChunk } from './types';
 
 export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMessageUuid?: boolean }) {
-  const isUsingOllama = options?.isUsingOllama === true
-  let textId: string | null = null
-  let textStarted = false
-  let started = false
-  let startTime: number | null = null
+  const isUsingOllama = options?.isUsingOllama === true;
+  let textId: string | null = null;
+  let textStarted = false;
+  let started = false;
+  let startTime: number | null = null;
 
   // Track streaming tool calls
-  let currentToolCallId: string | null = null
-  let currentToolName: string | null = null
-  let currentToolOriginalId: string | null = null
-  let accumulatedToolInput = ""
+  let currentToolCallId: string | null = null;
+  let currentToolName: string | null = null;
+  let currentToolOriginalId: string | null = null;
+  let accumulatedToolInput = '';
 
   // Track already emitted tool IDs to avoid duplicates
   // (tools can come via streaming AND in the final assistant message)
-  const emittedToolIds = new Set<string>()
+  const emittedToolIds = new Set<string>();
 
   // Tools whose streamed input failed to parse as JSON. The assistant message
   // arrives later with the complete block.input — we use this set to allow
   // re-emission so the renderer can replace the broken {_raw, _parseError}
   // payload with the correct fields.
-  const parseErroredOriginalIds = new Set<string>()
+  const parseErroredOriginalIds = new Set<string>();
 
   // First-emission timestamp per composite toolCallId. Re-emissions (e.g. parse
   // error recovery from the assistant message) reuse this so the renderer's
   // elapsed timer doesn't reset.
-  const toolStartedAt = new Map<string, number>()
+  const toolStartedAt = new Map<string, number>();
   function startedAtFor(compositeId: string): number {
-    const existing = toolStartedAt.get(compositeId)
-    if (existing !== undefined) return existing
-    const now = Date.now()
-    toolStartedAt.set(compositeId, now)
-    return now
+    const existing = toolStartedAt.get(compositeId);
+    if (existing !== undefined) return existing;
+    const now = Date.now();
+    toolStartedAt.set(compositeId, now);
+    return now;
   }
 
   // Track the last text block ID for final response marking
   // This is used to identify when there's a "final text" response after tools
-  let lastTextId: string | null = null
+  let lastTextId: string | null = null;
 
   // Track parent tool context for nested tools (e.g., Explore agent)
-  let currentParentToolUseId: string | null = null
+  let currentParentToolUseId: string | null = null;
 
   // Map original toolCallId -> composite toolCallId (for tool-result matching)
-  const toolIdMapping = new Map<string, string>()
+  const toolIdMapping = new Map<string, string>();
 
   // Track compacting system tool for matching status->boundary events
-  let lastCompactId: string | null = null
-  let compactCounter = 0
+  let lastCompactId: string | null = null;
+  let compactCounter = 0;
 
   // Track streaming thinking for Extended Thinking
-  let currentThinkingId: string | null = null
-  let accumulatedThinking = ""
-  let inThinkingBlock = false // Track if we're currently in a thinking block
-  let thinkingJsonStarted = false // Track if we've sent the JSON prefix for thinking deltas
+  let currentThinkingId: string | null = null;
+  let accumulatedThinking = '';
+  let inThinkingBlock = false; // Track if we're currently in a thinking block
+  let thinkingJsonStarted = false; // Track if we've sent the JSON prefix for thinking deltas
 
   // Per-subagent usage/model keyed by composite toolCallId
-  const subagentInfo: Record<string, SubagentInfo> = {}
+  const subagentInfo: Record<string, SubagentInfo> = {};
 
   // Model from the last main (non-subagent) assistant message
-  let lastMainAssistantModel: string | undefined
+  let lastMainAssistantModel: string | undefined;
 
   // Track usage from the last main assistant message (exclude sidechain/subagents).
   // This is used for accurate context window display in final metadata.
   let lastMainAssistantUsage: {
-    input_tokens: number
-    cache_read_input_tokens: number
-    cache_creation_input_tokens: number
-    output_tokens: number
-  } | null = null
+    input_tokens: number;
+    cache_read_input_tokens: number;
+    cache_creation_input_tokens: number;
+    output_tokens: number;
+  } | null = null;
 
   // Helper to create composite toolCallId: "parentId:childId" or just "childId"
   const makeCompositeId = (originalId: string, parentId: string | null): string => {
-    if (parentId) return `${parentId}:${originalId}`
-    return originalId
-  }
+    if (parentId) return `${parentId}:${originalId}`;
+    return originalId;
+  };
 
-  const genId = () => `text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const genId = () => `text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   // Helper to end current text block
   function* endTextBlock(): Generator<UIMessageChunk> {
     if (textStarted && textId) {
-      yield { type: "text-end", id: textId }
+      yield { type: 'text-end', id: textId };
       // Track the last text ID for final response marking
-      lastTextId = textId
-      textStarted = false
-      textId = null
+      lastTextId = textId;
+      textStarted = false;
+      textId = null;
     }
   }
 
@@ -93,12 +93,12 @@ export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMe
   function* endToolInput(): Generator<UIMessageChunk> {
     if (currentToolCallId) {
       // Track this tool ID to avoid duplicates from assistant message
-      emittedToolIds.add(currentToolCallId)
+      emittedToolIds.add(currentToolCallId);
 
-      let parsedInput = {}
+      let parsedInput = {};
       if (accumulatedToolInput) {
         try {
-          parsedInput = JSON.parse(accumulatedToolInput)
+          parsedInput = JSON.parse(accumulatedToolInput);
         } catch (e) {
           // Stream may have been interrupted mid-JSON (e.g. network error, abort)
           // or the assistant message arrived before all input_json_delta events,
@@ -106,10 +106,15 @@ export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMe
           // We still emit something so the UI shows a tool placeholder, then flag
           // the original ID so the assistant message handler can re-emit with
           // the full block.input once it arrives.
-          console.error("[transform] Failed to parse tool input JSON:", (e as Error).message, "partial:", accumulatedToolInput.slice(0, 120))
-          parsedInput = { _raw: accumulatedToolInput, _parseError: true }
+          console.error(
+            '[transform] Failed to parse tool input JSON:',
+            (e as Error).message,
+            'partial:',
+            accumulatedToolInput.slice(0, 120)
+          );
+          parsedInput = { _raw: accumulatedToolInput, _parseError: true };
           if (currentToolOriginalId) {
-            parseErroredOriginalIds.add(currentToolOriginalId)
+            parseErroredOriginalIds.add(currentToolOriginalId);
           }
         }
       }
@@ -119,394 +124,397 @@ export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMe
       // standard chunk shape — the SDK's UIMessageChunk doesn't list it,
       // so cast through unknown.
       yield {
-        type: "tool-input-available",
+        type: 'tool-input-available',
         toolCallId: currentToolCallId,
-        toolName: currentToolName || "unknown",
+        toolName: currentToolName || 'unknown',
         input: parsedInput,
-        providerMetadata: { custom: { startedAt: startedAtFor(currentToolCallId) } },
-      } as unknown as UIMessageChunk
-      currentToolCallId = null
-      currentToolName = null
-      currentToolOriginalId = null
-      accumulatedToolInput = ""
+        providerMetadata: { custom: { startedAt: startedAtFor(currentToolCallId) } }
+      } as unknown as UIMessageChunk;
+      currentToolCallId = null;
+      currentToolName = null;
+      currentToolOriginalId = null;
+      accumulatedToolInput = '';
     }
   }
 
   return function* transform(msg: any): Generator<UIMessageChunk> {
-
     // Track parent_tool_use_id for nested tools
     // Only update when explicitly present (don't reset on messages without it)
     if (msg.parent_tool_use_id !== undefined) {
-      currentParentToolUseId = msg.parent_tool_use_id
+      currentParentToolUseId = msg.parent_tool_use_id;
     }
 
     // Emit start once
     if (!started) {
-      started = true
-      startTime = Date.now()
-      yield { type: "start" }
-      yield { type: "start-step" }
+      started = true;
+      startTime = Date.now();
+      yield { type: 'start' };
+      yield { type: 'start-step' };
     }
 
     // Reset thinking state on new message start to prevent memory leaks
-    if (msg.type === "stream_event" && msg.event?.type === "message_start") {
-      currentThinkingId = null
-      accumulatedThinking = ""
-      inThinkingBlock = false
+    if (msg.type === 'stream_event' && msg.event?.type === 'message_start') {
+      currentThinkingId = null;
+      accumulatedThinking = '';
+      inThinkingBlock = false;
     }
 
     // ===== STREAMING EVENTS (token-by-token) =====
-    if (msg.type === "stream_event") {
-      const event = msg.event
-      if (!event) return
+    if (msg.type === 'stream_event') {
+      const event = msg.event;
+      if (!event) return;
 
       // Text block start
-      if (event.type === "content_block_start" && event.content_block?.type === "text") {
-        yield* endTextBlock()
-        yield* endToolInput()
-        textId = genId()
-        yield { type: "text-start", id: textId }
-        textStarted = true
+      if (event.type === 'content_block_start' && event.content_block?.type === 'text') {
+        yield* endTextBlock();
+        yield* endToolInput();
+        textId = genId();
+        yield { type: 'text-start', id: textId };
+        textStarted = true;
       }
 
       // Text delta
-      if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
         if (!textStarted) {
-          yield* endToolInput()
-          textId = genId()
-          yield { type: "text-start", id: textId }
-          textStarted = true
+          yield* endToolInput();
+          textId = genId();
+          yield { type: 'text-start', id: textId };
+          textStarted = true;
         }
-        yield { type: "text-delta", id: textId!, delta: event.delta.text || "" }
+        yield { type: 'text-delta', id: textId!, delta: event.delta.text || '' };
       }
 
       // Content block stop
-      if (event.type === "content_block_stop") {
+      if (event.type === 'content_block_stop') {
         if (textStarted) {
-          yield* endTextBlock()
+          yield* endTextBlock();
         }
         if (currentToolCallId) {
-          yield* endToolInput()
+          yield* endToolInput();
         }
       }
 
       // Tool use start (streaming)
-      if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
-        yield* endTextBlock()
-        yield* endToolInput()
+      if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+        yield* endTextBlock();
+        yield* endToolInput();
 
-        const originalId = event.content_block.id || genId()
-        currentToolCallId = makeCompositeId(originalId, currentParentToolUseId)
-        currentToolName = event.content_block.name || "unknown"
-        currentToolOriginalId = originalId
-        accumulatedToolInput = ""
+        const originalId = event.content_block.id || genId();
+        currentToolCallId = makeCompositeId(originalId, currentParentToolUseId);
+        currentToolName = event.content_block.name || 'unknown';
+        currentToolOriginalId = originalId;
+        accumulatedToolInput = '';
 
         // Store mapping for tool-result lookup
-        toolIdMapping.set(originalId, currentToolCallId)
+        toolIdMapping.set(originalId, currentToolCallId);
 
         // Emit tool-input-start for progressive UI
         yield {
-          type: "tool-input-start",
+          type: 'tool-input-start',
           toolCallId: currentToolCallId,
-          toolName: currentToolName ?? "unknown",
-        }
+          toolName: currentToolName ?? 'unknown'
+        };
       }
 
       // Tool input delta
-      if (event.delta?.type === "input_json_delta" && currentToolCallId) {
-        const partialJson = event.delta.partial_json || ""
-        accumulatedToolInput += partialJson
+      if (event.delta?.type === 'input_json_delta' && currentToolCallId) {
+        const partialJson = event.delta.partial_json || '';
+        accumulatedToolInput += partialJson;
 
         // Emit tool-input-delta for progressive UI
         yield {
-          type: "tool-input-delta",
+          type: 'tool-input-delta',
           toolCallId: currentToolCallId,
-          inputTextDelta: partialJson,
-        }
+          inputTextDelta: partialJson
+        };
       }
 
       // Thinking content block start (Extended Thinking)
-      if (event.type === "content_block_start" && event.content_block?.type === "thinking") {
-        currentThinkingId = `thinking-${Date.now()}`
-        accumulatedThinking = ""
-        inThinkingBlock = true
-        thinkingJsonStarted = false
+      if (event.type === 'content_block_start' && event.content_block?.type === 'thinking') {
+        currentThinkingId = `thinking-${Date.now()}`;
+        accumulatedThinking = '';
+        inThinkingBlock = true;
+        thinkingJsonStarted = false;
         yield {
-          type: "tool-input-start",
+          type: 'tool-input-start',
           toolCallId: currentThinkingId,
-          toolName: "Thinking",
-        }
+          toolName: 'Thinking'
+        };
       }
 
       // Thinking/reasoning streaming - emit as tool-like chunks for UI
-      if (event.delta?.type === "thinking_delta" && currentThinkingId && inThinkingBlock) {
-        const thinkingText = String(event.delta.thinking || "")
-        accumulatedThinking += thinkingText
+      if (event.delta?.type === 'thinking_delta' && currentThinkingId && inThinkingBlock) {
+        const thinkingText = String(event.delta.thinking || '');
+        accumulatedThinking += thinkingText;
 
         // Emit as JSON fragment so AI SDK's parsePartialJson can parse it incrementally.
         // AI SDK accumulates all deltas and runs fixJson() to repair incomplete JSON,
         // so we start with '{"text":"' and send JSON-escaped text chunks.
-        const escaped = JSON.stringify(thinkingText).slice(1, -1)
-        const prefix = !thinkingJsonStarted ? '{"text":"' : ""
-        thinkingJsonStarted = true
+        const escaped = JSON.stringify(thinkingText).slice(1, -1);
+        const prefix = !thinkingJsonStarted ? '{"text":"' : '';
+        thinkingJsonStarted = true;
 
         yield {
-          type: "tool-input-delta",
+          type: 'tool-input-delta',
           toolCallId: currentThinkingId,
-          inputTextDelta: prefix + escaped,
-        }
+          inputTextDelta: prefix + escaped
+        };
       }
-      
+
       // Thinking complete (content_block_stop while in thinking block)
-      if (event.type === "content_block_stop" && inThinkingBlock && currentThinkingId) {
+      if (event.type === 'content_block_stop' && inThinkingBlock && currentThinkingId) {
         yield {
-          type: "tool-input-available",
+          type: 'tool-input-available',
           toolCallId: currentThinkingId,
-          toolName: "Thinking",
-          input: { text: accumulatedThinking },
-        }
+          toolName: 'Thinking',
+          input: { text: accumulatedThinking }
+        };
         yield {
-          type: "tool-output-available",
+          type: 'tool-output-available',
           toolCallId: currentThinkingId,
-          output: { completed: true },
-        }
+          output: { completed: true }
+        };
         // Track as emitted to skip duplicate from assistant message
-        emittedToolIds.add(currentThinkingId)
-        emittedToolIds.add("thinking-streamed")
-        currentThinkingId = null
-        accumulatedThinking = ""
-        inThinkingBlock = false
+        emittedToolIds.add(currentThinkingId);
+        emittedToolIds.add('thinking-streamed');
+        currentThinkingId = null;
+        accumulatedThinking = '';
+        inThinkingBlock = false;
       }
     }
 
     // Track per-turn usage from main assistant messages only.
     // Sidechain/subagent assistant messages have parent_tool_use_id set.
-    if (msg.type === "assistant" && msg.parent_tool_use_id == null) {
-      if (msg.message?.model) lastMainAssistantModel = msg.message.model
+    if (msg.type === 'assistant' && msg.parent_tool_use_id == null) {
+      if (msg.message?.model) lastMainAssistantModel = msg.message.model;
       if (msg.message?.usage) {
         lastMainAssistantUsage = {
           input_tokens: msg.message.usage.input_tokens ?? 0,
           cache_read_input_tokens: msg.message.usage.cache_read_input_tokens ?? 0,
           cache_creation_input_tokens: msg.message.usage.cache_creation_input_tokens ?? 0,
-          output_tokens: msg.message.usage.output_tokens ?? 0,
-        }
+          output_tokens: msg.message.usage.output_tokens ?? 0
+        };
       }
     }
 
     // Accumulate per-subagent model/usage for display in Task blocks
-    if (msg.type === "assistant" && msg.parent_tool_use_id != null) {
-      const taskCompositeId =
-        toolIdMapping.get(msg.parent_tool_use_id) ?? msg.parent_tool_use_id
-      const prev = subagentInfo[taskCompositeId] ?? {}
-      const u = msg.message?.usage
+    if (msg.type === 'assistant' && msg.parent_tool_use_id != null) {
+      const taskCompositeId = toolIdMapping.get(msg.parent_tool_use_id) ?? msg.parent_tool_use_id;
+      const prev = subagentInfo[taskCompositeId] ?? {};
+      const u = msg.message?.usage;
       subagentInfo[taskCompositeId] = {
         model: msg.message?.model ?? prev.model,
         inputTokens: (prev.inputTokens ?? 0) + (u?.input_tokens ?? 0),
         outputTokens: (prev.outputTokens ?? 0) + (u?.output_tokens ?? 0),
-        cacheReadInputTokens:
-          (prev.cacheReadInputTokens ?? 0) + (u?.cache_read_input_tokens ?? 0),
-        cacheCreationInputTokens:
-          (prev.cacheCreationInputTokens ?? 0) + (u?.cache_creation_input_tokens ?? 0),
-      }
+        cacheReadInputTokens: (prev.cacheReadInputTokens ?? 0) + (u?.cache_read_input_tokens ?? 0),
+        cacheCreationInputTokens: (prev.cacheCreationInputTokens ?? 0) + (u?.cache_creation_input_tokens ?? 0)
+      };
     }
 
     // ===== ASSISTANT MESSAGE (complete, often with tool_use) =====
     // When streaming is enabled, text arrives via stream_event, not here
-    if (msg.type === "assistant" && msg.message?.content) {
+    if (msg.type === 'assistant' && msg.message?.content) {
       for (const block of msg.message.content) {
         // Handle thinking blocks from Extended Thinking
         // Skip if already emitted via streaming (thinking_delta)
-        if (block.type === "thinking" && block.thinking) {
+        if (block.type === 'thinking' && block.thinking) {
           // Check if we already streamed OR are currently streaming this thinking block
           // The assistant message can arrive BEFORE content_block_stop, so we also check inThinkingBlock
-          const wasStreamed = emittedToolIds.has("thinking-streamed")
-          const isCurrentlyStreaming = inThinkingBlock
+          const wasStreamed = emittedToolIds.has('thinking-streamed');
+          const isCurrentlyStreaming = inThinkingBlock;
 
           if (wasStreamed || isCurrentlyStreaming) {
-            continue
+            continue;
           }
 
-          const thinkingId = genId()
+          const thinkingId = genId();
           yield {
-            type: "tool-input-available",
+            type: 'tool-input-available',
             toolCallId: thinkingId,
-            toolName: "Thinking",
-            input: { text: block.thinking },
-          }
+            toolName: 'Thinking',
+            input: { text: block.thinking }
+          };
           // Immediately mark as complete
           yield {
-            type: "tool-output-available",
+            type: 'tool-output-available',
             toolCallId: thinkingId,
-            output: { completed: true },
-          }
+            output: { completed: true }
+          };
         }
 
-        if (block.type === "text") {
-          yield* endToolInput()
+        if (block.type === 'text') {
+          yield* endToolInput();
 
           // Only emit text if we're NOT already streaming (textStarted = false)
           // When includePartialMessages is true, text comes via stream_event
           if (!textStarted) {
-            textId = genId()
-            yield { type: "text-start", id: textId }
-            yield { type: "text-delta", id: textId, delta: block.text }
-            yield { type: "text-end", id: textId }
-            lastTextId = textId
-            textId = null
+            textId = genId();
+            yield { type: 'text-start', id: textId };
+            yield { type: 'text-delta', id: textId, delta: block.text };
+            yield { type: 'text-end', id: textId };
+            lastTextId = textId;
+            textId = null;
           }
         }
 
-        if (block.type === "tool_use") {
-          yield* endTextBlock()
-          yield* endToolInput()
+        if (block.type === 'tool_use') {
+          yield* endTextBlock();
+          yield* endToolInput();
 
-          const compositeId = makeCompositeId(block.id, currentParentToolUseId)
+          const compositeId = makeCompositeId(block.id, currentParentToolUseId);
 
           // If we already emitted via streaming AND that emission parsed cleanly,
           // skip the duplicate. But if streaming failed to parse the tool input
           // JSON, fall through and re-emit so the renderer replaces the broken
           // {_raw, _parseError} payload with the complete block.input.
-          const hadParseError = parseErroredOriginalIds.has(block.id)
+          const hadParseError = parseErroredOriginalIds.has(block.id);
           if (emittedToolIds.has(block.id) && !hadParseError) {
-            continue
+            continue;
           }
-          parseErroredOriginalIds.delete(block.id)
+          parseErroredOriginalIds.delete(block.id);
 
-          emittedToolIds.add(block.id)
+          emittedToolIds.add(block.id);
 
           // Store mapping for tool-result lookup
-          toolIdMapping.set(block.id, compositeId)
+          toolIdMapping.set(block.id, compositeId);
 
           yield {
-            type: "tool-input-available",
+            type: 'tool-input-available',
             toolCallId: compositeId,
             toolName: block.name,
             input: block.input,
-            providerMetadata: { custom: { startedAt: startedAtFor(compositeId) } },
-          } as unknown as UIMessageChunk
+            providerMetadata: { custom: { startedAt: startedAtFor(compositeId) } }
+          } as unknown as UIMessageChunk;
         }
       }
     }
 
     // ===== USER MESSAGE (tool results) =====
-    if (msg.type === "user" && msg.message?.content && Array.isArray(msg.message.content)) {
+    if (msg.type === 'user' && msg.message?.content && Array.isArray(msg.message.content)) {
       for (const block of msg.message.content) {
-        if (block.type === "tool_result") {
+        if (block.type === 'tool_result') {
           // Lookup composite ID from mapping, fallback to original
-          const compositeId = toolIdMapping.get(block.tool_use_id) || block.tool_use_id
+          const compositeId = toolIdMapping.get(block.tool_use_id) || block.tool_use_id;
 
           if (block.is_error) {
             yield {
-              type: "tool-output-error",
+              type: 'tool-output-error',
               toolCallId: compositeId,
-              errorText: String(block.content),
-            }
+              errorText: String(block.content)
+            };
           } else {
             // Try to parse structured data from block.content if it's JSON
-            let output = msg.tool_use_result
+            let output = msg.tool_use_result;
             if (!output && typeof block.content === 'string') {
               try {
                 // Some tool results may have JSON embedded in the string
-                const parsed = JSON.parse(block.content)
+                const parsed = JSON.parse(block.content);
                 if (parsed && typeof parsed === 'object') {
-                  output = parsed
+                  output = parsed;
                 }
               } catch {
                 // Not JSON, use raw content
               }
             }
-            output = output || block.content
+            output = output || block.content;
 
             yield {
-              type: "tool-output-available",
+              type: 'tool-output-available',
               toolCallId: compositeId,
-              output,
-            }
+              output
+            };
           }
         }
       }
     }
 
     // ===== SYSTEM STATUS (compacting, etc.) =====
-    if (msg.type === "system") {
+    if (msg.type === 'system') {
       // Session init - extract MCP servers, plugins, tools
-      if (msg.subtype === "init") {
+      if (msg.subtype === 'init') {
         // Map MCP servers with validated status type and additional info
         const mcpServers: MCPServer[] = (msg.mcp_servers || []).map(
-          (s: { name: string; status: string; serverInfo?: { name: string; version: string; icons?: { src: string; mimeType?: string; sizes?: string[]; theme?: "light" | "dark" }[] }; error?: string }) => ({
+          (s: {
+            name: string;
+            status: string;
+            serverInfo?: {
+              name: string;
+              version: string;
+              icons?: { src: string; mimeType?: string; sizes?: string[]; theme?: 'light' | 'dark' }[];
+            };
+            error?: string;
+          }) => ({
             name: s.name,
-            status: (["connected", "failed", "pending", "needs-auth"].includes(
-              s.status,
-            )
+            status: (['connected', 'failed', 'pending', 'needs-auth'].includes(s.status)
               ? s.status
-              : "pending") as MCPServerStatus,
+              : 'pending') as MCPServerStatus,
             ...(s.serverInfo && { serverInfo: s.serverInfo }),
-            ...(s.error && { error: s.error }),
-          }),
-        )
+            ...(s.error && { error: s.error })
+          })
+        );
         yield {
-          type: "session-init",
+          type: 'session-init',
           tools: msg.tools || [],
           mcpServers,
           plugins: msg.plugins || [],
-          skills: msg.skills || [],
-        }
+          skills: msg.skills || []
+        };
       }
 
       // Compacting status - expose as a tool so it becomes a UI message part
-      if (msg.subtype === "status" && msg.status === "compacting") {
+      if (msg.subtype === 'status' && msg.status === 'compacting') {
         // Create unique ID and save for matching with boundary event
-        lastCompactId = `compact-${Date.now()}-${compactCounter++}`
+        lastCompactId = `compact-${Date.now()}-${compactCounter++}`;
         yield {
-          type: "tool-input-available",
+          type: 'tool-input-available',
           toolCallId: lastCompactId,
-          toolName: "Compact",
-          input: { status: "compacting" },
-        }
+          toolName: 'Compact',
+          input: { status: 'compacting' }
+        };
       }
 
       // Compact boundary - mark the compacting tool as complete
-      if (msg.subtype === "compact_boundary") {
-        let compactId = lastCompactId
+      if (msg.subtype === 'compact_boundary') {
+        let compactId = lastCompactId;
         // If we didn't receive a compacting status, create a tool invocation now
         if (!compactId) {
-          compactId = `compact-${Date.now()}-${compactCounter++}`
+          compactId = `compact-${Date.now()}-${compactCounter++}`;
           yield {
-            type: "tool-input-available",
+            type: 'tool-input-available',
             toolCallId: compactId,
-            toolName: "Compact",
-            input: { status: "compacting" },
-          }
+            toolName: 'Compact',
+            input: { status: 'compacting' }
+          };
         }
         yield {
-          type: "tool-output-available",
+          type: 'tool-output-available',
           toolCallId: compactId,
-          output: { status: "compacted" },
-        }
-        lastCompactId = null // Clear for next compacting cycle
+          output: { status: 'compacted' }
+        };
+        lastCompactId = null; // Clear for next compacting cycle
       }
     }
 
     // ===== RESULT (final) =====
-    if (msg.type === "result") {
-      currentParentToolUseId = null
-      yield* endTextBlock()
-      yield* endToolInput()
+    if (msg.type === 'result') {
+      currentParentToolUseId = null;
+      yield* endTextBlock();
+      yield* endToolInput();
 
-      const resultOutputTokens = msg.usage?.output_tokens
+      const resultOutputTokens = msg.usage?.output_tokens;
       const fallbackUsage = {
         input_tokens: msg.usage?.input_tokens ?? 0,
         cache_read_input_tokens: msg.usage?.cache_read_input_tokens ?? 0,
         cache_creation_input_tokens: msg.usage?.cache_creation_input_tokens ?? 0,
-        output_tokens: resultOutputTokens ?? 0,
-      }
+        output_tokens: resultOutputTokens ?? 0
+      };
 
       // Prefer the last main assistant usage snapshot for context metrics.
       // Fallback to result usage when assistant usage is unavailable.
-      const usage = lastMainAssistantUsage ?? fallbackUsage
+      const usage = lastMainAssistantUsage ?? fallbackUsage;
 
-      const resolvedInputTokens = usage.input_tokens
-      const resolvedOutputTokens = resultOutputTokens ?? usage.output_tokens
+      const resolvedInputTokens = usage.input_tokens;
+      const resolvedOutputTokens = resultOutputTokens ?? usage.output_tokens;
       const metadata: MessageMetadata = {
         sessionId: msg.session_id,
         model: lastMainAssistantModel,
@@ -520,14 +528,14 @@ export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMe
             : undefined,
         totalCostUsd: msg.total_cost_usd,
         durationMs: startTime ? Date.now() - startTime : undefined,
-        resultSubtype: msg.subtype || "success",
+        resultSubtype: msg.subtype || 'success',
         finalTextId: lastTextId || undefined,
         stopReason: (msg as any).stop_reason ?? (msg as any).message?.stop_reason ?? undefined,
-        ...(Object.keys(subagentInfo).length > 0 ? { subagentInfo } : {}),
-      }
-      yield { type: "message-metadata", messageMetadata: metadata }
-      yield { type: "finish-step" }
-      yield { type: "finish", messageMetadata: metadata }
+        ...(Object.keys(subagentInfo).length > 0 ? { subagentInfo } : {})
+      };
+      yield { type: 'message-metadata', messageMetadata: metadata };
+      yield { type: 'finish-step' };
+      yield { type: 'finish', messageMetadata: metadata };
     }
-  }
+  };
 }

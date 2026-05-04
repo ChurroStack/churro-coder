@@ -15,18 +15,18 @@
 // ============================================================================
 
 interface CachedToolState {
-  state: string | undefined
-  inputJson: string  // JSON stringified input for deep comparison
-  outputJson: string // JSON stringified output for deep comparison
-  resultJson: string // JSON stringified result for tools that store output there
+  state: string | undefined;
+  inputJson: string; // JSON stringified input for deep comparison
+  outputJson: string; // JSON stringified output for deep comparison
+  resultJson: string; // JSON stringified result for tools that store output there
 }
 
-const toolStateCache = new Map<string, CachedToolState>()
+const toolStateCache = new Map<string, CachedToolState>();
 
 export function clearToolStateCachesByToolCallIds(toolCallIds: string[]) {
   for (const toolCallId of toolCallIds) {
-    toolStateCache.delete(toolCallId)
-    askUserStateCache.delete(toolCallId)
+    toolStateCache.delete(toolCallId);
+    askUserStateCache.delete(toolCallId);
   }
 }
 
@@ -35,30 +35,30 @@ function getToolStateSnapshot(part: any): CachedToolState {
     state: part.state,
     inputJson: JSON.stringify(part.input || {}),
     outputJson: JSON.stringify(part.output || {}),
-    resultJson: JSON.stringify(part.result || {}),
-  }
+    resultJson: JSON.stringify(part.result || {})
+  };
 }
 
 function hasToolStateChanged(toolCallId: string, part: any): boolean {
-  const cached = toolStateCache.get(toolCallId)
-  const current = getToolStateSnapshot(part)
+  const cached = toolStateCache.get(toolCallId);
+  const current = getToolStateSnapshot(part);
 
   if (!cached) {
-    toolStateCache.set(toolCallId, current)
-    return true
+    toolStateCache.set(toolCallId, current);
+    return true;
   }
 
   const changed =
     cached.state !== current.state ||
     cached.inputJson !== current.inputJson ||
     cached.outputJson !== current.outputJson ||
-    cached.resultJson !== current.resultJson
+    cached.resultJson !== current.resultJson;
 
   if (changed) {
-    toolStateCache.set(toolCallId, current)
+    toolStateCache.set(toolCallId, current);
   }
 
-  return changed
+  return changed;
 }
 
 /**
@@ -69,23 +69,23 @@ function hasToolStateChanged(toolCallId: string, part: any): boolean {
  */
 function arePartsEqual(prev: any, next: any): boolean {
   // Different toolCallId = different tool
-  if (prev.toolCallId !== next.toolCallId) return false
-  if (prev.type !== next.type) return false
+  if (prev.toolCallId !== next.toolCallId) return false;
+  if (prev.type !== next.type) return false;
 
   // Use cache-based comparison for the next part
   // We check if the NEXT part has changed from what we cached
-  const toolCallId = next.toolCallId
+  const toolCallId = next.toolCallId;
   if (!toolCallId) {
     // No toolCallId - fall back to simple comparison
-    return prev.state === next.state
+    return prev.state === next.state;
   }
 
   // Check if tool state has changed using our external cache
   // hasToolStateChanged updates the cache if changed
-  const changed = hasToolStateChanged(toolCallId, next)
+  const changed = hasToolStateChanged(toolCallId, next);
 
   // Return true (equal) if nothing changed
-  return !changed
+  return !changed;
 }
 
 /**
@@ -94,12 +94,12 @@ function arePartsEqual(prev: any, next: any): boolean {
  */
 function isToolCompleted(part: any): boolean {
   // Has output = completed
-  if (part.output !== undefined && part.output !== null) return true
+  if (part.output !== undefined && part.output !== null) return true;
   // Error state = completed
-  if (part.state === "error") return true
+  if (part.state === 'error') return true;
   // Result state = completed (for some tools)
-  if (part.state === "result") return true
-  return false
+  if (part.state === 'result') return true;
+  return false;
 }
 
 /**
@@ -115,22 +115,22 @@ function isToolCompleted(part: any): boolean {
  */
 export function areToolPropsEqual(
   prevProps: { part: any; chatStatus?: string },
-  nextProps: { part: any; chatStatus?: string },
+  nextProps: { part: any; chatStatus?: string }
 ): boolean {
   // First check if the tool data itself changed
-  const partsEqual = arePartsEqual(prevProps.part, nextProps.part)
+  const partsEqual = arePartsEqual(prevProps.part, nextProps.part);
 
-  if (!partsEqual) return false
+  if (!partsEqual) return false;
 
   // If tool is completed, it doesn't care about chatStatus changes
   if (isToolCompleted(nextProps.part)) {
-    return true
+    return true;
   }
 
   // For pending tools, chatStatus matters (determines spinner vs completed)
-  if (prevProps.chatStatus !== nextProps.chatStatus) return false
+  if (prevProps.chatStatus !== nextProps.chatStatus) return false;
 
-  return true
+  return true;
 }
 
 /**
@@ -138,37 +138,37 @@ export function areToolPropsEqual(
  */
 export function areTaskToolPropsEqual(
   prevProps: { part: any; nestedTools: any[]; chatStatus?: string; subagentInfo?: Record<string, unknown> },
-  nextProps: { part: any; nestedTools: any[]; chatStatus?: string; subagentInfo?: Record<string, unknown> },
+  nextProps: { part: any; nestedTools: any[]; chatStatus?: string; subagentInfo?: Record<string, unknown> }
 ): boolean {
   // Compare main part first
-  if (!arePartsEqual(prevProps.part, nextProps.part)) return false
+  if (!arePartsEqual(prevProps.part, nextProps.part)) return false;
 
   // Compare subagentInfo (reference equality is fine — object is stable once set)
-  if (prevProps.subagentInfo !== nextProps.subagentInfo) return false
+  if (prevProps.subagentInfo !== nextProps.subagentInfo) return false;
 
   // Compare nestedTools array
-  const prevNested = prevProps.nestedTools || []
-  const nextNested = nextProps.nestedTools || []
+  const prevNested = prevProps.nestedTools || [];
+  const nextNested = nextProps.nestedTools || [];
 
-  if (prevNested.length !== nextNested.length) return false
+  if (prevNested.length !== nextNested.length) return false;
 
   // Compare each nested tool
   for (let i = 0; i < prevNested.length; i++) {
-    if (!arePartsEqual(prevNested[i], nextNested[i])) return false
+    if (!arePartsEqual(prevNested[i], nextNested[i])) return false;
   }
 
   // If all tools are completed, don't care about chatStatus
-  const mainCompleted = isToolCompleted(nextProps.part)
-  const allNestedCompleted = nextNested.every(isToolCompleted)
+  const mainCompleted = isToolCompleted(nextProps.part);
+  const allNestedCompleted = nextNested.every(isToolCompleted);
 
   if (mainCompleted && allNestedCompleted) {
-    return true
+    return true;
   }
 
   // For pending tools, chatStatus matters
-  if (prevProps.chatStatus !== nextProps.chatStatus) return false
+  if (prevProps.chatStatus !== nextProps.chatStatus) return false;
 
-  return true
+  return true;
 }
 
 /**
@@ -176,30 +176,30 @@ export function areTaskToolPropsEqual(
  */
 export function areExploringGroupPropsEqual(
   prevProps: { parts: any[]; chatStatus?: string; isStreaming: boolean },
-  nextProps: { parts: any[]; chatStatus?: string; isStreaming: boolean },
+  nextProps: { parts: any[]; chatStatus?: string; isStreaming: boolean }
 ): boolean {
-  const prevParts = prevProps.parts || []
-  const nextParts = nextProps.parts || []
+  const prevParts = prevProps.parts || [];
+  const nextParts = nextProps.parts || [];
 
-  if (prevParts.length !== nextParts.length) return false
+  if (prevParts.length !== nextParts.length) return false;
 
   for (let i = 0; i < prevParts.length; i++) {
-    if (!arePartsEqual(prevParts[i], nextParts[i])) return false
+    if (!arePartsEqual(prevParts[i], nextParts[i])) return false;
   }
 
   // isStreaming changes always matter - they drive auto-collapse via useEffect
-  if (prevProps.isStreaming !== nextProps.isStreaming) return false
+  if (prevProps.isStreaming !== nextProps.isStreaming) return false;
 
   // If all parts are completed, don't care about chatStatus
-  const allCompleted = nextParts.every(isToolCompleted)
+  const allCompleted = nextParts.every(isToolCompleted);
   if (allCompleted) {
-    return true
+    return true;
   }
 
   // For pending groups, chatStatus matters
-  if (prevProps.chatStatus !== nextProps.chatStatus) return false
+  if (prevProps.chatStatus !== nextProps.chatStatus) return false;
 
-  return true
+  return true;
 }
 
 /**
@@ -209,28 +209,28 @@ export function areExploringGroupPropsEqual(
  * fallback renderer and the live Tasks widget so they stay in sync.
  */
 export function summarizeToolInput(input: unknown): string {
-  if (!input || typeof input !== "object") return ""
-  const rec = input as Record<string, unknown>
+  if (!input || typeof input !== 'object') return '';
+  const rec = input as Record<string, unknown>;
   const preferredKeys = [
-    "command",
-    "file_path",
-    "path",
-    "pattern",
-    "description",
-    "url",
-    "query",
-    "prompt",
-    "subagent_type",
-  ]
+    'command',
+    'file_path',
+    'path',
+    'pattern',
+    'description',
+    'url',
+    'query',
+    'prompt',
+    'subagent_type'
+  ];
   for (const key of preferredKeys) {
-    const v = rec[key]
-    if (typeof v === "string" && v.length > 0) return v
+    const v = rec[key];
+    if (typeof v === 'string' && v.length > 0) return v;
   }
   for (const key in rec) {
-    const v = rec[key]
-    if (typeof v === "string" && v.length > 0) return v
+    const v = rec[key];
+    if (typeof v === 'string' && v.length > 0) return v;
   }
-  return ""
+  return '';
 }
 
 /**
@@ -240,7 +240,7 @@ export function summarizeToolInput(input: unknown): string {
  * the chat row stays consistent.
  */
 export function isSubagentDispatchType(type: string | undefined): boolean {
-  return type === "tool-Task" || type === "tool-Agent"
+  return type === 'tool-Task' || type === 'tool-Agent';
 }
 
 /**
@@ -249,15 +249,15 @@ export function isSubagentDispatchType(type: string | undefined): boolean {
  */
 export function isPlanFile(filePath: string): boolean {
   // Check for official plan location in claude-sessions
-  if (filePath.includes("claude-sessions") && filePath.includes("/plans/")) {
-    return true
+  if (filePath.includes('claude-sessions') && filePath.includes('/plans/')) {
+    return true;
   }
   // Also check for plan files by name pattern (for backwards compatibility)
-  const fileName = filePath.split("/").pop()?.toLowerCase() || ""
-  if (fileName.includes("plan") && fileName.endsWith(".md")) {
-    return true
+  const fileName = filePath.split('/').pop()?.toLowerCase() || '';
+  if (fileName.includes('plan') && fileName.endsWith('.md')) {
+    return true;
   }
-  return false
+  return false;
 }
 
 /**
@@ -266,42 +266,42 @@ export function isPlanFile(filePath: string): boolean {
  */
 
 interface CachedAskUserState {
-  state: string
-  isError: boolean | undefined
-  errorText: string | undefined
-  inputJson: string
-  resultJson: string
+  state: string;
+  isError: boolean | undefined;
+  errorText: string | undefined;
+  inputJson: string;
+  resultJson: string;
 }
 
-const askUserStateCache = new Map<string, CachedAskUserState>()
+const askUserStateCache = new Map<string, CachedAskUserState>();
 
 export function areAskUserQuestionPropsEqual(
   prevProps: {
-    input: any
-    result?: any
-    errorText?: string
-    state: string
-    isError?: boolean
-    isStreaming?: boolean
-    toolCallId?: string
+    input: any;
+    result?: any;
+    errorText?: string;
+    state: string;
+    isError?: boolean;
+    isStreaming?: boolean;
+    toolCallId?: string;
   },
   nextProps: {
-    input: any
-    result?: any
-    errorText?: string
-    state: string
-    isError?: boolean
-    isStreaming?: boolean
-    toolCallId?: string
-  },
+    input: any;
+    result?: any;
+    errorText?: string;
+    state: string;
+    isError?: boolean;
+    isStreaming?: boolean;
+    toolCallId?: string;
+  }
 ): boolean {
   // Different toolCallId = different tool
-  if (prevProps.toolCallId !== nextProps.toolCallId) return false
+  if (prevProps.toolCallId !== nextProps.toolCallId) return false;
 
-  const toolCallId = nextProps.toolCallId
+  const toolCallId = nextProps.toolCallId;
   if (!toolCallId) {
     // No toolCallId - fall back to simple comparison
-    return prevProps.state === nextProps.state
+    return prevProps.state === nextProps.state;
   }
 
   // Create current state snapshot
@@ -310,14 +310,14 @@ export function areAskUserQuestionPropsEqual(
     isError: nextProps.isError,
     errorText: nextProps.errorText,
     inputJson: JSON.stringify(nextProps.input || {}),
-    resultJson: JSON.stringify(nextProps.result || {}),
-  }
+    resultJson: JSON.stringify(nextProps.result || {})
+  };
 
-  const cached = askUserStateCache.get(toolCallId)
+  const cached = askUserStateCache.get(toolCallId);
 
   if (!cached) {
-    askUserStateCache.set(toolCallId, current)
-    return false // First render
+    askUserStateCache.set(toolCallId, current);
+    return false; // First render
   }
 
   const changed =
@@ -325,20 +325,20 @@ export function areAskUserQuestionPropsEqual(
     cached.isError !== current.isError ||
     cached.errorText !== current.errorText ||
     cached.inputJson !== current.inputJson ||
-    cached.resultJson !== current.resultJson
+    cached.resultJson !== current.resultJson;
 
   if (changed) {
-    askUserStateCache.set(toolCallId, current)
-    return false
+    askUserStateCache.set(toolCallId, current);
+    return false;
   }
 
   // If tool has result, it's completed - don't care about isStreaming
   if (nextProps.result !== undefined) {
-    return true
+    return true;
   }
 
   // For pending state, isStreaming matters
-  if (prevProps.isStreaming !== nextProps.isStreaming) return false
+  if (prevProps.isStreaming !== nextProps.isStreaming) return false;
 
-  return true
+  return true;
 }

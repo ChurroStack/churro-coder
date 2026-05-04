@@ -1,33 +1,33 @@
-import type { ChatTransport, UIMessage } from "ai"
-import { toast } from "sonner"
-import { getCurrentSubChatMode } from "./get-current-sub-chat-mode"
+import type { ChatTransport, UIMessage } from 'ai';
+import { toast } from 'sonner';
+import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
 
 // Cache the API base URL (fetched once from main process)
-let cachedApiBase: string | null = null
+let cachedApiBase: string | null = null;
 
 async function getApiBase(): Promise<string> {
   if (!cachedApiBase) {
     // Uses MAIN_VITE_API_URL in dev, empty string in production (remote calls disabled)
-    cachedApiBase = await window.desktopApi?.getApiBaseUrl() || ""
+    cachedApiBase = (await window.desktopApi?.getApiBaseUrl()) || '';
   }
-  return cachedApiBase
+  return cachedApiBase;
 }
 
-type UIMessageChunk = any
+type UIMessageChunk = any;
 
 type RemoteChatTransportConfig = {
-  chatId: string
-  subChatId: string
-  subChatName: string
-  sandboxUrl: string
-  model?: string // Claude model ID (e.g., "claude-sonnet-4-6")
-}
+  chatId: string;
+  subChatId: string;
+  subChatName: string;
+  sandboxUrl: string;
+  model?: string; // Claude model ID (e.g., "claude-sonnet-4-6")
+};
 
 /**
  * Generate a unique stream ID for IPC communication
  */
 function generateStreamId(): string {
-  return `stream_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+  return `stream_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 /**
@@ -38,243 +38,235 @@ export class RemoteChatTransport implements ChatTransport<UIMessage> {
   constructor(private config: RemoteChatTransportConfig) {}
 
   async sendMessages(options: {
-    messages: UIMessage[]
-    abortSignal?: AbortSignal
+    messages: UIMessage[];
+    abortSignal?: AbortSignal;
   }): Promise<ReadableStream<UIMessageChunk>> {
     if (!window.desktopApi?.streamFetch) {
-      console.error("[RemoteTransport] Desktop API not available")
-      toast.error("Desktop API not available", {
-        description: "Please restart the application",
-      })
-      throw new Error("Desktop API not available")
+      console.error('[RemoteTransport] Desktop API not available');
+      toast.error('Desktop API not available', {
+        description: 'Please restart the application'
+      });
+      throw new Error('Desktop API not available');
     }
 
-    const streamId = generateStreamId()
-    const subId = this.config.subChatId.slice(-8)
-    const currentMode = getCurrentSubChatMode(this.config.subChatId)
+    const streamId = generateStreamId();
+    const subId = this.config.subChatId.slice(-8);
+    const currentMode = getCurrentSubChatMode(this.config.subChatId);
     console.log(`[RemoteTransport] START`, {
       streamId,
       subId,
       chatId: this.config.chatId,
       sandboxUrl: this.config.sandboxUrl,
       mode: currentMode,
-      model: this.config.model || "default",
-      messageCount: options.messages.length,
-    })
+      model: this.config.model || 'default',
+      messageCount: options.messages.length
+    });
 
     // Build headers - only include x-model if model is specified
     const headers: Record<string, string> = {
-      "sandbox-url": this.config.sandboxUrl,
-      "parent-chat-id": this.config.chatId,
-      "sub-chat-id": this.config.subChatId,
-      "sub-chat-name": encodeURIComponent(this.config.subChatName),
-      "sub-chat-mode": currentMode,
-    }
+      'sandbox-url': this.config.sandboxUrl,
+      'parent-chat-id': this.config.chatId,
+      'sub-chat-id': this.config.subChatId,
+      'sub-chat-name': encodeURIComponent(this.config.subChatName),
+      'sub-chat-mode': currentMode
+    };
     if (this.config.model) {
-      headers["x-model"] = this.config.model
+      headers['x-model'] = this.config.model;
     }
 
     // Create a ReadableStream that receives chunks from IPC
-    const stream = this.createIPCStream(streamId, subId, options.abortSignal)
+    const stream = this.createIPCStream(streamId, subId, options.abortSignal);
 
     // Get API base URL (uses env var in dev, production URL in packaged app)
-    const apiBase = await getApiBase()
+    const apiBase = await getApiBase();
 
     // Start the streaming fetch via IPC
-    const result = await window.desktopApi.streamFetch(
-      streamId,
-      `${apiBase}/api/agents/chat`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          id: this.config.subChatId,
-          messages: options.messages,
-        }),
-      }
-    )
+    const result = await window.desktopApi.streamFetch(streamId, `${apiBase}/api/agents/chat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        id: this.config.subChatId,
+        messages: options.messages
+      })
+    });
 
     console.log(`[RemoteTransport] Stream fetch started`, {
       streamId,
       subId,
       ok: result.ok,
-      status: result.status,
-    })
+      status: result.status
+    });
 
     if (!result.ok) {
-      console.error(`[RemoteTransport] ERROR`, { subId, status: result.status, error: result.error })
+      console.error(`[RemoteTransport] ERROR`, { subId, status: result.status, error: result.error });
 
       if (result.status === 401) {
-        toast.error("Authentication failed", {
-          description: "Please sign in again",
-        })
-        throw new Error("Authentication required")
+        toast.error('Authentication failed', {
+          description: 'Please sign in again'
+        });
+        throw new Error('Authentication required');
       }
 
       if (result.status === 403) {
-        toast.error("Usage limit reached", {
-          description: "You've hit your sandbox usage limit",
-        })
-        throw new Error("Usage limit reached")
+        toast.error('Usage limit reached', {
+          description: "You've hit your sandbox usage limit"
+        });
+        throw new Error('Usage limit reached');
       }
 
-      toast.error("Request failed", {
-        description: result.error || `Server returned ${result.status}`,
-      })
-      throw new Error(`Remote chat failed: ${result.status}`)
+      toast.error('Request failed', {
+        description: result.error || `Server returned ${result.status}`
+      });
+      throw new Error(`Remote chat failed: ${result.status}`);
     }
 
-    return stream
+    return stream;
   }
 
   /**
    * Create a ReadableStream that receives chunks from IPC events
    */
-  private createIPCStream(
-    streamId: string,
-    subId: string,
-    abortSignal?: AbortSignal
-  ): ReadableStream<UIMessageChunk> {
-    const decoder = new TextDecoder()
-    let buffer = ""
-    let chunkCount = 0
-    let cleanupChunk: (() => void) | null = null
-    let cleanupDone: (() => void) | null = null
-    let cleanupError: (() => void) | null = null
-    let resolveNext: ((result: { done: boolean; chunk?: UIMessageChunk }) => void) | null = null
-    let rejectNext: ((error: Error) => void) | null = null
-    let pendingChunks: UIMessageChunk[] = []
-    let streamDone = false
-    let streamError: Error | null = null
+  private createIPCStream(streamId: string, subId: string, abortSignal?: AbortSignal): ReadableStream<UIMessageChunk> {
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let chunkCount = 0;
+    let cleanupChunk: (() => void) | null = null;
+    let cleanupDone: (() => void) | null = null;
+    let cleanupError: (() => void) | null = null;
+    let resolveNext: ((result: { done: boolean; chunk?: UIMessageChunk }) => void) | null = null;
+    let rejectNext: ((error: Error) => void) | null = null;
+    let pendingChunks: UIMessageChunk[] = [];
+    let streamDone = false;
+    let streamError: Error | null = null;
 
     // Process raw bytes into SSE chunks
     const processBytes = (bytes: Uint8Array) => {
-      buffer += decoder.decode(bytes, { stream: true })
-      const lines = buffer.split("\n")
-      buffer = lines.pop() || ""
+      buffer += decoder.decode(bytes, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
       for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6).trim()
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
 
-          if (data === "[DONE]") {
-            console.log(`[RemoteTransport] FINISH sub=${subId} chunks=${chunkCount}`)
-            streamDone = true
+          if (data === '[DONE]') {
+            console.log(`[RemoteTransport] FINISH sub=${subId} chunks=${chunkCount}`);
+            streamDone = true;
             if (resolveNext) {
-              resolveNext({ done: true })
-              resolveNext = null
+              resolveNext({ done: true });
+              resolveNext = null;
             }
-            return
+            return;
           }
 
           try {
-            const chunk = JSON.parse(data)
-            chunkCount++
+            const chunk = JSON.parse(data);
+            chunkCount++;
             if (chunkCount <= 3) {
               console.log(`[RemoteTransport] Chunk #${chunkCount}`, {
                 subId,
                 type: chunk.type,
-                preview: JSON.stringify(chunk).slice(0, 200),
-              })
+                preview: JSON.stringify(chunk).slice(0, 200)
+              });
             }
 
             if (resolveNext) {
-              resolveNext({ done: false, chunk })
-              resolveNext = null
+              resolveNext({ done: false, chunk });
+              resolveNext = null;
             } else {
-              pendingChunks.push(chunk)
+              pendingChunks.push(chunk);
             }
           } catch (parseErr) {
-            console.warn(`[RemoteTransport] Failed to parse chunk`, { subId, data: data.slice(0, 100) })
+            console.warn(`[RemoteTransport] Failed to parse chunk`, { subId, data: data.slice(0, 100) });
           }
         }
       }
-    }
+    };
 
     // Set up IPC listeners
-    cleanupChunk = window.desktopApi.onStreamChunk(streamId, processBytes)
+    cleanupChunk = window.desktopApi.onStreamChunk(streamId, processBytes);
 
     cleanupDone = window.desktopApi.onStreamDone(streamId, () => {
-      console.log(`[RemoteTransport] DONE sub=${subId} chunks=${chunkCount}`)
-      streamDone = true
+      console.log(`[RemoteTransport] DONE sub=${subId} chunks=${chunkCount}`);
+      streamDone = true;
       if (resolveNext) {
-        resolveNext({ done: true })
-        resolveNext = null
+        resolveNext({ done: true });
+        resolveNext = null;
       }
-    })
+    });
 
     cleanupError = window.desktopApi.onStreamError(streamId, (error: string) => {
-      console.error(`[RemoteTransport] Stream error sub=${subId}:`, error)
-      streamError = new Error(error)
+      console.error(`[RemoteTransport] Stream error sub=${subId}:`, error);
+      streamError = new Error(error);
       if (rejectNext) {
-        rejectNext(streamError)
-        rejectNext = null
+        rejectNext(streamError);
+        rejectNext = null;
       }
-    })
+    });
 
     // Handle abort
     if (abortSignal) {
       abortSignal.addEventListener(
-        "abort",
+        'abort',
         () => {
-          console.log(`[RemoteTransport] ABORT sub=${subId} chunks=${chunkCount}`)
-          streamDone = true
-          cleanup()
+          console.log(`[RemoteTransport] ABORT sub=${subId} chunks=${chunkCount}`);
+          streamDone = true;
+          cleanup();
         },
-        { once: true },
-      )
+        { once: true }
+      );
     }
 
     const cleanup = () => {
-      cleanupChunk?.()
-      cleanupDone?.()
-      cleanupError?.()
-    }
+      cleanupChunk?.();
+      cleanupDone?.();
+      cleanupError?.();
+    };
 
     return new ReadableStream({
       pull: async (controller) => {
         // Check if we have pending chunks
         if (pendingChunks.length > 0) {
-          controller.enqueue(pendingChunks.shift()!)
-          return
+          controller.enqueue(pendingChunks.shift()!);
+          return;
         }
 
         // Check if stream is done
         if (streamDone) {
-          cleanup()
-          controller.close()
-          return
+          cleanup();
+          controller.close();
+          return;
         }
 
         // Check for error
         if (streamError) {
-          cleanup()
-          controller.error(streamError)
-          return
+          cleanup();
+          controller.error(streamError);
+          return;
         }
 
         // Wait for next chunk
         const result = await new Promise<{ done: boolean; chunk?: UIMessageChunk }>((resolve, reject) => {
-          resolveNext = resolve
-          rejectNext = reject
-        })
+          resolveNext = resolve;
+          rejectNext = reject;
+        });
 
         if (result.done) {
-          cleanup()
-          controller.close()
+          cleanup();
+          controller.close();
         } else if (result.chunk) {
-          controller.enqueue(result.chunk)
+          controller.enqueue(result.chunk);
         }
       },
       cancel: () => {
-        console.log(`[RemoteTransport] CANCEL sub=${subId} chunks=${chunkCount}`)
-        cleanup()
-      },
-    })
+        console.log(`[RemoteTransport] CANCEL sub=${subId} chunks=${chunkCount}`);
+        cleanup();
+      }
+    });
   }
 
   async reconnectToStream(): Promise<ReadableStream<UIMessageChunk> | null> {
     // TODO: Implement stream reconnection using stream_id from sub-chat
-    return null
+    return null;
   }
 }

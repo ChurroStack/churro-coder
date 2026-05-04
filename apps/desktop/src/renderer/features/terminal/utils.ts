@@ -7,25 +7,21 @@
  * - Local mode (no branch): shared across all local workspaces on the same project path
  * - Worktree mode (has branch): isolated per workspace
  */
-export function getTerminalScopeKey(chat: {
-  branch: string | null
-  worktreePath: string | null
-  id: string
-}): string {
+export function getTerminalScopeKey(chat: { branch: string | null; worktreePath: string | null; id: string }): string {
   if (chat.branch) {
-    return `ws:${chat.id}`
+    return `ws:${chat.id}`;
   }
   if (chat.worktreePath) {
-    return `path:${chat.worktreePath}`
+    return `path:${chat.worktreePath}`;
   }
-  return `ws:${chat.id}`
+  return `ws:${chat.id}`;
 }
 
 /**
  * Check if a scope key represents a shared (local-mode) terminal scope.
  */
 export function isSharedTerminalScope(scopeKey: string): boolean {
-  return scopeKey.startsWith("path:")
+  return scopeKey.startsWith('path:');
 }
 
 /**
@@ -33,8 +29,11 @@ export function isSharedTerminalScope(scopeKey: string): boolean {
  * Lowercase, alphanumeric and hyphens only. Empty strings collapse to "script".
  */
 export function sanitizeScriptId(name: string): string {
-  const safe = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
-  return safe || "script"
+  const safe = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return safe || 'script';
 }
 
 /**
@@ -42,7 +41,7 @@ export function sanitizeScriptId(name: string): string {
  * and kill the terminal it spawned (and so a second Run click is a no-op).
  */
 export function getScriptPaneId(scopeKey: string, scriptName: string): string {
-  return `${scopeKey}:term:script-${sanitizeScriptId(scriptName)}`
+  return `${scopeKey}:term:script-${sanitizeScriptId(scriptName)}`;
 }
 
 /**
@@ -50,7 +49,7 @@ export function getScriptPaneId(scopeKey: string, scriptName: string): string {
  * Uses the same sanitized form so a script's tab is also stable across reloads.
  */
 export function getScriptTerminalId(scriptName: string): string {
-  return `script-${sanitizeScriptId(scriptName)}`
+  return `script-${sanitizeScriptId(scriptName)}`;
 }
 
 /**
@@ -58,7 +57,7 @@ export function getScriptTerminalId(scriptName: string): string {
  * the [+] menu / Terminal quick-launch). Just an 8-char uuid slice.
  */
 export function generateTerminalId(): string {
-  return crypto.randomUUID().slice(0, 8)
+  return crypto.randomUUID().slice(0, 8);
 }
 
 /**
@@ -67,23 +66,21 @@ export function generateTerminalId(): string {
  * backend already-spawned PTY (if any) is reachable on rehydrate.
  */
 export function buildTerminalPaneId(scopeKey: string, terminalId: string): string {
-  return `${scopeKey}:term:${terminalId}`
+  return `${scopeKey}:term:${terminalId}`;
 }
 
 /**
  * Pick a free "Terminal N" label for a freshly-minted terminal in a list.
  */
-export function getNextTerminalName(
-  existing: { name: string }[],
-): string {
+export function getNextTerminalName(existing: { name: string }[]): string {
   const numbers = existing
     .map((t) => {
-      const match = t.name.match(/^Terminal (\d+)$/)
-      return match ? parseInt(match[1], 10) : 0
+      const match = t.name.match(/^Terminal (\d+)$/);
+      return match ? parseInt(match[1], 10) : 0;
     })
-    .filter((n) => n > 0)
-  const max = numbers.length > 0 ? Math.max(...numbers) : 0
-  return `Terminal ${max + 1}`
+    .filter((n) => n > 0);
+  const max = numbers.length > 0 ? Math.max(...numbers) : 0;
+  return `Terminal ${max + 1}`;
 }
 
 /**
@@ -99,11 +96,11 @@ export function shellEscapePaths(paths: string[]): string {
       // If path contains spaces, special chars, or is empty, quote it
       if (!p || /[\s'"\\$`!]/.test(p)) {
         // Escape any existing double quotes and wrap in double quotes
-        return `"${p.replace(/"/g, '\\"')}"`
+        return `"${p.replace(/"/g, '\\"')}"`;
       }
-      return p
+      return p;
     })
-    .join(" ")
+    .join(' ');
 }
 
 /**
@@ -113,28 +110,25 @@ export function shellEscapePaths(paths: string[]): string {
  * @param delay - Delay in milliseconds
  * @returns Debounced function with cancel method
  */
-export function debounce<T extends (...args: unknown[]) => void>(
-  fn: T,
-  delay: number
-): T & { cancel: () => void } {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null
+export function debounce<T extends (...args: unknown[]) => void>(fn: T, delay: number): T & { cancel: () => void } {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   const debounced = ((...args: Parameters<T>) => {
     if (timeoutId) {
-      clearTimeout(timeoutId)
+      clearTimeout(timeoutId);
     }
     timeoutId = setTimeout(() => {
-      fn(...args)
-      timeoutId = null
-    }, delay)
-  }) as T & { cancel: () => void }
+      fn(...args);
+      timeoutId = null;
+    }, delay);
+  }) as T & { cancel: () => void };
 
   debounced.cancel = () => {
     if (timeoutId) {
-      clearTimeout(timeoutId)
-      timeoutId = null
+      clearTimeout(timeoutId);
+      timeoutId = null;
     }
-  }
+  };
 
-  return debounced
+  return debounced;
 }

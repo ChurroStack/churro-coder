@@ -11,43 +11,43 @@
  * Node without a DOM, IPC bridge, or atom store.
  */
 
-export type ProviderId = "claude-code" | "codex"
+export type ProviderId = 'claude-code' | 'codex';
 
 export type TransportAction =
   /** No existing chat — instantiate a new transport. */
-  | { kind: "create"; provider: ProviderId; isRemote: boolean }
+  | { kind: 'create'; provider: ProviderId; isRemote: boolean }
   /** Existing transport is correct for the target — reuse as-is. */
-  | { kind: "keep" }
+  | { kind: 'keep' }
   /** Existing transport must be torn down and replaced (cross-provider, stale, etc.). */
-  | { kind: "recreate"; provider: ProviderId; isRemote: boolean; reason: RecreateReason }
+  | { kind: 'recreate'; provider: ProviderId; isRemote: boolean; reason: RecreateReason };
 
 export type RecreateReason =
   /** `shouldRecreateStaleRuntimeChat` returned true (runtime cache outlived persisted messages). */
-  | "stale-runtime"
+  | 'stale-runtime'
   /** Cross-provider switch on a sub-chat with no persisted messages yet (e.g., right after create). */
-  | "cross-provider-empty"
+  | 'cross-provider-empty'
   /** Plan approval flipped from one provider to another mid-conversation. */
-  | "plan-approval-cross-provider"
+  | 'plan-approval-cross-provider';
 
 export interface TransportInput {
   /** Whether a Chat instance is already in `agentChatStore` for this subChatId. */
-  hasExisting: boolean
+  hasExisting: boolean;
   /** Provider of the existing transport, inferred from `transport instanceof CodexChatTransport`. */
-  existingProvider: ProviderId | null
+  existingProvider: ProviderId | null;
   /** Whether the existing chat is a remote/sandbox chat — those are never recreated. */
-  existingIsRemote: boolean
+  existingIsRemote: boolean;
   /** Provider we want the next message to use. */
-  targetProvider: ProviderId
+  targetProvider: ProviderId;
   /** Whether the target should be a remote/sandbox chat. */
-  targetIsRemote: boolean
+  targetIsRemote: boolean;
   /** Whether the existing chat is currently mid-stream (don't tear it down). */
-  isStreaming: boolean
+  isStreaming: boolean;
   /** Whether the existing chat has queued messages waiting to fire (don't tear it down). */
-  hasQueue: boolean
+  hasQueue: boolean;
   /** Result of `shouldRecreateStaleRuntimeChat` — runtime/persisted divergence flag. */
-  isStaleRuntime: boolean
+  isStaleRuntime: boolean;
   /** Whether the sub-chat has any persisted messages. */
-  hasMessages: boolean
+  hasMessages: boolean;
 }
 
 /**
@@ -71,42 +71,42 @@ export interface TransportInput {
 export function decideTransportAction(input: TransportInput): TransportAction {
   if (!input.hasExisting) {
     return {
-      kind: "create",
+      kind: 'create',
       provider: input.targetProvider,
-      isRemote: input.targetIsRemote,
-    }
+      isRemote: input.targetIsRemote
+    };
   }
 
   if (input.existingIsRemote) {
-    return { kind: "keep" }
+    return { kind: 'keep' };
   }
 
   if (!input.isStreaming && !input.hasQueue && input.isStaleRuntime) {
     return {
-      kind: "recreate",
+      kind: 'recreate',
       provider: input.targetProvider,
       isRemote: input.targetIsRemote,
-      reason: "stale-runtime",
-    }
+      reason: 'stale-runtime'
+    };
   }
 
   if (input.existingProvider === input.targetProvider) {
-    return { kind: "keep" }
+    return { kind: 'keep' };
   }
 
   // Provider mismatch with existing messages: keep the transport so in-flight
   // tool events (TodoWrite, Task, etc.) aren't orphaned. Cross-provider
   // recreate during plan approval goes through a different path.
   if (input.hasMessages) {
-    return { kind: "keep" }
+    return { kind: 'keep' };
   }
 
   return {
-    kind: "recreate",
+    kind: 'recreate',
     provider: input.targetProvider,
     isRemote: input.targetIsRemote,
-    reason: "cross-provider-empty",
-  }
+    reason: 'cross-provider-empty'
+  };
 }
 
 /**
@@ -120,17 +120,17 @@ export function decideTransportAction(input: TransportInput): TransportAction {
  * plan content is re-attached as a hidden file part to the next message.
  */
 export function decidePlanApprovalCrossProviderRecreate(input: {
-  previousProvider: ProviderId
-  newProvider: ProviderId
-  newIsRemote: boolean
+  previousProvider: ProviderId;
+  newProvider: ProviderId;
+  newIsRemote: boolean;
 }): TransportAction {
   if (input.previousProvider === input.newProvider) {
-    return { kind: "keep" }
+    return { kind: 'keep' };
   }
   return {
-    kind: "recreate",
+    kind: 'recreate',
     provider: input.newProvider,
     isRemote: input.newIsRemote,
-    reason: "plan-approval-cross-provider",
-  }
+    reason: 'plan-approval-cross-provider'
+  };
 }

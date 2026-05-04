@@ -1,20 +1,17 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import {
-	adjectives,
-	uniqueNamesGenerator,
-} from "unique-names-generator";
-import { landscapes } from "./dictionaries/landscapes";
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { adjectives, uniqueNamesGenerator } from 'unique-names-generator';
+import { landscapes } from './dictionaries/landscapes';
 
 const MAX_RETRIES = 10;
 
 function generateLandscapeName(): string {
-	return uniqueNamesGenerator({
-		dictionaries: [adjectives, landscapes],
-		separator: "-",
-		length: 2,
-		style: "lowerCase",
-	});
+  return uniqueNamesGenerator({
+    dictionaries: [adjectives, landscapes],
+    separator: '-',
+    length: 2,
+    style: 'lowerCase'
+  });
 }
 
 /**
@@ -27,15 +24,15 @@ function generateLandscapeName(): string {
  * via the chats table, not just the project folder name.
  */
 export function sanitizeProjectName(name: string): string {
-	const sanitized = name
-		.toLowerCase()
-		.replace(/[\s_]+/g, "-")
-		.replace(/[^a-z0-9\-.]/g, "")
-		.replace(/-{2,}/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.slice(0, 50);
+  const sanitized = name
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9\-.]/g, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
 
-	return sanitized || "project";
+  return sanitized || 'project';
 }
 
 /**
@@ -50,23 +47,23 @@ export function sanitizeProjectName(name: string): string {
  * is caught by createWorktreeForChat().
  */
 export function generateWorktreeFolderName(parentDir: string): string {
-	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-		const name = generateLandscapeName();
-		if (!existsSync(join(parentDir, name))) {
-			return name;
-		}
-	}
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const name = generateLandscapeName();
+    if (!existsSync(join(parentDir, name))) {
+      return name;
+    }
+  }
 
-	// Fallback: generate a base name and append numeric suffix
-	const baseName = generateLandscapeName();
+  // Fallback: generate a base name and append numeric suffix
+  const baseName = generateLandscapeName();
 
-	for (let suffix = 2; suffix <= 999; suffix++) {
-		const name = `${baseName}-${suffix}`;
-		if (!existsSync(join(parentDir, name))) {
-			return name;
-		}
-	}
+  for (let suffix = 2; suffix <= 999; suffix++) {
+    const name = `${baseName}-${suffix}`;
+    if (!existsSync(join(parentDir, name))) {
+      return name;
+    }
+  }
 
-	// Absolute fallback: append timestamp
-	return `${baseName}-${Date.now().toString(36)}`;
+  // Absolute fallback: append timestamp
+  return `${baseName}-${Date.now().toString(36)}`;
 }

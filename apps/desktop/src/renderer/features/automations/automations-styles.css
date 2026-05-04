@@ -4,7 +4,7 @@
 
 /* Remove tap highlight and optimize touch response */
 [data-automations-page] button,
-[data-automations-page] [role="button"],
+[data-automations-page] [role='button'],
 [data-automations-page] a {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;

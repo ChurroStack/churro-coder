@@ -4,7 +4,7 @@
 
 /* Remove tap highlight and optimize touch response */
 [data-inbox-page] button,
-[data-inbox-page] [role="button"],
+[data-inbox-page] [role='button'],
 [data-inbox-page] a {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;

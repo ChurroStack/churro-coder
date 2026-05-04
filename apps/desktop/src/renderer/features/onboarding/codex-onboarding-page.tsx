@@ -1,26 +1,22 @@
-"use client"
+'use client';
 
-import { useAtomValue, useSetAtom } from "jotai"
-import { ChevronLeft } from "lucide-react"
-import { useEffect, useMemo, useRef } from "react"
-import { CodexLoginContent } from "../agents/components/codex-login-content"
-import { useCodexLoginFlow } from "../agents/hooks/use-codex-login-flow"
-import {
-  billingMethodAtom,
-  codexOnboardingAuthMethodAtom,
-  codexOnboardingCompletedAtom,
-} from "../../lib/atoms"
+import { useAtomValue, useSetAtom } from 'jotai';
+import { ChevronLeft } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
+import { CodexLoginContent } from '../agents/components/codex-login-content';
+import { useCodexLoginFlow } from '../agents/hooks/use-codex-login-flow';
+import { billingMethodAtom, codexOnboardingAuthMethodAtom, codexOnboardingCompletedAtom } from '../../lib/atoms';
 
 export function CodexOnboardingPage() {
-  const billingMethod = useAtomValue(billingMethodAtom)
-  const setBillingMethod = useSetAtom(billingMethodAtom)
-  const setCodexOnboardingCompleted = useSetAtom(codexOnboardingCompletedAtom)
-  const setCodexOnboardingAuthMethod = useSetAtom(codexOnboardingAuthMethodAtom)
-  const didAutoStartRef = useRef(false)
+  const billingMethod = useAtomValue(billingMethodAtom);
+  const setBillingMethod = useSetAtom(billingMethodAtom);
+  const setCodexOnboardingCompleted = useSetAtom(codexOnboardingCompletedAtom);
+  const setCodexOnboardingAuthMethod = useSetAtom(codexOnboardingAuthMethodAtom);
+  const didAutoStartRef = useRef(false);
   const onboardingMethod = useMemo(() => {
-    if (billingMethod === "codex-api-key") return "api_key"
-    return "chatgpt"
-  }, [billingMethod])
+    if (billingMethod === 'codex-api-key') return 'api_key';
+    return 'chatgpt';
+  }, [billingMethod]);
 
   const {
     state,
@@ -35,57 +31,53 @@ export function CodexOnboardingPage() {
     setMethod,
     setApiKeyInput,
     cancel,
-    openUrl,
-  } = useCodexLoginFlow()
+    openUrl
+  } = useCodexLoginFlow();
 
   useEffect(() => {
-    setMethod(onboardingMethod)
-  }, [onboardingMethod, setMethod])
+    setMethod(onboardingMethod);
+  }, [onboardingMethod, setMethod]);
 
   useEffect(() => {
-    if (onboardingMethod !== "chatgpt") {
-      return
+    if (onboardingMethod !== 'chatgpt') {
+      return;
     }
 
     // Wait until flow state reflects selected onboarding method to avoid
     // triggering OAuth from the default "chatgpt" value on first render.
     if (method !== onboardingMethod) {
-      return
+      return;
     }
 
     if (didAutoStartRef.current) {
-      return
+      return;
     }
 
-    didAutoStartRef.current = true
-    void start()
-  }, [method, onboardingMethod, start])
+    didAutoStartRef.current = true;
+    void start();
+  }, [method, onboardingMethod, start]);
 
   useEffect(() => {
-    if (state === "success") {
-      setCodexOnboardingCompleted(true)
-      setCodexOnboardingAuthMethod(method)
+    if (state === 'success') {
+      setCodexOnboardingCompleted(true);
+      setCodexOnboardingAuthMethod(method);
     }
-  }, [method, setCodexOnboardingAuthMethod, setCodexOnboardingCompleted, state])
+  }, [method, setCodexOnboardingAuthMethod, setCodexOnboardingCompleted, state]);
 
   const handleBack = async () => {
     if (isRunning) {
-      await cancel()
+      await cancel();
     }
-    setBillingMethod(null)
-  }
+    setBillingMethod(null);
+  };
 
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-background select-none">
-      <div
-        className="fixed top-0 left-0 right-0 h-10"
-        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-      />
+      <div className="fixed top-0 left-0 right-0 h-10" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
 
       <button
         onClick={() => void handleBack()}
-        className="fixed top-12 left-4 flex items-center justify-center h-8 w-8 rounded-full hover:bg-foreground/5 transition-colors"
-      >
+        className="fixed top-12 left-4 flex items-center justify-center h-8 w-8 rounded-full hover:bg-foreground/5 transition-colors">
         <ChevronLeft className="h-5 w-5" />
       </button>
 
@@ -99,17 +91,17 @@ export function CodexOnboardingPage() {
           isOpeningUrl={isOpeningUrl}
           isConnecting={isRunning || isOpeningUrl}
           onOpenUrl={() => {
-            void openUrl()
+            void openUrl();
           }}
           onRetry={() => {
-            void start()
+            void start();
           }}
           onApiKeyChange={setApiKeyInput}
           onSubmitApiKey={() => {
-            void saveApiKey()
+            void saveApiKey();
           }}
         />
       </div>
     </div>
-  )
+  );
 }

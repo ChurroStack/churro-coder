@@ -57,8 +57,8 @@ export type {
   MentionSearchResult,
   AggregatedSearchResult,
   MentionSearchOptions,
-  RelevanceScore,
-} from "./types"
+  RelevanceScore
+} from './types';
 
 export {
   createProviderId,
@@ -67,8 +67,8 @@ export {
   isMentionType,
   createMentionProvider,
   calculateRelevance,
-  sortByRelevance,
-} from "./types"
+  sortByRelevance
+} from './types';
 
 // Registry
 export {
@@ -79,8 +79,8 @@ export {
   useMentionProvidersByTrigger,
   useAvailableMentionProviders,
   useMentionCategories,
-  useMentionProvider,
-} from "./registry"
+  useMentionProvider
+} from './registry';
 
 // Providers
 export {
@@ -90,10 +90,10 @@ export {
   toolsProvider,
   builtInProviders,
   registerBuiltInProviders,
-  registerProvider,
-} from "./providers"
+  registerProvider
+} from './providers';
 
-export type { FileData, SkillData, AgentData, ToolData, ToolsSearchContext } from "./providers"
+export type { FileData, SkillData, AgentData, ToolData, ToolsSearchContext } from './providers';
 
 // Search
 export {
@@ -102,12 +102,8 @@ export {
   mentionCache,
   gitAwareCache,
   MentionSearchEngine,
-  mentionSearchEngine,
-} from "./search"
+  mentionSearchEngine
+} from './search';
 
 // Hooks
-export {
-  useMentionSearch,
-  type UseMentionSearchOptions,
-  type UseMentionSearchResult,
-} from "./hooks"
+export { useMentionSearch, type UseMentionSearchOptions, type UseMentionSearchResult } from './hooks';

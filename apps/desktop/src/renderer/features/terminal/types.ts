@@ -1,32 +1,32 @@
 export interface TerminalDataEvent {
-  type: "data"
-  data: string
+  type: 'data';
+  data: string;
 }
 
 export interface TerminalExitEvent {
-  type: "exit"
-  exitCode: number
-  signal?: number
+  type: 'exit';
+  exitCode: number;
+  signal?: number;
 }
 
-export type TerminalEvent = TerminalDataEvent | TerminalExitEvent
+export type TerminalEvent = TerminalDataEvent | TerminalExitEvent;
 
 export interface TerminalProps {
-  paneId: string
-  cwd: string
-  workspaceId?: string
+  paneId: string;
+  cwd: string;
+  workspaceId?: string;
   /** Terminal scope key for shared terminal support */
-  scopeKey?: string
-  tabId?: string
-  initialCommands?: string[]
-  initialCwd?: string
+  scopeKey?: string;
+  tabId?: string;
+  initialCommands?: string[];
+  initialCwd?: string;
 }
 
 export interface TerminalStreamEvent {
-  type: "data" | "exit"
-  data?: string
-  exitCode?: number
-  signal?: number
+  type: 'data' | 'exit';
+  data?: string;
+  exitCode?: number;
+  signal?: number;
 }
 
 /**
@@ -35,13 +35,13 @@ export interface TerminalStreamEvent {
  */
 export interface TerminalInstance {
   /** Unique terminal id (nanoid) */
-  id: string
+  id: string;
   /** Full paneId for TerminalManager: `${chatId}:term:${id}` */
-  paneId: string
+  paneId: string;
   /** Display name: "Terminal 1", "Terminal 2", etc. */
-  name: string
+  name: string;
   /** Creation timestamp */
-  createdAt: number
+  createdAt: number;
   /** Optional commands to run on first attach. Persists so the right command runs after a renderer reload. */
-  initialCommands?: string[]
+  initialCommands?: string[];
 }

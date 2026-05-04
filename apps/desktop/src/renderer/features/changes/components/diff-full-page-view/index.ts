@@ -1,1 +1,1 @@
-export { DiffFullPageView } from "./diff-full-page-view"
+export { DiffFullPageView } from './diff-full-page-view';

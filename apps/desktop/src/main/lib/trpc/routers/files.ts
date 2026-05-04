@@ -1,126 +1,117 @@
-import { z } from "zod"
-import { router, publicProcedure } from "../index"
-import { readdir, stat, readFile, writeFile, mkdir, rename as fsRename, rm } from "node:fs/promises"
-import { join, relative, basename, extname, dirname, resolve, isAbsolute } from "node:path"
-import { app, shell } from "electron"
-import { watch } from "node:fs"
-import { observable } from "@trpc/server/observable"
+import { z } from 'zod';
+import { router, publicProcedure } from '../index';
+import { readdir, stat, readFile, writeFile, mkdir, rename as fsRename, rm } from 'node:fs/promises';
+import { join, relative, basename, extname, dirname, resolve, isAbsolute } from 'node:path';
+import { app, shell } from 'electron';
+import { watch } from 'node:fs';
+import { observable } from '@trpc/server/observable';
 
 // Directories to ignore when scanning
 const IGNORED_DIRS = new Set([
-  ".git",
-  "node_modules",
-  "dist",
-  "build",
-  "release",
-  ".next",
-  ".nuxt",
-  ".output",
-  "coverage",
-  "__pycache__",
-  ".venv",
-  "venv",
-  ".cache",
-  ".turbo",
-  ".vercel",
-  ".netlify",
-  "out",
-  ".svelte-kit",
-  ".astro",
-])
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'release',
+  '.next',
+  '.nuxt',
+  '.output',
+  'coverage',
+  '__pycache__',
+  '.venv',
+  'venv',
+  '.cache',
+  '.turbo',
+  '.vercel',
+  '.netlify',
+  'out',
+  '.svelte-kit',
+  '.astro'
+]);
 
 // Files to ignore
-const IGNORED_FILES = new Set([
-  ".DS_Store",
-  "Thumbs.db",
-  ".gitkeep",
-])
+const IGNORED_FILES = new Set(['.DS_Store', 'Thumbs.db', '.gitkeep']);
 
 // File extensions to ignore
 const IGNORED_EXTENSIONS = new Set([
-  ".log",
-  ".lock", // We'll handle package-lock.json separately
-  ".pyc",
-  ".pyo",
-  ".class",
-  ".o",
-  ".obj",
-  ".exe",
-  ".dll",
-  ".so",
-  ".dylib",
-])
+  '.log',
+  '.lock', // We'll handle package-lock.json separately
+  '.pyc',
+  '.pyo',
+  '.class',
+  '.o',
+  '.obj',
+  '.exe',
+  '.dll',
+  '.so',
+  '.dylib'
+]);
 
 // Lock files to keep (not ignore)
-const ALLOWED_LOCK_FILES = new Set([
-  "package-lock.json",
-  "pnpm-lock.yaml",
-  "yarn.lock",
-  "bun.lockb",
-])
+const ALLOWED_LOCK_FILES = new Set(['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb']);
 
 // Entry type for files and folders
 interface FileEntry {
-  path: string
-  type: "file" | "folder"
+  path: string;
+  type: 'file' | 'folder';
 }
 
 // Content-search streaming types
 interface SearchLineMatch {
-  line: number      // 1-based line number
-  col: number       // 0-based column offset of the match within the line
-  length: number    // length of the matched text
-  snippet: string   // up to 300 chars of the matched line
+  line: number; // 1-based line number
+  col: number; // 0-based column offset of the match within the line
+  length: number; // length of the matched text
+  snippet: string; // up to 300 chars of the matched line
 }
 
 interface SearchFileMatch {
-  path: string      // relative path inside the project
-  matches: SearchLineMatch[]
+  path: string; // relative path inside the project
+  matches: SearchLineMatch[];
 }
 
 export interface SearchBatch {
-  files: SearchFileMatch[]
-  totalMatches: number
-  scannedFiles: number
-  totalFiles: number
-  done: boolean
-  truncated: boolean
+  files: SearchFileMatch[];
+  totalMatches: number;
+  scannedFiles: number;
+  totalFiles: number;
+  done: boolean;
+  truncated: boolean;
 }
 
 // Cache for file and folder listings (bounded LRU)
-const MAX_CACHE_ENTRIES = 20
-const fileListCache = new Map<string, { entries: FileEntry[]; timestamp: number }>()
-const CACHE_TTL = 5000 // 5 seconds
+const MAX_CACHE_ENTRIES = 20;
+const fileListCache = new Map<string, { entries: FileEntry[]; timestamp: number }>();
+const CACHE_TTL = 5000; // 5 seconds
 
 /**
  * Validate that a path doesn't contain path traversal attacks.
  * Checks for null bytes and ensures the resolved path stays within the expected parent.
  */
 function validatePathSafe(targetPath: string, allowedParent?: string): void {
-  if (targetPath.includes("\0")) {
-    throw new Error("Path contains invalid characters")
+  if (targetPath.includes('\0')) {
+    throw new Error('Path contains invalid characters');
   }
   if (!isAbsolute(targetPath)) {
-    throw new Error("Path must be absolute")
+    throw new Error('Path must be absolute');
   }
-  const resolved = resolve(targetPath)
+  const resolved = resolve(targetPath);
   if (allowedParent) {
-    const resolvedParent = resolve(allowedParent)
-    if (!resolved.startsWith(resolvedParent + "/") && resolved !== resolvedParent) {
-      throw new Error("Path escapes allowed directory")
+    const resolvedParent = resolve(allowedParent);
+    if (!resolved.startsWith(resolvedParent + '/') && resolved !== resolvedParent) {
+      throw new Error('Path escapes allowed directory');
     }
   }
 }
 
 function validateFileName(name: string): void {
-  if (name.includes("/") || name.includes("\\")) {
-    throw new Error("File name cannot contain path separators")
+  if (name.includes('/') || name.includes('\\')) {
+    throw new Error('File name cannot contain path separators');
   }
-  if (name.includes("\0")) {
-    throw new Error("File name contains invalid characters")
+  if (name.includes('\0')) {
+    throw new Error('File name contains invalid characters');
   }
-  if (name === "." || name === "..") {
-    throw new Error("Invalid file name")
+  if (name === '.' || name === '..') {
+    throw new Error('Invalid file name');
   }
 }
 
@@ -133,82 +124,83 @@ async function scanDirectory(
   depth: number = 0,
   maxDepth: number = 15
 ): Promise<FileEntry[]> {
-  if (depth > maxDepth) return []
+  if (depth > maxDepth) return [];
 
-  const entries: FileEntry[] = []
+  const entries: FileEntry[] = [];
 
   try {
-    const dirEntries = await readdir(currentPath, { withFileTypes: true })
+    const dirEntries = await readdir(currentPath, { withFileTypes: true });
 
     for (const entry of dirEntries) {
-      const fullPath = join(currentPath, entry.name)
-      const relativePath = relative(rootPath, fullPath)
+      const fullPath = join(currentPath, entry.name);
+      const relativePath = relative(rootPath, fullPath);
 
       // Skip symlinks to avoid loops and walking outside the project
-      if (entry.isSymbolicLink()) continue
+      if (entry.isSymbolicLink()) continue;
 
       if (entry.isDirectory()) {
         // Skip ignored directories
-        if (IGNORED_DIRS.has(entry.name)) continue
+        if (IGNORED_DIRS.has(entry.name)) continue;
         // Skip hidden directories (except .github, .vscode, etc.)
-        if (entry.name.startsWith(".") && !entry.name.startsWith(".github") && !entry.name.startsWith(".vscode")) continue
+        if (entry.name.startsWith('.') && !entry.name.startsWith('.github') && !entry.name.startsWith('.vscode'))
+          continue;
 
         // Add the folder itself to results
-        entries.push({ path: relativePath, type: "folder" })
+        entries.push({ path: relativePath, type: 'folder' });
 
         // Recurse into subdirectory
-        const subEntries = await scanDirectory(rootPath, fullPath, depth + 1, maxDepth)
-        entries.push(...subEntries)
+        const subEntries = await scanDirectory(rootPath, fullPath, depth + 1, maxDepth);
+        entries.push(...subEntries);
       } else if (entry.isFile()) {
         // Skip ignored files
-        if (IGNORED_FILES.has(entry.name)) continue
+        if (IGNORED_FILES.has(entry.name)) continue;
 
         // Check extension
-        const ext = entry.name.includes(".") ? "." + entry.name.split(".").pop()?.toLowerCase() : ""
+        const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop()?.toLowerCase() : '';
         if (IGNORED_EXTENSIONS.has(ext)) {
           // Allow specific lock files
-          if (!ALLOWED_LOCK_FILES.has(entry.name)) continue
+          if (!ALLOWED_LOCK_FILES.has(entry.name)) continue;
         }
 
-        entries.push({ path: relativePath, type: "file" })
+        entries.push({ path: relativePath, type: 'file' });
       }
     }
   } catch (error) {
     // Silently skip directories we can't read
-    console.warn(`[files] Could not read directory: ${currentPath}`, error)
+    console.warn(`[files] Could not read directory: ${currentPath}`, error);
   }
 
-  return entries
+  return entries;
 }
 
 /**
  * Get cached entry list or scan directory
  */
 async function getEntryList(projectPath: string): Promise<FileEntry[]> {
-  const cached = fileListCache.get(projectPath)
-  const now = Date.now()
+  const cached = fileListCache.get(projectPath);
+  const now = Date.now();
 
   if (cached && now - cached.timestamp < CACHE_TTL) {
-    return cached.entries
+    return cached.entries;
   }
 
-  const entries = await scanDirectory(projectPath)
+  const entries = await scanDirectory(projectPath);
 
   // Evict oldest entries if cache is full
   if (fileListCache.size >= MAX_CACHE_ENTRIES) {
-    let oldest: string | null = null
-    let oldestTime = Infinity
+    let oldest: string | null = null;
+    let oldestTime = Infinity;
     for (const [key, val] of fileListCache) {
       if (val.timestamp < oldestTime) {
-        oldestTime = val.timestamp
-        oldest = key
+        oldestTime = val.timestamp;
+        oldest = key;
       }
     }
-    if (oldest) fileListCache.delete(oldest)
+    if (oldest) fileListCache.delete(oldest);
   }
 
-  fileListCache.set(projectPath, { entries, timestamp: now })
-  return entries
+  fileListCache.set(projectPath, { entries, timestamp: now });
+  return entries;
 }
 
 /**
@@ -218,71 +210,71 @@ function filterEntries(
   entries: FileEntry[],
   query: string,
   limit: number,
-  typeFilter?: "file" | "folder",
-): Array<{ id: string; label: string; path: string; repository: string; type: "file" | "folder" }> {
-  const queryLower = query.toLowerCase()
+  typeFilter?: 'file' | 'folder'
+): Array<{ id: string; label: string; path: string; repository: string; type: 'file' | 'folder' }> {
+  const queryLower = query.toLowerCase();
 
   // Filter entries that match the query and optional type filter
-  let filtered = entries
+  let filtered = entries;
   if (typeFilter) {
-    filtered = filtered.filter((entry) => entry.type === typeFilter)
+    filtered = filtered.filter((entry) => entry.type === typeFilter);
   }
   if (query) {
     filtered = filtered.filter((entry) => {
-      const name = basename(entry.path).toLowerCase()
-      const pathLower = entry.path.toLowerCase()
-      return name.includes(queryLower) || pathLower.includes(queryLower)
-    })
+      const name = basename(entry.path).toLowerCase();
+      const pathLower = entry.path.toLowerCase();
+      return name.includes(queryLower) || pathLower.includes(queryLower);
+    });
   }
 
   // Sort by relevance (exact match > starts with > shorter match > contains > alphabetical)
   // Files and folders are treated equally
   filtered.sort((a, b) => {
-    const aName = basename(a.path).toLowerCase()
-    const bName = basename(b.path).toLowerCase()
+    const aName = basename(a.path).toLowerCase();
+    const bName = basename(b.path).toLowerCase();
 
     if (query) {
       // Priority 1: Exact name match
-      const aExact = aName === queryLower
-      const bExact = bName === queryLower
-      if (aExact && !bExact) return -1
-      if (!aExact && bExact) return 1
+      const aExact = aName === queryLower;
+      const bExact = bName === queryLower;
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
 
       // Priority 2: Name starts with query
-      const aStarts = aName.startsWith(queryLower)
-      const bStarts = bName.startsWith(queryLower)
-      if (aStarts && !bStarts) return -1
-      if (!aStarts && bStarts) return 1
-      
+      const aStarts = aName.startsWith(queryLower);
+      const bStarts = bName.startsWith(queryLower);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+
       // Priority 3: If both start with query, shorter name = better match
       if (aStarts && bStarts) {
         if (aName.length !== bName.length) {
-          return aName.length - bName.length
+          return aName.length - bName.length;
         }
       }
 
       // Priority 4: Name contains query (but doesn't start with it)
-      const aContains = aName.includes(queryLower)
-      const bContains = bName.includes(queryLower)
-      if (aContains && !bContains) return -1
-      if (!aContains && bContains) return 1
+      const aContains = aName.includes(queryLower);
+      const bContains = bName.includes(queryLower);
+      if (aContains && !bContains) return -1;
+      if (!aContains && bContains) return 1;
     }
 
     // Alphabetical by name
-    return aName.localeCompare(bName)
-  })
+    return aName.localeCompare(bName);
+  });
 
   // Limit results
-  const limited = filtered.slice(0, Math.min(limit, 5000))
+  const limited = filtered.slice(0, Math.min(limit, 5000));
 
   // Map to expected format with type
   return limited.map((entry) => ({
     id: `${entry.type}:local:${entry.path}`,
     label: basename(entry.path),
     path: entry.path,
-    repository: "local",
-    type: entry.type,
-  }))
+    repository: 'local',
+    type: entry.type
+  }));
 }
 
 export const filesRouter = router({
@@ -293,172 +285,162 @@ export const filesRouter = router({
     .input(
       z.object({
         projectPath: z.string(),
-        query: z.string().default(""),
+        query: z.string().default(''),
         limit: z.number().min(1).max(5000).default(50),
-        typeFilter: z.enum(["file", "folder"]).optional(),
+        typeFilter: z.enum(['file', 'folder']).optional()
       })
     )
     .query(async ({ input }) => {
-      const { projectPath, query, limit, typeFilter } = input
+      const { projectPath, query, limit, typeFilter } = input;
 
       if (!projectPath) {
-        return []
+        return [];
       }
 
       try {
         // Verify the path exists and is a directory
-        const pathStat = await stat(projectPath)
+        const pathStat = await stat(projectPath);
         if (!pathStat.isDirectory()) {
-          console.warn(`[files] Not a directory: ${projectPath}`)
-          return []
+          console.warn(`[files] Not a directory: ${projectPath}`);
+          return [];
         }
 
         // Get entry list (cached or fresh scan)
-        const entries = await getEntryList(projectPath)
+        const entries = await getEntryList(projectPath);
 
         // Filter and sort by query
-        return filterEntries(entries, query, limit, typeFilter)
+        return filterEntries(entries, query, limit, typeFilter);
       } catch (error) {
-        console.error(`[files] Error searching files:`, error)
-        return []
+        console.error(`[files] Error searching files:`, error);
+        return [];
       }
     }),
 
   /**
    * Clear the file cache for a project (useful when files change)
    */
-  clearCache: publicProcedure
-    .input(z.object({ projectPath: z.string() }))
-    .mutation(({ input }) => {
-      fileListCache.delete(input.projectPath)
-      return { success: true }
-    }),
+  clearCache: publicProcedure.input(z.object({ projectPath: z.string() })).mutation(({ input }) => {
+    fileListCache.delete(input.projectPath);
+    return { success: true };
+  }),
 
   /**
    * Read file contents from filesystem
    */
-  readFile: publicProcedure
-    .input(z.object({ filePath: z.string() }))
-    .query(async ({ input }) => {
-      const { filePath } = input
-      const isUri = /^[a-z][a-z0-9+.-]*:\/\//i.test(filePath)
-      console.log(`[files] readFile filePath=${filePath} isUri=${isUri}`)
-      if (isUri) {
-        const err = `files.readFile expects a filesystem path, got URI: ${filePath}`
-        console.error(`[files] REJECTED ${err}`)
-        throw new Error(err)
-      }
-      try {
-        const content = await readFile(filePath, "utf-8")
-        return content
-      } catch (error) {
-        console.error(`[files] Error reading file ${filePath}:`, error)
-        throw new Error(`Failed to read file: ${error instanceof Error ? error.message : "Unknown error"}`)
-      }
-    }),
+  readFile: publicProcedure.input(z.object({ filePath: z.string() })).query(async ({ input }) => {
+    const { filePath } = input;
+    const isUri = /^[a-z][a-z0-9+.-]*:\/\//i.test(filePath);
+    console.log(`[files] readFile filePath=${filePath} isUri=${isUri}`);
+    if (isUri) {
+      const err = `files.readFile expects a filesystem path, got URI: ${filePath}`;
+      console.error(`[files] REJECTED ${err}`);
+      throw new Error(err);
+    }
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      return content;
+    } catch (error) {
+      console.error(`[files] Error reading file ${filePath}:`, error);
+      throw new Error(`Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }),
 
   /**
    * Read a text file with size/binary validation
    * Returns structured result with error reasons
    */
-  readTextFile: publicProcedure
-    .input(z.object({ filePath: z.string() }))
-    .query(async ({ input }) => {
-      const { filePath } = input
-      const MAX_SIZE = 2 * 1024 * 1024 // 2 MB
+  readTextFile: publicProcedure.input(z.object({ filePath: z.string() })).query(async ({ input }) => {
+    const { filePath } = input;
+    const MAX_SIZE = 2 * 1024 * 1024; // 2 MB
 
-      try {
-        const fileStat = await stat(filePath)
+    try {
+      const fileStat = await stat(filePath);
 
-        if (fileStat.size > MAX_SIZE) {
-          return { ok: false as const, reason: "too-large" as const, byteLength: fileStat.size }
-        }
-
-        const buffer = await readFile(filePath)
-
-        // Check if binary by looking for null bytes in first 8KB
-        const sample = buffer.subarray(0, 8192)
-        if (sample.includes(0)) {
-          return { ok: false as const, reason: "binary" as const, byteLength: fileStat.size }
-        }
-
-        const content = buffer.toString("utf-8")
-        return { ok: true as const, content, byteLength: fileStat.size }
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Unknown error"
-        if (msg.includes("ENOENT") || msg.includes("no such file")) {
-          return { ok: false as const, reason: "not-found" as const, byteLength: 0 }
-        }
-        throw new Error(`Failed to read file: ${msg}`)
+      if (fileStat.size > MAX_SIZE) {
+        return { ok: false as const, reason: 'too-large' as const, byteLength: fileStat.size };
       }
-    }),
+
+      const buffer = await readFile(filePath);
+
+      // Check if binary by looking for null bytes in first 8KB
+      const sample = buffer.subarray(0, 8192);
+      if (sample.includes(0)) {
+        return { ok: false as const, reason: 'binary' as const, byteLength: fileStat.size };
+      }
+
+      const content = buffer.toString('utf-8');
+      return { ok: true as const, content, byteLength: fileStat.size };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (msg.includes('ENOENT') || msg.includes('no such file')) {
+        return { ok: false as const, reason: 'not-found' as const, byteLength: 0 };
+      }
+      throw new Error(`Failed to read file: ${msg}`);
+    }
+  }),
 
   /**
    * Read a binary file as base64 (for images)
    */
-  readBinaryFile: publicProcedure
-    .input(z.object({ filePath: z.string() }))
-    .query(async ({ input }) => {
-      const { filePath } = input
-      const MAX_SIZE = 20 * 1024 * 1024 // 20 MB
+  readBinaryFile: publicProcedure.input(z.object({ filePath: z.string() })).query(async ({ input }) => {
+    const { filePath } = input;
+    const MAX_SIZE = 20 * 1024 * 1024; // 20 MB
 
-      try {
-        const fileStat = await stat(filePath)
+    try {
+      const fileStat = await stat(filePath);
 
-        if (fileStat.size > MAX_SIZE) {
-          return { ok: false as const, reason: "too-large" as const, byteLength: fileStat.size }
-        }
-
-        const buffer = await readFile(filePath)
-        const ext = extname(filePath).toLowerCase()
-
-        // Determine MIME type
-        const mimeMap: Record<string, string> = {
-          ".png": "image/png",
-          ".jpg": "image/jpeg",
-          ".jpeg": "image/jpeg",
-          ".gif": "image/gif",
-          ".svg": "image/svg+xml",
-          ".webp": "image/webp",
-          ".ico": "image/x-icon",
-          ".bmp": "image/bmp",
-        }
-        const mimeType = mimeMap[ext] || "application/octet-stream"
-
-        return {
-          ok: true as const,
-          data: buffer.toString("base64"),
-          mimeType,
-          byteLength: fileStat.size,
-        }
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Unknown error"
-        if (msg.includes("ENOENT") || msg.includes("no such file")) {
-          return { ok: false as const, reason: "not-found" as const, byteLength: 0 }
-        }
-        throw new Error(`Failed to read binary file: ${msg}`)
+      if (fileStat.size > MAX_SIZE) {
+        return { ok: false as const, reason: 'too-large' as const, byteLength: fileStat.size };
       }
-    }),
+
+      const buffer = await readFile(filePath);
+      const ext = extname(filePath).toLowerCase();
+
+      // Determine MIME type
+      const mimeMap: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.svg': 'image/svg+xml',
+        '.webp': 'image/webp',
+        '.ico': 'image/x-icon',
+        '.bmp': 'image/bmp'
+      };
+      const mimeType = mimeMap[ext] || 'application/octet-stream';
+
+      return {
+        ok: true as const,
+        data: buffer.toString('base64'),
+        mimeType,
+        byteLength: fileStat.size
+      };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (msg.includes('ENOENT') || msg.includes('no such file')) {
+        return { ok: false as const, reason: 'not-found' as const, byteLength: 0 };
+      }
+      throw new Error(`Failed to read binary file: ${msg}`);
+    }
+  }),
 
   /**
    * Watch for file changes in a project directory
    * Emits events when files are modified
    */
-  watchChanges: publicProcedure
-    .input(z.object({ projectPath: z.string() }))
-    .subscription(({ input }) => {
-      return observable<{ filename: string; eventType: string }>((emit) => {
-        const watcher = watch(input.projectPath, { recursive: true }, (eventType, filename) => {
-          if (filename) {
-            emit.next({ filename, eventType })
-          }
-        })
-
-        return () => {
-          watcher.close()
+  watchChanges: publicProcedure.input(z.object({ projectPath: z.string() })).subscription(({ input }) => {
+    return observable<{ filename: string; eventType: string }>((emit) => {
+      const watcher = watch(input.projectPath, { recursive: true }, (eventType, filename) => {
+        if (filename) {
+          emit.next({ filename, eventType });
         }
-      })
-    }),
+      });
+
+      return () => {
+        watcher.close();
+      };
+    });
+  }),
 
   /**
    * Stream content-search matches across a project directory.
@@ -470,100 +452,101 @@ export const filesRouter = router({
         projectPath: z.string(),
         query: z.string().min(1),
         maxResults: z.number().min(1).max(5000).default(500),
-        maxFileBytes: z.number().min(1024).max(10 * 1024 * 1024).default(1_000_000),
+        maxFileBytes: z
+          .number()
+          .min(1024)
+          .max(10 * 1024 * 1024)
+          .default(1_000_000)
       })
     )
     .subscription(({ input }) => {
       return observable<SearchBatch>((emit) => {
-        let cancelled = false
+        let cancelled = false;
 
         const run = async () => {
           try {
-            const entries = await getEntryList(input.projectPath)
-            const files = entries.filter((e) => e.type === "file")
-            const needle = input.query.toLowerCase()
-            const needleLen = input.query.length
-            let totalMatches = 0
-            let scannedFiles = 0
-            let buffered: SearchFileMatch[] = []
-            let lastFlush = Date.now()
-            let truncated = false
+            const entries = await getEntryList(input.projectPath);
+            const files = entries.filter((e) => e.type === 'file');
+            const needle = input.query.toLowerCase();
+            const needleLen = input.query.length;
+            let totalMatches = 0;
+            let scannedFiles = 0;
+            let buffered: SearchFileMatch[] = [];
+            let lastFlush = Date.now();
+            let truncated = false;
 
             const flush = (force: boolean) => {
-              if (!buffered.length && !force) return
+              if (!buffered.length && !force) return;
               const batch: SearchBatch = {
                 files: buffered,
                 totalMatches,
                 scannedFiles,
                 totalFiles: files.length,
                 done: false,
-                truncated,
-              }
-              buffered = []
-              lastFlush = Date.now()
-              emit.next(batch)
-            }
+                truncated
+              };
+              buffered = [];
+              lastFlush = Date.now();
+              emit.next(batch);
+            };
 
             for (const f of files) {
-              if (cancelled) return
-              scannedFiles++
+              if (cancelled) return;
+              scannedFiles++;
 
               if (totalMatches >= input.maxResults) {
-                truncated = true
-                break
+                truncated = true;
+                break;
               }
 
-              const abs = join(input.projectPath, f.path)
+              const abs = join(input.projectPath, f.path);
               try {
-                const st = await stat(abs)
-                if (st.size > input.maxFileBytes) continue
+                const st = await stat(abs);
+                if (st.size > input.maxFileBytes) continue;
 
-                const buf = await readFile(abs)
+                const buf = await readFile(abs);
                 // Binary check (matches readTextFile heuristic, slightly smaller window)
-                if (buf.subarray(0, 4096).includes(0)) continue
+                if (buf.subarray(0, 4096).includes(0)) continue;
 
-                const original = buf.toString("utf-8")
-                const haystack = original.toLowerCase()
-                if (haystack.indexOf(needle) === -1) continue
+                const original = buf.toString('utf-8');
+                const haystack = original.toLowerCase();
+                if (haystack.indexOf(needle) === -1) continue;
 
                 // Walk lines and collect matches for this file
-                const lines = original.split("\n")
-                const fileMatches: SearchLineMatch[] = []
+                const lines = original.split('\n');
+                const fileMatches: SearchLineMatch[] = [];
                 for (let i = 0; i < lines.length; i++) {
                   if (totalMatches >= input.maxResults) {
-                    truncated = true
-                    break
+                    truncated = true;
+                    break;
                   }
-                  const line = lines[i]!
-                  const lineLower = line.toLowerCase()
-                  const col = lineLower.indexOf(needle)
-                  if (col === -1) continue
+                  const line = lines[i]!;
+                  const lineLower = line.toLowerCase();
+                  const col = lineLower.indexOf(needle);
+                  if (col === -1) continue;
                   fileMatches.push({
                     line: i + 1,
                     col,
                     length: needleLen,
-                    snippet: line.length > 300 ? line.slice(0, 300) : line,
-                  })
-                  totalMatches++
+                    snippet: line.length > 300 ? line.slice(0, 300) : line
+                  });
+                  totalMatches++;
                 }
 
                 if (fileMatches.length) {
-                  buffered.push({ path: f.path, matches: fileMatches })
+                  buffered.push({ path: f.path, matches: fileMatches });
                 }
               } catch {
                 // Skip unreadable files silently
               }
 
               // Flush periodically so the UI shows progress
-              if (
-                buffered.length >= 25 ||
-                Date.now() - lastFlush > 50
-              ) {
-                flush(false)
+              if (buffered.length >= 25 || Date.now() - lastFlush > 50) {
+                flush(false);
               }
             }
 
-            if (cancelled) return
+            if (cancelled) return;
             // Final flush + done
             emit.next({
               files: buffered,
@@ -571,22 +554,22 @@ export const filesRouter = router({
               scannedFiles,
               totalFiles: files.length,
               done: true,
-              truncated,
-            })
-            emit.complete()
+              truncated
+            });
+            emit.complete();
           } catch (error) {
             if (!cancelled) {
-              emit.error(error instanceof Error ? error : new Error(String(error)))
+              emit.error(error instanceof Error ? error : new Error(String(error)));
             }
           }
-        }
+        };
 
-        run()
+        run();
 
         return () => {
-          cancelled = true
-        }
-      })
+          cancelled = true;
+        };
+      });
     }),
 
   /**
@@ -598,74 +581,78 @@ export const filesRouter = router({
       z.object({
         subChatId: z.string(),
         text: z.string(),
-        filename: z.string().optional(),
+        filename: z.string().optional()
       })
     )
     .mutation(async ({ input }) => {
-      const { subChatId, text, filename } = input
+      const { subChatId, text, filename } = input;
 
       // Create pasted directory in session folder
-      const sessionDir = join(app.getPath("userData"), "claude-sessions", subChatId)
-      const pastedDir = join(sessionDir, "pasted")
-      await mkdir(pastedDir, { recursive: true })
+      const sessionDir = join(app.getPath('userData'), 'claude-sessions', subChatId);
+      const pastedDir = join(sessionDir, 'pasted');
+      await mkdir(pastedDir, { recursive: true });
 
       // Generate filename with timestamp
-      const finalFilename = filename || `pasted_${Date.now()}.txt`
+      const finalFilename = filename || `pasted_${Date.now()}.txt`;
 
       // Validate filename doesn't contain path separators or null bytes
-      validateFileName(finalFilename)
+      validateFileName(finalFilename);
 
-      const filePath = join(pastedDir, finalFilename)
+      const filePath = join(pastedDir, finalFilename);
 
       // Ensure the resolved path stays within the pasted directory
-      validatePathSafe(filePath, pastedDir)
+      validatePathSafe(filePath, pastedDir);
 
       // Write file
-      await writeFile(filePath, text, "utf-8")
+      await writeFile(filePath, text, 'utf-8');
 
-      console.log(`[files] Wrote pasted text to ${filePath} (${text.length} bytes)`)
+      console.log(`[files] Wrote pasted text to ${filePath} (${text.length} bytes)`);
 
       return {
         filePath,
         filename: finalFilename,
-        size: text.length,
-      }
+        size: text.length
+      };
     }),
 
   /**
    * Rename a file or folder
    */
   renameFile: publicProcedure
-    .input(z.object({
-      absolutePath: z.string(),
-      newName: z.string().min(1),
-    }))
+    .input(
+      z.object({
+        absolutePath: z.string(),
+        newName: z.string().min(1)
+      })
+    )
     .mutation(async ({ input }) => {
-      const { absolutePath, newName } = input
+      const { absolutePath, newName } = input;
 
-      validatePathSafe(absolutePath)
-      validateFileName(newName)
+      validatePathSafe(absolutePath);
+      validateFileName(newName);
 
-      const dir = dirname(absolutePath)
-      const newPath = join(dir, newName)
+      const dir = dirname(absolutePath);
+      const newPath = join(dir, newName);
 
       // Ensure the new path stays in the same directory
-      validatePathSafe(newPath, dir)
+      validatePathSafe(newPath, dir);
 
-      await fsRename(absolutePath, newPath)
-      return { success: true, newPath }
+      await fsRename(absolutePath, newPath);
+      return { success: true, newPath };
     }),
 
   /**
    * Delete a file or folder (move to trash)
    */
   deleteFile: publicProcedure
-    .input(z.object({
-      absolutePath: z.string(),
-    }))
+    .input(
+      z.object({
+        absolutePath: z.string()
+      })
+    )
     .mutation(async ({ input }) => {
-      validatePathSafe(input.absolutePath)
-      await shell.trashItem(input.absolutePath)
-      return { success: true }
-    }),
-})
+      validatePathSafe(input.absolutePath);
+      await shell.trashItem(input.absolutePath);
+      return { success: true };
+    })
+});

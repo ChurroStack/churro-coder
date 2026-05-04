@@ -12,10 +12,6 @@
  * pluralize(1, "subchat", "subchats") // "subchat"
  * pluralize(5, "subchat", "subchats") // "subchats"
  */
-export function pluralize(
-  count: number,
-  singular: string,
-  plural?: string,
-): string {
-  return count === 1 ? singular : plural || `${singular}s`
+export function pluralize(count: number, singular: string, plural?: string): string {
+  return count === 1 ? singular : plural || `${singular}s`;
 }

@@ -9,26 +9,26 @@
  */
 
 export {
-	gitCheckoutFile,
-	gitCheckoutFiles,
-	gitStageAll,
-	gitStageFile,
-	gitStageFiles,
-	gitSwitchBranch,
-	gitUnstageAll,
-	gitUnstageFile,
-	gitUnstageFiles,
-} from "./git-commands";
+  gitCheckoutFile,
+  gitCheckoutFiles,
+  gitStageAll,
+  gitStageFile,
+  gitStageFiles,
+  gitSwitchBranch,
+  gitUnstageAll,
+  gitUnstageFile,
+  gitUnstageFiles
+} from './git-commands';
 
 export {
-	assertRegisteredWorktree,
-	assertValidGitPath,
-	getRegisteredChat,
-	PathValidationError,
-	type PathValidationErrorCode,
-	resolvePathInWorktree,
-	type ValidatePathOptions,
-	validateRelativePath,
-} from "./path-validation";
+  assertRegisteredWorktree,
+  assertValidGitPath,
+  getRegisteredChat,
+  PathValidationError,
+  type PathValidationErrorCode,
+  resolvePathInWorktree,
+  type ValidatePathOptions,
+  validateRelativePath
+} from './path-validation';
 
-export { secureFs } from "./secure-fs";
+export { secureFs } from './secure-fs';

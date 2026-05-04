@@ -54,12 +54,12 @@ import {
   reducePlanApproval,
   type ImplementPlanPayload,
   type PlanApprovalEvent,
-  type PlanApprovalState,
-} from "../machines/plan-approval-machine"
-import type { ProviderId, TransportAction } from "../machines/transport-lifecycle"
+  type PlanApprovalState
+} from '../machines/plan-approval-machine';
+import type { ProviderId, TransportAction } from '../machines/transport-lifecycle';
 
 /** Optional logger; defaults to no-op so tests can assert on stdout cleanliness. */
-export type LogFn = (msg: string) => void
+export type LogFn = (msg: string) => void;
 
 export interface PlanApprovalDeps {
   /**
@@ -67,7 +67,7 @@ export interface PlanApprovalDeps {
    * wires this to `(existingChat?.transport instanceof CodexChatTransport) ? "codex" : "claude-code"`,
    * falling back to `appStore.get(subChatProviderOverridesAtom)[subChatId]`.
    */
-  readPreviousProvider: (subChatId: string) => ProviderId
+  readPreviousProvider: (subChatId: string) => ProviderId;
 
   /**
    * Synchronous mode flip — writes `subChatModeAtomFamily(subChatId)` AND
@@ -75,7 +75,7 @@ export interface PlanApprovalDeps {
    * Must NOT await internally; the contract is "all visible UI flips by the
    * time this returns".
    */
-  setMode: (subChatId: string, mode: "agent" | "plan") => void
+  setMode: (subChatId: string, mode: 'agent' | 'plan') => void;
 
   /**
    * Async DB persist. Wraps `api.agents.updateSubChatMode.useMutation` with
@@ -86,21 +86,14 @@ export interface PlanApprovalDeps {
    * to mirror the renderer's optimistic-create flow; that decision lives in
    * the caller, not the service.
    */
-  persistMode: (input: {
-    subChatId: string
-    mode: "agent"
-    exitPlan: true
-  }) => Promise<void>
+  persistMode: (input: { subChatId: string; mode: 'agent'; exitPlan: true }) => Promise<void>;
 
   /**
    * Synchronous wrapper around `applyModeDefaultModel(subChatId, "agent")`.
    * Returns the resolved provider so the FSM can decide same/cross-provider
    * branching. **MUST run before any await** — invariant from PR #36.
    */
-  applyDefaultModel: (
-    subChatId: string,
-    mode: "agent",
-  ) => { provider: ProviderId; isRemote: boolean }
+  applyDefaultModel: (subChatId: string, mode: 'agent') => { provider: ProviderId; isRemote: boolean };
 
   /**
    * Cross-provider only: notifies the renderer that the transport should be
@@ -108,14 +101,14 @@ export interface PlanApprovalDeps {
    * `setSubChatProviderOverrides(prev => ({...prev, [subChatId]: nextProvider}))`,
    * which forces `getOrCreateChat` to tear down + rebuild on the next read.
    */
-  notifyProviderChange: (subChatId: string, provider: ProviderId) => void
+  notifyProviderChange: (subChatId: string, provider: ProviderId) => void;
 
   /**
    * Async — resolves the plan content from messages or the `virtualPlanContent`
    * atom. Returns `null` if the plan can't be recovered (best-effort; the
    * cross-provider branch still proceeds with `planContent: null`).
    */
-  resolvePlanContent: () => Promise<string | null>
+  resolvePlanContent: () => Promise<string | null>;
 
   /**
    * Build the AI SDK message parts array for the implement-plan send. The
@@ -123,44 +116,44 @@ export interface PlanApprovalDeps {
    * `[{ type: "text", text }]` (same-provider) or
    * `[{ type: "text", text }, { type: "file", ...planAttachment }]` (cross-provider).
    */
-  buildImplementPlanParts: (payload: ImplementPlanPayload) => unknown[]
+  buildImplementPlanParts: (payload: ImplementPlanPayload) => unknown[];
 
   /**
    * Single-flight check. Wraps the module-level `planApproveInFlight: Set<string>`
    * in `active-chat.tsx`. The service reads this synchronously on entry; if true,
    * it short-circuits with `{ ok: false, reason: "in-flight" }` without any writes.
    */
-  isInFlight: (subChatId: string) => boolean
+  isInFlight: (subChatId: string) => boolean;
 
   /** Add `subChatId` to the in-flight set. Called immediately after the lock check. */
-  markInFlight: (subChatId: string) => void
+  markInFlight: (subChatId: string) => void;
 
   /**
    * Remove `subChatId` from the in-flight set. Called in the service's
    * `finally` block so the lock is released even on throw.
    */
-  releaseInFlight: (subChatId: string) => void
+  releaseInFlight: (subChatId: string) => void;
 
   /**
    * Schedule the deferred send via the renderer's `setPendingImplementPlan`
    * React state. The renderer's effect at `active-chat.tsx:3596` consumes
    * this and calls `sendMessage` once `isStreaming === false`.
    */
-  scheduleDeferredSend: (subChatId: string, parts: unknown[]) => void
+  scheduleDeferredSend: (subChatId: string, parts: unknown[]) => void;
 
   /** Optional structured logger (defaults to no-op). */
-  log?: LogFn
+  log?: LogFn;
 }
 
 export interface PlanApprovalResult {
   /** True if the flow ran to `ready-to-send` and dispatched. */
-  ok: boolean
+  ok: boolean;
   /** Final FSM state — useful for assertions and follow-up logic. */
-  finalState: PlanApprovalState
+  finalState: PlanApprovalState;
   /** Set when ok is false — one of: "in-flight" | "no-deps" | "persist-failed" | "send-failed" */
-  reason?: string
+  reason?: string;
   /** The transport action the orchestrator decided on (KEEP for same-provider, RECREATE for cross). */
-  transportAction?: TransportAction
+  transportAction?: TransportAction;
 }
 
 /**
@@ -179,140 +172,132 @@ export interface PlanApprovalResult {
  *
  * @returns A {@link PlanApprovalResult} describing what happened.
  */
-export async function approvePlan(
-  subChatId: string,
-  deps: PlanApprovalDeps,
-): Promise<PlanApprovalResult> {
-  const log = deps.log ?? (() => {})
+export async function approvePlan(subChatId: string, deps: PlanApprovalDeps): Promise<PlanApprovalResult> {
+  const log = deps.log ?? (() => {});
 
   // 1. Single-flight guard (PR #51). MUST be the first check — re-entry
   //    on the same subChatId from a second mount would otherwise race the
   //    cross-provider transport teardown.
   if (deps.isInFlight(subChatId)) {
-    log(`[PLAN] approve:reentry sub=${subChatId.slice(-8)} skipped (in-flight)`)
-    return { ok: false, finalState: { kind: "idle" }, reason: "in-flight" }
+    log(`[PLAN] approve:reentry sub=${subChatId.slice(-8)} skipped (in-flight)`);
+    return { ok: false, finalState: { kind: 'idle' }, reason: 'in-flight' };
   }
-  deps.markInFlight(subChatId)
+  deps.markInFlight(subChatId);
 
-  let state: PlanApprovalState = initialPlanApprovalState()
+  let state: PlanApprovalState = initialPlanApprovalState();
 
   try {
     // 2. Capture previousProvider BEFORE any state writes (PR #40, #52).
     //    `applyDefaultModel` overwrites the provider override atom, so we
     //    snapshot the planner's provider here exactly once.
-    const previousProvider = deps.readPreviousProvider(subChatId)
-    log(
-      `[PLAN] approve:start sub=${subChatId.slice(-8)} previousProvider=${previousProvider}`,
-    )
+    const previousProvider = deps.readPreviousProvider(subChatId);
+    log(`[PLAN] approve:start sub=${subChatId.slice(-8)} previousProvider=${previousProvider}`);
 
-    state = step(state, { type: "APPROVE_REQUESTED", subChatId, previousProvider })
+    state = step(state, { type: 'APPROVE_REQUESTED', subChatId, previousProvider });
 
     // 3. Synchronous mode flip + Zustand store sync (PR #36, #38, #51).
     //    setMode writes `subChatModesStorageAtom`, which the dbSubChats
     //    hydration loop in active-chat.tsx checks before letting a stale
     //    refetch overwrite the mode atom back to "plan".
-    deps.setMode(subChatId, "agent")
+    deps.setMode(subChatId, 'agent');
 
-    state = step(state, { type: "MODE_SWITCHED" })
+    state = step(state, { type: 'MODE_SWITCHED' });
 
     // 4. Apply mode-default model SYNCHRONOUSLY before any await (PR #36, #38).
     //    The transport reads `subChatModelIdAtomFamily(subChatId)` at send-time;
     //    yielding the event loop before this write means the next message goes
     //    out with the previous mode's model.
-    const { provider: newProvider, isRemote: newIsRemote } = deps.applyDefaultModel(
-      subChatId,
-      "agent",
-    )
+    const { provider: newProvider, isRemote: newIsRemote } = deps.applyDefaultModel(subChatId, 'agent');
     log(
       `[PLAN] approve:model-applied sub=${subChatId.slice(-8)} ` +
-        `newProvider=${newProvider} crossProvider=${previousProvider !== newProvider}`,
-    )
+        `newProvider=${newProvider} crossProvider=${previousProvider !== newProvider}`
+    );
 
     state = step(state, {
-      type: "MODEL_APPLIED",
+      type: 'MODEL_APPLIED',
       newProvider,
-      newIsRemote,
-    })
+      newIsRemote
+    });
 
     // 5. Persist mode to DB with exitPlan: true (PR #45). Awaited so the
     //    DB write lands BEFORE the deferred send schedules — otherwise the
     //    server might resume the plan-mode session for the implement-plan turn.
     //    The caller decides whether to skip for temp- IDs; we just await.
     try {
-      await deps.persistMode({ subChatId, mode: "agent", exitPlan: true })
+      await deps.persistMode({ subChatId, mode: 'agent', exitPlan: true });
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err)
-      log(`[PLAN] approve:persist-failed sub=${subChatId.slice(-8)} ${reason}`)
-      state = reducePlanApproval(state, { type: "FAIL", reason })
-      return { ok: false, finalState: state, reason: "persist-failed" }
+      const reason = err instanceof Error ? err.message : String(err);
+      log(`[PLAN] approve:persist-failed sub=${subChatId.slice(-8)} ${reason}`);
+      state = reducePlanApproval(state, { type: 'FAIL', reason });
+      return { ok: false, finalState: state, reason: 'persist-failed' };
     }
 
     // 6. Same-provider branch (PR #44): the FSM has already transitioned
     //    to ready-to-send during MODEL_APPLIED for same-provider; we don't
     //    need to await plan content. Schedule the deferred send and return.
-    if (state.kind === "ready-to-send") {
-      const parts = deps.buildImplementPlanParts(state.payload)
-      deps.scheduleDeferredSend(subChatId, parts)
-      state = step(state, { type: "MESSAGE_SENT" })
+    if (state.kind === 'ready-to-send') {
+      const parts = deps.buildImplementPlanParts(state.payload);
+      deps.scheduleDeferredSend(subChatId, parts);
+      state = step(state, { type: 'MESSAGE_SENT' });
       return {
         ok: true,
         finalState: state,
-        transportAction: { kind: "keep" },
-      }
+        transportAction: { kind: 'keep' }
+      };
     }
 
     // 7. Cross-provider branch (PR #52): recreate the transport, then await
     //    plan content (best-effort; null is fine), then schedule the deferred
     //    send with the plan attached as a hidden file part.
-    if (state.kind === "model-applied") {
+    if (state.kind === 'model-applied') {
       // notifyProviderChange triggers the renderer's setSubChatProviderOverrides,
       // which forces getOrCreateChat to tear down + rebuild on the next read.
       // Order matters: this happens AFTER applyDefaultModel (so the new model
       // is already in the atom) but BEFORE the deferred send schedules.
-      deps.notifyProviderChange(subChatId, newProvider)
+      deps.notifyProviderChange(subChatId, newProvider);
 
-      let planContent: string | null = null
+      let planContent: string | null = null;
       try {
-        planContent = await deps.resolvePlanContent()
+        planContent = await deps.resolvePlanContent();
       } catch (err) {
         log(
           `[PLAN] approve:plan-resolve-warn sub=${subChatId.slice(-8)} ` +
-            `${err instanceof Error ? err.message : String(err)}`,
-        )
+            `${err instanceof Error ? err.message : String(err)}`
+        );
         // Fall through with planContent: null — the FSM accepts this.
       }
 
-      state = step(state, { type: "PLAN_CONTENT_RESOLVED", planContent })
+      state = step(state, { type: 'PLAN_CONTENT_RESOLVED', planContent });
 
-      if (state.kind !== "ready-to-send") {
+      if (state.kind !== 'ready-to-send') {
         // Defensive: PLAN_CONTENT_RESOLVED from model-applied always reaches
         // ready-to-send. If it doesn't, treat as bug.
-        const reason = `unexpected-state:${state.kind}`
-        log(`[PLAN] approve:bug sub=${subChatId.slice(-8)} ${reason}`)
-        return { ok: false, finalState: state, reason }
+        const reason = `unexpected-state:${state.kind}`;
+        log(`[PLAN] approve:bug sub=${subChatId.slice(-8)} ${reason}`);
+        return { ok: false, finalState: state, reason };
       }
 
-      const parts = deps.buildImplementPlanParts(state.payload)
-      deps.scheduleDeferredSend(subChatId, parts)
-      state = step(state, { type: "MESSAGE_SENT" })
+      const parts = deps.buildImplementPlanParts(state.payload);
+      deps.scheduleDeferredSend(subChatId, parts);
+      state = step(state, { type: 'MESSAGE_SENT' });
 
       return {
         ok: true,
         finalState: state,
         transportAction: {
-          kind: "recreate",
+          kind: 'recreate',
           provider: newProvider,
           isRemote: newIsRemote,
-          reason: "plan-approval-cross-provider",
-        },
-      }
+          reason: 'plan-approval-cross-provider'
+        }
+      };
     }
 
     // Unreachable in normal flow (FSM has no other branches at this point).
-    return { ok: false, finalState: state, reason: `unexpected-state:${state.kind}` }
+    return { ok: false, finalState: state, reason: `unexpected-state:${state.kind}` };
   } finally {
     // Single-flight release happens regardless of throw (PR #51).
-    deps.releaseInFlight(subChatId)
+    deps.releaseInFlight(subChatId);
   }
 }
 
@@ -320,8 +305,8 @@ export async function approvePlan(
  * Re-export of the FSM helper. Callers using the in-flight Set in
  * `active-chat.tsx` can compute the lock state from the FSM as well.
  */
-export { machineIsInFlight, IMPLEMENT_PLAN_BASE_TEXT }
+export { machineIsInFlight, IMPLEMENT_PLAN_BASE_TEXT };
 
 function step(state: PlanApprovalState, event: PlanApprovalEvent): PlanApprovalState {
-  return reducePlanApproval(state, event)
+  return reducePlanApproval(state, event);
 }

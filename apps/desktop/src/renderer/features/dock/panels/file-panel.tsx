@@ -1,9 +1,9 @@
-import { useCallback } from "react"
-import { useAtomValue } from "jotai"
-import type { IDockviewPanelProps } from "dockview-react"
-import { FileViewerSidebar } from "../../file-viewer/components/file-viewer-sidebar"
-import { selectedProjectAtom } from "../../agents/atoms"
-import type { FilePanelEntity } from "../atoms"
+import { useCallback } from 'react';
+import { useAtomValue } from 'jotai';
+import type { IDockviewPanelProps } from 'dockview-react';
+import { FileViewerSidebar } from '../../file-viewer/components/file-viewer-sidebar';
+import { selectedProjectAtom } from '../../agents/atoms';
+import type { FilePanelEntity } from '../atoms';
 
 /**
  * FilePanel — full-pane file viewer. Wraps FileViewerSidebar (which routes
@@ -12,20 +12,16 @@ import type { FilePanelEntity } from "../atoms"
  * onDidRemovePanel listener.
  */
 export function FilePanel({ params, api }: IDockviewPanelProps<FilePanelEntity>) {
-  const project = useAtomValue(selectedProjectAtom)
-  const projectPath = project?.path ?? ""
+  const project = useAtomValue(selectedProjectAtom);
+  const projectPath = project?.path ?? '';
 
   const handleClose = useCallback(() => {
-    api.close()
-  }, [api])
+    api.close();
+  }, [api]);
 
   return (
     <div className="h-full w-full overflow-hidden">
-      <FileViewerSidebar
-        filePath={params.absolutePath}
-        projectPath={projectPath}
-        onClose={handleClose}
-      />
+      <FileViewerSidebar filePath={params.absolutePath} projectPath={projectPath} onClose={handleClose} />
     </div>
-  )
+  );
 }

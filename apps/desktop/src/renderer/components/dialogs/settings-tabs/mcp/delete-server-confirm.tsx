@@ -6,15 +6,15 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogCancel,
-  AlertDialogAction,
-} from "../../../ui/alert-dialog"
+  AlertDialogAction
+} from '../../../ui/alert-dialog';
 
 interface DeleteServerConfirmProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  serverName: string
-  onConfirm: () => void
-  isDeleting?: boolean
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  serverName: string;
+  onConfirm: () => void;
+  isDeleting?: boolean;
 }
 
 export function DeleteServerConfirm({
@@ -22,7 +22,7 @@ export function DeleteServerConfirm({
   onOpenChange,
   serverName,
   onConfirm,
-  isDeleting = false,
+  isDeleting = false
 }: DeleteServerConfirmProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -30,8 +30,8 @@ export function DeleteServerConfirm({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete MCP Server</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete <strong>{serverName}</strong>? This
-            will remove the server configuration and cannot be undone.
+            Are you sure you want to delete <strong>{serverName}</strong>? This will remove the server configuration and
+            cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -39,12 +39,11 @@ export function DeleteServerConfirm({
           <AlertDialogAction
             onClick={onConfirm}
             disabled={isDeleting}
-            className="bg-red-600 hover:bg-red-700 text-white"
-          >
-            {isDeleting ? "Deleting..." : "Delete"}
+            className="bg-red-600 hover:bg-red-700 text-white">
+            {isDeleting ? 'Deleting...' : 'Delete'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
+  );
 }

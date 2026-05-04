@@ -1,1 +1,1 @@
-export { DiffCenterPeekDialog } from "./diff-center-peek-dialog"
+export { DiffCenterPeekDialog } from './diff-center-peek-dialog';

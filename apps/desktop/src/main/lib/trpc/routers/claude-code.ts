@@ -1,30 +1,21 @@
-import { eq } from "drizzle-orm"
-import { safeStorage, shell } from "electron"
-import { z } from "zod"
-import { getClaudeShellEnvironment } from "../../claude"
-import {
-  getExistingClaudeToken,
-  isClaudeCliInstalled,
-  runClaudeSetupToken,
-} from "../../claude-token"
-import {
-  anthropicAccounts,
-  anthropicSettings,
-  claudeCodeCredentials,
-  getDatabase,
-} from "../../db"
-import { createId } from "../../db/utils"
-import { publicProcedure, router } from "../index"
+import { eq } from 'drizzle-orm';
+import { safeStorage, shell } from 'electron';
+import { z } from 'zod';
+import { getClaudeShellEnvironment } from '../../claude';
+import { getExistingClaudeToken, isClaudeCliInstalled, runClaudeSetupToken } from '../../claude-token';
+import { anthropicAccounts, anthropicSettings, claudeCodeCredentials, getDatabase } from '../../db';
+import { createId } from '../../db/utils';
+import { publicProcedure, router } from '../index';
 
 /**
  * Encrypt token using Electron's safeStorage
  */
 function encryptToken(token: string): string {
   if (!safeStorage.isEncryptionAvailable()) {
-    console.warn("[ClaudeCode] Encryption not available, storing as base64")
-    return Buffer.from(token).toString("base64")
+    console.warn('[ClaudeCode] Encryption not available, storing as base64');
+    return Buffer.from(token).toString('base64');
   }
-  return safeStorage.encryptString(token).toString("base64")
+  return safeStorage.encryptString(token).toString('base64');
 }
 
 /**
@@ -32,10 +23,10 @@ function encryptToken(token: string): string {
  */
 function decryptToken(encrypted: string): string {
   if (!safeStorage.isEncryptionAvailable()) {
-    return Buffer.from(encrypted, "base64").toString("utf-8")
+    return Buffer.from(encrypted, 'base64').toString('utf-8');
   }
-  const buffer = Buffer.from(encrypted, "base64")
-  return safeStorage.decryptString(buffer)
+  const buffer = Buffer.from(encrypted, 'base64');
+  return safeStorage.decryptString(buffer);
 }
 
 /**
@@ -43,69 +34,67 @@ function decryptToken(encrypted: string): string {
  * If setAsActive is true, also sets this account as active
  */
 function storeOAuthToken(oauthToken: string, setAsActive = true): string {
-  const encryptedToken = encryptToken(oauthToken)
-  const db = getDatabase()
-  const newId = createId()
+  const encryptedToken = encryptToken(oauthToken);
+  const db = getDatabase();
+  const newId = createId();
 
   // Store in new multi-account table
   db.insert(anthropicAccounts)
     .values({
       id: newId,
       oauthToken: encryptedToken,
-      displayName: "Anthropic Account",
+      displayName: 'Anthropic Account',
       connectedAt: new Date(),
-      desktopUserId: "user@local",
+      desktopUserId: 'user@local'
     })
-    .run()
+    .run();
 
   if (setAsActive) {
     // Set as active account
     db.insert(anthropicSettings)
       .values({
-        id: "singleton",
+        id: 'singleton',
         activeAccountId: newId,
-        updatedAt: new Date(),
+        updatedAt: new Date()
       })
       .onConflictDoUpdate({
         target: anthropicSettings.id,
         set: {
           activeAccountId: newId,
-          updatedAt: new Date(),
-        },
+          updatedAt: new Date()
+        }
       })
-      .run()
+      .run();
   }
 
   // Also update legacy table for backward compatibility
-  db.delete(claudeCodeCredentials)
-    .where(eq(claudeCodeCredentials.id, "default"))
-    .run()
+  db.delete(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, 'default')).run();
 
   db.insert(claudeCodeCredentials)
     .values({
-      id: "default",
+      id: 'default',
       oauthToken: encryptedToken,
       connectedAt: new Date(),
-      userId: "user@local",
+      userId: 'user@local'
     })
-    .run()
+    .run();
 
-  return newId
+  return newId;
 }
 
 // In-process sessions for local claude setup-token flow
 interface LocalAuthSession {
-  status: "waiting" | "ready" | "success" | "error"
-  oauthUrl: string | null
-  error: string | null
+  status: 'waiting' | 'ready' | 'success' | 'error';
+  oauthUrl: string | null;
+  error: string | null;
   // Resolves when the process completes and the token is stored
-  done: Promise<void>
+  done: Promise<void>;
   // Resolver that lets submitCode signal the session is finished
-  resolve: () => void
-  reject: (err: Error) => void
+  resolve: () => void;
+  reject: (err: Error) => void;
 }
 
-const localSessions = new Map<string, LocalAuthSession>()
+const localSessions = new Map<string, LocalAuthSession>();
 
 /**
  * Claude Code OAuth router for desktop
@@ -118,13 +107,13 @@ export const claudeCodeRouter = router({
    * Based on PR #29 by @sa4hnd
    */
   hasExistingCliConfig: publicProcedure.query(() => {
-    const shellEnv = getClaudeShellEnvironment()
-    const hasConfig = !!(shellEnv.ANTHROPIC_API_KEY || shellEnv.ANTHROPIC_AUTH_TOKEN || shellEnv.ANTHROPIC_BASE_URL)
+    const shellEnv = getClaudeShellEnvironment();
+    const hasConfig = !!(shellEnv.ANTHROPIC_API_KEY || shellEnv.ANTHROPIC_AUTH_TOKEN || shellEnv.ANTHROPIC_BASE_URL);
     return {
       hasConfig,
       hasApiKey: !!(shellEnv.ANTHROPIC_API_KEY || shellEnv.ANTHROPIC_AUTH_TOKEN),
-      baseUrl: shellEnv.ANTHROPIC_BASE_URL || null,
-    }
+      baseUrl: shellEnv.ANTHROPIC_BASE_URL || null
+    };
   }),
 
   /**
@@ -132,45 +121,37 @@ export const claudeCodeRouter = router({
    * Now uses multi-account system - checks for active account
    */
   getIntegration: publicProcedure.query(() => {
-    const db = getDatabase()
+    const db = getDatabase();
 
     // First try multi-account system
-    const settings = db
-      .select()
-      .from(anthropicSettings)
-      .where(eq(anthropicSettings.id, "singleton"))
-      .get()
+    const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, 'singleton')).get();
 
     if (settings?.activeAccountId) {
       const account = db
         .select()
         .from(anthropicAccounts)
         .where(eq(anthropicAccounts.id, settings.activeAccountId))
-        .get()
+        .get();
 
       if (account) {
         return {
           isConnected: true,
           connectedAt: account.connectedAt?.toISOString() ?? null,
           accountId: account.id,
-          displayName: account.displayName,
-        }
+          displayName: account.displayName
+        };
       }
     }
 
     // Fallback to legacy table
-    const cred = db
-      .select()
-      .from(claudeCodeCredentials)
-      .where(eq(claudeCodeCredentials.id, "default"))
-      .get()
+    const cred = db.select().from(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, 'default')).get();
 
     return {
       isConnected: !!cred?.oauthToken,
       connectedAt: cred?.connectedAt?.toISOString() ?? null,
       accountId: null,
-      displayName: null,
-    }
+      displayName: null
+    };
   }),
 
   /**
@@ -179,55 +160,53 @@ export const claudeCodeRouter = router({
    */
   startAuth: publicProcedure.mutation(async () => {
     if (!isClaudeCliInstalled()) {
-      throw new Error(
-        "Claude CLI is not installed. Install it with: brew install anthropic/claude/claude"
-      )
+      throw new Error('Claude CLI is not installed. Install it with: brew install anthropic/claude/claude');
     }
 
-    const sessionId = createId()
+    const sessionId = createId();
 
-    let resolveSession!: () => void
-    let rejectSession!: (err: Error) => void
+    let resolveSession!: () => void;
+    let rejectSession!: (err: Error) => void;
     const done = new Promise<void>((res, rej) => {
-      resolveSession = res
-      rejectSession = rej
-    })
+      resolveSession = res;
+      rejectSession = rej;
+    });
 
     const session: LocalAuthSession = {
-      status: "waiting",
+      status: 'waiting',
       oauthUrl: null,
       error: null,
       done,
       resolve: resolveSession,
-      reject: rejectSession,
-    }
-    localSessions.set(sessionId, session)
+      reject: rejectSession
+    };
+    localSessions.set(sessionId, session);
 
     // Spawn claude setup-token in background; parse stdout for the OAuth URL
     runClaudeSetupToken((message) => {
       // Look for the OAuth authorization URL in the CLI output
-      const urlMatch = message.match(/https:\/\/claude\.ai\/[^\s"'>]+/)
-      if (urlMatch && session.status === "waiting") {
-        session.oauthUrl = urlMatch[0]
-        session.status = "ready"
+      const urlMatch = message.match(/https:\/\/claude\.ai\/[^\s"'>]+/);
+      if (urlMatch && session.status === 'waiting') {
+        session.oauthUrl = urlMatch[0];
+        session.status = 'ready';
       }
     }).then((result) => {
       if (result.success) {
         if (result.token) {
-          storeOAuthToken(result.token)
+          storeOAuthToken(result.token);
         }
-        session.status = "success"
-        session.resolve()
+        session.status = 'success';
+        session.resolve();
       } else {
-        session.status = "error"
-        session.error = result.error ?? "Unknown error"
-        session.reject(new Error(session.error))
+        session.status = 'error';
+        session.error = result.error ?? 'Unknown error';
+        session.reject(new Error(session.error));
       }
       // Clean up session after 5 minutes
-      setTimeout(() => localSessions.delete(sessionId), 5 * 60 * 1000)
-    })
+      setTimeout(() => localSessions.delete(sessionId), 5 * 60 * 1000);
+    });
 
-    return { sandboxId: "local", sandboxUrl: "local", sessionId }
+    return { sandboxId: 'local', sandboxUrl: 'local', sessionId };
   }),
 
   /**
@@ -237,19 +216,19 @@ export const claudeCodeRouter = router({
     .input(
       z.object({
         sandboxUrl: z.string(),
-        sessionId: z.string(),
+        sessionId: z.string()
       })
     )
     .query(({ input }) => {
-      const session = localSessions.get(input.sessionId)
+      const session = localSessions.get(input.sessionId);
       if (!session) {
-        return { state: "error" as const, oauthUrl: null, error: "Session not found or expired" }
+        return { state: 'error' as const, oauthUrl: null, error: 'Session not found or expired' };
       }
       return {
         state: session.status as string,
         oauthUrl: session.oauthUrl,
-        error: session.error,
-      }
+        error: session.error
+      };
     }),
 
   /**
@@ -263,43 +242,43 @@ export const claudeCodeRouter = router({
       z.object({
         sandboxUrl: z.string(),
         sessionId: z.string(),
-        code: z.string().min(1),
+        code: z.string().min(1)
       })
     )
     .mutation(async ({ input }) => {
-      const session = localSessions.get(input.sessionId)
+      const session = localSessions.get(input.sessionId);
       if (!session) {
-        throw new Error("Session not found or expired")
+        throw new Error('Session not found or expired');
       }
 
       // If the session already succeeded (CLI read token from keychain), we're done
-      if (session.status === "success") {
-        localSessions.delete(input.sessionId)
-        return { success: true }
+      if (session.status === 'success') {
+        localSessions.delete(input.sessionId);
+        return { success: true };
       }
 
-      if (session.status === "error") {
-        localSessions.delete(input.sessionId)
-        throw new Error(session.error ?? "Authentication failed")
+      if (session.status === 'error') {
+        localSessions.delete(input.sessionId);
+        throw new Error(session.error ?? 'Authentication failed');
       }
 
       // Wait for the subprocess to complete (max 60 seconds for token exchange)
       const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout waiting for authentication")), 60_000)
-      )
-      await Promise.race([session.done, timeout])
+        setTimeout(() => reject(new Error('Timeout waiting for authentication')), 60_000)
+      );
+      await Promise.race([session.done, timeout]);
 
       // Re-read status fresh — the CLI subprocess may have flipped it during
       // the await above. TS narrowed the original `session.status` from the
       // earlier branches; a typed re-read breaks that narrow.
-      const finalStatus: string = session.status
-      if (finalStatus !== "success") {
-        throw new Error(session.error ?? "Authentication failed")
+      const finalStatus: string = session.status;
+      if (finalStatus !== 'success') {
+        throw new Error(session.error ?? 'Authentication failed');
       }
 
-      localSessions.delete(input.sessionId)
-      console.log("[ClaudeCode] Token stored locally via local CLI")
-      return { success: true }
+      localSessions.delete(input.sessionId);
+      console.log('[ClaudeCode] Token stored locally via local CLI');
+      return { success: true };
     }),
 
   /**
@@ -308,38 +287,38 @@ export const claudeCodeRouter = router({
   importToken: publicProcedure
     .input(
       z.object({
-        token: z.string().min(1),
+        token: z.string().min(1)
       })
     )
     .mutation(async ({ input }) => {
-      const oauthToken = input.token.trim()
+      const oauthToken = input.token.trim();
 
-      storeOAuthToken(oauthToken)
+      storeOAuthToken(oauthToken);
 
-      console.log("[ClaudeCode] Token imported locally")
-      return { success: true }
+      console.log('[ClaudeCode] Token imported locally');
+      return { success: true };
     }),
 
   /**
    * Check for existing Claude token in system credentials
    */
   getSystemToken: publicProcedure.query(() => {
-    const token = getExistingClaudeToken()?.trim() ?? null
-    return { token }
+    const token = getExistingClaudeToken()?.trim() ?? null;
+    return { token };
   }),
 
   /**
    * Import Claude token from system credentials
    */
   importSystemToken: publicProcedure.mutation(() => {
-    const token = getExistingClaudeToken()?.trim()
+    const token = getExistingClaudeToken()?.trim();
     if (!token) {
-      throw new Error("No existing Claude token found")
+      throw new Error('No existing Claude token found');
     }
 
-    storeOAuthToken(token)
-    console.log("[ClaudeCode] Token imported from system")
-    return { success: true }
+    storeOAuthToken(token);
+    console.log('[ClaudeCode] Token imported from system');
+    return { success: true };
   }),
 
   /**
@@ -347,50 +326,42 @@ export const claudeCodeRouter = router({
    * Now uses multi-account system - gets token from active account
    */
   getToken: publicProcedure.query(() => {
-    const db = getDatabase()
+    const db = getDatabase();
 
     // First try multi-account system
-    const settings = db
-      .select()
-      .from(anthropicSettings)
-      .where(eq(anthropicSettings.id, "singleton"))
-      .get()
+    const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, 'singleton')).get();
 
     if (settings?.activeAccountId) {
       const account = db
         .select()
         .from(anthropicAccounts)
         .where(eq(anthropicAccounts.id, settings.activeAccountId))
-        .get()
+        .get();
 
       if (account) {
         try {
-          const token = decryptToken(account.oauthToken)
-          return { token, error: null }
+          const token = decryptToken(account.oauthToken);
+          return { token, error: null };
         } catch (error) {
-          console.error("[ClaudeCode] Decrypt error:", error)
-          return { token: null, error: "Failed to decrypt token" }
+          console.error('[ClaudeCode] Decrypt error:', error);
+          return { token: null, error: 'Failed to decrypt token' };
         }
       }
     }
 
     // Fallback to legacy table
-    const cred = db
-      .select()
-      .from(claudeCodeCredentials)
-      .where(eq(claudeCodeCredentials.id, "default"))
-      .get()
+    const cred = db.select().from(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, 'default')).get();
 
     if (!cred?.oauthToken) {
-      return { token: null, error: "Not connected" }
+      return { token: null, error: 'Not connected' };
     }
 
     try {
-      const token = decryptToken(cred.oauthToken)
-      return { token, error: null }
+      const token = decryptToken(cred.oauthToken);
+      return { token, error: null };
     } catch (error) {
-      console.error("[ClaudeCode] Decrypt error:", error)
-      return { token: null, error: "Failed to decrypt token" }
+      console.error('[ClaudeCode] Decrypt error:', error);
+      return { token: null, error: 'Failed to decrypt token' };
     }
   }),
 
@@ -398,59 +369,49 @@ export const claudeCodeRouter = router({
    * Disconnect - delete active account from multi-account system
    */
   disconnect: publicProcedure.mutation(() => {
-    const db = getDatabase()
+    const db = getDatabase();
 
     // Get active account
-    const settings = db
-      .select()
-      .from(anthropicSettings)
-      .where(eq(anthropicSettings.id, "singleton"))
-      .get()
+    const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, 'singleton')).get();
 
     if (settings?.activeAccountId) {
       // Remove active account
-      db.delete(anthropicAccounts)
-        .where(eq(anthropicAccounts.id, settings.activeAccountId))
-        .run()
+      db.delete(anthropicAccounts).where(eq(anthropicAccounts.id, settings.activeAccountId)).run();
 
       // Try to set another account as active
-      const firstRemaining = db.select().from(anthropicAccounts).limit(1).get()
+      const firstRemaining = db.select().from(anthropicAccounts).limit(1).get();
 
       if (firstRemaining) {
         db.update(anthropicSettings)
           .set({
             activeAccountId: firstRemaining.id,
-            updatedAt: new Date(),
+            updatedAt: new Date()
           })
-          .where(eq(anthropicSettings.id, "singleton"))
-          .run()
+          .where(eq(anthropicSettings.id, 'singleton'))
+          .run();
       } else {
         db.update(anthropicSettings)
           .set({
             activeAccountId: null,
-            updatedAt: new Date(),
+            updatedAt: new Date()
           })
-          .where(eq(anthropicSettings.id, "singleton"))
-          .run()
+          .where(eq(anthropicSettings.id, 'singleton'))
+          .run();
       }
     }
 
     // Also clear legacy table
-    db.delete(claudeCodeCredentials)
-      .where(eq(claudeCodeCredentials.id, "default"))
-      .run()
+    db.delete(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, 'default')).run();
 
-    console.log("[ClaudeCode] Disconnected")
-    return { success: true }
+    console.log('[ClaudeCode] Disconnected');
+    return { success: true };
   }),
 
   /**
    * Open OAuth URL in browser
    */
-  openOAuthUrl: publicProcedure
-    .input(z.string())
-    .mutation(async ({ input: url }) => {
-      await shell.openExternal(url)
-      return { success: true }
-    }),
-})
+  openOAuthUrl: publicProcedure.input(z.string()).mutation(async ({ input: url }) => {
+    await shell.openExternal(url);
+    return { success: true };
+  })
+});

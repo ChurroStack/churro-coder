@@ -4,8 +4,8 @@ export type {
   ShortcutCategory,
   ShortcutAction,
   CustomHotkeysConfig,
-  ShortcutConflict,
-} from "./types"
+  ShortcutConflict
+} from './types';
 
 // Registry
 export {
@@ -22,17 +22,11 @@ export {
   keyToDisplay,
   hotkeyToDisplay,
   keysToDisplay,
-  CATEGORY_LABELS,
-} from "./shortcut-registry"
+  CATEGORY_LABELS
+} from './shortcut-registry';
 
 // Hooks
-export { useHotkeyRecorder } from "./use-hotkey-recorder"
-export type {
-  UseHotkeyRecorderOptions,
-  UseHotkeyRecorderResult,
-} from "./use-hotkey-recorder"
+export { useHotkeyRecorder } from './use-hotkey-recorder';
+export type { UseHotkeyRecorderOptions, UseHotkeyRecorderResult } from './use-hotkey-recorder';
 
-export {
-  useResolvedHotkeyDisplay,
-  useResolvedHotkeyDisplayWithAlt,
-} from "./use-resolved-hotkey-display"
+export { useResolvedHotkeyDisplay, useResolvedHotkeyDisplayWithAlt } from './use-resolved-hotkey-display';

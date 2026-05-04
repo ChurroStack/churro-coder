@@ -1,38 +1,34 @@
-"use client"
+'use client';
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react"
-import { useAtom } from "jotai"
-import { Button } from "../../../components/ui/button"
-import { RotateCw } from "lucide-react"
-import {
-  ExternalLinkIcon,
-  IconDoubleChevronRight,
-  IconChatBubble,
-} from "../../../components/ui/icons"
-import { PreviewUrlInput } from "./preview-url-input"
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useAtom } from 'jotai';
+import { Button } from '../../../components/ui/button';
+import { RotateCw } from 'lucide-react';
+import { ExternalLinkIcon, IconDoubleChevronRight, IconChatBubble } from '../../../components/ui/icons';
+import { PreviewUrlInput } from './preview-url-input';
 import {
   previewPathAtomFamily,
   viewportModeAtomFamily,
   previewScaleAtomFamily,
-  mobileDeviceAtomFamily,
-} from "../atoms"
-import { cn } from "../../../lib/utils"
-import { ViewportToggle } from "./viewport-toggle"
-import { ScaleControl } from "./scale-control"
-import { DevicePresetsBar } from "./device-presets-bar"
-import { ResizeHandle } from "./resize-handle"
-import { MobileCopyLinkButton } from "./mobile-copy-link-button"
-import { DEVICE_PRESETS, AGENTS_PREVIEW_CONSTANTS } from "../constants"
+  mobileDeviceAtomFamily
+} from '../atoms';
+import { cn } from '../../../lib/utils';
+import { ViewportToggle } from './viewport-toggle';
+import { ScaleControl } from './scale-control';
+import { DevicePresetsBar } from './device-presets-bar';
+import { ResizeHandle } from './resize-handle';
+import { MobileCopyLinkButton } from './mobile-copy-link-button';
+import { DEVICE_PRESETS, AGENTS_PREVIEW_CONSTANTS } from '../constants';
 // import { getSandboxPreviewUrl } from "@/app/(alpha)/canvas/{components}/settings-tabs/repositories/preview-url"
-const getSandboxPreviewUrl = (sandboxId: string, port: number, _type: string) => `https://${sandboxId}-${port}.csb.app` // Desktop mock
+const getSandboxPreviewUrl = (sandboxId: string, port: number, _type: string) => `https://${sandboxId}-${port}.csb.app`; // Desktop mock
 interface AgentPreviewProps {
-  chatId: string
-  sandboxId: string
-  port: number
-  repository?: string
-  hideHeader?: boolean
-  onClose?: () => void
-  isMobile?: boolean
+  chatId: string;
+  sandboxId: string;
+  port: number;
+  repository?: string;
+  hideHeader?: boolean;
+  onClose?: () => void;
+  isMobile?: boolean;
 }
 
 export function AgentPreview({
@@ -42,301 +38,264 @@ export function AgentPreview({
   repository,
   hideHeader = false,
   onClose,
-  isMobile = false,
+  isMobile = false
 }: AgentPreviewProps) {
-  const [isLoaded, setIsLoaded] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-  const frameRef = useRef<HTMLDivElement>(null)
-  const resizeCleanupRef = useRef<(() => void) | null>(null)
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   // Persisted state from Jotai atoms (per chatId)
-  const [persistedPath, setPersistedPath] = useAtom(
-    previewPathAtomFamily(chatId),
-  )
-  const [viewportMode, setViewportMode] = useAtom(
-    viewportModeAtomFamily(chatId),
-  )
-  const [scale, setScale] = useAtom(previewScaleAtomFamily(chatId))
-  const [device, setDevice] = useAtom(mobileDeviceAtomFamily(chatId))
+  const [persistedPath, setPersistedPath] = useAtom(previewPathAtomFamily(chatId));
+  const [viewportMode, setViewportMode] = useAtom(viewportModeAtomFamily(chatId));
+  const [scale, setScale] = useAtom(previewScaleAtomFamily(chatId));
+  const [device, setDevice] = useAtom(mobileDeviceAtomFamily(chatId));
 
   // Local state for resizing
-  const [isResizing, setIsResizing] = useState(false)
-  const [maxWidth, setMaxWidth] = useState<number>(
-    AGENTS_PREVIEW_CONSTANTS.MAX_WIDTH,
-  )
+  const [isResizing, setIsResizing] = useState(false);
+  const [maxWidth, setMaxWidth] = useState<number>(AGENTS_PREVIEW_CONSTANTS.MAX_WIDTH);
 
   // Dual state architecture:
   // - loadedPath: Controls iframe src (stable, only changes on manual navigation)
   // - currentPath: Display path (updates immediately on internal navigation)
-  const [loadedPath, setLoadedPath] = useState(persistedPath)
-  const [currentPath, setCurrentPath] = useState(persistedPath)
+  const [loadedPath, setLoadedPath] = useState(persistedPath);
+  const [currentPath, setCurrentPath] = useState(persistedPath);
 
   // Listen for reload events from external header
   useEffect(() => {
     const handleReload = (e: CustomEvent) => {
       if (e.detail?.chatId === chatId) {
-        setReloadKey((prev) => prev + 1)
-        setIsRefreshing(true)
-        setTimeout(() => setIsRefreshing(false), 400)
+        setReloadKey((prev) => prev + 1);
+        setIsRefreshing(true);
+        setTimeout(() => setIsRefreshing(false), 400);
       }
-    }
+    };
 
-    window.addEventListener(
-      "agent-preview-reload",
-      handleReload as EventListener,
-    )
-    return () =>
-      window.removeEventListener(
-        "agent-preview-reload",
-        handleReload as EventListener,
-      )
-  }, [chatId])
+    window.addEventListener('agent-preview-reload', handleReload as EventListener);
+    return () => window.removeEventListener('agent-preview-reload', handleReload as EventListener);
+  }, [chatId]);
 
   // Listen for navigation events from external header
   useEffect(() => {
     const handleNavigate = (e: CustomEvent) => {
       if (e.detail?.chatId === chatId && e.detail?.path) {
-        setLoadedPath(e.detail.path)
-        setCurrentPath(e.detail.path)
-        setPersistedPath(e.detail.path)
-        setIsLoaded(false)
+        setLoadedPath(e.detail.path);
+        setCurrentPath(e.detail.path);
+        setPersistedPath(e.detail.path);
+        setIsLoaded(false);
       }
-    }
+    };
 
-    window.addEventListener(
-      "agent-preview-navigate",
-      handleNavigate as EventListener,
-    )
-    return () =>
-      window.removeEventListener(
-        "agent-preview-navigate",
-        handleNavigate as EventListener,
-      )
-  }, [chatId, setPersistedPath])
+    window.addEventListener('agent-preview-navigate', handleNavigate as EventListener);
+    return () => window.removeEventListener('agent-preview-navigate', handleNavigate as EventListener);
+  }, [chatId, setPersistedPath]);
 
   // Dispatch path updates to header
   useEffect(() => {
     window.dispatchEvent(
-      new CustomEvent("agent-preview-path-update", {
-        detail: { chatId, path: currentPath },
-      }),
-    )
-  }, [chatId, currentPath])
+      new CustomEvent('agent-preview-path-update', {
+        detail: { chatId, path: currentPath }
+      })
+    );
+  }, [chatId, currentPath]);
 
   // Sync loadedPath when persistedPath changes (e.g., on mount with stored value)
   useEffect(() => {
-    setLoadedPath(persistedPath)
-    setCurrentPath(persistedPath)
-  }, [persistedPath])
+    setLoadedPath(persistedPath);
+    setCurrentPath(persistedPath);
+  }, [persistedPath]);
 
   // Compute base host and preview URL
-  const previewBaseUrl = useMemo(
-    () => getSandboxPreviewUrl(sandboxId, port, "agents"),
-    [sandboxId, port],
-  )
+  const previewBaseUrl = useMemo(() => getSandboxPreviewUrl(sandboxId, port, 'agents'), [sandboxId, port]);
   const baseHost = useMemo(() => {
-    return new URL(previewBaseUrl).host
-  }, [previewBaseUrl])
+    return new URL(previewBaseUrl).host;
+  }, [previewBaseUrl]);
 
   const previewUrl = useMemo(() => {
-    return `${previewBaseUrl}${loadedPath}`
-  }, [previewBaseUrl, loadedPath])
+    return `${previewBaseUrl}${loadedPath}`;
+  }, [previewBaseUrl, loadedPath]);
 
   // Handle path selection from URL bar
   const handlePathSelect = useCallback(
     (path: string) => {
-      setLoadedPath(path) // Triggers iframe reload via src change
-      setCurrentPath(path) // Updates URL bar display
-      setPersistedPath(path) // Persist to localStorage
-      setIsLoaded(false) // Show loading state
+      setLoadedPath(path); // Triggers iframe reload via src change
+      setCurrentPath(path); // Updates URL bar display
+      setPersistedPath(path); // Persist to localStorage
+      setIsLoaded(false); // Show loading state
     },
-    [setPersistedPath],
-  )
+    [setPersistedPath]
+  );
 
   // Listen for SET_URL messages from iframe for bi-directional sync
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       // Verify source is our iframe
-      if (
-        !iframeRef.current ||
-        event.source !== iframeRef.current.contentWindow
-      ) {
-        return
+      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) {
+        return;
       }
 
       // Handle SET_URL messages from preview script
-      if (event.data?.type === "SET_URL") {
-        const newPath = event.data.url || "/"
+      if (event.data?.type === 'SET_URL') {
+        const newPath = event.data.url || '/';
 
         // Skip srcdoc paths (edge case from iframe)
-        if (newPath.includes("srcdoc")) {
-          return
+        if (newPath.includes('srcdoc')) {
+          return;
         }
 
         // Update ONLY currentPath for immediate display update
         // Do NOT update loadedPath - that would cause iframe remount
-        setCurrentPath(newPath)
-        setPersistedPath(newPath) // Persist to localStorage
+        setCurrentPath(newPath);
+        setPersistedPath(newPath); // Persist to localStorage
       }
-    }
+    };
 
-    window.addEventListener("message", handleMessage)
-    return () => window.removeEventListener("message", handleMessage)
-  }, [setPersistedPath])
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [setPersistedPath]);
 
   // Calculate max width on mount and window resize
   useEffect(() => {
     const updateMaxWidth = () => {
-      const availableWidth = window.innerWidth - 64 // Account for padding/margins
-      setMaxWidth(Math.max(AGENTS_PREVIEW_CONSTANTS.MIN_WIDTH, availableWidth))
-    }
+      const availableWidth = window.innerWidth - 64; // Account for padding/margins
+      setMaxWidth(Math.max(AGENTS_PREVIEW_CONSTANTS.MIN_WIDTH, availableWidth));
+    };
 
-    updateMaxWidth()
-    window.addEventListener("resize", updateMaxWidth)
-    return () => window.removeEventListener("resize", updateMaxWidth)
-  }, [])
+    updateMaxWidth();
+    window.addEventListener('resize', updateMaxWidth);
+    return () => window.removeEventListener('resize', updateMaxWidth);
+  }, []);
 
   // Cleanup resize handlers on unmount
   useEffect(() => {
     return () => {
-      resizeCleanupRef.current?.()
-    }
-  }, [])
+      resizeCleanupRef.current?.();
+    };
+  }, []);
 
   const handleReload = useCallback(() => {
-    if (isRefreshing) return
-    setIsRefreshing(true)
-    setIsLoaded(false)
-    setReloadKey((prev) => prev + 1)
-    setTimeout(() => setIsRefreshing(false), 400)
-  }, [isRefreshing])
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    setIsLoaded(false);
+    setReloadKey((prev) => prev + 1);
+    setTimeout(() => setIsRefreshing(false), 400);
+  }, [isRefreshing]);
 
   const handlePresetChange = useCallback(
     (presetName: string) => {
-      const preset = DEVICE_PRESETS.find((p) => p.name === presetName)
+      const preset = DEVICE_PRESETS.find((p) => p.name === presetName);
       if (preset) {
         setDevice({
           width: preset.width,
           height: preset.height,
-          preset: preset.name,
-        })
+          preset: preset.name
+        });
       }
     },
-    [setDevice],
-  )
+    [setDevice]
+  );
 
   const handleWidthChange = useCallback(
     (width: number) => {
       setDevice({
         ...device,
         width,
-        preset: "Custom",
-      })
+        preset: 'Custom'
+      });
     },
-    [device, setDevice],
-  )
+    [device, setDevice]
+  );
 
   const handleResizeStart = useCallback(
     (e: React.PointerEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
+      e.preventDefault();
+      e.stopPropagation();
 
-      const handle = e.currentTarget as HTMLElement
-      const pointerId = e.pointerId
-      const isLeftHandle = handle.getAttribute("data-side") === "left"
-      const startX = e.clientX
-      const startWidth = device.width
-      const frame = frameRef.current
+      const handle = e.currentTarget as HTMLElement;
+      const pointerId = e.pointerId;
+      const isLeftHandle = handle.getAttribute('data-side') === 'left';
+      const startX = e.clientX;
+      const startWidth = device.width;
+      const frame = frameRef.current;
 
-      if (!frame) return
+      if (!frame) return;
 
-      handle.setPointerCapture(pointerId)
-      setIsResizing(true)
+      handle.setPointerCapture(pointerId);
+      setIsResizing(true);
 
       const handlePointerMove = (e: PointerEvent) => {
-        let delta = e.clientX - startX
+        let delta = e.clientX - startX;
         if (isLeftHandle) {
-          delta = -delta
+          delta = -delta;
         }
         const newWidth = Math.round(
-          Math.max(
-            AGENTS_PREVIEW_CONSTANTS.MIN_WIDTH,
-            Math.min(maxWidth, startWidth + delta * 2),
-          ),
-        )
-        frame.style.width = `${newWidth}px`
+          Math.max(AGENTS_PREVIEW_CONSTANTS.MIN_WIDTH, Math.min(maxWidth, startWidth + delta * 2))
+        );
+        frame.style.width = `${newWidth}px`;
         setDevice({
           ...device,
           width: newWidth,
-          preset: "Custom",
-        })
-      }
+          preset: 'Custom'
+        });
+      };
 
       const handlePointerUp = () => {
         if (handle.hasPointerCapture(pointerId)) {
-          handle.releasePointerCapture(pointerId)
+          handle.releasePointerCapture(pointerId);
         }
-        setIsResizing(false)
-        cleanup()
-      }
+        setIsResizing(false);
+        cleanup();
+      };
 
       const handlePointerCancel = () => {
         if (handle.hasPointerCapture(pointerId)) {
-          handle.releasePointerCapture(pointerId)
+          handle.releasePointerCapture(pointerId);
         }
-        cleanup()
-      }
+        cleanup();
+      };
 
       const cleanup = () => {
-        handle.removeEventListener("pointermove", handlePointerMove as any)
-        handle.removeEventListener("pointerup", handlePointerUp as any)
-        handle.removeEventListener("pointercancel", handlePointerCancel as any)
-        document.body.style.userSelect = ""
-        document.body.style.cursor = ""
-        resizeCleanupRef.current = null
-      }
+        handle.removeEventListener('pointermove', handlePointerMove as any);
+        handle.removeEventListener('pointerup', handlePointerUp as any);
+        handle.removeEventListener('pointercancel', handlePointerCancel as any);
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        resizeCleanupRef.current = null;
+      };
 
-      document.body.style.userSelect = "none"
-      document.body.style.cursor = "ew-resize"
-      handle.addEventListener("pointermove", handlePointerMove as any)
-      handle.addEventListener("pointerup", handlePointerUp as any)
-      handle.addEventListener("pointercancel", handlePointerCancel as any)
-      resizeCleanupRef.current = cleanup
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ew-resize';
+      handle.addEventListener('pointermove', handlePointerMove as any);
+      handle.addEventListener('pointerup', handlePointerUp as any);
+      handle.addEventListener('pointercancel', handlePointerCancel as any);
+      resizeCleanupRef.current = cleanup;
     },
-    [device, maxWidth, setDevice],
-  )
+    [device, maxWidth, setDevice]
+  );
 
   return (
-    <div
-      className={cn(
-        "flex flex-col bg-tl-background",
-        isMobile ? "h-full w-full" : "h-full",
-      )}
-    >
+    <div className={cn('flex flex-col bg-tl-background', isMobile ? 'h-full w-full' : 'h-full')}>
       {/* Mobile Header */}
       {isMobile && !hideHeader && (
         <div
           className="flex-shrink-0 bg-background/95 backdrop-blur border-b h-11 min-h-[44px] max-h-[44px]"
           data-mobile-preview-header
           style={{
-            WebkitAppRegion: "drag",
-          }}
-        >
+            WebkitAppRegion: 'drag'
+          }}>
           <div
             className="flex h-full items-center px-2 gap-2"
             style={{
-              WebkitAppRegion: "no-drag",
-            }}
-          >
+              WebkitAppRegion: 'no-drag'
+            }}>
             {/* Chat button */}
             <Button
               variant="ghost"
               size="icon"
               onClick={onClose}
-              className="h-7 w-7 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md"
-            >
+              className="h-7 w-7 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md">
               <IconChatBubble className="h-4 w-4" />
               <span className="sr-only">Back to chat</span>
             </Button>
@@ -347,11 +306,8 @@ export function AgentPreview({
               size="icon"
               onClick={handleReload}
               disabled={isRefreshing}
-              className="h-7 w-7 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md"
-            >
-              <RotateCw
-                className={cn("h-4 w-4", isRefreshing && "animate-spin")}
-              />
+              className="h-7 w-7 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md">
+              <RotateCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
             </Button>
 
             {/* URL Input - centered, flexible */}
@@ -380,23 +336,16 @@ export function AgentPreview({
         <div
           className="flex items-center justify-between px-3 h-10 bg-tl-background flex-shrink-0"
           style={{
-            WebkitAppRegion: "no-drag",
-          }}
-        >
+            WebkitAppRegion: 'no-drag'
+          }}>
           {/* Left: Refresh + Viewport Toggle + Scale */}
           <div className="flex items-center gap-1 flex-1">
             <Button
               variant="ghost"
               onClick={handleReload}
               disabled={isRefreshing}
-              className="h-7 w-7 p-0 hover:bg-muted transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md"
-            >
-              <RotateCw
-                className={cn(
-                  "h-3.5 w-3.5 text-muted-foreground",
-                  isRefreshing && "animate-spin",
-                )}
-              />
+              className="h-7 w-7 p-0 hover:bg-muted transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md">
+              <RotateCw className={cn('h-3.5 w-3.5 text-muted-foreground', isRefreshing && 'animate-spin')} />
             </Button>
 
             <ViewportToggle value={viewportMode} onChange={setViewportMode} />
@@ -420,8 +369,7 @@ export function AgentPreview({
             <Button
               variant="ghost"
               className="h-7 w-7 p-0 hover:bg-muted transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md"
-              onClick={() => window.open(previewUrl, "_blank")}
-            >
+              onClick={() => window.open(previewUrl, '_blank')}>
               <ExternalLinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
             </Button>
 
@@ -429,8 +377,7 @@ export function AgentPreview({
               <Button
                 variant="ghost"
                 className="h-7 w-7 p-0 hover:bg-muted transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] rounded-md"
-                onClick={onClose}
-              >
+                onClick={onClose}>
                 <IconDoubleChevronRight className="h-4 w-4 text-muted-foreground" />
               </Button>
             )}
@@ -439,7 +386,7 @@ export function AgentPreview({
       )}
 
       {/* Device presets bar - only visible in mobile viewport mode (not on actual mobile devices) */}
-      {!isMobile && !hideHeader && viewportMode === "mobile" && (
+      {!isMobile && !hideHeader && viewportMode === 'mobile' && (
         <DevicePresetsBar
           selectedPreset={device.preset}
           width={device.width}
@@ -453,10 +400,9 @@ export function AgentPreview({
       {/* Content area */}
       <div
         className={cn(
-          "flex-1 relative flex items-center justify-center overflow-hidden",
-          isMobile ? "w-full h-full" : "px-1 pb-1",
-        )}
-      >
+          'flex-1 relative flex items-center justify-center overflow-hidden',
+          isMobile ? 'w-full h-full' : 'px-1 pb-1'
+        )}>
         {isMobile ? (
           // Mobile: Fullscreen iframe with scale support
           <div className="relative overflow-hidden w-full h-full flex-shrink-0 bg-background">
@@ -468,18 +414,17 @@ export function AgentPreview({
                       width: `${(100 / scale) * 100}%`,
                       height: `${(100 / scale) * 100}%`,
                       transform: `scale(${scale / 100})`,
-                      transformOrigin: "top left",
+                      transformOrigin: 'top left'
                     }
                   : undefined
-              }
-            >
+              }>
               <iframe
                 ref={iframeRef}
                 key={reloadKey}
                 src={previewUrl}
                 width="100%"
                 height="100%"
-                style={{ border: "none" }}
+                style={{ border: 'none' }}
                 title="Preview"
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
                 allow="clipboard-write"
@@ -497,8 +442,7 @@ export function AgentPreview({
                     viewBox="0 0 400 400"
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
-                    aria-label="ChurroStack logo"
-                  >
+                    aria-label="ChurroStack logo">
                     <path
                       fillRule="evenodd"
                       clipRule="evenodd"
@@ -514,36 +458,26 @@ export function AgentPreview({
         ) : (
           <>
             {/* Left resize handle - only in mobile viewport mode (not on actual mobile devices) */}
-            {viewportMode === "mobile" && (
-              <ResizeHandle
-                side="left"
-                onPointerDown={handleResizeStart}
-                isResizing={isResizing}
-              />
+            {viewportMode === 'mobile' && (
+              <ResizeHandle side="left" onPointerDown={handleResizeStart} isResizing={isResizing} />
             )}
 
             {/* Frame with dynamic size */}
             <div
               ref={frameRef}
               className={cn(
-                "relative overflow-hidden flex-shrink-0 bg-background",
-                !isResizing &&
-                  "transition-[width,height,margin] duration-300 ease-in-out",
-                viewportMode === "desktop"
-                  ? "border-[0.5px] rounded-sm"
-                  : "shadow-lg border",
+                'relative overflow-hidden flex-shrink-0 bg-background',
+                !isResizing && 'transition-[width,height,margin] duration-300 ease-in-out',
+                viewportMode === 'desktop' ? 'border-[0.5px] rounded-sm' : 'shadow-lg border'
               )}
               style={{
-                width:
-                  viewportMode === "desktop" ? "100%" : `${device.width}px`,
-                height: "100%",
-                maxHeight:
-                  viewportMode === "mobile" ? `${device.height}px` : "100%",
-                marginLeft: viewportMode === "mobile" ? "16px" : "0",
-                marginRight: viewportMode === "mobile" ? "16px" : "0",
-                borderRadius: viewportMode === "desktop" ? "8px" : "24px",
-              }}
-            >
+                width: viewportMode === 'desktop' ? '100%' : `${device.width}px`,
+                height: '100%',
+                maxHeight: viewportMode === 'mobile' ? `${device.height}px` : '100%',
+                marginLeft: viewportMode === 'mobile' ? '16px' : '0',
+                marginRight: viewportMode === 'mobile' ? '16px' : '0',
+                borderRadius: viewportMode === 'desktop' ? '8px' : '24px'
+              }}>
               {/* Scale transform wrapper */}
               <div
                 className="w-full h-full"
@@ -553,11 +487,10 @@ export function AgentPreview({
                         width: `${(100 / scale) * 100}%`,
                         height: `${(100 / scale) * 100}%`,
                         transform: `scale(${scale / 100})`,
-                        transformOrigin: "top left",
+                        transformOrigin: 'top left'
                       }
                     : undefined
-                }
-              >
+                }>
                 <iframe
                   ref={iframeRef}
                   key={reloadKey}
@@ -565,8 +498,8 @@ export function AgentPreview({
                   width="100%"
                   height="100%"
                   style={{
-                    border: "none",
-                    borderRadius: viewportMode === "desktop" ? "8px" : "24px",
+                    border: 'none',
+                    borderRadius: viewportMode === 'desktop' ? '8px' : '24px'
                   }}
                   sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
                   onLoad={() => setIsLoaded(true)}
@@ -584,8 +517,7 @@ export function AgentPreview({
                         viewBox="0 0 400 400"
                         fill="none"
                         xmlns="http://www.w3.org/2000/svg"
-                        aria-label="ChurroStack logo"
-                      >
+                        aria-label="ChurroStack logo">
                         <path
                           fillRule="evenodd"
                           clipRule="evenodd"
@@ -601,16 +533,12 @@ export function AgentPreview({
             </div>
 
             {/* Right resize handle - only in mobile viewport mode (not on actual mobile devices) */}
-            {viewportMode === "mobile" && (
-              <ResizeHandle
-                side="right"
-                onPointerDown={handleResizeStart}
-                isResizing={isResizing}
-              />
+            {viewportMode === 'mobile' && (
+              <ResizeHandle side="right" onPointerDown={handleResizeStart} isResizing={isResizing} />
             )}
           </>
         )}
       </div>
     </div>
-  )
+  );
 }

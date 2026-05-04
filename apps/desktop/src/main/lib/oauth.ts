@@ -19,7 +19,7 @@ export async function fetchOAuthMetadata(mcpBaseUrl: string): Promise<OAuthMetad
     const metadataUrl = `${origin}/.well-known/oauth-authorization-server`;
     const response = await fetch(metadataUrl);
     if (response.ok) {
-      return await response.json() as OAuthMetadata;
+      return (await response.json()) as OAuthMetadata;
     }
     return null;
   } catch {
@@ -82,37 +82,38 @@ function generateOAuthPage(options: {
         { text: 'verifying credentials', status: '[PROCESSING]', statusClass: 'status-wait' },
         { text: 'token exchange completed', status: '[OK]', statusClass: 'status-ok' },
         { text: 'AUTHORIZATION SUCCESSFUL', isHighlight: true, highlightColor: 'green' },
-        { text: 'closing connection', hasCursor: true },
+        { text: 'closing connection', hasCursor: true }
       ]
     : [
         { text: 'initiating handshake sequence...' },
         { text: 'verifying credentials', status: '[PROCESSING]', statusClass: 'status-wait' },
         { text: 'token exchange failed', status: '[ERROR]', statusClass: 'status-error' },
         { text: 'AUTHORIZATION FAILED', isHighlight: true, highlightColor: 'red' },
-        ...(errorDetail ? [{ text: `error: ${errorDetail}`, isError: true }] : []),
+        ...(errorDetail ? [{ text: `error: ${errorDetail}`, isError: true }] : [])
       ];
 
-  const terminalLinesHtml = terminalLines.map((line, i) => {
-    let content = '';
-    if (line.isHighlight) {
-      const color = line.highlightColor === 'green' ? 'var(--green)' : 'var(--red)';
-      const glow = line.highlightColor === 'green'
-        ? 'rgba(158, 206, 106, 0.4)'
-        : 'rgba(247, 118, 142, 0.4)';
-      content = `<span class="cmd-text" style="color: ${color}; text-shadow: 0 0 10px ${glow};">${line.text}</span>`;
-    } else if (line.isError) {
-      content = `<span class="cmd-text" style="color: var(--red);">${line.text}</span>`;
-    } else {
-      content = `<span class="cmd-text">${line.text}${line.status ? ` <span class="${line.statusClass}">${line.status}</span>` : ''}${line.hasCursor ? ' <span class="cursor"></span>' : ''}</span>`;
-    }
-    return `        <div class="line" style="animation-delay: ${0.2 + i * 0.4}s;">
+  const terminalLinesHtml = terminalLines
+    .map((line, i) => {
+      let content = '';
+      if (line.isHighlight) {
+        const color = line.highlightColor === 'green' ? 'var(--green)' : 'var(--red)';
+        const glow = line.highlightColor === 'green' ? 'rgba(158, 206, 106, 0.4)' : 'rgba(247, 118, 142, 0.4)';
+        content = `<span class="cmd-text" style="color: ${color}; text-shadow: 0 0 10px ${glow};">${line.text}</span>`;
+      } else if (line.isError) {
+        content = `<span class="cmd-text" style="color: var(--red);">${line.text}</span>`;
+      } else {
+        content = `<span class="cmd-text">${line.text}${line.status ? ` <span class="${line.statusClass}">${line.status}</span>` : ''}${line.hasCursor ? ' <span class="cursor"></span>' : ''}</span>`;
+      }
+      return `        <div class="line" style="animation-delay: ${0.2 + i * 0.4}s;">
           <span class="prompt">➜</span>
           <span class="path">~</span>
           ${content}
         </div>`;
-  }).join('\n');
+    })
+    .join('\n');
 
-  const progressSection = autoClose ? `
+  const progressSection = autoClose
+    ? `
       <div class="progress-section">
         <div class="timer-info">
           <span>Session Autokill</span>
@@ -121,9 +122,11 @@ function generateOAuthPage(options: {
         <div class="progress-bar">
           <div class="progress-fill" id="progress-fill"></div>
         </div>
-      </div>` : '';
+      </div>`
+    : '';
 
-  const autoCloseScript = autoClose ? `
+  const autoCloseScript = autoClose
+    ? `
     // Countdown Logic
     setTimeout(() => {
       const duration = 3000;
@@ -147,12 +150,11 @@ function generateOAuthPage(options: {
       };
 
       requestAnimationFrame(tick);
-    }, 2200);` : '';
+    }, 2200);`
+    : '';
 
   const logoColor = isSuccess ? 'var(--blue)' : 'var(--red)';
-  const logoGlow = isSuccess
-    ? 'rgba(122, 162, 247, 0.3)'
-    : 'rgba(247, 118, 142, 0.3)';
+  const logoGlow = isSuccess ? 'rgba(122, 162, 247, 0.3)' : 'rgba(247, 118, 142, 0.3)';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -540,7 +542,10 @@ export class CraftOAuth {
   }
 
   // Register OAuth client dynamically
-  private async registerClient(registrationEndpoint: string, clientName: string): Promise<{
+  private async registerClient(
+    registrationEndpoint: string,
+    clientName: string
+  ): Promise<{
     client_id: string;
     client_secret?: string;
   }> {
@@ -554,8 +559,8 @@ export class CraftOAuth {
         redirect_uris: [redirectUri],
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
-        token_endpoint_auth_method: 'none', // Public client
-      }),
+        token_endpoint_auth_method: 'none' // Public client
+      })
     });
 
     if (!response.ok) {
@@ -585,7 +590,7 @@ export class CraftOAuth {
       code,
       redirect_uri: uri,
       client_id: clientId,
-      code_verifier: codeVerifier,
+      code_verifier: codeVerifier
     });
 
     // Add client_secret if provided (some servers require it)
@@ -596,7 +601,7 @@ export class CraftOAuth {
     const response = await fetch(tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
+      body: params.toString()
     });
 
     if (!response.ok) {
@@ -604,7 +609,7 @@ export class CraftOAuth {
       throw new Error(`Failed to exchange code for tokens: ${error}`);
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       access_token: string;
       refresh_token?: string;
       expires_in?: number;
@@ -615,34 +620,31 @@ export class CraftOAuth {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
-      tokenType: data.token_type || 'Bearer',
+      tokenType: data.token_type || 'Bearer'
     };
   }
 
   // Refresh access token
-  async refreshAccessToken(
-    refreshToken: string,
-    clientId: string
-  ): Promise<OAuthTokens> {
+  async refreshAccessToken(refreshToken: string, clientId: string): Promise<OAuthTokens> {
     const metadata = await this.getServerMetadata();
 
     const params = new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_id: clientId,
+      client_id: clientId
     });
 
     const response = await fetch(metadata.token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
+      body: params.toString()
     });
 
     if (!response.ok) {
       throw new Error('Failed to refresh token');
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       access_token: string;
       refresh_token?: string;
       expires_in?: number;
@@ -653,7 +655,7 @@ export class CraftOAuth {
       accessToken: data.access_token,
       refreshToken: data.refresh_token || refreshToken,
       expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
-      tokenType: data.token_type || 'Bearer',
+      tokenType: data.token_type || 'Bearer'
     };
   }
 
@@ -750,12 +752,7 @@ export class CraftOAuth {
 
     // Exchange code for tokens
     this.callbacks.onStatus('Exchanging authorization code for tokens...');
-    const tokens = await this.exchangeCodeForTokens(
-      metadata.token_endpoint,
-      authCode,
-      pkce.verifier,
-      clientId
-    );
+    const tokens = await this.exchangeCodeForTokens(metadata.token_endpoint, authCode, pkce.verifier, clientId);
     this.callbacks.onStatus('Tokens received successfully!');
 
     return { tokens, clientId };
@@ -775,7 +772,7 @@ export class CraftOAuth {
     clientSecret?: string;
   }> {
     this.callbacks.onStatus('Fetching OAuth server configuration...');
-    const metadata = preloadedMetadata || await this.getServerMetadata();
+    const metadata = preloadedMetadata || (await this.getServerMetadata());
 
     // Register client if endpoint available
     let clientId: string;
@@ -819,7 +816,7 @@ export class CraftOAuth {
       codeVerifier: pkce.verifier,
       tokenEndpoint: metadata.token_endpoint,
       clientId,
-      clientSecret,
+      clientSecret
     };
   }
 
@@ -855,12 +852,14 @@ export class CraftOAuth {
 
           if (error) {
             res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end(generateOAuthPage({
-              title: 'Authorization Failed',
-              message: 'You can close this window.',
-              isSuccess: false,
-              errorDetail: error,
-            }));
+            res.end(
+              generateOAuthPage({
+                title: 'Authorization Failed',
+                message: 'You can close this window.',
+                isSuccess: false,
+                errorDetail: error
+              })
+            );
             clearTimeout(timeout);
             this.stopServer();
             reject(new Error(`OAuth error: ${error}`));
@@ -869,11 +868,13 @@ export class CraftOAuth {
 
           if (state !== expectedState) {
             res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end(generateOAuthPage({
-              title: 'Security Error',
-              message: 'State mismatch - possible CSRF attack.',
-              isSuccess: false,
-            }));
+            res.end(
+              generateOAuthPage({
+                title: 'Security Error',
+                message: 'State mismatch - possible CSRF attack.',
+                isSuccess: false
+              })
+            );
             clearTimeout(timeout);
             this.stopServer();
             reject(new Error('OAuth state mismatch'));
@@ -882,11 +883,13 @@ export class CraftOAuth {
 
           if (!code) {
             res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end(generateOAuthPage({
-              title: 'Authorization Failed',
-              message: 'No authorization code received.',
-              isSuccess: false,
-            }));
+            res.end(
+              generateOAuthPage({
+                title: 'Authorization Failed',
+                message: 'No authorization code received.',
+                isSuccess: false
+              })
+            );
             clearTimeout(timeout);
             this.stopServer();
             reject(new Error('No authorization code'));
@@ -895,12 +898,14 @@ export class CraftOAuth {
 
           // Success!
           res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(generateOAuthPage({
-            title: 'Authorization Successful',
-            message: 'You can close this window and return to the terminal.',
-            isSuccess: true,
-            autoClose: true,
-          }));
+          res.end(
+            generateOAuthPage({
+              title: 'Authorization Successful',
+              message: 'You can close this window and return to the terminal.',
+              isSuccess: true,
+              autoClose: true
+            })
+          );
 
           clearTimeout(timeout);
           this.stopServer();

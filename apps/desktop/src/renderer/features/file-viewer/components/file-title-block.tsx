@@ -1,11 +1,11 @@
-import { X } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { getFileIconByExtension } from "../../agents/mentions/agents-file-mention"
-import { getFileName } from "../utils/file-utils"
+import { X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { getFileIconByExtension } from '../../agents/mentions/agents-file-mention';
+import { getFileName } from '../utils/file-utils';
 
 interface FileTitleBlockProps {
-  filePath: string
-  onClose: () => void
+  filePath: string;
+  onClose: () => void;
 }
 
 /**
@@ -14,8 +14,8 @@ interface FileTitleBlockProps {
  * Used by the new-workspace explorer sidebar.
  */
 export function FileTitleBlock({ filePath, onClose }: FileTitleBlockProps) {
-  const Icon = getFileIconByExtension(filePath)
-  const fileName = getFileName(filePath)
+  const Icon = getFileIconByExtension(filePath);
+  const fileName = getFileName(filePath);
 
   return (
     <div className="flex items-center gap-1 min-w-0 flex-1">
@@ -24,8 +24,7 @@ export function FileTitleBlock({ filePath, onClose }: FileTitleBlockProps) {
         size="sm"
         className="h-6 w-6 p-0 flex-shrink-0 hover:bg-foreground/10"
         onClick={onClose}
-        aria-label="Close file"
-      >
+        aria-label="Close file">
         <X className="size-4 text-muted-foreground" />
       </Button>
       <div className="flex items-center gap-1.5 min-w-0 flex-1 ml-1">
@@ -35,5 +34,5 @@ export function FileTitleBlock({ filePath, onClose }: FileTitleBlockProps) {
         </span>
       </div>
     </div>
-  )
+  );
 }

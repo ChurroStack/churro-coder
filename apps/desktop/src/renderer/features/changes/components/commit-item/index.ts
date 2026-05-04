@@ -1,1 +1,1 @@
-export { CommitItem } from "./commit-item";
+export { CommitItem } from './commit-item';

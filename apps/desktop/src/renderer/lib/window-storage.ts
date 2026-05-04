@@ -1,11 +1,11 @@
-import { atomWithStorage, createJSONStorage } from "jotai/utils"
-import { getWindowId } from "../contexts/WindowContext"
+import { atomWithStorage, createJSONStorage } from 'jotai/utils';
+import { getWindowId } from '../contexts/WindowContext';
 
 /**
  * Track which keys have been migrated to avoid repeated migration attempts.
  * This is a per-session cache - once a key is checked, we don't check again.
  */
-const migratedKeys = new Set<string>()
+const migratedKeys = new Set<string>();
 
 /**
  * Find and migrate data from old numeric window IDs (e.g., "1:", "5:") to stable ID.
@@ -15,31 +15,31 @@ const migratedKeys = new Set<string>()
  */
 function migrateFromNumericWindowId(key: string, targetWindowKey: string): string | null {
   // Only migrate for "main" window (the primary window)
-  if (!targetWindowKey.startsWith("main:")) return null
+  if (!targetWindowKey.startsWith('main:')) return null;
 
   // Skip if already checked this key
-  if (migratedKeys.has(targetWindowKey)) return null
+  if (migratedKeys.has(targetWindowKey)) return null;
 
   // Look for any numeric window ID prefixed key (e.g., "1:agents:selectedProject")
   for (let i = 0; i < localStorage.length; i++) {
-    const storageKey = localStorage.key(i)
-    if (!storageKey) continue
+    const storageKey = localStorage.key(i);
+    if (!storageKey) continue;
 
     // Check if this key matches pattern: <number>:<originalKey>
-    const match = storageKey.match(/^(\d+):(.+)$/)
+    const match = storageKey.match(/^(\d+):(.+)$/);
     if (match && match[2] === key) {
-      const value = localStorage.getItem(storageKey)
+      const value = localStorage.getItem(storageKey);
       if (value !== null) {
-        console.log(`[WindowStorage] Migrated from numeric ID: ${storageKey} to ${targetWindowKey}`)
-        migratedKeys.add(targetWindowKey)
-        return value
+        console.log(`[WindowStorage] Migrated from numeric ID: ${storageKey} to ${targetWindowKey}`);
+        migratedKeys.add(targetWindowKey);
+        return value;
       }
     }
   }
 
   // Mark as checked even if nothing found
-  migratedKeys.add(targetWindowKey)
-  return null
+  migratedKeys.add(targetWindowKey);
+  return null;
 }
 
 /**
@@ -54,55 +54,55 @@ function migrateFromNumericWindowId(key: string, targetWindowKey: string): strin
 function createWindowScopedStorage<T>() {
   return createJSONStorage<T>(() => ({
     getItem: (key: string) => {
-      const windowKey = `${getWindowId()}:${key}`
-      let value = localStorage.getItem(windowKey)
+      const windowKey = `${getWindowId()}:${key}`;
+      let value = localStorage.getItem(windowKey);
 
       // Only attempt migration if value not found and not already migrated
       if (value === null && !migratedKeys.has(windowKey)) {
         // Migration 1: Check for old numeric window ID keys (from previous implementation)
-        const migratedValue = migrateFromNumericWindowId(key, windowKey)
+        const migratedValue = migrateFromNumericWindowId(key, windowKey);
         if (migratedValue !== null) {
           try {
-            localStorage.setItem(windowKey, migratedValue)
+            localStorage.setItem(windowKey, migratedValue);
           } catch (e) {
-            console.warn(`[WindowStorage] Failed to save migrated value for ${windowKey}:`, e)
+            console.warn(`[WindowStorage] Failed to save migrated value for ${windowKey}:`, e);
           }
-          value = migratedValue
+          value = migratedValue;
         }
 
         // Migration 2: Check legacy key (without any window prefix)
         if (value === null) {
-          const legacyValue = localStorage.getItem(key)
+          const legacyValue = localStorage.getItem(key);
           if (legacyValue !== null) {
             try {
-              localStorage.setItem(windowKey, legacyValue)
-              console.log(`[WindowStorage] Migrated ${key} to ${windowKey}`)
+              localStorage.setItem(windowKey, legacyValue);
+              console.log(`[WindowStorage] Migrated ${key} to ${windowKey}`);
             } catch (e) {
-              console.warn(`[WindowStorage] Failed to save migrated value for ${windowKey}:`, e)
+              console.warn(`[WindowStorage] Failed to save migrated value for ${windowKey}:`, e);
             }
-            value = legacyValue
+            value = legacyValue;
           }
           // Mark as migrated even if no legacy key found
-          migratedKeys.add(windowKey)
+          migratedKeys.add(windowKey);
         }
       }
 
-      return value
+      return value;
     },
     setItem: (key: string, value: string) => {
-      const windowKey = `${getWindowId()}:${key}`
+      const windowKey = `${getWindowId()}:${key}`;
       try {
-        localStorage.setItem(windowKey, value)
+        localStorage.setItem(windowKey, value);
       } catch (e) {
         // Handle QuotaExceededError gracefully
-        console.error(`[WindowStorage] Failed to save ${windowKey}:`, e)
+        console.error(`[WindowStorage] Failed to save ${windowKey}:`, e);
       }
     },
     removeItem: (key: string) => {
-      const windowKey = `${getWindowId()}:${key}`
-      localStorage.removeItem(windowKey)
-    },
-  }))
+      const windowKey = `${getWindowId()}:${key}`;
+      localStorage.removeItem(windowKey);
+    }
+  }));
 }
 
 /**
@@ -125,15 +125,6 @@ function createWindowScopedStorage<T>() {
  *   { getOnInit: true }
  * )
  */
-export function atomWithWindowStorage<T>(
-  key: string,
-  initialValue: T,
-  options?: { getOnInit?: boolean }
-) {
-  return atomWithStorage<T>(
-    key,
-    initialValue,
-    createWindowScopedStorage<T>(),
-    options
-  )
+export function atomWithWindowStorage<T>(key: string, initialValue: T, options?: { getOnInit?: boolean }) {
+  return atomWithStorage<T>(key, initialValue, createWindowScopedStorage<T>(), options);
 }

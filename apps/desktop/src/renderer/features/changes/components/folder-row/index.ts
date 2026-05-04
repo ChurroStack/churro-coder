@@ -1,1 +1,1 @@
-export { FolderRow } from "./folder-row";
+export { FolderRow } from './folder-row';

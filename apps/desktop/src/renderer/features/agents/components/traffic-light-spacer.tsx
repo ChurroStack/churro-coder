@@ -1,7 +1,7 @@
-"use client"
+'use client';
 
-import { useEffect, useRef, useState } from "react"
-import { cn } from "../../../lib/utils"
+import { useEffect, useRef, useState } from 'react';
+import { cn } from '../../../lib/utils';
 
 /**
  * Invisible no-drag zone over native macOS traffic lights.
@@ -11,22 +11,21 @@ import { cn } from "../../../lib/utils"
 export function TrafficLights({
   isFullscreen = null,
   isDesktop = false,
-  className = "",
+  className = ''
 }: {
-  isFullscreen?: boolean | null
-  isDesktop?: boolean
-  className?: string
+  isFullscreen?: boolean | null;
+  isDesktop?: boolean;
+  className?: string;
 }) {
-  if (!isDesktop || isFullscreen === true) return null
+  if (!isDesktop || isFullscreen === true) return null;
 
   return (
     <div
-      className={cn("relative", className)}
+      className={cn('relative', className)}
       style={{
-        WebkitAppRegion: "no-drag",
+        WebkitAppRegion: 'no-drag'
       }}
-      data-sidebar-content
-    >
+      data-sidebar-content>
       {/* Invisible hit area matching native traffic light dimensions */}
       <div className="flex items-center gap-2" data-sidebar-content>
         <div className="w-3 h-3" />
@@ -34,7 +33,7 @@ export function TrafficLights({
         <div className="w-3 h-3" />
       </div>
     </div>
-  )
+  );
 }
 
 /**
@@ -49,38 +48,34 @@ export function TrafficLights({
 export function TrafficLightSpacer({
   isFullscreen = null,
   isDesktop = false,
-  className = "",
+  className = ''
 }: {
-  isFullscreen?: boolean | null
-  isDesktop?: boolean
-  className?: string
+  isFullscreen?: boolean | null;
+  isDesktop?: boolean;
+  className?: string;
 }) {
-  const prevFullscreenRef = useRef(isFullscreen)
-  const [shouldAnimate, setShouldAnimate] = useState(false)
+  const prevFullscreenRef = useRef(isFullscreen);
+  const [shouldAnimate, setShouldAnimate] = useState(false);
 
   useEffect(() => {
-    if (
-      isFullscreen !== null &&
-      prevFullscreenRef.current !== null &&
-      prevFullscreenRef.current !== isFullscreen
-    ) {
-      setShouldAnimate(true)
+    if (isFullscreen !== null && prevFullscreenRef.current !== null && prevFullscreenRef.current !== isFullscreen) {
+      setShouldAnimate(true);
     }
-    prevFullscreenRef.current = isFullscreen
-  }, [isFullscreen])
+    prevFullscreenRef.current = isFullscreen;
+  }, [isFullscreen]);
 
-  const shouldShow = isDesktop && isFullscreen !== true
+  const shouldShow = isDesktop && isFullscreen !== true;
 
   return (
     <div
       className={cn(
-        "w-full shrink-0 overflow-hidden",
-        shouldAnimate && "transition-[height] duration-200 ease-out",
-        className,
+        'w-full shrink-0 overflow-hidden',
+        shouldAnimate && 'transition-[height] duration-200 ease-out',
+        className
       )}
       style={{ height: shouldShow ? 32 : 0 }}
     />
-  )
+  );
 }
 
 /**
@@ -90,10 +85,9 @@ export function NoDrag({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        WebkitAppRegion: "no-drag",
-      }}
-    >
+        WebkitAppRegion: 'no-drag'
+      }}>
       {children}
     </div>
-  )
+  );
 }

@@ -1,7 +1,13 @@
-import { useAtomValue } from "jotai"
-import { customHotkeysAtom } from "../atoms"
-import { getResolvedHotkey, hotkeyToDisplay, getShortcutAction, keysToDisplay, keysToHotkeyString } from "./shortcut-registry"
-import type { ShortcutActionId } from "./types"
+import { useAtomValue } from 'jotai';
+import { customHotkeysAtom } from '../atoms';
+import {
+  getResolvedHotkey,
+  hotkeyToDisplay,
+  getShortcutAction,
+  keysToDisplay,
+  keysToHotkeyString
+} from './shortcut-registry';
+import type { ShortcutActionId } from './types';
 
 /**
  * Hook to get the display string for a resolved hotkey.
@@ -15,10 +21,10 @@ import type { ShortcutActionId } from "./types"
  * // Returns "⌘\" by default, or custom binding if set
  */
 export function useResolvedHotkeyDisplay(actionId: ShortcutActionId): string | null {
-  const config = useAtomValue(customHotkeysAtom)
-  const hotkey = getResolvedHotkey(actionId, config)
-  if (!hotkey) return null
-  return hotkeyToDisplay(hotkey)
+  const config = useAtomValue(customHotkeysAtom);
+  const hotkey = getResolvedHotkey(actionId, config);
+  if (!hotkey) return null;
+  return hotkeyToDisplay(hotkey);
 }
 
 /**
@@ -29,21 +35,18 @@ export function useResolvedHotkeyDisplay(actionId: ShortcutActionId): string | n
  * @returns Object with primary and alt display strings, or null values if not found
  */
 export function useResolvedHotkeyDisplayWithAlt(actionId: ShortcutActionId): {
-  primary: string | null
-  alt: string | null
+  primary: string | null;
+  alt: string | null;
 } {
-  const config = useAtomValue(customHotkeysAtom)
-  const hotkey = getResolvedHotkey(actionId, config)
-  const action = getShortcutAction(actionId)
+  const config = useAtomValue(customHotkeysAtom);
+  const hotkey = getResolvedHotkey(actionId, config);
+  const action = getShortcutAction(actionId);
 
-  const primary = hotkey ? hotkeyToDisplay(hotkey) : null
+  const primary = hotkey ? hotkeyToDisplay(hotkey) : null;
 
   // Only show alt if not using custom binding
-  const hasCustomBinding = config.bindings[actionId] !== undefined
-  const alt =
-    action?.altKeys && !hasCustomBinding
-      ? hotkeyToDisplay(keysToHotkeyString(action.altKeys))
-      : null
+  const hasCustomBinding = config.bindings[actionId] !== undefined;
+  const alt = action?.altKeys && !hasCustomBinding ? hotkeyToDisplay(keysToHotkeyString(action.altKeys)) : null;
 
-  return { primary, alt }
+  return { primary, alt };
 }

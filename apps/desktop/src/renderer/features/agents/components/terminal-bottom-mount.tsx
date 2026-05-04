@@ -1,8 +1,8 @@
-"use client"
+'use client';
 
-import { ResizableBottomPanel } from "../../../components/ui/resizable-bottom-panel"
-import { TerminalBottomPanelContent } from "../../terminal/terminal-sidebar"
-import { terminalBottomHeightAtom } from "../../terminal/atoms"
+import { ResizableBottomPanel } from '../../../components/ui/resizable-bottom-panel';
+import { TerminalBottomPanelContent } from '../../terminal/terminal-sidebar';
+import { terminalBottomHeightAtom } from '../../terminal/atoms';
 
 export interface TerminalBottomMountProps {
   /**
@@ -10,14 +10,14 @@ export interface TerminalBottomMountProps {
    * passes the current display-mode value; the component renders null otherwise.
    * Accepts the broader "side-peek" / "bottom" union (matches `TerminalDisplayMode`).
    */
-  displayMode: "side-peek" | "bottom"
-  worktreePath: string | null
-  isOpen: boolean
-  isMobileFullscreen: boolean
-  chatId: string
-  terminalScopeKey: string
-  toggleTerminalHotkey?: string
-  onClose: () => void
+  displayMode: 'side-peek' | 'bottom';
+  worktreePath: string | null;
+  isOpen: boolean;
+  isMobileFullscreen: boolean;
+  chatId: string;
+  terminalScopeKey: string;
+  toggleTerminalHotkey?: string;
+  onClose: () => void;
 }
 
 /**
@@ -36,10 +36,10 @@ export function TerminalBottomMount({
   chatId,
   terminalScopeKey,
   toggleTerminalHotkey,
-  onClose,
+  onClose
 }: TerminalBottomMountProps) {
-  if (displayMode !== "bottom" || !worktreePath || isMobileFullscreen) {
-    return null
+  if (displayMode !== 'bottom' || !worktreePath || isMobileFullscreen) {
+    return null;
   }
   return (
     <ResizableBottomPanel
@@ -51,8 +51,7 @@ export function TerminalBottomMount({
       showResizeTooltip
       closeHotkey={toggleTerminalHotkey}
       className="bg-background border-t"
-      style={{ borderTopWidth: "0.5px" }}
-    >
+      style={{ borderTopWidth: '0.5px' }}>
       <TerminalBottomPanelContent
         chatId={chatId}
         scopeKey={terminalScopeKey}
@@ -61,5 +60,5 @@ export function TerminalBottomMount({
         onClose={onClose}
       />
     </ResizableBottomPanel>
-  )
+  );
 }

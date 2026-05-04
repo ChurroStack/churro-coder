@@ -1,22 +1,22 @@
-"use client"
+'use client';
 
-import "./automations-styles.css"
-import { useAtomValue, useSetAtom, useAtom } from "jotai"
-import { selectedTeamIdAtom } from "../../lib/atoms"
+import './automations-styles.css';
+import { useAtomValue, useSetAtom, useAtom } from 'jotai';
+import { selectedTeamIdAtom } from '../../lib/atoms';
 import {
   desktopViewAtom,
   automationDetailIdAtom,
   automationTemplateParamsAtom,
   agentsSidebarOpenAtom,
-  agentsMobileViewModeAtom,
-} from "../agents/atoms"
-import { Logo } from "../../components/ui/logo"
-import { useState, useMemo, useCallback } from "react"
-import { Plus, AlignJustify } from "lucide-react"
-import { useIsMobile } from "../../lib/hooks/use-mobile"
-import { remoteTrpc } from "../../lib/remote-trpc"
-import { useQuery } from "@tanstack/react-query"
-import { AgentsHeaderControls } from "../agents/ui/agents-header-controls"
+  agentsMobileViewModeAtom
+} from '../agents/atoms';
+import { Logo } from '../../components/ui/logo';
+import { useState, useMemo, useCallback } from 'react';
+import { Plus, AlignJustify } from 'lucide-react';
+import { useIsMobile } from '../../lib/hooks/use-mobile';
+import { remoteTrpc } from '../../lib/remote-trpc';
+import { useQuery } from '@tanstack/react-query';
+import { AgentsHeaderControls } from '../agents/ui/agents-header-controls';
 
 import {
   AutomationCard,
@@ -24,97 +24,95 @@ import {
   TabToggle,
   AUTOMATION_TEMPLATES,
   type ViewTab,
-  type Platform,
-} from "./_components"
+  type Platform
+} from './_components';
 
 export function AutomationsView() {
-  const teamId = useAtomValue(selectedTeamIdAtom)
-  const setDesktopView = useSetAtom(desktopViewAtom)
-  const setAutomationDetailId = useSetAtom(automationDetailIdAtom)
-  const setTemplateParams = useSetAtom(automationTemplateParamsAtom)
-  const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
-  const setMobileViewMode = useSetAtom(agentsMobileViewModeAtom)
-  const isMobile = useIsMobile()
+  const teamId = useAtomValue(selectedTeamIdAtom);
+  const setDesktopView = useSetAtom(desktopViewAtom);
+  const setAutomationDetailId = useSetAtom(automationDetailIdAtom);
+  const setTemplateParams = useSetAtom(automationTemplateParamsAtom);
+  const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom);
+  const setMobileViewMode = useSetAtom(agentsMobileViewModeAtom);
+  const isMobile = useIsMobile();
 
   const handleSidebarToggle = useCallback(() => {
     if (isMobile) {
-      setDesktopView(null)
-      setMobileViewMode("chats")
+      setDesktopView(null);
+      setMobileViewMode('chats');
     } else {
-      setSidebarOpen(true)
+      setSidebarOpen(true);
     }
-  }, [isMobile, setDesktopView, setMobileViewMode, setSidebarOpen])
+  }, [isMobile, setDesktopView, setMobileViewMode, setSidebarOpen]);
 
-  const [activeTab, setActiveTab] = useState<ViewTab>("active")
-  const [searchQuery, setSearchQuery] = useState("")
+  const [activeTab, setActiveTab] = useState<ViewTab>('active');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch automations via remoteTrpc
   const { data: automationsData, isLoading } = useQuery({
-    queryKey: ["automations", "list", teamId],
+    queryKey: ['automations', 'list', teamId],
     queryFn: () => remoteTrpc.automations.listAutomations.query({ teamId: teamId! }),
-    enabled: !!teamId,
-  })
+    enabled: !!teamId
+  });
 
   // Fetch GitHub connection status
   const { data: githubStatus } = useQuery({
-    queryKey: ["github", "connectionStatus", teamId],
+    queryKey: ['github', 'connectionStatus', teamId],
     queryFn: () => remoteTrpc.github.getConnectionStatus.query({ teamId: teamId! }),
-    enabled: !!teamId,
-  })
+    enabled: !!teamId
+  });
 
   // Fetch Linear integration status
   const { data: linearStatus } = useQuery({
-    queryKey: ["linear", "integration", teamId],
+    queryKey: ['linear', 'integration', teamId],
     queryFn: () => remoteTrpc.linear.getIntegration.query({ teamId: teamId! }),
-    enabled: !!teamId,
-  })
+    enabled: !!teamId
+  });
 
-  const automations = automationsData ?? []
+  const automations = automationsData ?? [];
 
   // Filter automations by search query
   const filteredAutomations = useMemo(() => {
-    if (!searchQuery.trim()) return automations
-    const query = searchQuery.toLowerCase()
-    return automations.filter((a: any) =>
-      a.name?.toLowerCase().includes(query)
-    )
-  }, [automations, searchQuery])
+    if (!searchQuery.trim()) return automations;
+    const query = searchQuery.toLowerCase();
+    return automations.filter((a: any) => a.name?.toLowerCase().includes(query));
+  }, [automations, searchQuery]);
 
   const handleNewAutomation = () => {
-    setAutomationDetailId("new")
-    setTemplateParams(null)
-    setDesktopView("automations-detail")
-  }
+    setAutomationDetailId('new');
+    setTemplateParams(null);
+    setDesktopView('automations-detail');
+  };
 
-  const handleUseTemplate = (template: typeof AUTOMATION_TEMPLATES[number]) => {
-    setAutomationDetailId("new")
+  const handleUseTemplate = (template: (typeof AUTOMATION_TEMPLATES)[number]) => {
+    setAutomationDetailId('new');
     setTemplateParams({
       name: template.name,
       platform: template.platform,
       trigger: template.triggerType,
-      instructions: template.instructions,
-    })
-    setDesktopView("automations-detail")
-  }
+      instructions: template.instructions
+    });
+    setDesktopView('automations-detail');
+  };
 
   const handleAutomationClick = (automationId: string) => {
-    setAutomationDetailId(automationId)
-    setTemplateParams(null)
-    setDesktopView("automations-detail")
-  }
+    setAutomationDetailId(automationId);
+    setTemplateParams(null);
+    setDesktopView('automations-detail');
+  };
 
-  const isGithubConnected = githubStatus?.isConnected ?? false
-  const isLinearConnected = linearStatus?.isConnected ?? false
+  const isGithubConnected = githubStatus?.isConnected ?? false;
+  const isLinearConnected = linearStatus?.isConnected ?? false;
 
   const getTemplateDisabledReason = (platform: Platform): string | undefined => {
-    if (platform === "github" && !isGithubConnected) {
-      return "Connect GitHub in Settings to use this template"
+    if (platform === 'github' && !isGithubConnected) {
+      return 'Connect GitHub in Settings to use this template';
     }
-    if (platform === "linear" && !isLinearConnected) {
-      return "Connect Linear in Settings to use this template"
+    if (platform === 'linear' && !isLinearConnected) {
+      return 'Connect Linear in Settings to use this template';
     }
-    return undefined
-  }
+    return undefined;
+  };
 
   // Loading state
   if (!teamId) {
@@ -122,7 +120,7 @@ export function AutomationsView() {
       <div className="flex items-center justify-center h-full">
         <Logo className="h-8 w-8 animate-pulse text-muted-foreground" />
       </div>
-    )
+    );
   }
 
   return (
@@ -132,16 +130,12 @@ export function AutomationsView() {
       <div
         className="flex-shrink-0 flex items-center p-1.5"
         style={{
-          WebkitAppRegion: "drag",
-        }}
-      >
-        <AgentsHeaderControls
-          isSidebarOpen={sidebarOpen}
-          onToggleSidebar={handleSidebarToggle}
-        />
+          WebkitAppRegion: 'drag'
+        }}>
+        <AgentsHeaderControls isSidebarOpen={sidebarOpen} onToggleSidebar={handleSidebarToggle} />
       </div>
       <div className="flex-1 overflow-y-auto px-4 md:px-2 py-4">
-        <div className={isMobile ? "max-w-full" : "max-w-2xl mx-auto"}>
+        <div className={isMobile ? 'max-w-full' : 'max-w-2xl mx-auto'}>
           {/* Header */}
           <div className="mb-6 flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1 flex items-center gap-2">
@@ -149,11 +143,10 @@ export function AutomationsView() {
                 <button
                   onClick={handleSidebarToggle}
                   className="h-7 w-7 p-0 flex items-center justify-center hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-                  aria-label={isMobile ? "Back to chats" : "Open sidebar"}
+                  aria-label={isMobile ? 'Back to chats' : 'Open sidebar'}
                   style={{
-                    WebkitAppRegion: "no-drag",
-                  }}
-                >
+                    WebkitAppRegion: 'no-drag'
+                  }}>
                   <AlignJustify className="h-4 w-4" />
                 </button>
               )}
@@ -168,9 +161,8 @@ export function AutomationsView() {
               onClick={handleNewAutomation}
               className="h-8 px-3 rounded-lg text-sm font-medium border border-border hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground flex items-center gap-1.5 flex-shrink-0"
               style={{
-                WebkitAppRegion: "no-drag",
-              }}
-            >
+                WebkitAppRegion: 'no-drag'
+              }}>
               <Plus className="h-4 w-4" />
               <span className="text-sm font-medium hidden min-420:inline">New</span>
             </button>
@@ -180,7 +172,7 @@ export function AutomationsView() {
           <div className="flex items-center justify-between mb-4 gap-3">
             <TabToggle value={activeTab} onChange={setActiveTab} />
 
-            {activeTab !== "templates" && (
+            {activeTab !== 'templates' && (
               <input
                 placeholder="Search..."
                 value={searchQuery}
@@ -194,10 +186,7 @@ export function AutomationsView() {
           {isLoading ? (
             <div className="grid grid-cols-1 min-420:grid-cols-2 md:grid-cols-3 gap-2 mt-3">
               {[...Array(6)].map((_, i) => (
-                <div
-                  key={i}
-                  className="bg-background border border-border rounded-[10px] p-4 animate-pulse"
-                >
+                <div key={i} className="bg-background border border-border rounded-[10px] p-4 animate-pulse">
                   {/* Icons row skeleton */}
                   <div className="flex items-center gap-1.5 mb-3">
                     <div className="w-7 h-7 rounded-md bg-muted/50" />
@@ -215,10 +204,10 @@ export function AutomationsView() {
           ) : (
             <>
               {/* Template Library View */}
-              {activeTab === "templates" && (
+              {activeTab === 'templates' && (
                 <div className="grid grid-cols-1 min-420:grid-cols-2 md:grid-cols-3 gap-2 mt-3">
                   {AUTOMATION_TEMPLATES.map((template) => {
-                    const disabledReason = getTemplateDisabledReason(template.platform)
+                    const disabledReason = getTemplateDisabledReason(template.platform);
                     return (
                       <TemplateCard
                         key={template.id}
@@ -227,13 +216,13 @@ export function AutomationsView() {
                         disabled={!!disabledReason}
                         disabledReason={disabledReason}
                       />
-                    )
+                    );
                   })}
                 </div>
               )}
 
               {/* Active Automations View */}
-              {activeTab !== "templates" && (
+              {activeTab !== 'templates' && (
                 <>
                   {filteredAutomations.length > 0 ? (
                     <div className="grid grid-cols-1 min-420:grid-cols-2 md:grid-cols-3 gap-2 mt-3">
@@ -254,19 +243,15 @@ export function AutomationsView() {
                       ) : (
                         <>
                           <div className="text-center py-8 text-muted-foreground">
-                            <p className="text-sm">
-                              No automations yet. Get started with a template below.
-                            </p>
+                            <p className="text-sm">No automations yet. Get started with a template below.</p>
                           </div>
 
                           {/* Templates section */}
                           <div className="mt-2">
-                            <h3 className="text-xs font-medium text-muted-foreground mb-3">
-                              Templates
-                            </h3>
+                            <h3 className="text-xs font-medium text-muted-foreground mb-3">Templates</h3>
                             <div className="grid grid-cols-1 min-420:grid-cols-2 md:grid-cols-3 gap-2">
                               {AUTOMATION_TEMPLATES.map((template) => {
-                                const disabledReason = getTemplateDisabledReason(template.platform)
+                                const disabledReason = getTemplateDisabledReason(template.platform);
                                 return (
                                   <TemplateCard
                                     key={template.id}
@@ -275,7 +260,7 @@ export function AutomationsView() {
                                     disabled={!!disabledReason}
                                     disabledReason={disabledReason}
                                   />
-                                )
+                                );
                               })}
                             </div>
                           </div>
@@ -290,5 +275,5 @@ export function AutomationsView() {
         </div>
       </div>
     </div>
-  )
+  );
 }

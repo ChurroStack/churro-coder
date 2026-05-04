@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 /**
  * Hook that listens for file changes from Claude Write/Edit tools
@@ -8,41 +8,41 @@ import { useQueryClient } from "@tanstack/react-query"
 export function useFileChangeListener(
   worktreePath: string | null | undefined,
   options?: {
-    onChange?: (data: { filePath: string; type: string; subChatId: string }) => void
-  },
+    onChange?: (data: { filePath: string; type: string; subChatId: string }) => void;
+  }
 ) {
-  const queryClient = useQueryClient()
-  const onChangeRef = useRef(options?.onChange)
+  const queryClient = useQueryClient();
+  const onChangeRef = useRef(options?.onChange);
 
   useEffect(() => {
-    onChangeRef.current = options?.onChange
-  }, [options?.onChange])
+    onChangeRef.current = options?.onChange;
+  }, [options?.onChange]);
 
   useEffect(() => {
-    if (!worktreePath) return
+    if (!worktreePath) return;
 
     const cleanup = window.desktopApi?.onFileChanged((data) => {
       // Check if the changed file is within our worktree
       if (data.filePath.startsWith(worktreePath)) {
         // Invalidate git status queries to trigger refetch
         queryClient.invalidateQueries({
-          queryKey: [["changes", "getStatus"]],
-        })
+          queryKey: [['changes', 'getStatus']]
+        });
         // Invalidate parsed diff caches for both changes + chats routes
         queryClient.invalidateQueries({
-          queryKey: [["changes", "getParsedDiff"]],
-        })
+          queryKey: [['changes', 'getParsedDiff']]
+        });
         queryClient.invalidateQueries({
-          queryKey: [["chats", "getParsedDiff"]],
-        })
-        onChangeRef.current?.(data)
+          queryKey: [['chats', 'getParsedDiff']]
+        });
+        onChangeRef.current?.(data);
       }
-    })
+    });
 
     return () => {
-      cleanup?.()
-    }
-  }, [worktreePath, queryClient])
+      cleanup?.();
+    };
+  }, [worktreePath, queryClient]);
 }
 
 /**
@@ -53,98 +53,99 @@ export function useFileChangeListener(
 export function useGitWatcher(
   worktreePath: string | null | undefined,
   options?: {
-    onChange?: (data: { worktreePath: string; changes: Array<{ path: string; type: "add" | "change" | "unlink" }> }) => void
-    debounceMs?: number
-  },
+    onChange?: (data: {
+      worktreePath: string;
+      changes: Array<{ path: string; type: 'add' | 'change' | 'unlink' }>;
+    }) => void;
+    debounceMs?: number;
+  }
 ) {
-  const queryClient = useQueryClient()
-  const isSubscribedRef = useRef(false)
-  const onChangeRef = useRef(options?.onChange)
-  const debounceMsRef = useRef(options?.debounceMs ?? 0)
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const queryClient = useQueryClient();
+  const isSubscribedRef = useRef(false);
+  const onChangeRef = useRef(options?.onChange);
+  const debounceMsRef = useRef(options?.debounceMs ?? 0);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pendingEventRef = useRef<{
-    worktreePath: string
-    changes: Array<{ path: string; type: "add" | "change" | "unlink" }>
-  } | null>(null)
+    worktreePath: string;
+    changes: Array<{ path: string; type: 'add' | 'change' | 'unlink' }>;
+  } | null>(null);
 
   useEffect(() => {
-    onChangeRef.current = options?.onChange
-    debounceMsRef.current = options?.debounceMs ?? 0
-  }, [options?.onChange, options?.debounceMs])
+    onChangeRef.current = options?.onChange;
+    debounceMsRef.current = options?.debounceMs ?? 0;
+  }, [options?.onChange, options?.debounceMs]);
 
   useEffect(() => {
-    if (!worktreePath) return
+    if (!worktreePath) return;
 
     // Subscribe to git watcher on main process
     const subscribe = async () => {
       try {
-        await window.desktopApi?.subscribeToGitWatcher(worktreePath)
-        isSubscribedRef.current = true
+        await window.desktopApi?.subscribeToGitWatcher(worktreePath);
+        isSubscribedRef.current = true;
       } catch (error) {
-        console.error("[useGitWatcher] Failed to subscribe:", error)
+        console.error('[useGitWatcher] Failed to subscribe:', error);
       }
-    }
+    };
 
-    subscribe()
+    subscribe();
 
     // Listen for git status changes from the watcher
     const cleanup = window.desktopApi?.onGitStatusChanged((data) => {
       if (data.worktreePath === worktreePath) {
         // Invalidate git status queries to trigger refetch
         queryClient.invalidateQueries({
-          queryKey: [["changes", "getStatus"]],
-        })
+          queryKey: [['changes', 'getStatus']]
+        });
 
         // Also invalidate parsed diff if files were modified
-        const hasModifiedFiles = data.changes.some(
-          (change) => change.type === "change" || change.type === "add"
-        )
+        const hasModifiedFiles = data.changes.some((change) => change.type === 'change' || change.type === 'add');
         if (hasModifiedFiles) {
           queryClient.invalidateQueries({
-            queryKey: [["changes", "getParsedDiff"]],
-          })
+            queryKey: [['changes', 'getParsedDiff']]
+          });
           queryClient.invalidateQueries({
-            queryKey: [["chats", "getParsedDiff"]],
-          })
+            queryKey: [['chats', 'getParsedDiff']]
+          });
         }
 
-        const onChange = onChangeRef.current
+        const onChange = onChangeRef.current;
         if (onChange) {
-          const debounceMs = debounceMsRef.current
+          const debounceMs = debounceMsRef.current;
           if (debounceMs > 0) {
-            pendingEventRef.current = data
+            pendingEventRef.current = data;
             if (debounceTimerRef.current) {
-              clearTimeout(debounceTimerRef.current)
+              clearTimeout(debounceTimerRef.current);
             }
             debounceTimerRef.current = setTimeout(() => {
-              debounceTimerRef.current = null
+              debounceTimerRef.current = null;
               if (pendingEventRef.current) {
-                onChange(pendingEventRef.current)
-                pendingEventRef.current = null
+                onChange(pendingEventRef.current);
+                pendingEventRef.current = null;
               }
-            }, debounceMs)
+            }, debounceMs);
           } else {
-            onChange(data)
+            onChange(data);
           }
         }
       }
-    })
+    });
 
     return () => {
-      cleanup?.()
+      cleanup?.();
       if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
-        debounceTimerRef.current = null
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
-      pendingEventRef.current = null
+      pendingEventRef.current = null;
 
       // Unsubscribe from git watcher
       if (isSubscribedRef.current) {
         window.desktopApi?.unsubscribeFromGitWatcher(worktreePath).catch((error) => {
-          console.error("[useGitWatcher] Failed to unsubscribe:", error)
-        })
-        isSubscribedRef.current = false
+          console.error('[useGitWatcher] Failed to unsubscribe:', error);
+        });
+        isSubscribedRef.current = false;
       }
-    }
-  }, [worktreePath, queryClient])
+    };
+  }, [worktreePath, queryClient]);
 }

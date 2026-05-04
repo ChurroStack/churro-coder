@@ -1,7 +1,7 @@
-import { BrowserWindow, ipcMain, app } from "electron"
-import log from "electron-log"
-import { readFileSync, writeFileSync, existsSync } from "fs"
-import { join } from "path"
+import { BrowserWindow, ipcMain, app } from 'electron';
+import log from 'electron-log';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join } from 'path';
 
 // `electron-updater` isn't part of this checkout's node_modules; it's added
 // at package time. Resolve via `require` lazily so neither tsc nor vite tries
@@ -14,7 +14,7 @@ import { join } from "path"
 const autoUpdater: any = (() => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("electron-updater").autoUpdater
+    return require('electron-updater').autoUpdater;
   } catch {
     // electron-updater isn't installed — return a no-op shim so the rest
     // of this module typechecks/runs in dev. Production builds inject the
@@ -24,7 +24,7 @@ const autoUpdater: any = (() => {
       autoDownload: false,
       autoInstallOnAppQuit: false,
       autoRunAppAfterInstall: false,
-      channel: "",
+      channel: '',
       allowDowngrade: false,
       requestHeaders: {},
       setFeedURL: () => {},
@@ -33,18 +33,18 @@ const autoUpdater: any = (() => {
       downloadUpdate: async () => null,
       quitAndInstall: () => {},
       on: () => {},
-      removeAllListeners: () => {},
-    }
+      removeAllListeners: () => {}
+    };
   }
-})()
+})();
 
 // Local stub for the UpdateInfo shape.
 type UpdateInfo = {
-  version: string
-  releaseName?: string
-  releaseNotes?: string | unknown
-  releaseDate?: string
-}
+  version: string;
+  releaseName?: string;
+  releaseNotes?: string | unknown;
+  releaseDate?: string;
+};
 
 /**
  * IMPORTANT: Do NOT use lazy/dynamic imports for electron-updater!
@@ -58,66 +58,66 @@ type UpdateInfo = {
 
 function initAutoUpdaterConfig() {
   // Configure logging
-  log.transports.file.level = "info"
-  autoUpdater.logger = log
+  log.transports.file.level = 'info';
+  autoUpdater.logger = log;
 
   // Configure updater behavior
-  autoUpdater.autoDownload = false // Let user decide when to download
-  autoUpdater.autoInstallOnAppQuit = true // Install on quit if downloaded
-  autoUpdater.autoRunAppAfterInstall = true // Restart app after install
+  autoUpdater.autoDownload = false; // Let user decide when to download
+  autoUpdater.autoInstallOnAppQuit = true; // Install on quit if downloaded
+  autoUpdater.autoRunAppAfterInstall = true; // Restart app after install
 }
 
 // CDN base URL for updates
-const CDN_BASE = "https://cdn.churrostack.com/releases/desktop"
+const CDN_BASE = 'https://cdn.churrostack.com/releases/desktop';
 
 // Minimum interval between update checks (prevent spam on rapid focus/blur)
-const MIN_CHECK_INTERVAL = 60 * 1000 // 1 minute
-let lastCheckTime = 0
+const MIN_CHECK_INTERVAL = 60 * 1000; // 1 minute
+let lastCheckTime = 0;
 
 // Update channel preference file
-const CHANNEL_PREF_FILE = "update-channel.json"
+const CHANNEL_PREF_FILE = 'update-channel.json';
 
-type UpdateChannel = "latest" | "beta"
+type UpdateChannel = 'latest' | 'beta';
 
 function getChannelPrefPath(): string {
-  return join(app.getPath("userData"), CHANNEL_PREF_FILE)
+  return join(app.getPath('userData'), CHANNEL_PREF_FILE);
 }
 
 function getSavedChannel(): UpdateChannel {
   try {
-    const prefPath = getChannelPrefPath()
+    const prefPath = getChannelPrefPath();
     if (existsSync(prefPath)) {
-      const data = JSON.parse(readFileSync(prefPath, "utf-8"))
-      if (data.channel === "beta" || data.channel === "latest") {
-        return data.channel
+      const data = JSON.parse(readFileSync(prefPath, 'utf-8'));
+      if (data.channel === 'beta' || data.channel === 'latest') {
+        return data.channel;
       }
     }
   } catch {
     // Ignore read errors, fall back to default
   }
-  return "latest"
+  return 'latest';
 }
 
 function saveChannel(channel: UpdateChannel): void {
   try {
-    writeFileSync(getChannelPrefPath(), JSON.stringify({ channel }), "utf-8")
+    writeFileSync(getChannelPrefPath(), JSON.stringify({ channel }), 'utf-8');
   } catch (error) {
-    log.error("[AutoUpdater] Failed to save channel preference:", error)
+    log.error('[AutoUpdater] Failed to save channel preference:', error);
   }
 }
 
-let getAllWindows: (() => BrowserWindow[]) | null = null
+let getAllWindows: (() => BrowserWindow[]) | null = null;
 
 /**
  * Send update event to all renderer windows
  * Update events are app-wide and should be visible in all windows
  */
 function sendToAllRenderers(channel: string, data?: unknown) {
-  const windows = getAllWindows?.() ?? BrowserWindow.getAllWindows()
+  const windows = getAllWindows?.() ?? BrowserWindow.getAllWindows();
   for (const win of windows) {
     try {
       if (win && !win.isDestroyed()) {
-        win.webContents.send(channel, data)
+        win.webContents.send(channel, data);
       }
     } catch {
       // Window may have been destroyed between check and send
@@ -130,8 +130,8 @@ function sendToAllRenderers(channel: string, data?: unknown) {
  */
 export async function initAutoUpdater(getWindows: () => BrowserWindow[]) {
   // UPDATES-DISABLED: re-enable to restore update functionality
-  void getWindows
-  return
+  void getWindows;
+  return;
   /*
   getAllWindows = getWindows
 
@@ -235,7 +235,7 @@ export async function initAutoUpdater(getWindows: () => BrowserWindow[]) {
  */
 function registerIpcHandlers() {
   // UPDATES-DISABLED: re-enable to restore update IPC handlers
-  return
+  return;
   /*
   // Check for updates
   ipcMain.handle("update:check", async (_event, force?: boolean) => {
@@ -331,8 +331,8 @@ function registerIpcHandlers() {
  */
 export async function checkForUpdates(force = false) {
   // UPDATES-DISABLED: re-enable to restore update check
-  void force
-  return Promise.resolve(null)
+  void force;
+  return Promise.resolve(null);
   /*
   if (!app.isPackaged) {
     log.info("[AutoUpdater] Skipping update check in dev mode")
@@ -358,7 +358,7 @@ export async function checkForUpdates(force = false) {
  */
 export async function downloadUpdate() {
   // UPDATES-DISABLED: re-enable to restore update download
-  return false
+  return false;
   /*
   if (!app.isPackaged) {
     log.info("[AutoUpdater] Skipping download in dev mode")
@@ -382,7 +382,7 @@ export async function downloadUpdate() {
  */
 export function setupFocusUpdateCheck(_getWindows: () => BrowserWindow[]) {
   // UPDATES-DISABLED: re-enable to restore focus-based update check
-  return
+  return;
   /*
   // Listen for window focus events
   app.on("browser-window-focus", () => {
@@ -396,9 +396,9 @@ export function setupFocusUpdateCheck(_getWindows: () => BrowserWindow[]) {
  * Format bytes to human readable string
  */
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B"
-  const k = 1024
-  const sizes = ["B", "KB", "MB", "GB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }

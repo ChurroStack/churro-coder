@@ -1,1 +1,1 @@
-export { PRIcon } from "./pr-icon";
+export { PRIcon } from './pr-icon';

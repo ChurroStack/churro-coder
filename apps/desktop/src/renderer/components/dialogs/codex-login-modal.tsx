@@ -1,45 +1,37 @@
-"use client"
+'use client';
 
-import { useAtom, useSetAtom } from "jotai"
-import { X } from "lucide-react"
-import { useEffect, useRef } from "react"
-import { pendingAuthRetryMessageAtom } from "../../features/agents/atoms"
-import {
-  CodexLoginContent,
-} from "../../features/agents/components/codex-login-content"
-import { useCodexLoginFlow } from "../../features/agents/hooks/use-codex-login-flow"
+import { useAtom, useSetAtom } from 'jotai';
+import { X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { pendingAuthRetryMessageAtom } from '../../features/agents/atoms';
+import { CodexLoginContent } from '../../features/agents/components/codex-login-content';
+import { useCodexLoginFlow } from '../../features/agents/hooks/use-codex-login-flow';
 import {
   agentsSettingsDialogActiveTabAtom,
   agentsSettingsDialogOpenAtom,
   codexLoginModalOpenAtom,
   codexOnboardingAuthMethodAtom,
   codexOnboardingCompletedAtom,
-  type SettingsTab,
-} from "../../lib/atoms"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-} from "../ui/alert-dialog"
+  type SettingsTab
+} from '../../lib/atoms';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent } from '../ui/alert-dialog';
 
 type CodexLoginModalProps = {
-  autoStart?: boolean
-}
+  autoStart?: boolean;
+};
 
 export function CodexLoginModal({ autoStart = true }: CodexLoginModalProps) {
-  const [open, setOpen] = useAtom(codexLoginModalOpenAtom)
-  const setSettingsOpen = useSetAtom(agentsSettingsDialogOpenAtom)
-  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom)
-  const setCodexOnboardingCompleted = useSetAtom(codexOnboardingCompletedAtom)
-  const setCodexOnboardingAuthMethod = useSetAtom(codexOnboardingAuthMethodAtom)
-  const [pendingAuthRetry, setPendingAuthRetry] = useAtom(
-    pendingAuthRetryMessageAtom,
-  )
-  const didInitForOpenRef = useRef(false)
-  const didStartForOpenRef = useRef(false)
-  const shouldAutoOpenUrlRef = useRef(false)
-  const isAuthRetryFlow = pendingAuthRetry?.provider === "codex"
-  const shouldAutoStartForCurrentFlow = autoStart && !isAuthRetryFlow
+  const [open, setOpen] = useAtom(codexLoginModalOpenAtom);
+  const setSettingsOpen = useSetAtom(agentsSettingsDialogOpenAtom);
+  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
+  const setCodexOnboardingCompleted = useSetAtom(codexOnboardingCompletedAtom);
+  const setCodexOnboardingAuthMethod = useSetAtom(codexOnboardingAuthMethodAtom);
+  const [pendingAuthRetry, setPendingAuthRetry] = useAtom(pendingAuthRetryMessageAtom);
+  const didInitForOpenRef = useRef(false);
+  const didStartForOpenRef = useRef(false);
+  const shouldAutoOpenUrlRef = useRef(false);
+  const isAuthRetryFlow = pendingAuthRetry?.provider === 'codex';
+  const shouldAutoStartForCurrentFlow = autoStart && !isAuthRetryFlow;
 
   const {
     state,
@@ -54,76 +46,72 @@ export function CodexLoginModal({ autoStart = true }: CodexLoginModalProps) {
     setApiKeyInput,
     cancel,
     reset,
-    openUrl,
-  } = useCodexLoginFlow()
+    openUrl
+  } = useCodexLoginFlow();
 
   const clearPendingRetryIfNeeded = () => {
-    if (
-      pendingAuthRetry &&
-      pendingAuthRetry.provider === "codex" &&
-      !pendingAuthRetry.readyToRetry
-    ) {
-      setPendingAuthRetry(null)
+    if (pendingAuthRetry && pendingAuthRetry.provider === 'codex' && !pendingAuthRetry.readyToRetry) {
+      setPendingAuthRetry(null);
     }
-  }
+  };
 
   useEffect(() => {
     if (!open) {
-      didInitForOpenRef.current = false
-      didStartForOpenRef.current = false
-      shouldAutoOpenUrlRef.current = false
-      return
+      didInitForOpenRef.current = false;
+      didStartForOpenRef.current = false;
+      shouldAutoOpenUrlRef.current = false;
+      return;
     }
 
     if (!didInitForOpenRef.current) {
-      didInitForOpenRef.current = true
-      reset()
+      didInitForOpenRef.current = true;
+      reset();
     }
 
-    if (!shouldAutoStartForCurrentFlow || method !== "chatgpt") {
-      return
+    if (!shouldAutoStartForCurrentFlow || method !== 'chatgpt') {
+      return;
     }
 
     if (didStartForOpenRef.current) {
-      return
+      return;
     }
 
-    didStartForOpenRef.current = true
-    void start()
-  }, [method, open, reset, shouldAutoStartForCurrentFlow, start])
+    didStartForOpenRef.current = true;
+    void start();
+  }, [method, open, reset, shouldAutoStartForCurrentFlow, start]);
 
   useEffect(() => {
-    if (!open || method !== "chatgpt") {
-      shouldAutoOpenUrlRef.current = false
-      return
+    if (!open || method !== 'chatgpt') {
+      shouldAutoOpenUrlRef.current = false;
+      return;
     }
 
     if (!shouldAutoOpenUrlRef.current) {
-      return
+      return;
     }
 
     if (url) {
-      shouldAutoOpenUrlRef.current = false
-      void openUrl()
-      return
+      shouldAutoOpenUrlRef.current = false;
+      void openUrl();
+      return;
     }
 
-    if (state === "error" || state === "cancelled" || state === "success") {
-      shouldAutoOpenUrlRef.current = false
+    if (state === 'error' || state === 'cancelled' || state === 'success') {
+      shouldAutoOpenUrlRef.current = false;
     }
-  }, [method, open, openUrl, state, url])
+  }, [method, open, openUrl, state, url]);
 
   useEffect(() => {
-    if (!open || state !== "success") return
+    if (!open || state !== 'success') return;
 
-    setCodexOnboardingCompleted(true)
-    setCodexOnboardingAuthMethod(method)
+    setCodexOnboardingCompleted(true);
+    setCodexOnboardingAuthMethod(method);
 
-    if (pendingAuthRetry?.provider === "codex" && !pendingAuthRetry.readyToRetry) {
-      setPendingAuthRetry({ ...pendingAuthRetry, readyToRetry: true })
+    if (pendingAuthRetry?.provider === 'codex' && !pendingAuthRetry.readyToRetry) {
+      setPendingAuthRetry({ ...pendingAuthRetry, readyToRetry: true });
     }
 
-    setOpen(false)
+    setOpen(false);
   }, [
     method,
     open,
@@ -132,33 +120,33 @@ export function CodexLoginModal({ autoStart = true }: CodexLoginModalProps) {
     setCodexOnboardingCompleted,
     setOpen,
     setPendingAuthRetry,
-    state,
-  ])
+    state
+  ]);
 
   const handleConnect = () => {
-    if (method === "api_key") {
-      void saveApiKey()
-      return
+    if (method === 'api_key') {
+      void saveApiKey();
+      return;
     }
 
-    shouldAutoOpenUrlRef.current = true
-    void start()
-  }
+    shouldAutoOpenUrlRef.current = true;
+    void start();
+  };
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
-      void cancel()
-      clearPendingRetryIfNeeded()
+      void cancel();
+      clearPendingRetryIfNeeded();
     }
-    setOpen(nextOpen)
-  }
+    setOpen(nextOpen);
+  };
 
   const handleOpenModelsSettings = () => {
-    clearPendingRetryIfNeeded()
-    setSettingsActiveTab("models" as SettingsTab)
-    setSettingsOpen(true)
-    setOpen(false)
-  }
+    clearPendingRetryIfNeeded();
+    setSettingsActiveTab('models' as SettingsTab);
+    setSettingsOpen(true);
+    setOpen(false);
+  };
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
@@ -179,24 +167,24 @@ export function CodexLoginModal({ autoStart = true }: CodexLoginModalProps) {
           isConnecting={isRunning || isOpeningUrl}
           onConnect={handleConnect}
           onOpenUrl={() => {
-            void openUrl()
+            void openUrl();
           }}
           onRetry={() => {
-            if (method === "api_key") {
-              void saveApiKey()
-              return
+            if (method === 'api_key') {
+              void saveApiKey();
+              return;
             }
 
             if (shouldAutoStartForCurrentFlow) {
-              void start()
-              return
+              void start();
+              return;
             }
 
-            handleConnect()
+            handleConnect();
           }}
           onApiKeyChange={setApiKeyInput}
           onSubmitApiKey={() => {
-            void saveApiKey()
+            void saveApiKey();
           }}
         />
 
@@ -205,13 +193,12 @@ export function CodexLoginModal({ autoStart = true }: CodexLoginModalProps) {
             <button
               type="button"
               onClick={handleOpenModelsSettings}
-              className="text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
-            >
+              className="text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground">
               Connect with API key in Settings
             </button>
           </div>
         )}
       </AlertDialogContent>
     </AlertDialog>
-  )
+  );
 }

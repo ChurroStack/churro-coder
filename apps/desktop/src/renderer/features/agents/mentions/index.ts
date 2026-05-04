@@ -3,10 +3,10 @@ export {
   type AgentsMentionsEditorHandle,
   type FileMentionOption,
   type SlashTriggerPayload,
-  MENTION_PREFIXES,
-} from "./agents-mentions-editor"
+  MENTION_PREFIXES
+} from './agents-mentions-editor';
 
-export { AgentsFileMention } from "./agents-file-mention"
+export { AgentsFileMention } from './agents-file-mention';
 
 export {
   useRenderFileMentions,
@@ -14,5 +14,5 @@ export {
   extractFileMentions,
   hasFileMentions,
   FileOpenProvider,
-  useFileOpen,
-} from "./render-file-mentions"
+  useFileOpen
+} from './render-file-mentions';

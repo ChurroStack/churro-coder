@@ -1,14 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { IDockviewPanelProps } from "dockview-react"
-import { toast } from "sonner"
-import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { ChangesPanel } from "../../changes/changes-panel"
-import {
-  AgentDiffView,
-  type AgentDiffViewRef,
-  diffViewModeAtom,
-} from "../../agents/ui/agent-diff-view"
-import { DiffSidebarHeader } from "../../changes/components/diff-sidebar-header"
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { IDockviewPanelProps } from 'dockview-react';
+import { toast } from 'sonner';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { ChangesPanel } from '../../changes/changes-panel';
+import { AgentDiffView, type AgentDiffViewRef, diffViewModeAtom } from '../../agents/ui/agent-diff-view';
+import { DiffSidebarHeader } from '../../changes/components/diff-sidebar-header';
 import {
   workspaceDiffCacheAtomFamily,
   workspaceDiffRefreshTickAtomFamily,
@@ -22,24 +18,18 @@ import {
   subChatFilesAtom,
   filteredSubChatIdAtom,
   selectedDiffFilePathAtom,
-  type SelectedCommit,
-} from "../../agents/atoms"
-import { useAgentSubChatStore } from "../../agents/stores/sub-chat-store"
-import { applyModeDefaultModel } from "../../agents/lib/model-switching"
-import {
-  generatePrMessage,
-  generateReviewMessage,
-} from "../../agents/utils/pr-message"
-import { usePRStatus } from "../../../hooks/usePRStatus"
-import { trpc, trpcClient } from "../../../lib/trpc"
-import { computeSubChatFiles } from "../../agents/hooks/use-changed-files-tracking"
-import type {
-  ChangeCategory,
-  ChangedFile,
-} from "../../../../shared/changes-types"
-import type { DiffPanelEntity } from "../atoms"
-import type { DockviewApi } from "dockview-react"
-import { useDockApi } from "../dock-context"
+  type SelectedCommit
+} from '../../agents/atoms';
+import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
+import { applyModeDefaultModel } from '../../agents/lib/model-switching';
+import { generatePrMessage, generateReviewMessage } from '../../agents/utils/pr-message';
+import { usePRStatus } from '../../../hooks/usePRStatus';
+import { trpc, trpcClient } from '../../../lib/trpc';
+import { computeSubChatFiles } from '../../agents/hooks/use-changed-files-tracking';
+import type { ChangeCategory, ChangedFile } from '../../../../shared/changes-types';
+import type { DiffPanelEntity } from '../atoms';
+import type { DockviewApi } from 'dockview-react';
+import { useDockApi } from '../dock-context';
 
 // Wait up to `timeoutMs` for the chat panel to exist, then activate it.
 // New sub-chats may not have their dockview panel yet at the moment a
@@ -48,17 +38,17 @@ import { useDockApi } from "../dock-context"
 async function activateChatPanelWhenReady(
   dockApi: DockviewApi | null,
   subChatId: string,
-  timeoutMs = 1500,
+  timeoutMs = 1500
 ): Promise<void> {
-  if (!dockApi) return
-  const deadline = Date.now() + timeoutMs
+  if (!dockApi) return;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
-    const panel = dockApi.getPanel(`chat:${subChatId}`)
+    const panel = dockApi.getPanel(`chat:${subChatId}`);
     if (panel) {
-      if (!panel.api.isActive) panel.api.setActive()
-      return
+      if (!panel.api.isActive) panel.api.setActive();
+      return;
     }
-    await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50));
   }
 }
 
@@ -87,43 +77,37 @@ async function activateChatPanelWhenReady(
  * commit/PR from the chat side; this panel is for *viewing* changes.
  */
 export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
-  const { chatId } = params
-  const dockApi = useDockApi()
-  const cache = useAtomValue(workspaceDiffCacheAtomFamily(chatId))
-  const changesPanelWidth = useAtomValue(agentsChangesPanelWidthAtom)
-  const [activeTab, setActiveTab] = useAtom(diffActiveTabAtom)
-  const [selectedCommit, setSelectedCommit] = useAtom(selectedCommitAtom)
-  const [diffMode, setDiffMode] = useAtom(diffViewModeAtom)
+  const { chatId } = params;
+  const dockApi = useDockApi();
+  const cache = useAtomValue(workspaceDiffCacheAtomFamily(chatId));
+  const changesPanelWidth = useAtomValue(agentsChangesPanelWidthAtom);
+  const [activeTab, setActiveTab] = useAtom(diffActiveTabAtom);
+  const [selectedCommit, setSelectedCommit] = useAtom(selectedCommitAtom);
+  const [diffMode, setDiffMode] = useAtom(diffViewModeAtom);
 
-  const trpcUtils = trpc.useUtils()
+  const trpcUtils = trpc.useUtils();
 
-  const { data: chat } = trpc.chats.get.useQuery(
-    { id: chatId },
-    { enabled: !!chatId, staleTime: 5_000 },
-  )
-  const worktreePath = chat?.worktreePath ?? null
-  const sandboxId = (chat as { sandboxId?: string } | null | undefined)
-    ?.sandboxId ?? null
-  const repository = (chat as { repository?: string } | null | undefined)
-    ?.repository ?? null
+  const { data: chat } = trpc.chats.get.useQuery({ id: chatId }, { enabled: !!chatId, staleTime: 5_000 });
+  const worktreePath = chat?.worktreePath ?? null;
+  const sandboxId = (chat as { sandboxId?: string } | null | undefined)?.sandboxId ?? null;
+  const repository = (chat as { repository?: string } | null | undefined)?.repository ?? null;
 
   const { data: branchData } = trpc.changes.getBranches.useQuery(
-    { worktreePath: worktreePath ?? "" },
-    { enabled: !!worktreePath, staleTime: 30_000 },
-  )
+    { worktreePath: worktreePath ?? '' },
+    { enabled: !!worktreePath, staleTime: 30_000 }
+  );
 
   // Clear selectedCommit when the worktree changes — the atom is global so a
   // commit hash from worktree A would otherwise leak into worktree B and
   // surface as a "bad object" git error in getCommitFiles / getCommitFileDiff.
   useEffect(() => {
-    setSelectedCommit(null)
-  }, [worktreePath, setSelectedCommit])
+    setSelectedCommit(null);
+  }, [worktreePath, setSelectedCommit]);
 
-  const { data: gitStatus, isLoading: isGitStatusLoading } =
-    trpc.changes.getStatus.useQuery(
-      { worktreePath: worktreePath ?? "" },
-      { enabled: !!worktreePath, staleTime: 5_000 },
-    )
+  const { data: gitStatus, isLoading: isGitStatusLoading } = trpc.changes.getStatus.useQuery(
+    { worktreePath: worktreePath ?? '' },
+    { enabled: !!worktreePath, staleTime: 5_000 }
+  );
 
   // Build filter items from sub-chat metadata + the per-sub-chat tracked-file
   // map. Only include sub-chats with at least one tracked file so the toggle
@@ -132,62 +116,64 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   // Priority: subChatFilesAtom (kept fresh by SubChatFilesTracker / streaming)
   // falls back to computing directly from persisted messages so the count is
   // correct even when the chat panel was never opened in this session.
-  const subChatFiles = useAtomValue(subChatFilesAtom)
+  const subChatFiles = useAtomValue(subChatFilesAtom);
   const subChatsForFilter = useMemo(() => {
-    const subs = chat?.subChats ?? []
+    const subs = chat?.subChats ?? [];
     return subs
       .map((sc: { id: string; name?: string | null; messages?: unknown }) => {
-        const atomFiles = subChatFiles.get(sc.id)
+        const atomFiles = subChatFiles.get(sc.id);
         if (atomFiles !== undefined) {
           return {
             id: sc.id,
-            name: sc.name ?? "Conversation",
+            name: sc.name ?? 'Conversation',
             filePaths: atomFiles.map((f) => f.filePath),
-            fileCount: atomFiles.length,
-          }
+            fileCount: atomFiles.length
+          };
         }
         // Atom not yet seeded — parse messages from DB directly.
-        const rawMessages = sc.messages
+        const rawMessages = sc.messages;
         const messages: unknown[] = (() => {
-          if (Array.isArray(rawMessages)) return rawMessages
-          if (typeof rawMessages !== "string") return []
+          if (Array.isArray(rawMessages)) return rawMessages;
+          if (typeof rawMessages !== 'string') return [];
           if (
-            !rawMessages.includes("tool-Edit") &&
-            !rawMessages.includes("tool-Write") &&
-            !rawMessages.includes("changedFiles")
-          ) return []
-          try { return JSON.parse(rawMessages) } catch { return [] }
-        })()
-        const files = computeSubChatFiles(messages as any[], worktreePath ?? undefined)
+            !rawMessages.includes('tool-Edit') &&
+            !rawMessages.includes('tool-Write') &&
+            !rawMessages.includes('changedFiles')
+          )
+            return [];
+          try {
+            return JSON.parse(rawMessages);
+          } catch {
+            return [];
+          }
+        })();
+        const files = computeSubChatFiles(messages as any[], worktreePath ?? undefined);
         return {
           id: sc.id,
-          name: sc.name ?? "Conversation",
+          name: sc.name ?? 'Conversation',
           filePaths: files.map((f) => f.filePath),
-          fileCount: files.length,
-        }
+          fileCount: files.length
+        };
       })
-      .filter((item: { fileCount: number }) => item.fileCount > 0)
-  }, [chat, subChatFiles, worktreePath])
+      .filter((item: { fileCount: number }) => item.fileCount > 0);
+  }, [chat, subChatFiles, worktreePath]);
 
   // Active sub-chat — drives the Scoped/All toggle. The store's chatId is
   // set when the user navigates into a chat; for the dockview-promoted panel
   // this will match the panel's chatId when the user is viewing it.
-  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId)
+  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
 
-  const atomSelectedFilePath = useAtomValue(selectedDiffFilePathAtom)
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(atomSelectedFilePath)
-  const handleFileSelect = useCallback(
-    (file: ChangedFile, _category: ChangeCategory) => {
-      setSelectedFilePath(file.path)
-    },
-    [],
-  )
+  const atomSelectedFilePath = useAtomValue(selectedDiffFilePathAtom);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(atomSelectedFilePath);
+  const handleFileSelect = useCallback((file: ChangedFile, _category: ChangeCategory) => {
+    setSelectedFilePath(file.path);
+  }, []);
 
   // Sync atom → local state so clicking a file in the Changes widget
   // navigates an already-open diff panel to that file.
   useEffect(() => {
-    if (atomSelectedFilePath) setSelectedFilePath(atomSelectedFilePath)
-  }, [atomSelectedFilePath])
+    if (atomSelectedFilePath) setSelectedFilePath(atomSelectedFilePath);
+  }, [atomSelectedFilePath]);
 
   // History tab — clicking a commit row selects it, clicking a file
   // inside that commit picks the file path. Both feed back into atoms
@@ -195,85 +181,79 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   // render.
   const handleCommitSelect = useCallback(
     (commit: SelectedCommit) => {
-      setSelectedCommit(commit)
+      setSelectedCommit(commit);
     },
-    [setSelectedCommit],
-  )
-  const handleCommitFileSelect = useCallback(
-    (file: ChangedFile, _commitHash: string) => {
-      setSelectedFilePath(file.path)
-    },
-    [],
-  )
+    [setSelectedCommit]
+  );
+  const handleCommitFileSelect = useCallback((file: ChangedFile, _commitHash: string) => {
+    setSelectedFilePath(file.path);
+  }, []);
   const handleActiveTabChange = useCallback(
-    (tab: "changes" | "history") => {
-      setActiveTab(tab)
+    (tab: 'changes' | 'history') => {
+      setActiveTab(tab);
     },
-    [setActiveTab],
-  )
+    [setActiveTab]
+  );
 
   // Refresh the diff cache after user-triggered commit / discard
   // mutations inside ChangesPanel — the panel runs the mutation itself,
   // we just kick the trpc cache so the AgentDiffView picks up the new
   // working-tree state.
   const handleCommitOrDiscardSuccess = useCallback(() => {
-    if (!chatId || !worktreePath) return
-    void trpcUtils.chats.getParsedDiff.invalidate({ chatId })
-    void trpcUtils.changes.getStatus.invalidate({ worktreePath })
-  }, [chatId, worktreePath, trpcUtils])
+    if (!chatId || !worktreePath) return;
+    void trpcUtils.chats.getParsedDiff.invalidate({ chatId });
+    void trpcUtils.changes.getStatus.invalidate({ worktreePath });
+  }, [chatId, worktreePath, trpcUtils]);
 
   // Pick a sensible default file to highlight on first paint so the diff
   // view doesn't try to render every file at once.
   const initialSelectedFile = useMemo(() => {
-    if (selectedFilePath) return selectedFilePath
-    const first = cache.parsedFileDiffs?.[0]
-    if (!first) return null
-    const candidate =
-      first.newPath !== "/dev/null" ? first.newPath : first.oldPath
-    return candidate && candidate !== "/dev/null" ? candidate : null
-  }, [selectedFilePath, cache.parsedFileDiffs])
+    if (selectedFilePath) return selectedFilePath;
+    const first = cache.parsedFileDiffs?.[0];
+    if (!first) return null;
+    const candidate = first.newPath !== '/dev/null' ? first.newPath : first.oldPath;
+    return candidate && candidate !== '/dev/null' ? candidate : null;
+  }, [selectedFilePath, cache.parsedFileDiffs]);
 
-  const diffViewRef = useRef<AgentDiffViewRef | null>(null)
-  const [viewedCount, setViewedCount] = useState(0)
-  const [isReviewing, setIsReviewing] = useState(false)
-  const [isFixingConflicts, setIsFixingConflicts] = useState(false)
-  const [isCreatingPr, setIsCreatingPr] = useAtom(isCreatingPrAtom)
-  const setPendingPrMessage = useSetAtom(pendingPrMessageAtom)
-  const setPendingReviewMessage = useSetAtom(pendingReviewMessageAtom)
-  const setPendingConflictResolutionMessage = useSetAtom(
-    pendingConflictResolutionMessageAtom,
-  )
+  const diffViewRef = useRef<AgentDiffViewRef | null>(null);
+  const [viewedCount, setViewedCount] = useState(0);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [isFixingConflicts, setIsFixingConflicts] = useState(false);
+  const [isCreatingPr, setIsCreatingPr] = useAtom(isCreatingPrAtom);
+  const setPendingPrMessage = useSetAtom(pendingPrMessageAtom);
+  const setPendingReviewMessage = useSetAtom(pendingReviewMessageAtom);
+  const setPendingConflictResolutionMessage = useSetAtom(pendingConflictResolutionMessageAtom);
 
   // PR status drives the Publish / Merge / Fix-conflicts buttons.
   const { pr } = usePRStatus({
     worktreePath: worktreePath ?? undefined,
-    enabled: !!worktreePath,
-  })
-  const hasPrNumber = !!pr?.number
-  const isPrOpen = pr?.state === "open"
-  const hasMergeConflicts = pr?.mergeable === "CONFLICTING"
+    enabled: !!worktreePath
+  });
+  const hasPrNumber = !!pr?.number;
+  const isPrOpen = pr?.state === 'open';
+  const hasMergeConflicts = pr?.mergeable === 'CONFLICTING';
 
   const createPrMutation = trpc.changes.createPR.useMutation({
     onSuccess: () => {
-      toast.success("Opening GitHub to create PR...", { position: "top-center" })
+      toast.success('Opening GitHub to create PR...', { position: 'top-center' });
       void trpcUtils.changes.getStatus.invalidate({
-        worktreePath: worktreePath ?? "",
-      })
+        worktreePath: worktreePath ?? ''
+      });
     },
     onError: (error) => {
-      toast.error(error.message || "Failed to create PR", { position: "top-center" })
-    },
-  })
+      toast.error(error.message || 'Failed to create PR', { position: 'top-center' });
+    }
+  });
 
   const mergePrMutation = trpc.chats.mergePr.useMutation({
     onSuccess: () => {
-      toast.success("PR merged successfully!", { position: "top-center" })
-      void trpcUtils.chats.getPrStatus.invalidate({ chatId })
+      toast.success('PR merged successfully!', { position: 'top-center' });
+      void trpcUtils.chats.getPrStatus.invalidate({ chatId });
     },
     onError: (error) => {
-      toast.error(error.message || "Failed to merge PR", { position: "top-center" })
-    },
-  })
+      toast.error(error.message || 'Failed to merge PR', { position: 'top-center' });
+    }
+  });
 
   // Bump the per-chatId tick so ChatViewInner's `fetchDiffStats` re-runs.
   // Required because `fetchDiffStats` uses the vanilla trpcClient (not
@@ -281,129 +261,121 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   // the diff content; only the file-list / branches queries (which DO go
   // through useQuery) would update. Without this bump the right panel
   // would stay "No changes detected" even though the file list refreshed.
-  const bumpDiffRefreshTick = useSetAtom(
-    useMemo(() => workspaceDiffRefreshTickAtomFamily(chatId), [chatId]),
-  )
+  const bumpDiffRefreshTick = useSetAtom(useMemo(() => workspaceDiffRefreshTickAtomFamily(chatId), [chatId]));
   const handleRefresh = useCallback(() => {
-    if (!chatId) return
-    void trpcUtils.chats.getParsedDiff.invalidate({ chatId })
+    if (!chatId) return;
+    void trpcUtils.chats.getParsedDiff.invalidate({ chatId });
     void trpcUtils.changes.getStatus.invalidate({
-      worktreePath: worktreePath ?? "",
-    })
+      worktreePath: worktreePath ?? ''
+    });
     void trpcUtils.changes.getBranches.invalidate({
-      worktreePath: worktreePath ?? "",
-    })
+      worktreePath: worktreePath ?? ''
+    });
     // Trigger the actual diff content re-fetch (vanilla-client path).
-    bumpDiffRefreshTick((n) => n + 1)
-  }, [chatId, trpcUtils, worktreePath, bumpDiffRefreshTick])
+    bumpDiffRefreshTick((n) => n + 1);
+  }, [chatId, trpcUtils, worktreePath, bumpDiffRefreshTick]);
 
   // Review — sends a "review the diff" prompt to the active sub-chat.
   // Mirrors active-chat.tsx's handleReview: pulls PR context, switches
   // the sub-chat to the review-mode model, and seeds
   // pendingReviewMessageAtom which ChatViewInner consumes and sends.
-  const filteredSubChatIdValue = useAtomValue(filteredSubChatIdAtom)
+  const filteredSubChatIdValue = useAtomValue(filteredSubChatIdAtom);
   const handleReview = useCallback(async () => {
-    if (!chatId) return
-    setIsReviewing(true)
+    if (!chatId) return;
+    setIsReviewing(true);
     try {
       // Switch the sub-chat to the configured Review-mode model + thinking
       // FIRST, synchronously, before any await yields the event loop. This
       // guarantees the model is in place by the time the transport reads it
       // (transport reads `subChatModelIdAtomFamily` at send time).
-      const subChatStore = useAgentSubChatStore.getState()
-      const activeSubChatId = subChatStore.activeSubChatId
+      const subChatStore = useAgentSubChatStore.getState();
+      const activeSubChatId = subChatStore.activeSubChatId;
       if (!activeSubChatId) {
-        toast.error("No active chat available", { position: "top-center" })
-        return
+        toast.error('No active chat available', { position: 'top-center' });
+        return;
       }
-      subChatStore.addToOpenSubChats(activeSubChatId)
-      applyModeDefaultModel(activeSubChatId, "review")
+      subChatStore.addToOpenSubChats(activeSubChatId);
+      applyModeDefaultModel(activeSubChatId, 'review');
 
-      const context = await trpcClient.chats.getPrContext.query({ chatId })
+      const context = await trpcClient.chats.getPrContext.query({ chatId });
       if (!context) {
-        toast.error("Could not get git context", { position: "top-center" })
-        return
+        toast.error('Could not get git context', { position: 'top-center' });
+        return;
       }
       // Honor the Scoped/All toggle: pass the filtered file list when set.
       const scopedFiles = filteredSubChatIdValue
         ? (subChatFiles.get(filteredSubChatIdValue) ?? [])
             .map((f) => f.displayPath || f.filePath)
             .filter((p): p is string => !!p)
-        : []
-      const message = generateReviewMessage(
-        context,
-        scopedFiles.length > 0 ? scopedFiles : undefined,
-      )
-      setPendingReviewMessage({ message, subChatId: activeSubChatId })
-      await activateChatPanelWhenReady(dockApi, activeSubChatId)
+        : [];
+      const message = generateReviewMessage(context, scopedFiles.length > 0 ? scopedFiles : undefined);
+      setPendingReviewMessage({ message, subChatId: activeSubChatId });
+      await activateChatPanelWhenReady(dockApi, activeSubChatId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to start review", {
-        position: "top-center",
-      })
+      toast.error(err instanceof Error ? err.message : 'Failed to start review', {
+        position: 'top-center'
+      });
     } finally {
-      setIsReviewing(false)
+      setIsReviewing(false);
     }
-  }, [chatId, dockApi, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles])
+  }, [chatId, dockApi, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles]);
 
   // Create PR — direct mutation (opens GitHub's PR-create page).
   const handleCreatePrDirect = useCallback(async () => {
     if (!worktreePath) {
-      toast.error("No workspace path available", { position: "top-center" })
-      return
+      toast.error('No workspace path available', { position: 'top-center' });
+      return;
     }
-    setIsCreatingPr(true)
+    setIsCreatingPr(true);
     try {
-      await createPrMutation.mutateAsync({ worktreePath })
+      await createPrMutation.mutateAsync({ worktreePath });
     } finally {
-      setIsCreatingPr(false)
+      setIsCreatingPr(false);
     }
-  }, [worktreePath, createPrMutation, setIsCreatingPr])
+  }, [worktreePath, createPrMutation, setIsCreatingPr]);
 
   // Create PR with AI — seeds the pending PR message so the active
   // sub-chat's agent can write the title / body.
   const handleCreatePrWithAI = useCallback(async () => {
-    if (!chatId) return
-    setIsCreatingPr(true)
+    if (!chatId) return;
+    setIsCreatingPr(true);
     try {
-      const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId
+      const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId;
       if (!activeSubChatId) {
-        toast.error("No active chat available", { position: "top-center" })
-        setIsCreatingPr(false)
-        return
+        toast.error('No active chat available', { position: 'top-center' });
+        setIsCreatingPr(false);
+        return;
       }
-      const store = useAgentSubChatStore.getState()
-      store.addToOpenSubChats(activeSubChatId)
-      store.setActiveSubChat(activeSubChatId)
-      const context = await trpcClient.chats.getPrContext.query({ chatId })
+      const store = useAgentSubChatStore.getState();
+      store.addToOpenSubChats(activeSubChatId);
+      store.setActiveSubChat(activeSubChatId);
+      const context = await trpcClient.chats.getPrContext.query({ chatId });
       if (!context) {
-        toast.error("Could not get git context", { position: "top-center" })
-        setIsCreatingPr(false)
-        return
+        toast.error('Could not get git context', { position: 'top-center' });
+        setIsCreatingPr(false);
+        return;
       }
-      const message = generatePrMessage(context)
-      setPendingPrMessage({ message, subChatId: activeSubChatId })
-      await activateChatPanelWhenReady(dockApi, activeSubChatId)
+      const message = generatePrMessage(context);
+      setPendingPrMessage({ message, subChatId: activeSubChatId });
+      await activateChatPanelWhenReady(dockApi, activeSubChatId);
       // isCreatingPr is reset by ChatViewInner once the message is sent.
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to prepare PR request",
-        { position: "top-center" },
-      )
-      setIsCreatingPr(false)
+      toast.error(err instanceof Error ? err.message : 'Failed to prepare PR request', { position: 'top-center' });
+      setIsCreatingPr(false);
     }
-  }, [chatId, dockApi, setPendingPrMessage, setIsCreatingPr])
+  }, [chatId, dockApi, setPendingPrMessage, setIsCreatingPr]);
 
   const handleMergePr = useCallback(() => {
-    mergePrMutation.mutate({ chatId, method: "squash" })
-  }, [chatId, mergePrMutation])
+    mergePrMutation.mutate({ chatId, method: 'squash' });
+  }, [chatId, mergePrMutation]);
 
   const handleFixConflicts = useCallback(async () => {
-    const subChatStore = useAgentSubChatStore.getState()
-    const activeSubChatId = subChatStore.activeSubChatId
-    if (!activeSubChatId) return
-    setIsFixingConflicts(true)
+    const subChatStore = useAgentSubChatStore.getState();
+    const activeSubChatId = subChatStore.activeSubChatId;
+    if (!activeSubChatId) return;
+    setIsFixingConflicts(true);
     try {
-      subChatStore.addToOpenSubChats(activeSubChatId)
+      subChatStore.addToOpenSubChats(activeSubChatId);
       const message = `This PR has merge conflicts with the main branch. Please:
 
 1. First, fetch and merge the latest changes from main branch using git commands
@@ -411,61 +383,62 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
 3. After resolving conflicts, commit the merge
 4. Push the changes to update the PR
 
-Make sure to preserve all functionality from both branches when resolving conflicts.`
-      setPendingConflictResolutionMessage({ message, subChatId: activeSubChatId })
-      await activateChatPanelWhenReady(dockApi, activeSubChatId)
+Make sure to preserve all functionality from both branches when resolving conflicts.`;
+      setPendingConflictResolutionMessage({ message, subChatId: activeSubChatId });
+      await activateChatPanelWhenReady(dockApi, activeSubChatId);
     } finally {
-      setIsFixingConflicts(false)
+      setIsFixingConflicts(false);
     }
-  }, [dockApi, setPendingConflictResolutionMessage])
+  }, [dockApi, setPendingConflictResolutionMessage]);
 
   const handleExpandAll = useCallback(() => {
-    diffViewRef.current?.expandAll()
-  }, [])
+    diffViewRef.current?.expandAll();
+  }, []);
   const handleCollapseAll = useCallback(() => {
-    diffViewRef.current?.collapseAll()
-  }, [])
+    diffViewRef.current?.collapseAll();
+  }, []);
   const handleMarkAllViewed = useCallback(() => {
-    diffViewRef.current?.markAllViewed()
-    if (diffViewRef.current) setViewedCount(diffViewRef.current.getViewedCount())
-  }, [])
+    diffViewRef.current?.markAllViewed();
+    if (diffViewRef.current) setViewedCount(diffViewRef.current.getViewedCount());
+  }, []);
   const handleMarkAllUnviewed = useCallback(() => {
-    diffViewRef.current?.markAllUnviewed()
-    if (diffViewRef.current) setViewedCount(diffViewRef.current.getViewedCount())
-  }, [])
+    diffViewRef.current?.markAllUnviewed();
+    if (diffViewRef.current) setViewedCount(diffViewRef.current.getViewedCount());
+  }, []);
 
   if (!worktreePath || !chatId) {
     return (
       <div className="h-full w-full flex items-center justify-center text-muted-foreground text-sm">
         No worktree available
       </div>
-    )
+    );
   }
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden bg-background">
       <DiffSidebarHeader
         worktreePath={worktreePath}
-        currentBranch={branchData?.current ?? ""}
+        currentBranch={branchData?.current ?? ''}
         diffStats={(() => {
           // hasChanges from the in-memory diff cache resets on reload.
           // Supplement with git status so the Review button stays visible
           // whenever there are staged/unstaged/untracked files or unpushed commits.
           const gitHasChanges =
             (gitStatus?.staged.length ?? 0) +
-            (gitStatus?.unstaged.length ?? 0) +
-            (gitStatus?.untracked.length ?? 0) +
-            (gitStatus?.ahead ?? 0) > 0
+              (gitStatus?.unstaged.length ?? 0) +
+              (gitStatus?.untracked.length ?? 0) +
+              (gitStatus?.ahead ?? 0) >
+            0;
           const base = cache.diffStats ?? {
             isLoading: false,
             hasChanges: false,
             fileCount: 0,
             additions: 0,
-            deletions: 0,
-          }
-          return { ...base, hasChanges: base.hasChanges || gitHasChanges }
+            deletions: 0
+          };
+          return { ...base, hasChanges: base.hasChanges || gitHasChanges };
         })()}
-        sidebarWidth={typeof window !== "undefined" ? window.innerWidth : 1200}
+        sidebarWidth={typeof window !== 'undefined' ? window.innerWidth : 1200}
         pushCount={gitStatus?.pushCount ?? 0}
         pullCount={gitStatus?.pullCount ?? 0}
         hasUpstream={gitStatus?.hasUpstream ?? true}
@@ -502,8 +475,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         {/* Left: file list / commits */}
         <div
           className="h-full flex-shrink-0 border-r border-border/50"
-          style={{ width: changesPanelWidth, borderRightWidth: "0.5px" }}
-        >
+          style={{ width: changesPanelWidth, borderRightWidth: '0.5px' }}>
           <ChangesPanel
             worktreePath={worktreePath}
             activeTab={activeTab}
@@ -529,7 +501,7 @@ Make sure to preserve all functionality from both branches when resolving confli
           <AgentDiffView
             ref={diffViewRef}
             chatId={chatId}
-            sandboxId={sandboxId ?? ""}
+            sandboxId={sandboxId ?? ''}
             worktreePath={worktreePath}
             repository={repository ?? undefined}
             initialDiff={cache.diffContent}
@@ -542,5 +514,5 @@ Make sure to preserve all functionality from both branches when resolving confli
         </div>
       </div>
     </div>
-  )
+  );
 }

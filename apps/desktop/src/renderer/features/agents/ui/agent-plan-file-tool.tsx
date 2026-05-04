@@ -1,38 +1,34 @@
-"use client"
+'use client';
 
-import { useAtomValue, useSetAtom } from "jotai"
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChatMarkdownRenderer } from "../../../components/chat-markdown-renderer"
-import { Button } from "../../../components/ui/button"
-import { CheckIcon, CollapseIcon, CopyIcon, ExpandIcon, PlanIcon } from "../../../components/ui/icons"
-import { Kbd } from "../../../components/ui/kbd"
-import { TextShimmer } from "../../../components/ui/text-shimmer"
-import { Tooltip, TooltipContent, TooltipTrigger } from "../../../components/ui/tooltip"
-import { cn } from "../../../lib/utils"
-import {
-  currentPlanPathAtomFamily,
-  pendingBuildPlanSubChatIdAtom,
-  subChatModeAtomFamily,
-} from "../atoms"
-import { addOrFocus } from "../../dock/add-or-focus"
-import { useDockApi } from "../../dock/dock-context"
-import { useAgentSubChatStore } from "../stores/sub-chat-store"
-import { getToolStatus } from "./agent-tool-registry"
-import { areToolPropsEqual } from "./agent-tool-utils"
+import { useAtomValue, useSetAtom } from 'jotai';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChatMarkdownRenderer } from '../../../components/chat-markdown-renderer';
+import { Button } from '../../../components/ui/button';
+import { CheckIcon, CollapseIcon, CopyIcon, ExpandIcon, PlanIcon } from '../../../components/ui/icons';
+import { Kbd } from '../../../components/ui/kbd';
+import { TextShimmer } from '../../../components/ui/text-shimmer';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
+import { cn } from '../../../lib/utils';
+import { currentPlanPathAtomFamily, pendingBuildPlanSubChatIdAtom, subChatModeAtomFamily } from '../atoms';
+import { addOrFocus } from '../../dock/add-or-focus';
+import { useDockApi } from '../../dock/dock-context';
+import { useAgentSubChatStore } from '../stores/sub-chat-store';
+import { getToolStatus } from './agent-tool-registry';
+import { areToolPropsEqual } from './agent-tool-utils';
 
 interface AgentPlanFileToolProps {
   part: {
-    type: string // "tool-Write" | "tool-Edit"
-    state?: string
+    type: string; // "tool-Write" | "tool-Edit"
+    state?: string;
     input?: {
-      file_path?: string
-      content?: string
-      new_string?: string
-    }
-  }
-  chatStatus?: string
-  subChatId: string
-  isEdit?: boolean // Whether this represents an edit operation (for messaging)
+      file_path?: string;
+      content?: string;
+      new_string?: string;
+    };
+  };
+  chatStatus?: string;
+  subChatId: string;
+  isEdit?: boolean; // Whether this represents an edit operation (for messaging)
 }
 
 /**
@@ -44,137 +40,132 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
   part,
   chatStatus,
   subChatId,
-  isEdit = false,
+  isEdit = false
 }: AgentPlanFileToolProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const { isPending } = getToolStatus(part, chatStatus)
-  const isWrite = part.type === "tool-Write"
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const { isPending } = getToolStatus(part, chatStatus);
+  const isWrite = part.type === 'tool-Write';
   // Get mode from per-subChat atomFamily
-  const subChatModeAtom = useMemo(() => subChatModeAtomFamily(subChatId), [subChatId])
-  const subChatMode = useAtomValue(subChatModeAtom)
-  const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom)
+  const subChatModeAtom = useMemo(() => subChatModeAtomFamily(subChatId), [subChatId]);
+  const subChatMode = useAtomValue(subChatModeAtom);
+  const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom);
 
   // Refs for scroll gradients (avoid re-renders)
-  const contentRef = useRef<HTMLDivElement>(null)
-  const topGradientRef = useRef<HTMLDivElement>(null)
-  const bottomGradientRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null);
+  const topGradientRef = useRef<HTMLDivElement>(null);
+  const bottomGradientRef = useRef<HTMLDivElement>(null);
 
-  const currentPlanPathAtom = useMemo(
-    () => currentPlanPathAtomFamily(subChatId),
-    [subChatId],
-  )
-  const setCurrentPlanPath = useSetAtom(currentPlanPathAtom)
-  const dockApi = useDockApi()
+  const currentPlanPathAtom = useMemo(() => currentPlanPathAtomFamily(subChatId), [subChatId]);
+  const setCurrentPlanPath = useSetAtom(currentPlanPathAtom);
+  const dockApi = useDockApi();
 
   // Only consider streaming if chat is actively streaming
-  const isActivelyStreaming = chatStatus === "streaming" || chatStatus === "submitted"
-  const isInputStreaming = part.state === "input-streaming" && isActivelyStreaming
+  const isActivelyStreaming = chatStatus === 'streaming' || chatStatus === 'submitted';
+  const isInputStreaming = part.state === 'input-streaming' && isActivelyStreaming;
 
   // Get plan content - for Write mode it's in input.content, for Edit it's in new_string
-  const planContent = isWrite ? (part.input?.content || "") : (part.input?.new_string || "")
-  const filePath = part.input?.file_path || ""
+  const planContent = isWrite ? part.input?.content || '' : part.input?.new_string || '';
+  const filePath = part.input?.file_path || '';
 
   // Show shimmer during streaming/pending
-  const shouldShowShimmer = isPending || isInputStreaming
+  const shouldShowShimmer = isPending || isInputStreaming;
 
   // View plan button enabled when there's content
-  const viewPlanEnabled = planContent.length > 0
+  const viewPlanEnabled = planContent.length > 0;
 
   // Build button disabled during streaming
-  const buildDisabled = shouldShowShimmer
+  const buildDisabled = shouldShowShimmer;
 
   // Check if we have content to show
-  const hasVisibleContent = planContent.length > 0
+  const hasVisibleContent = planContent.length > 0;
 
   // Update scroll gradients via DOM (no state, no re-renders)
   const updateScrollGradients = useCallback(() => {
-    const content = contentRef.current
-    const topGradient = topGradientRef.current
-    const bottomGradient = bottomGradientRef.current
-    if (!content || !topGradient || !bottomGradient) return
+    const content = contentRef.current;
+    const topGradient = topGradientRef.current;
+    const bottomGradient = bottomGradientRef.current;
+    if (!content || !topGradient || !bottomGradient) return;
 
-    const { scrollTop, scrollHeight, clientHeight } = content
-    const isScrollable = scrollHeight > clientHeight
-    const isAtTop = scrollTop <= 1
-    const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1
+    const { scrollTop, scrollHeight, clientHeight } = content;
+    const isScrollable = scrollHeight > clientHeight;
+    const isAtTop = scrollTop <= 1;
+    const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
 
     // Show top gradient when scrolled down
-    topGradient.style.opacity = isScrollable && !isAtTop ? "1" : "0"
+    topGradient.style.opacity = isScrollable && !isAtTop ? '1' : '0';
     // Show bottom gradient when not at bottom
-    bottomGradient.style.opacity = isScrollable && !isAtBottom ? "1" : "0"
-  }, [])
+    bottomGradient.style.opacity = isScrollable && !isAtBottom ? '1' : '0';
+  }, []);
 
   // Update gradients on scroll and expand state change
   useEffect(() => {
-    const content = contentRef.current
-    if (!content) return
+    const content = contentRef.current;
+    if (!content) return;
 
-    content.addEventListener("scroll", updateScrollGradients)
+    content.addEventListener('scroll', updateScrollGradients);
     // Initial check
-    updateScrollGradients()
+    updateScrollGradients();
 
-    return () => content.removeEventListener("scroll", updateScrollGradients)
-  }, [updateScrollGradients, isExpanded])
+    return () => content.removeEventListener('scroll', updateScrollGradients);
+  }, [updateScrollGradients, isExpanded]);
 
   // Also update gradients when content changes
   useEffect(() => {
-    updateScrollGradients()
-  }, [planContent, updateScrollGradients])
+    updateScrollGradients();
+  }, [planContent, updateScrollGradients]);
 
   // Auto-set current plan path when plan file appears (so Details sidebar can show it immediately)
   useEffect(() => {
     if (filePath && hasVisibleContent) {
-      setCurrentPlanPath(filePath)
+      setCurrentPlanPath(filePath);
     }
-  }, [filePath, hasVisibleContent, setCurrentPlanPath])
+  }, [filePath, hasVisibleContent, setCurrentPlanPath]);
 
   // Handle expand/collapse
   const handleToggleExpand = useCallback(() => {
-    setIsExpanded((prev) => !prev)
-  }, [])
+    setIsExpanded((prev) => !prev);
+  }, []);
 
   const handleOpenInDock = useCallback(() => {
-    if (!filePath || !dockApi) return
+    if (!filePath || !dockApi) return;
     addOrFocus(dockApi, {
-      kind: "plan",
-      data: { chatId: subChatId, planPath: filePath },
-    })
-  }, [filePath, dockApi, subChatId])
+      kind: 'plan',
+      data: { chatId: subChatId, planPath: filePath }
+    });
+  }, [filePath, dockApi, subChatId]);
 
   // Handle build plan - triggers via atom, consumed by ChatViewInner
   const handleBuildPlan = useCallback(() => {
-    const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId
+    const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId;
     if (activeSubChatId) {
-      setPendingBuildPlanSubChatId(activeSubChatId)
+      setPendingBuildPlanSubChatId(activeSubChatId);
     }
-  }, [setPendingBuildPlanSubChatId])
+  }, [setPendingBuildPlanSubChatId]);
 
   // Handle copy plan
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(planContent)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }, [planContent])
+    navigator.clipboard.writeText(planContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [planContent]);
 
   // If no content yet, show minimal view with shimmer (no icon during shimmer)
   if (!hasVisibleContent) {
     return (
       <div className="flex items-center gap-1.5 px-2 py-0.5">
-        {!shouldShowShimmer && (
-          <PlanIcon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
-        )}
+        {!shouldShowShimmer && <PlanIcon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />}
         <span className="text-xs text-muted-foreground">
           {shouldShowShimmer ? (
             <TextShimmer as="span" duration={1.2}>
-              {isEdit ? "Updating plan..." : "Creating plan..."}
+              {isEdit ? 'Updating plan...' : 'Creating plan...'}
             </TextShimmer>
           ) : (
-            "Plan"
+            'Plan'
           )}
         </span>
       </div>
-    )
+    );
   }
 
   return (
@@ -182,13 +173,12 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
       {/* Header - title + expand/collapse button */}
       <div
         onClick={handleToggleExpand}
-        className="flex items-center justify-between pl-2.5 pr-0.5 h-7 cursor-pointer hover:bg-muted/50 transition-colors duration-150"
-      >
+        className="flex items-center justify-between pl-2.5 pr-0.5 h-7 cursor-pointer hover:bg-muted/50 transition-colors duration-150">
         <div className="flex items-center gap-1.5 text-xs truncate flex-1 min-w-0">
           <PlanIcon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
           {shouldShowShimmer ? (
             <TextShimmer as="span" duration={1.2} className="truncate">
-              {isEdit ? "Updating plan..." : "Creating plan..."}
+              {isEdit ? 'Updating plan...' : 'Creating plan...'}
             </TextShimmer>
           ) : (
             <span className="truncate text-foreground font-medium">Plan</span>
@@ -202,22 +192,21 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
               <TooltipTrigger asChild>
                 <button
                   onClick={(e) => {
-                    e.stopPropagation()
-                    handleCopy()
+                    e.stopPropagation();
+                    handleCopy();
                   }}
-                  className="group p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95"
-                >
+                  className="group p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95">
                   <div className="relative w-3.5 h-3.5">
                     <CopyIcon
                       className={cn(
-                        "absolute inset-0 w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out",
-                        copied ? "opacity-0 scale-50" : "opacity-100 scale-100",
+                        'absolute inset-0 w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out',
+                        copied ? 'opacity-0 scale-50' : 'opacity-100 scale-100'
                       )}
                     />
                     <CheckIcon
                       className={cn(
-                        "absolute inset-0 w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out",
-                        copied ? "opacity-100 scale-100" : "opacity-0 scale-50",
+                        'absolute inset-0 w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out',
+                        copied ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
                       )}
                     />
                   </div>
@@ -232,22 +221,21 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
           {/* Expand/Collapse button */}
           <button
             onClick={(e) => {
-              e.stopPropagation()
-              handleToggleExpand()
+              e.stopPropagation();
+              handleToggleExpand();
             }}
-            className="group p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95"
-          >
+            className="group p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95">
             <div className="relative w-4 h-4">
               <ExpandIcon
                 className={cn(
-                  "absolute inset-0 w-4 h-4 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out",
-                  isExpanded ? "opacity-0 scale-75" : "opacity-100 scale-100",
+                  'absolute inset-0 w-4 h-4 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out',
+                  isExpanded ? 'opacity-0 scale-75' : 'opacity-100 scale-100'
                 )}
               />
               <CollapseIcon
                 className={cn(
-                  "absolute inset-0 w-4 h-4 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out",
-                  isExpanded ? "opacity-100 scale-100" : "opacity-0 scale-75",
+                  'absolute inset-0 w-4 h-4 text-muted-foreground group-hover:text-foreground transition-[opacity,transform,color] duration-200 ease-out',
+                  isExpanded ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
                 )}
               />
             </div>
@@ -261,19 +249,20 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
         <div
           ref={topGradientRef}
           className="absolute top-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
-          style={{ opacity: 0, background: "linear-gradient(to bottom, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)" }}
+          style={{
+            opacity: 0,
+            background:
+              'linear-gradient(to bottom, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
+          }}
         />
 
         <div
           ref={contentRef}
           onClick={() => !isExpanded && setIsExpanded(true)}
           className={cn(
-            "text-xs overflow-hidden transition-all duration-200",
-            isExpanded
-              ? "max-h-[300px] overflow-y-auto"
-              : "h-[72px] cursor-pointer hover:bg-muted/50",
-          )}
-        >
+            'text-xs overflow-hidden transition-all duration-200',
+            isExpanded ? 'max-h-[300px] overflow-y-auto' : 'h-[72px] cursor-pointer hover:bg-muted/50'
+          )}>
           <div className="px-3 py-2">
             <ChatMarkdownRenderer content={planContent} size="sm" />
           </div>
@@ -283,7 +272,11 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
         <div
           ref={bottomGradientRef}
           className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
-          style={{ opacity: 1, background: "linear-gradient(to top, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)" }}
+          style={{
+            opacity: 1,
+            background:
+              'linear-gradient(to top, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
+          }}
         />
       </div>
 
@@ -295,24 +288,22 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
             size="sm"
             onClick={handleOpenInDock}
             disabled={!viewPlanEnabled}
-            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-          >
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50">
             View plan
           </Button>
         </div>
 
-        {subChatMode === "plan" && (
+        {subChatMode === 'plan' && (
           <Button
             size="sm"
             onClick={handleBuildPlan}
             disabled={buildDisabled}
-            className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97] disabled:opacity-50"
-          >
+            className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97] disabled:opacity-50">
             Approve
             <Kbd className="ml-1.5 text-primary-foreground/70">⌘↵</Kbd>
           </Button>
         )}
       </div>
     </div>
-  )
-}, areToolPropsEqual)
+  );
+}, areToolPropsEqual);

@@ -14,8 +14,8 @@ export {
   openSearchAtom,
   toggleSearchAtom,
   type SearchMatch,
-  type HighlightRange,
-} from "./chat-search-atoms"
+  type HighlightRange
+} from './chat-search-atoms';
 
 // Utils
 export {
@@ -23,11 +23,11 @@ export {
   findMatches,
   splitTextByHighlights,
   debounce,
-  type TextSegment,
-} from "./chat-search-utils"
+  type TextSegment
+} from './chat-search-utils';
 
 // Components
-export { ChatSearchBar } from "./chat-search-bar"
+export { ChatSearchBar } from './chat-search-bar';
 
 // Context
 export {
@@ -35,5 +35,5 @@ export {
   useSearchHighlightContext,
   useSearchHighlight,
   useIsSearchActive,
-  useSearchQuery,
-} from "./search-highlight-context"
+  useSearchQuery
+} from './search-highlight-context';

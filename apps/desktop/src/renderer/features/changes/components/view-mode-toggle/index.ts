@@ -1,1 +1,1 @@
-export { ViewModeToggle } from "./view-mode-toggle";
+export { ViewModeToggle } from './view-mode-toggle';

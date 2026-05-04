@@ -1,17 +1,17 @@
-"use client"
+'use client';
 
-import { useVirtualizer } from "@tanstack/react-virtual"
-import { useAtom, useAtomValue, useSetAtom } from "jotai"
-import { AlignJustify, FolderOpen, Plus } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { createPortal } from "react-dom"
-import { Button } from "../../../components/ui/button"
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { AlignJustify, FolderOpen, Plus } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Button } from '../../../components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../../../components/ui/dropdown-menu"
+  DropdownMenuTrigger
+} from '../../../components/ui/dropdown-menu';
 import {
   AgentIcon,
   AttachIcon,
@@ -19,14 +19,10 @@ import {
   CheckIcon,
   IconChevronDown,
   PlanIcon,
-  SearchIcon,
-} from "../../../components/ui/icons"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../../../components/ui/popover"
-import { cn } from "../../../lib/utils"
+  SearchIcon
+} from '../../../components/ui/icons';
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
+import { cn } from '../../../lib/utils';
 import {
   agentsDebugModeAtom,
   justCreatedIdsAtom,
@@ -48,21 +44,21 @@ import {
   defaultAgentModeModelAtom,
   defaultAgentModeThinkingAtom,
   defaultPlanModeModelAtom,
-  defaultPlanModeThinkingAtom,
-} from "../atoms"
+  defaultPlanModeThinkingAtom
+} from '../atoms';
 import {
   applyFormSelectionToSubChat,
   applyModeDefaultModel,
   getDefaultModelForMode,
   getDefaultThinkingForMode,
-  getProviderForModelId,
-} from "../lib/model-switching"
-import { defaultAgentModeAtom } from "../../../lib/atoms"
-import { ProjectSelector } from "../components/project-selector"
-import { WorkModeSelector } from "../components/work-mode-selector"
+  getProviderForModelId
+} from '../lib/model-switching';
+import { defaultAgentModeAtom } from '../../../lib/atoms';
+import { ProjectSelector } from '../components/project-selector';
+import { WorkModeSelector } from '../components/work-mode-selector';
 // import { selectedTeamIdAtom } from "@/lib/atoms/team"
-import { atom } from "jotai"
-const selectedTeamIdAtom = atom<string | null>(null)
+import { atom } from 'jotai';
+const selectedTeamIdAtom = atom<string | null>(null);
 import {
   agentsSettingsDialogOpenAtom,
   agentsSettingsDialogActiveTabAtom,
@@ -77,57 +73,40 @@ import {
   showOfflineModeFeaturesAtom,
   selectedOllamaModelAtom,
   customHotkeysAtom,
-  chatSourceModeAtom,
-} from "../../../lib/atoms"
+  chatSourceModeAtom
+} from '../../../lib/atoms';
 // Desktop uses real tRPC
-import { toast } from "sonner"
-import { trpc } from "../../../lib/trpc"
-import {
-  AgentsSlashCommand,
-  COMMAND_PROMPTS,
-  BUILTIN_SLASH_COMMANDS,
-  type SlashCommandOption,
-} from "../commands"
-import { useAgentsFileUpload } from "../hooks/use-agents-file-upload"
-import { usePastedTextFiles } from "../hooks/use-pasted-text-files"
-import { useFocusInputOnEnter } from "../hooks/use-focus-input-on-enter"
-import { useToggleFocusOnCmdEsc } from "../hooks/use-toggle-focus-on-cmd-esc"
-import {
-  useVoiceRecording,
-  blobToBase64,
-  getAudioFormat,
-} from "../../../lib/hooks/use-voice-recording"
-import { getResolvedHotkey } from "../../../lib/hotkeys"
+import { toast } from 'sonner';
+import { trpc } from '../../../lib/trpc';
+import { AgentsSlashCommand, COMMAND_PROMPTS, BUILTIN_SLASH_COMMANDS, type SlashCommandOption } from '../commands';
+import { useAgentsFileUpload } from '../hooks/use-agents-file-upload';
+import { usePastedTextFiles } from '../hooks/use-pasted-text-files';
+import { useFocusInputOnEnter } from '../hooks/use-focus-input-on-enter';
+import { useToggleFocusOnCmdEsc } from '../hooks/use-toggle-focus-on-cmd-esc';
+import { useVoiceRecording, blobToBase64, getAudioFormat } from '../../../lib/hooks/use-voice-recording';
+import { getResolvedHotkey } from '../../../lib/hotkeys';
 import {
   AgentsFileMention,
   AgentsMentionsEditor,
   MENTION_PREFIXES,
   type AgentsMentionsEditorHandle,
-  type FileMentionOption,
-} from "../mentions"
-import { AgentFileItem } from "../ui/agent-file-item"
-import { AgentImageItem } from "../ui/agent-image-item"
-import { AgentPastedTextItem } from "../ui/agent-pasted-text-item"
-import { AgentsHeaderControls } from "../ui/agents-header-controls"
-import { VoiceWaveIndicator } from "../ui/voice-wave-indicator"
-import { NewWorkspaceActions } from "./new-workspace-actions"
-import { NewWorkspaceExplorer } from "./new-workspace-explorer"
+  type FileMentionOption
+} from '../mentions';
+import { AgentFileItem } from '../ui/agent-file-item';
+import { AgentImageItem } from '../ui/agent-image-item';
+import { AgentPastedTextItem } from '../ui/agent-pasted-text-item';
+import { AgentsHeaderControls } from '../ui/agents-header-controls';
+import { VoiceWaveIndicator } from '../ui/voice-wave-indicator';
+import { NewWorkspaceActions } from './new-workspace-actions';
+import { NewWorkspaceExplorer } from './new-workspace-explorer';
 // import { CreateBranchDialog } from "@/app/(alpha)/agents/{components}/create-branch-dialog"
-import {
-  PromptInput,
-  PromptInputActions,
-  PromptInputContextItems,
-} from "../../../components/ui/prompt-input"
-import {
-  agentsSidebarOpenAtom,
-  agentsUnseenChangesAtom,
-  newWorkspaceViewerFileAtom,
-} from "../atoms"
-import { AgentSendButton } from "../components/agent-send-button"
-import { AgentModelSelector } from "../components/agent-model-selector"
-import { CreateBranchDialog } from "../components/create-branch-dialog"
-import { formatTimeAgo } from "../utils/format-time-ago"
-import { handlePasteEvent } from "../utils/paste-text"
+import { PromptInput, PromptInputActions, PromptInputContextItems } from '../../../components/ui/prompt-input';
+import { agentsSidebarOpenAtom, agentsUnseenChangesAtom, newWorkspaceViewerFileAtom } from '../atoms';
+import { AgentSendButton } from '../components/agent-send-button';
+import { AgentModelSelector } from '../components/agent-model-selector';
+import { CreateBranchDialog } from '../components/create-branch-dialog';
+import { formatTimeAgo } from '../utils/format-time-ago';
+import { handlePasteEvent } from '../utils/paste-text';
 import {
   generateDraftId,
   deleteNewChatDraft,
@@ -135,32 +114,32 @@ import {
   saveNewChatDraftWithAttachments,
   saveSubChatDraftWithAttachments,
   getNewChatDraftFull,
-  type DraftProject,
-} from "../lib/drafts"
+  type DraftProject
+} from '../lib/drafts';
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
   coerceCodexThinking,
   type ClaudeThinkingLevel,
-  type CodexThinkingLevel,
-} from "../lib/models"
+  type CodexThinkingLevel
+} from '../lib/models';
 // import type { PlanType } from "@/lib/config/subscription-plans"
-type PlanType = string
+type PlanType = string;
 
 // Hook to get available models (including offline models if Ollama is available and debug enabled)
 function useAvailableModels() {
-  const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom)
+  const showOfflineFeatures = useAtomValue(showOfflineModeFeaturesAtom);
   const { data: ollamaStatus } = trpc.ollama.getStatus.useQuery(undefined, {
     refetchInterval: showOfflineFeatures ? 30000 : false,
-    enabled: showOfflineFeatures, // Only query Ollama when offline mode is enabled
-  })
+    enabled: showOfflineFeatures // Only query Ollama when offline mode is enabled
+  });
 
-  const baseModels = CLAUDE_MODELS
+  const baseModels = CLAUDE_MODELS;
 
-  const isOffline = ollamaStatus ? !(ollamaStatus.internet?.online ?? true) : false
-  const hasOllama = ollamaStatus?.ollama?.available && (ollamaStatus.ollama?.models?.length ?? 0) > 0
-  const ollamaModels = ollamaStatus?.ollama?.models || []
-  const recommendedModel = ollamaStatus?.ollama?.recommendedModel
+  const isOffline = ollamaStatus ? !(ollamaStatus.internet?.online ?? true) : false;
+  const hasOllama = ollamaStatus?.ollama?.available && (ollamaStatus.ollama?.models?.length ?? 0) > 0;
+  const ollamaModels = ollamaStatus?.ollama?.models || [];
+  const recommendedModel = ollamaStatus?.ollama?.recommendedModel;
 
   // Only show offline models if:
   // 1. Debug flag is enabled (showOfflineFeatures)
@@ -172,8 +151,8 @@ function useAvailableModels() {
       ollamaModels,
       recommendedModel,
       isOffline,
-      hasOllama: true,
-    }
+      hasOllama: true
+    };
   }
 
   return {
@@ -181,232 +160,199 @@ function useAvailableModels() {
     ollamaModels: [] as string[],
     recommendedModel: undefined as string | undefined,
     isOffline,
-    hasOllama: false,
-  }
+    hasOllama: false
+  };
 }
 
 // Agent providers
 const agents = [
-  { id: "claude-code", name: "Claude Code", hasModels: true },
-  { id: "cursor", name: "Cursor CLI", disabled: true },
-  { id: "codex", name: "OpenAI Codex" },
-]
+  { id: 'claude-code', name: 'Claude Code', hasModels: true },
+  { id: 'cursor', name: 'Cursor CLI', disabled: true },
+  { id: 'codex', name: 'OpenAI Codex' }
+];
 
 interface NewChatFormProps {
-  isMobileFullscreen?: boolean
-  onBackToChats?: () => void
+  isMobileFullscreen?: boolean;
+  onBackToChats?: () => void;
 }
 
-export function NewChatForm({
-  isMobileFullscreen = false,
-  onBackToChats,
-}: NewChatFormProps = {}) {
+export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewChatFormProps = {}) {
   // UNCONTROLLED: just track if editor has content for send button
-  const [hasContent, setHasContent] = useState(false)
-  const [selectedTeamId] = useAtom(selectedTeamIdAtom)
-  const [selectedChatId, setSelectedChatId] = useAtom(selectedAgentChatIdAtom)
-  const setSelectedChatIsRemote = useSetAtom(selectedChatIsRemoteAtom)
-  const setChatSourceMode = useSetAtom(chatSourceModeAtom)
-  const [selectedDraftId, setSelectedDraftId] = useAtom(selectedDraftIdAtom)
-  const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom)
+  const [hasContent, setHasContent] = useState(false);
+  const [selectedTeamId] = useAtom(selectedTeamIdAtom);
+  const [selectedChatId, setSelectedChatId] = useAtom(selectedAgentChatIdAtom);
+  const setSelectedChatIsRemote = useSetAtom(selectedChatIsRemoteAtom);
+  const setChatSourceMode = useSetAtom(chatSourceModeAtom);
+  const [selectedDraftId, setSelectedDraftId] = useAtom(selectedDraftIdAtom);
+  const [sidebarOpen, setSidebarOpen] = useAtom(agentsSidebarOpenAtom);
 
   // Current draft ID being edited (generated when user starts typing in empty form)
-  const currentDraftIdRef = useRef<string | null>(null)
-  const unseenChanges = useAtomValue(agentsUnseenChangesAtom)
+  const currentDraftIdRef = useRef<string | null>(null);
+  const unseenChanges = useAtomValue(agentsUnseenChangesAtom);
 
   // Check if any chat has unseen changes
-  const hasAnyUnseenChanges = unseenChanges.size > 0
-  const [lastSelectedRepo, setLastSelectedRepo] = useAtom(lastSelectedRepoAtom)
-  const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom)
+  const hasAnyUnseenChanges = unseenChanges.size > 0;
+  const [lastSelectedRepo, setLastSelectedRepo] = useAtom(lastSelectedRepoAtom);
+  const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom);
 
   // Fetch projects to validate selectedProject exists
-  const { data: projectsList, isLoading: isLoadingProjects } =
-    trpc.projects.list.useQuery()
+  const { data: projectsList, isLoading: isLoadingProjects } = trpc.projects.list.useQuery();
 
   // Validate selected project exists in DB
   // While loading, trust the stored value to prevent flicker
   const validatedProject = useMemo(() => {
-    if (!selectedProject) return null
+    if (!selectedProject) return null;
     // While loading, trust localStorage value to prevent flicker
-    if (isLoadingProjects) return selectedProject
+    if (isLoadingProjects) return selectedProject;
     // After loading, validate against DB
-    if (!projectsList) return null
-    const exists = projectsList.some((p) => p.id === selectedProject.id)
-    return exists ? selectedProject : null
-  }, [selectedProject, projectsList, isLoadingProjects])
+    if (!projectsList) return null;
+    const exists = projectsList.some((p) => p.id === selectedProject.id);
+    return exists ? selectedProject : null;
+  }, [selectedProject, projectsList, isLoadingProjects]);
 
   // Clear invalid project from storage
   useEffect(() => {
     if (selectedProject && projectsList && !validatedProject) {
-      setSelectedProject(null)
+      setSelectedProject(null);
     }
-  }, [selectedProject, projectsList, validatedProject, setSelectedProject])
+  }, [selectedProject, projectsList, validatedProject, setSelectedProject]);
 
   // Drop the new-workspace explorer's open file when the project changes —
   // its absolute path may not exist in the new repo.
-  const validatedProjectPath = validatedProject?.path ?? null
-  const setNewWorkspaceViewerFile = useSetAtom(newWorkspaceViewerFileAtom)
+  const validatedProjectPath = validatedProject?.path ?? null;
+  const setNewWorkspaceViewerFile = useSetAtom(newWorkspaceViewerFileAtom);
   useEffect(() => {
-    setNewWorkspaceViewerFile(null)
-  }, [validatedProjectPath, setNewWorkspaceViewerFile])
+    setNewWorkspaceViewerFile(null);
+  }, [validatedProjectPath, setNewWorkspaceViewerFile]);
 
-  const setLastSelectedAgentId = useSetAtom(lastSelectedAgentIdAtom)
-  const setLastSelectedModelId = useSetAtom(lastSelectedModelIdAtom)
+  const setLastSelectedAgentId = useSetAtom(lastSelectedAgentIdAtom);
+  const setLastSelectedModelId = useSetAtom(lastSelectedModelIdAtom);
   // Mode for new chat - uses user's default preference directly
   // Note: defaultAgentMode is initialized synchronously via atomWithStorage with getOnInit: true
-  const defaultAgentMode = useAtomValue(defaultAgentModeAtom)
-  const [agentMode, setAgentMode] = useState<AgentMode>(() => defaultAgentMode)
-  const defaultPlanModel = useAtomValue(defaultPlanModeModelAtom)
-  const defaultAgentModel = useAtomValue(defaultAgentModeModelAtom)
-  const defaultPlanThinking = useAtomValue(defaultPlanModeThinkingAtom)
-  const defaultAgentThinking = useAtomValue(defaultAgentModeThinkingAtom)
-  const modeDefaultModelId =
-    agentMode === "plan" ? defaultPlanModel : defaultAgentModel
-  const modeDefaultThinking =
-    agentMode === "plan" ? defaultPlanThinking : defaultAgentThinking
+  const defaultAgentMode = useAtomValue(defaultAgentModeAtom);
+  const [agentMode, setAgentMode] = useState<AgentMode>(() => defaultAgentMode);
+  const defaultPlanModel = useAtomValue(defaultPlanModeModelAtom);
+  const defaultAgentModel = useAtomValue(defaultAgentModeModelAtom);
+  const defaultPlanThinking = useAtomValue(defaultPlanModeThinkingAtom);
+  const defaultAgentThinking = useAtomValue(defaultAgentModeThinkingAtom);
+  const modeDefaultModelId = agentMode === 'plan' ? defaultPlanModel : defaultAgentModel;
+  const modeDefaultThinking = agentMode === 'plan' ? defaultPlanThinking : defaultAgentThinking;
   // Toggle mode helper
   const toggleMode = useCallback(() => {
-    setAgentMode(getNextMode)
-  }, [])
-  const [workMode, setWorkMode] = useAtom(lastSelectedWorkModeAtom)
+    setAgentMode(getNextMode);
+  }, []);
+  const [workMode, setWorkMode] = useAtom(lastSelectedWorkModeAtom);
 
   // Detect existing Local-mode workspace for the selected project.
   // Used to enforce one-Local-per-repo and show the conflict hint.
   const { data: projectChatList } = trpc.chats.list.useQuery(
-    { projectId: validatedProject?.id ?? "" },
-    { enabled: !!validatedProject?.id && workMode === "local" },
-  )
+    { projectId: validatedProject?.id ?? '' },
+    { enabled: !!validatedProject?.id && workMode === 'local' }
+  );
   const existingLocalChat = useMemo(() => {
-    if (!validatedProject || workMode !== "local") return null
-    return (
-      projectChatList?.find(
-        (c) => c.worktreePath === validatedProject.path,
-      ) ?? null
-    )
-  }, [projectChatList, validatedProject, workMode])
+    if (!validatedProject || workMode !== 'local') return null;
+    return projectChatList?.find((c) => c.worktreePath === validatedProject.path) ?? null;
+  }, [projectChatList, validatedProject, workMode]);
 
-  const debugMode = useAtomValue(agentsDebugModeAtom)
-  const customClaudeConfig = useAtomValue(customClaudeConfigAtom)
-  const normalizedCustomClaudeConfig =
-    normalizeCustomClaudeConfig(customClaudeConfig)
-  const hasCustomClaudeConfig = Boolean(normalizedCustomClaudeConfig)
+  const debugMode = useAtomValue(agentsDebugModeAtom);
+  const customClaudeConfig = useAtomValue(customClaudeConfigAtom);
+  const normalizedCustomClaudeConfig = normalizeCustomClaudeConfig(customClaudeConfig);
+  const hasCustomClaudeConfig = Boolean(normalizedCustomClaudeConfig);
   // Connection status for providers
-  const anthropicOnboardingCompleted = useAtomValue(anthropicOnboardingCompletedAtom)
-  const apiKeyOnboardingCompleted = useAtomValue(apiKeyOnboardingCompletedAtom)
-  const codexOnboardingCompleted = useAtomValue(codexOnboardingCompletedAtom)
-  const { data: claudeCodeIntegration } =
-    trpc.claudeCode.getIntegration.useQuery()
+  const anthropicOnboardingCompleted = useAtomValue(anthropicOnboardingCompletedAtom);
+  const apiKeyOnboardingCompleted = useAtomValue(apiKeyOnboardingCompletedAtom);
+  const codexOnboardingCompleted = useAtomValue(codexOnboardingCompletedAtom);
+  const { data: claudeCodeIntegration } = trpc.claudeCode.getIntegration.useQuery();
   const isClaudeConnected =
     Boolean(claudeCodeIntegration?.isConnected) ||
     anthropicOnboardingCompleted ||
     apiKeyOnboardingCompleted ||
-    hasCustomClaudeConfig
-  const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom)
-  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom)
-  const setJustCreatedIds = useSetAtom(justCreatedIdsAtom)
-  const [repoSearchQuery, setRepoSearchQuery] = useState("")
-  const [createBranchDialogOpen, setCreateBranchDialogOpen] = useState(false)
+    hasCustomClaudeConfig;
+  const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom);
+  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
+  const setJustCreatedIds = useSetAtom(justCreatedIdsAtom);
+  const [repoSearchQuery, setRepoSearchQuery] = useState('');
+  const [createBranchDialogOpen, setCreateBranchDialogOpen] = useState(false);
 
   // Worktree config banner state
   const [worktreeBannerDismissed, setWorktreeBannerDismissed] = useState(() => {
     try {
-      return localStorage.getItem("worktree-banner-dismissed") === "true"
+      return localStorage.getItem('worktree-banner-dismissed') === 'true';
     } catch {
-      return false
+      return false;
     }
-  })
+  });
 
   // Check if project has worktree config
   const { data: worktreeConfigData } = trpc.worktreeConfig.get.useQuery(
-    { projectId: validatedProject?.id ?? "" },
-    { enabled: !!validatedProject?.id && workMode === "worktree" && !worktreeBannerDismissed },
-  )
+    { projectId: validatedProject?.id ?? '' },
+    { enabled: !!validatedProject?.id && workMode === 'worktree' && !worktreeBannerDismissed }
+  );
 
   const showWorktreeBanner =
-    workMode === "worktree" &&
+    workMode === 'worktree' &&
     validatedProject &&
     !worktreeBannerDismissed &&
     worktreeConfigData &&
-    !worktreeConfigData.config
+    !worktreeConfigData.config;
 
   const handleDismissWorktreeBanner = () => {
-    setWorktreeBannerDismissed(true)
+    setWorktreeBannerDismissed(true);
     try {
-      localStorage.setItem("worktree-banner-dismissed", "true")
+      localStorage.setItem('worktree-banner-dismissed', 'true');
     } catch {}
-  }
+  };
 
   const handleConfigureWorktree = () => {
     // Open the projects settings tab
-    setSettingsActiveTab("projects")
-    setSettingsDialogOpen(true)
-  }
+    setSettingsActiveTab('projects');
+    setSettingsDialogOpen(true);
+  };
   // Parse owner/repo from GitHub URL
   const parseGitHubUrl = (url: string) => {
-    const match = url.match(/(?:github\.com\/)?([^\/]+)\/([^\/\s#?]+)/)
-    if (!match) return null
-    return `${match[1]}/${match[2].replace(/\.git$/, "")}`
-  }
-  const enabledAgents = useMemo(
-    () => agents.filter((agent) => !agent.disabled),
-    [],
-  )
-  const fallbackAgent = enabledAgents[0] ?? agents[0]!
-  const [selectedAgent, setSelectedAgent] = useState(
-    () => {
-      const provider = getProviderForModelId(modeDefaultModelId)
-      return enabledAgents.find((agent) => agent.id === provider) || fallbackAgent
-    },
-  )
+    const match = url.match(/(?:github\.com\/)?([^\/]+)\/([^\/\s#?]+)/);
+    if (!match) return null;
+    return `${match[1]}/${match[2].replace(/\.git$/, '')}`;
+  };
+  const enabledAgents = useMemo(() => agents.filter((agent) => !agent.disabled), []);
+  const fallbackAgent = enabledAgents[0] ?? agents[0]!;
+  const [selectedAgent, setSelectedAgent] = useState(() => {
+    const provider = getProviderForModelId(modeDefaultModelId);
+    return enabledAgents.find((agent) => agent.id === provider) || fallbackAgent;
+  });
 
   // Get available models (with offline support)
-  const availableModels = useAvailableModels()
-  const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom)
-  const [lastSelectedCodexModelId, setLastSelectedCodexModelId] = useAtom(
-    lastSelectedCodexModelIdAtom,
-  )
-  const [lastSelectedCodexThinking, setLastSelectedCodexThinking] = useAtom(
-    lastSelectedCodexThinkingAtom,
-  )
-  const [lastSelectedClaudeThinking, setLastSelectedClaudeThinking] = useAtom(
-    lastSelectedClaudeThinkingAtom,
-  )
+  const availableModels = useAvailableModels();
+  const [selectedOllamaModel, setSelectedOllamaModel] = useAtom(selectedOllamaModelAtom);
+  const [lastSelectedCodexModelId, setLastSelectedCodexModelId] = useAtom(lastSelectedCodexModelIdAtom);
+  const [lastSelectedCodexThinking, setLastSelectedCodexThinking] = useAtom(lastSelectedCodexThinkingAtom);
+  const [lastSelectedClaudeThinking, setLastSelectedClaudeThinking] = useAtom(lastSelectedClaudeThinkingAtom);
 
   const [selectedModel, setSelectedModel] = useState(() => {
     // Initial model comes from the mode's default (Plan or Agent preference in Settings).
     // Falls back to the first available model.
-    return (
-      availableModels.models.find((m) => m.id === modeDefaultModelId) ||
-      availableModels.models[0]
-    )
-  })
+    return availableModels.models.find((m) => m.id === modeDefaultModelId) || availableModels.models[0];
+  });
 
   const applyModeDefaultSelection = useCallback(
     (modelId: string, thinking: ClaudeThinkingPreference) => {
-      const provider = getProviderForModelId(modelId)
-      const nextAgent =
-        enabledAgents.find((agent) => agent.id === provider) || fallbackAgent
+      const provider = getProviderForModelId(modelId);
+      const nextAgent = enabledAgents.find((agent) => agent.id === provider) || fallbackAgent;
 
-      setSelectedAgent((current) =>
-        current.id === nextAgent.id ? current : nextAgent,
-      )
+      setSelectedAgent((current) => (current.id === nextAgent.id ? current : nextAgent));
 
-      if (provider === "codex") {
-        const codexModel =
-          CODEX_MODELS.find((model) => model.id === modelId) ||
-          CODEX_MODELS[0]!
-        setLastSelectedCodexModelId(modelId)
-        setLastSelectedCodexThinking(
-          coerceCodexThinking(thinking, codexModel.thinkings),
-        )
-        return
+      if (provider === 'codex') {
+        const codexModel = CODEX_MODELS.find((model) => model.id === modelId) || CODEX_MODELS[0]!;
+        setLastSelectedCodexModelId(modelId);
+        setLastSelectedCodexThinking(coerceCodexThinking(thinking, codexModel.thinkings));
+        return;
       }
 
-      const model = availableModels.models.find((m) => m.id === modelId)
+      const model = availableModels.models.find((m) => m.id === modelId);
       if (model) {
-        setSelectedModel(model)
+        setSelectedModel(model);
       }
-      setLastSelectedClaudeThinking(thinking)
+      setLastSelectedClaudeThinking(thinking);
     },
     [
       availableModels.models,
@@ -414,9 +360,9 @@ export function NewChatForm({
       fallbackAgent,
       setLastSelectedClaudeThinking,
       setLastSelectedCodexModelId,
-      setLastSelectedCodexThinking,
-    ],
-  )
+      setLastSelectedCodexThinking
+    ]
+  );
 
   // When the mode changes (e.g. user toggles Plan ↔ Agent in the form, or the
   // Settings default changes before first render), switch the selected model
@@ -424,124 +370,87 @@ export function NewChatForm({
   // Codex defaults — the active agent is swapped accordingly so the right
   // transport is used.
   useEffect(() => {
-    applyModeDefaultSelection(modeDefaultModelId, modeDefaultThinking)
-  }, [applyModeDefaultSelection, modeDefaultModelId, modeDefaultThinking])
+    applyModeDefaultSelection(modeDefaultModelId, modeDefaultThinking);
+  }, [applyModeDefaultSelection, modeDefaultModelId, modeDefaultThinking]);
 
-  const storedCodexApiKey = useAtomValue(codexApiKeyAtom)
-  const hasAppCodexApiKey = Boolean(normalizeCodexApiKey(storedCodexApiKey))
-  const hiddenModels = useAtomValue(hiddenModelsAtom)
-  const codexUiModels = useMemo(
-    () => {
-      let models = hasAppCodexApiKey
-        ? CODEX_MODELS.filter((model) => model.id !== "gpt-5.3-codex")
-        : CODEX_MODELS
-      return models.filter((model) => !hiddenModels.includes(model.id))
-    },
-    [hasAppCodexApiKey, hiddenModels],
-  )
+  const storedCodexApiKey = useAtomValue(codexApiKeyAtom);
+  const hasAppCodexApiKey = Boolean(normalizeCodexApiKey(storedCodexApiKey));
+  const hiddenModels = useAtomValue(hiddenModelsAtom);
+  const codexUiModels = useMemo(() => {
+    let models = hasAppCodexApiKey ? CODEX_MODELS.filter((model) => model.id !== 'gpt-5.3-codex') : CODEX_MODELS;
+    return models.filter((model) => !hiddenModels.includes(model.id));
+  }, [hasAppCodexApiKey, hiddenModels]);
   const selectedCodexModel = useMemo(
-    () =>
-      codexUiModels.find((model) => model.id === lastSelectedCodexModelId) ||
-      codexUiModels[0] ||
-      CODEX_MODELS[0]!,
-    [codexUiModels, lastSelectedCodexModelId],
-  )
+    () => codexUiModels.find((model) => model.id === lastSelectedCodexModelId) || codexUiModels[0] || CODEX_MODELS[0]!,
+    [codexUiModels, lastSelectedCodexModelId]
+  );
 
   const selectedCodexThinking = useMemo<CodexThinkingLevel>(() => {
-    if (
-      selectedCodexModel.thinkings.includes(
-        lastSelectedCodexThinking as CodexThinkingLevel,
-      )
-    ) {
-      return lastSelectedCodexThinking as CodexThinkingLevel
+    if (selectedCodexModel.thinkings.includes(lastSelectedCodexThinking as CodexThinkingLevel)) {
+      return lastSelectedCodexThinking as CodexThinkingLevel;
     }
 
-    if (selectedCodexModel.thinkings.includes("high")) {
-      return "high"
+    if (selectedCodexModel.thinkings.includes('high')) {
+      return 'high';
     }
 
-    return selectedCodexModel.thinkings[0]!
-  }, [selectedCodexModel, lastSelectedCodexThinking])
+    return selectedCodexModel.thinkings[0]!;
+  }, [selectedCodexModel, lastSelectedCodexThinking]);
 
   useEffect(() => {
-    if (
-      selectedCodexModel.thinkings.includes(
-        lastSelectedCodexThinking as CodexThinkingLevel,
-      )
-    ) {
-      return
+    if (selectedCodexModel.thinkings.includes(lastSelectedCodexThinking as CodexThinkingLevel)) {
+      return;
     }
 
-    setLastSelectedCodexThinking(selectedCodexThinking)
-  }, [
-    selectedCodexModel,
-    lastSelectedCodexThinking,
-    selectedCodexThinking,
-    setLastSelectedCodexThinking,
-  ])
+    setLastSelectedCodexThinking(selectedCodexThinking);
+  }, [selectedCodexModel, lastSelectedCodexThinking, selectedCodexThinking, setLastSelectedCodexThinking]);
 
   // Clamp Claude thinking to levels the selected model supports.
   const selectedClaudeThinking = useMemo<ClaudeThinkingLevel>(() => {
-    const supported = selectedModel?.thinkings ?? []
-    if (
-      supported.includes(lastSelectedClaudeThinking as ClaudeThinkingLevel)
-    ) {
-      return lastSelectedClaudeThinking as ClaudeThinkingLevel
+    const supported = selectedModel?.thinkings ?? [];
+    if (supported.includes(lastSelectedClaudeThinking as ClaudeThinkingLevel)) {
+      return lastSelectedClaudeThinking as ClaudeThinkingLevel;
     }
-    if (supported.includes("high")) return "high"
-    return supported[0] ?? "off"
-  }, [selectedModel, lastSelectedClaudeThinking])
+    if (supported.includes('high')) return 'high';
+    return supported[0] ?? 'off';
+  }, [selectedModel, lastSelectedClaudeThinking]);
 
   useEffect(() => {
-    const supported = selectedModel?.thinkings ?? []
-    if (
-      supported.length === 0 ||
-      supported.includes(lastSelectedClaudeThinking as ClaudeThinkingLevel)
-    ) {
-      return
+    const supported = selectedModel?.thinkings ?? [];
+    if (supported.length === 0 || supported.includes(lastSelectedClaudeThinking as ClaudeThinkingLevel)) {
+      return;
     }
-    setLastSelectedClaudeThinking(selectedClaudeThinking)
-  }, [
-    selectedModel,
-    lastSelectedClaudeThinking,
-    selectedClaudeThinking,
-    setLastSelectedClaudeThinking,
-  ])
+    setLastSelectedClaudeThinking(selectedClaudeThinking);
+  }, [selectedModel, lastSelectedClaudeThinking, selectedClaudeThinking, setLastSelectedClaudeThinking]);
 
   const selectedChatModel = useMemo(() => {
-    if (selectedAgent.id === "codex") {
-      return `${selectedCodexModel.id}/${selectedCodexThinking}`
+    if (selectedAgent.id === 'codex') {
+      return `${selectedCodexModel.id}/${selectedCodexThinking}`;
     }
-    return selectedModel?.id ?? "opus"
-  }, [
-    selectedAgent.id,
-    selectedCodexModel.id,
-    selectedCodexThinking,
-    selectedModel?.id,
-  ])
+    return selectedModel?.id ?? 'opus';
+  }, [selectedAgent.id, selectedCodexModel.id, selectedCodexThinking, selectedModel?.id]);
 
   // Determine current Ollama model (selected or recommended)
-  const currentOllamaModel = selectedOllamaModel || availableModels.recommendedModel || availableModels.ollamaModels[0]
-  const claudeAgent =
-    enabledAgents.find((agent) => agent.id === "claude-code") || fallbackAgent
+  const currentOllamaModel = selectedOllamaModel || availableModels.recommendedModel || availableModels.ollamaModels[0];
+  const claudeAgent = enabledAgents.find((agent) => agent.id === 'claude-code') || fallbackAgent;
   const selectedModelLabel = useMemo(() => {
-    if (selectedAgent.id === "codex") {
-      return selectedCodexModel.name
+    if (selectedAgent.id === 'codex') {
+      return selectedCodexModel.name;
     }
 
     if (availableModels.isOffline && availableModels.hasOllama) {
-      return currentOllamaModel || "Ollama"
+      return currentOllamaModel || 'Ollama';
     }
 
     if (hasCustomClaudeConfig) {
-      return "Custom Model"
+      return 'Custom Model';
     }
 
     if (!selectedModel) {
-      return "Select model"
+      return 'Select model';
     }
 
-    return `${selectedModel.name} ${selectedModel.version}`
+    return `${selectedModel.name} ${selectedModel.version}`;
   }, [
     selectedAgent.id,
     selectedCodexModel.name,
@@ -549,51 +458,45 @@ export function NewChatForm({
     availableModels.hasOllama,
     currentOllamaModel,
     hasCustomClaudeConfig,
-    selectedModel,
-  ])
-  const [repoPopoverOpen, setRepoPopoverOpen] = useState(false)
-  const [branchPopoverOpen, setBranchPopoverOpen] = useState(false)
-  const [lastSelectedBranches, setLastSelectedBranches] = useAtom(
-    lastSelectedBranchesAtom,
-  )
-  const [branchSearch, setBranchSearch] = useState("")
-  const [selectedBranchType, setSelectedBranchType] = useState<
-    "local" | "remote" | undefined
-  >(undefined)
+    selectedModel
+  ]);
+  const [repoPopoverOpen, setRepoPopoverOpen] = useState(false);
+  const [branchPopoverOpen, setBranchPopoverOpen] = useState(false);
+  const [lastSelectedBranches, setLastSelectedBranches] = useAtom(lastSelectedBranchesAtom);
+  const [branchSearch, setBranchSearch] = useState('');
+  const [selectedBranchType, setSelectedBranchType] = useState<'local' | 'remote' | undefined>(undefined);
 
   // Get/set selected branch for current project (persisted per project)
-  const selectedBranch = validatedProject?.id
-    ? lastSelectedBranches[validatedProject.id]?.name || ""
-    : ""
+  const selectedBranch = validatedProject?.id ? lastSelectedBranches[validatedProject.id]?.name || '' : '';
   const setSelectedBranch = useCallback(
-    (branch: string, type?: "local" | "remote") => {
+    (branch: string, type?: 'local' | 'remote') => {
       if (validatedProject?.id && type) {
         setLastSelectedBranches((prev) => ({
           ...prev,
-          [validatedProject.id]: { name: branch, type },
-        }))
-        setSelectedBranchType(type)
+          [validatedProject.id]: { name: branch, type }
+        }));
+        setSelectedBranchType(type);
       }
     },
-    [validatedProject?.id, setLastSelectedBranches],
-  )
-  const branchListRef = useRef<HTMLDivElement>(null)
-  const editorRef = useRef<AgentsMentionsEditorHandle>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+    [validatedProject?.id, setLastSelectedBranches]
+  );
+  const branchListRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<AgentsMentionsEditorHandle>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Restore selectedBranchType from persisted storage when project changes
   useEffect(() => {
     if (validatedProject?.id) {
-      const stored = lastSelectedBranches[validatedProject.id]
+      const stored = lastSelectedBranches[validatedProject.id];
       if (stored?.type) {
-        setSelectedBranchType(stored.type)
+        setSelectedBranchType(stored.type);
       } else {
-        setSelectedBranchType(undefined)
+        setSelectedBranchType(undefined);
       }
     } else {
-      setSelectedBranchType(undefined)
+      setSelectedBranchType(undefined);
     }
-  }, [validatedProject?.id, lastSelectedBranches])
+  }, [validatedProject?.id, lastSelectedBranches]);
 
   // File upload hook
   const {
@@ -606,150 +509,142 @@ export function NewChatForm({
     clearFiles,
     isUploading,
     setImagesFromDraft,
-    setFilesFromDraft,
-  } = useAgentsFileUpload()
+    setFilesFromDraft
+  } = useAgentsFileUpload();
 
   // Pasted text files - use a stable temp ID for new chat
-  const tempPastedIdRef = useRef(`new-chat-${Date.now()}`)
-  const {
-    pastedTexts,
-    addPastedText,
-    removePastedText,
-    clearPastedTexts,
-  } = usePastedTextFiles(tempPastedIdRef.current)
+  const tempPastedIdRef = useRef(`new-chat-${Date.now()}`);
+  const { pastedTexts, addPastedText, removePastedText, clearPastedTexts } = usePastedTextFiles(
+    tempPastedIdRef.current
+  );
 
   // File contents cache - stores content for file mentions (keyed by mentionId)
   // This content gets added to the prompt when sending, without showing a separate card
-  const fileContentsRef = useRef<Map<string, string>>(new Map())
+  const fileContentsRef = useRef<Map<string, string>>(new Map());
 
   // Mention dropdown state
-  const [showMentionDropdown, setShowMentionDropdown] = useState(false)
-  const [mentionSearchText, setMentionSearchText] = useState("")
-  const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 })
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+  const [mentionSearchText, setMentionSearchText] = useState('');
+  const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
 
   // Mention subpage navigation state
-  const [showingFilesList, setShowingFilesList] = useState(false)
-  const [showingSkillsList, setShowingSkillsList] = useState(false)
-  const [showingAgentsList, setShowingAgentsList] = useState(false)
-  const [showingToolsList, setShowingToolsList] = useState(false)
+  const [showingFilesList, setShowingFilesList] = useState(false);
+  const [showingSkillsList, setShowingSkillsList] = useState(false);
+  const [showingAgentsList, setShowingAgentsList] = useState(false);
+  const [showingToolsList, setShowingToolsList] = useState(false);
 
   // Slash command dropdown state
-  const [showSlashDropdown, setShowSlashDropdown] = useState(false)
-  const [slashSearchText, setSlashSearchText] = useState("")
-  const [slashPosition, setSlashPosition] = useState({ top: 0, left: 0 })
+  const [showSlashDropdown, setShowSlashDropdown] = useState(false);
+  const [slashSearchText, setSlashSearchText] = useState('');
+  const [slashPosition, setSlashPosition] = useState({ top: 0, left: 0 });
 
   // Mode tooltip state (floating tooltip like canvas)
   const [modeTooltip, setModeTooltip] = useState<{
-    visible: boolean
-    position: { top: number; left: number }
-    mode: "agent" | "plan"
-  } | null>(null)
-  const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hasShownTooltipRef = useRef(false)
-  const [modeDropdownOpen, setModeDropdownOpen] = useState(false)
+    visible: boolean;
+    position: { top: number; left: number };
+    mode: 'agent' | 'plan';
+  } | null>(null);
+  const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasShownTooltipRef = useRef(false);
+  const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (!modeDropdownOpen) {
-      setModeTooltip(null)
+      setModeTooltip(null);
     }
-  }, [modeDropdownOpen])
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
+  }, [modeDropdownOpen]);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
 
   // Voice input state
-  const customHotkeys = useAtomValue(customHotkeysAtom)
+  const customHotkeys = useAtomValue(customHotkeysAtom);
   const {
     isRecording: isVoiceRecording,
     audioLevel: voiceAudioLevel,
     startRecording,
     stopRecording,
-    cancelRecording,
-  } = useVoiceRecording()
-  const [isTranscribing, setIsTranscribing] = useState(false)
-  const transcribeMutation = trpc.voice.transcribe.useMutation()
+    cancelRecording
+  } = useVoiceRecording();
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const transcribeMutation = trpc.voice.transcribe.useMutation();
 
   // Check if voice input is available (authenticated OR has OPENAI_API_KEY)
-  const { data: voiceAvailability } = trpc.voice.isAvailable.useQuery()
-  const isVoiceAvailable = voiceAvailability?.available ?? false
+  const { data: voiceAvailability } = trpc.voice.isAvailable.useQuery();
+  const isVoiceAvailable = voiceAvailability?.available ?? false;
 
   // Voice input handlers
   const handleVoiceMouseDown = useCallback(async () => {
-    if (isUploading || isTranscribing || isVoiceRecording) return
+    if (isUploading || isTranscribing || isVoiceRecording) return;
     try {
-      await startRecording()
+      await startRecording();
     } catch (err) {
-      console.error("[NewChatForm] Failed to start recording:", err)
+      console.error('[NewChatForm] Failed to start recording:', err);
     }
-  }, [isUploading, isTranscribing, isVoiceRecording, startRecording])
+  }, [isUploading, isTranscribing, isVoiceRecording, startRecording]);
 
   const handleVoiceMouseUp = useCallback(async () => {
-    if (!isVoiceRecording) return
+    if (!isVoiceRecording) return;
     try {
-      const blob = await stopRecording()
+      const blob = await stopRecording();
       if (blob.size < 1000) {
-        console.log("[NewChatForm] Recording too short, ignoring")
-        return
+        console.log('[NewChatForm] Recording too short, ignoring');
+        return;
       }
-      setIsTranscribing(true)
-      const base64 = await blobToBase64(blob)
-      const format = getAudioFormat(blob.type)
-      const result = await transcribeMutation.mutateAsync({ audio: base64, format })
+      setIsTranscribing(true);
+      const base64 = await blobToBase64(blob);
+      const format = getAudioFormat(blob.type);
+      const result = await transcribeMutation.mutateAsync({ audio: base64, format });
       if (result.text && result.text.trim()) {
-        const currentValue = editorRef.current?.getValue() || ""
+        const currentValue = editorRef.current?.getValue() || '';
         // Clean transcribed text - remove any remaining whitespace issues
         const transcribed = result.text
-          .replace(/[\r\n\t]+/g, " ")
-          .replace(/ +/g, " ")
-          .trim()
+          .replace(/[\r\n\t]+/g, ' ')
+          .replace(/ +/g, ' ')
+          .trim();
         // Add space separator only if current text exists and doesn't end with whitespace
-        const needsSpace = currentValue.length > 0 && !/\s$/.test(currentValue)
-        const newValue = currentValue + (needsSpace ? " " : "") + transcribed
-        editorRef.current?.setValue(newValue)
-        setHasContent(true)
+        const needsSpace = currentValue.length > 0 && !/\s$/.test(currentValue);
+        const newValue = currentValue + (needsSpace ? ' ' : '') + transcribed;
+        editorRef.current?.setValue(newValue);
+        setHasContent(true);
       }
     } catch (err) {
-      console.error("[NewChatForm] Transcription failed:", err)
+      console.error('[NewChatForm] Transcription failed:', err);
     } finally {
-      setIsTranscribing(false)
+      setIsTranscribing(false);
     }
-  }, [isVoiceRecording, stopRecording, transcribeMutation])
+  }, [isVoiceRecording, stopRecording, transcribeMutation]);
 
   const handleVoiceMouseLeave = useCallback(() => {
     if (isVoiceRecording) {
-      cancelRecording()
+      cancelRecording();
     }
-  }, [isVoiceRecording, cancelRecording])
+  }, [isVoiceRecording, cancelRecording]);
 
   // Voice hotkey listener (push-to-talk: hold to record, release to transcribe)
   useEffect(() => {
-    const voiceHotkey = getResolvedHotkey("voice-input", customHotkeys)
-    if (!voiceHotkey) return
+    const voiceHotkey = getResolvedHotkey('voice-input', customHotkeys);
+    if (!voiceHotkey) return;
 
     // Parse hotkey once
-    const parts = voiceHotkey.split("+").map(p => p.toLowerCase())
-    const modifiers = parts.filter(p => ["cmd", "meta", "ctrl", "opt", "alt", "shift"].includes(p))
-    const mainKey = parts.find(p => !["cmd", "meta", "ctrl", "opt", "alt", "shift"].includes(p))
+    const parts = voiceHotkey.split('+').map((p) => p.toLowerCase());
+    const modifiers = parts.filter((p) => ['cmd', 'meta', 'ctrl', 'opt', 'alt', 'shift'].includes(p));
+    const mainKey = parts.find((p) => !['cmd', 'meta', 'ctrl', 'opt', 'alt', 'shift'].includes(p));
 
-    const needsCmd = modifiers.includes("cmd") || modifiers.includes("meta")
-    const needsShift = modifiers.includes("shift")
-    const needsCtrl = modifiers.includes("ctrl")
-    const needsAlt = modifiers.includes("alt") || modifiers.includes("opt")
+    const needsCmd = modifiers.includes('cmd') || modifiers.includes('meta');
+    const needsShift = modifiers.includes('shift');
+    const needsCtrl = modifiers.includes('ctrl');
+    const needsAlt = modifiers.includes('alt') || modifiers.includes('opt');
 
     // For modifier-only hotkeys (like ctrl+opt), we track when all modifiers are pressed
-    const isModifierOnlyHotkey = !mainKey
+    const isModifierOnlyHotkey = !mainKey;
 
     const modifiersMatch = (e: KeyboardEvent) => {
-      return (
-        e.metaKey === needsCmd &&
-        e.shiftKey === needsShift &&
-        e.ctrlKey === needsCtrl &&
-        e.altKey === needsAlt
-      )
-    }
+      return e.metaKey === needsCmd && e.shiftKey === needsShift && e.ctrlKey === needsCtrl && e.altKey === needsAlt;
+    };
 
     const matchesHotkey = (e: KeyboardEvent) => {
       if (isModifierOnlyHotkey) {
         // For modifier-only: just check if all required modifiers are pressed
-        return modifiersMatch(e)
+        return modifiersMatch(e);
       }
 
       // For regular hotkey with main key
@@ -757,71 +652,71 @@ export function NewChatForm({
         e.key.toLowerCase() === mainKey ||
         e.code.toLowerCase() === mainKey ||
         e.code.toLowerCase() === `key${mainKey}` ||
-        (mainKey === "space" && e.code === "Space")
+        (mainKey === 'space' && e.code === 'Space');
 
-      return keyMatches && modifiersMatch(e)
-    }
+      return keyMatches && modifiersMatch(e);
+    };
 
     // Check if any modifier key is released
     const isModifierRelease = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase()
-      return key === "control" || key === "alt" || key === "meta" || key === "shift"
-    }
+      const key = e.key.toLowerCase();
+      return key === 'control' || key === 'alt' || key === 'meta' || key === 'shift';
+    };
 
     // Check if the released key is the main key (not a modifier)
     const isMainKeyRelease = (e: KeyboardEvent) => {
       if (isModifierOnlyHotkey) {
-        return isModifierRelease(e)
+        return isModifierRelease(e);
       }
-      const eventKey = e.key.toLowerCase()
+      const eventKey = e.key.toLowerCase();
       return (
         eventKey === mainKey ||
         e.code.toLowerCase() === mainKey ||
         e.code.toLowerCase() === `key${mainKey}` ||
-        (mainKey === "space" && e.code === "Space")
-      )
-    }
+        (mainKey === 'space' && e.code === 'Space')
+      );
+    };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!matchesHotkey(e)) return
-      if (e.repeat) return // Ignore key repeat
+      if (!matchesHotkey(e)) return;
+      if (e.repeat) return; // Ignore key repeat
 
-      e.preventDefault()
-      e.stopPropagation()
+      e.preventDefault();
+      e.stopPropagation();
 
       // Start recording on keydown
       if (!isVoiceRecording && !isTranscribing) {
-        handleVoiceMouseDown()
+        handleVoiceMouseDown();
       }
-    }
+    };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       // Stop recording when the main key (or any modifier for modifier-only hotkeys) is released
-      if (!isMainKeyRelease(e)) return
+      if (!isMainKeyRelease(e)) return;
 
       // Only stop if we're currently recording
       if (isVoiceRecording) {
-        e.preventDefault()
-        e.stopPropagation()
-        handleVoiceMouseUp()
+        e.preventDefault();
+        e.stopPropagation();
+        handleVoiceMouseUp();
       }
-    }
+    };
 
-    window.addEventListener("keydown", handleKeyDown, true)
-    window.addEventListener("keyup", handleKeyUp, true)
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown, true)
-      window.removeEventListener("keyup", handleKeyUp, true)
-    }
-  }, [customHotkeys, isVoiceRecording, isTranscribing, handleVoiceMouseDown, handleVoiceMouseUp])
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
+    };
+  }, [customHotkeys, isVoiceRecording, isTranscribing, handleVoiceMouseDown, handleVoiceMouseUp]);
 
   // Shift+Tab handler for mode switching (now handled inside input component via onShiftTab prop)
 
   // Keyboard shortcut: Enter to focus input when not already focused
-  useFocusInputOnEnter(editorRef)
+  useFocusInputOnEnter(editorRef);
 
   // Keyboard shortcut: Cmd+Esc to toggle focus/blur
-  useToggleFocusOnCmdEsc(editorRef)
+  useToggleFocusOnCmdEsc(editorRef);
 
   // Fetch repos from team
   // Desktop: no remote repos, we use local projects.
@@ -830,40 +725,35 @@ export function NewChatForm({
   // pushed_at, etc.) typechecks. Web build re-uses these renderer files
   // and populates this from a tRPC query.
   type RemoteRepoRow = {
-    id: string
-    name: string
-    full_name: string
-    sandbox_status: string
-    pushed_at?: string | null
-  }
-  const reposData: { repositories: RemoteRepoRow[] } = { repositories: [] }
-  const isLoadingRepos = false
+    id: string;
+    name: string;
+    full_name: string;
+    sandbox_status: string;
+    pushed_at?: string | null;
+  };
+  const reposData: { repositories: RemoteRepoRow[] } = { repositories: [] };
+  const isLoadingRepos = false;
 
   // Memoize repos arrays to prevent useEffect from running on every keystroke
   // Apply debug mode simulations
   const repos = useMemo(() => {
     if (debugMode.enabled && debugMode.simulateNoRepos) {
-      return []
+      return [];
     }
-    return reposData?.repositories || []
-  }, [reposData?.repositories, debugMode.enabled, debugMode.simulateNoRepos])
+    return reposData?.repositories || [];
+  }, [reposData?.repositories, debugMode.enabled, debugMode.simulateNoRepos]);
 
   const readyRepos = useMemo(() => {
     if (debugMode.enabled && debugMode.simulateNoReadyRepos) {
-      return []
+      return [];
     }
-    return repos.filter((r) => r.sandbox_status === "ready")
-  }, [repos, debugMode.enabled, debugMode.simulateNoReadyRepos])
+    return repos.filter((r) => r.sandbox_status === 'ready');
+  }, [repos, debugMode.enabled, debugMode.simulateNoReadyRepos]);
 
-  const notReadyRepos = useMemo(
-    () => repos.filter((r) => r.sandbox_status !== "ready"),
-    [repos],
-  )
+  const notReadyRepos = useMemo(() => repos.filter((r) => r.sandbox_status !== 'ready'), [repos]);
 
   // Use state to avoid hydration mismatch
-  const [resolvedRepo, setResolvedRepo] = useState<(typeof repos)[0] | null>(
-    null,
-  )
+  const [resolvedRepo, setResolvedRepo] = useState<(typeof repos)[0] | null>(null);
 
   // Derive selected repo from saved or first available (client-side only)
   // Now includes all repos, not just ready ones
@@ -875,53 +765,51 @@ export function NewChatForm({
           id: lastSelectedRepo.id,
           name: lastSelectedRepo.name,
           full_name: lastSelectedRepo.full_name,
-          sandbox_status: lastSelectedRepo.sandbox_status || "not_setup",
-        } as (typeof repos)[0])
-        return
+          sandbox_status: lastSelectedRepo.sandbox_status || 'not_setup'
+        } as (typeof repos)[0]);
+        return;
       }
 
       // Look in all repos by id or full_name
       // Only compare IDs when lastSelectedRepo.id is non-empty (old localStorage data might have empty id)
       const stillExists = repos.find(
-        (r) =>
-          (lastSelectedRepo.id && r.id === lastSelectedRepo.id) ||
-          r.full_name === lastSelectedRepo.full_name,
-      )
+        (r) => (lastSelectedRepo.id && r.id === lastSelectedRepo.id) || r.full_name === lastSelectedRepo.full_name
+      );
       if (stillExists) {
-        setResolvedRepo(stillExists)
-        return
+        setResolvedRepo(stillExists);
+        return;
       }
     }
 
     if (repos.length === 0) {
-      setResolvedRepo(null)
-      return
+      setResolvedRepo(null);
+      return;
     }
 
     // Auto-save first repo if none saved (prefer ready repos, then any)
     if (!lastSelectedRepo && repos.length > 0) {
-      const firstRepo = readyRepos[0] || repos[0]
+      const firstRepo = readyRepos[0] || repos[0];
       setLastSelectedRepo({
         id: firstRepo.id,
         name: firstRepo.name,
         full_name: firstRepo.full_name,
-        sandbox_status: firstRepo.sandbox_status as "error" | "in_progress" | "ready" | "not_setup",
-      })
+        sandbox_status: firstRepo.sandbox_status as 'error' | 'in_progress' | 'ready' | 'not_setup'
+      });
     }
 
-    setResolvedRepo(readyRepos[0] || repos[0] || null)
-  }, [lastSelectedRepo, repos, readyRepos, setLastSelectedRepo])
+    setResolvedRepo(readyRepos[0] || repos[0] || null);
+  }, [lastSelectedRepo, repos, readyRepos, setLastSelectedRepo]);
 
   // Desktop: fetch branches from local git repository
   const branchesQuery = trpc.changes.getBranches.useQuery(
-    { worktreePath: validatedProject?.path || "" },
+    { worktreePath: validatedProject?.path || '' },
     {
       enabled: !!validatedProject?.path,
-      staleTime: 30_000, // Cache for 30 seconds
-    },
-  )
+      staleTime: 30_000 // Cache for 30 seconds
+    }
+  );
 
-  const fetchRemoteMutation = trpc.changes.fetchRemote.useMutation()
+  const fetchRemoteMutation = trpc.changes.fetchRemote.useMutation();
 
   // Manual refresh branches
   const handleRefreshBranches = useCallback(() => {
@@ -930,75 +818,73 @@ export function NewChatForm({
         { worktreePath: validatedProject.path },
         {
           onSuccess: () => {
-            branchesQuery.refetch()
+            branchesQuery.refetch();
           },
           onError: (error) => {
-            console.error("Failed to fetch remote branches:", error)
-          },
-        },
-      )
+            console.error('Failed to fetch remote branches:', error);
+          }
+        }
+      );
     }
-  }, [validatedProject?.path, fetchRemoteMutation, branchesQuery])
+  }, [validatedProject?.path, fetchRemoteMutation, branchesQuery]);
 
   // Stable ref for handleRefreshBranches to avoid re-running effects on every render
-  const handleRefreshBranchesRef = useRef(handleRefreshBranches)
-  handleRefreshBranchesRef.current = handleRefreshBranches
+  const handleRefreshBranchesRef = useRef(handleRefreshBranches);
+  handleRefreshBranchesRef.current = handleRefreshBranches;
 
   // Transform branch data to match web app format
   const branches = useMemo(() => {
-    if (!branchesQuery.data) return []
+    if (!branchesQuery.data) return [];
 
-    const { local, remote, defaultBranch } = branchesQuery.data
+    const { local, remote, defaultBranch } = branchesQuery.data;
     const result: Array<{
-      name: string
-      type: "local" | "remote"
-      protected: boolean
-      isDefault: boolean
-      committedAt: string | null
-      authorName: null
-    }> = []
+      name: string;
+      type: 'local' | 'remote';
+      protected: boolean;
+      isDefault: boolean;
+      committedAt: string | null;
+      authorName: null;
+    }> = [];
 
     // Add local branches
     for (const { branch, lastCommitDate } of local) {
       result.push({
         name: branch,
-        type: "local",
+        type: 'local',
         protected: false,
         isDefault: branch === defaultBranch,
-        committedAt: lastCommitDate
-          ? new Date(lastCommitDate).toISOString()
-          : null,
-        authorName: null,
-      })
+        committedAt: lastCommitDate ? new Date(lastCommitDate).toISOString() : null,
+        authorName: null
+      });
     }
 
     // Add remote branches
     for (const name of remote) {
       result.push({
         name: name,
-        type: "remote",
+        type: 'remote',
         protected: false,
         isDefault: name === defaultBranch,
         committedAt: null,
-        authorName: null,
-      })
+        authorName: null
+      });
     }
 
     // Sort: default first, then local, then remote, alphabetically
     return result.sort((a, b) => {
-      if (a.isDefault && !b.isDefault) return -1
-      if (!a.isDefault && b.isDefault) return 1
-      if (a.type !== b.type) return a.type === "local" ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
-  }, [branchesQuery.data])
+      if (a.isDefault && !b.isDefault) return -1;
+      if (!a.isDefault && b.isDefault) return 1;
+      if (a.type !== b.type) return a.type === 'local' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [branchesQuery.data]);
 
   // Filter branches based on search
   const filteredBranches = useMemo(() => {
-    if (!branchSearch.trim()) return branches
-    const search = branchSearch.toLowerCase()
-    return branches.filter((b) => b.name.toLowerCase().includes(search))
-  }, [branches, branchSearch])
+    if (!branchSearch.trim()) return branches;
+    const search = branchSearch.toLowerCase();
+    return branches.filter((b) => b.name.toLowerCase().includes(search));
+  }, [branches, branchSearch]);
 
   // Virtualizer for branch list - only active when popover is open
   const branchVirtualizer = useVirtualizer({
@@ -1006,130 +892,115 @@ export function NewChatForm({
     getScrollElement: () => branchListRef.current,
     estimateSize: () => 28, // Each item is h-7 (28px)
     overscan: 5,
-    enabled: branchPopoverOpen, // Only virtualize when popover is open
-  })
+    enabled: branchPopoverOpen // Only virtualize when popover is open
+  });
 
   // Force virtualizer to re-measure when popover opens
   useEffect(() => {
     if (branchPopoverOpen) {
       // Small delay to ensure ref is attached
       const timer = setTimeout(() => {
-        branchVirtualizer.measure()
-      }, 0)
-      return () => clearTimeout(timer)
+        branchVirtualizer.measure();
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [branchPopoverOpen])
+  }, [branchPopoverOpen]);
 
   // Format relative time for branches (reuse shared utility)
   const formatRelativeTime = (dateString: string | null): string => {
-    if (!dateString) return ""
-    return formatTimeAgo(dateString)
-  }
+    if (!dateString) return '';
+    return formatTimeAgo(dateString);
+  };
 
   // Set default branch when project/branches change (only if no saved branch for this project)
   useEffect(() => {
-    if (
-      branchesQuery.data?.defaultBranch &&
-      validatedProject?.id &&
-      !selectedBranch
-    ) {
+    if (branchesQuery.data?.defaultBranch && validatedProject?.id && !selectedBranch) {
       // Find the default branch in the branches list to get its type.
       // Prefer remote over local so new worktrees are based on the freshest
       // origin state. Only fall back to local if the default branch has no
       // remote counterpart.
-      const defaultBranchObj = branches.find(
-        (b) => b.name === branchesQuery.data.defaultBranch && b.isDefault && b.type === "remote",
-      ) || branches.find(
-        (b) => b.name === branchesQuery.data.defaultBranch && b.isDefault && b.type === "local",
-      )
+      const defaultBranchObj =
+        branches.find((b) => b.name === branchesQuery.data.defaultBranch && b.isDefault && b.type === 'remote') ||
+        branches.find((b) => b.name === branchesQuery.data.defaultBranch && b.isDefault && b.type === 'local');
       // Fallback to "local" if branch not found in list (shouldn't happen but prevents empty selector)
-      const branchType = defaultBranchObj?.type || "local"
-      setSelectedBranch(
-        branchesQuery.data.defaultBranch,
-        branchType,
-      )
+      const branchType = defaultBranchObj?.type || 'local';
+      setSelectedBranch(branchesQuery.data.defaultBranch, branchType);
     }
-  }, [
-    branchesQuery.data?.defaultBranch,
-    validatedProject?.id,
-    selectedBranch,
-    setSelectedBranch,
-    branches,
-  ])
+  }, [branchesQuery.data?.defaultBranch, validatedProject?.id, selectedBranch, setSelectedBranch, branches]);
 
   // Auto-focus input when NewChatForm is shown (when clicking "New Chat")
   // Skip on mobile to prevent keyboard from opening automatically
   useEffect(() => {
-    if (isMobileFullscreen) return // Don't autofocus on mobile
+    if (isMobileFullscreen) return; // Don't autofocus on mobile
 
     // Small delay to ensure DOM is ready and animations complete
     const timeoutId = setTimeout(() => {
-      editorRef.current?.focus()
-    }, 150)
+      editorRef.current?.focus();
+    }, 150);
 
-    return () => clearTimeout(timeoutId)
-  }, [isMobileFullscreen]) // Run on mount and when mobile state changes
+    return () => clearTimeout(timeoutId);
+  }, [isMobileFullscreen]); // Run on mount and when mobile state changes
 
   // Track last saved text to avoid unnecessary updates
-  const lastSavedTextRef = useRef<string>("")
+  const lastSavedTextRef = useRef<string>('');
 
   // Track previous draft ID to detect when switching away from a draft
-  const prevSelectedDraftIdRef = useRef<string | null>(null)
+  const prevSelectedDraftIdRef = useRef<string | null>(null);
 
   // Restore draft when a specific draft is selected from sidebar
   // Or clear editor when "New Workspace" is clicked (selectedDraftId becomes null)
   useEffect(() => {
-    const hadDraftBefore = prevSelectedDraftIdRef.current !== null
-    prevSelectedDraftIdRef.current = selectedDraftId
+    const hadDraftBefore = prevSelectedDraftIdRef.current !== null;
+    prevSelectedDraftIdRef.current = selectedDraftId;
 
     if (!selectedDraftId) {
       // No draft selected - only clear if we had a draft before (user clicked "New Workspace")
       // Don't clear if user is currently typing (currentDraftIdRef has a value)
       if (hadDraftBefore) {
-        currentDraftIdRef.current = null
-        lastSavedTextRef.current = ""
+        currentDraftIdRef.current = null;
+        lastSavedTextRef.current = '';
         if (editorRef.current) {
-          editorRef.current.clear()
-          setHasContent(false)
+          editorRef.current.clear();
+          setHasContent(false);
         }
-        clearImages()
-        clearFiles()
+        clearImages();
+        clearFiles();
 
         // Fetch remote branches in background when starting new workspace
         if (validatedProject?.path) {
-          handleRefreshBranchesRef.current()
+          handleRefreshBranchesRef.current();
         }
       }
-      return
+      return;
     }
 
-    const fullDraft = getNewChatDraftFull(selectedDraftId)
+    const fullDraft = getNewChatDraftFull(selectedDraftId);
     if (fullDraft?.text) {
-      currentDraftIdRef.current = selectedDraftId
-      lastSavedTextRef.current = fullDraft.text // Initialize to prevent immediate re-save
+      currentDraftIdRef.current = selectedDraftId;
+      lastSavedTextRef.current = fullDraft.text; // Initialize to prevent immediate re-save
 
       // Restore attachments
       if (fullDraft.images.length > 0) {
-        setImagesFromDraft(fullDraft.images)
+        setImagesFromDraft(fullDraft.images);
       }
       if (fullDraft.files.length > 0) {
-        setFilesFromDraft(fullDraft.files)
+        setFilesFromDraft(fullDraft.files);
       }
 
       // Try to set value immediately if editor is ready
       if (editorRef.current) {
-        editorRef.current.setValue(fullDraft.text)
-        setHasContent(true)
+        editorRef.current.setValue(fullDraft.text);
+        setHasContent(true);
       } else {
         // Fallback: wait for editor to initialize (rare case)
         const timeoutId = setTimeout(() => {
-          editorRef.current?.setValue(fullDraft.text!)
-          setHasContent(true)
-        }, 50)
-        return () => clearTimeout(timeoutId)
+          editorRef.current?.setValue(fullDraft.text!);
+          setHasContent(true);
+        }, 50);
+        return () => clearTimeout(timeoutId);
       }
     }
-  }, [selectedDraftId, validatedProject?.path, setImagesFromDraft, setFilesFromDraft])
+  }, [selectedDraftId, validatedProject?.path, setImagesFromDraft, setFilesFromDraft]);
 
   // Mark draft as visible when component unmounts (user navigates away)
   // This ensures the draft only appears in the sidebar after leaving the form
@@ -1137,58 +1008,58 @@ export function NewChatForm({
     return () => {
       // On unmount, mark current draft as visible so it appears in sidebar
       if (currentDraftIdRef.current) {
-        markDraftVisible(currentDraftIdRef.current)
+        markDraftVisible(currentDraftIdRef.current);
       }
-    }
-  }, [])
+    };
+  }, []);
 
   // Filter all repos by search (combined list) and sort by preview status
   const filteredRepos = repos
     .filter(
       (repo) =>
         repo.name.toLowerCase().includes(repoSearchQuery.toLowerCase()) ||
-        repo.full_name.toLowerCase().includes(repoSearchQuery.toLowerCase()),
+        repo.full_name.toLowerCase().includes(repoSearchQuery.toLowerCase())
     )
     .sort((a, b) => {
       // 1. Repos with preview (sandbox_status === "ready") come first
-      const aHasPreview = a.sandbox_status === "ready"
-      const bHasPreview = b.sandbox_status === "ready"
-      if (aHasPreview && !bHasPreview) return -1
-      if (!aHasPreview && bHasPreview) return 1
+      const aHasPreview = a.sandbox_status === 'ready';
+      const bHasPreview = b.sandbox_status === 'ready';
+      if (aHasPreview && !bHasPreview) return -1;
+      if (!aHasPreview && bHasPreview) return 1;
 
       // 2. Sort by last commit date (pushed_at) - most recent first
-      const aDate = a.pushed_at ? new Date(a.pushed_at).getTime() : 0
-      const bDate = b.pushed_at ? new Date(b.pushed_at).getTime() : 0
-      return bDate - aDate
-    })
+      const aDate = a.pushed_at ? new Date(a.pushed_at).getTime() : 0;
+      const bDate = b.pushed_at ? new Date(b.pushed_at).getTime() : 0;
+      return bDate - aDate;
+    });
 
   // Create chat mutation (real tRPC)
-  const utils = trpc.useUtils()
+  const utils = trpc.useUtils();
   const createChatMutation = trpc.chats.create.useMutation({
     onSuccess: (data) => {
       // Clear editor, images, files, pasted texts, and file contents cache only on success
-      editorRef.current?.clear()
-      clearImages()
-      clearFiles()
-      clearPastedTexts()
-      fileContentsRef.current.clear()
-      clearCurrentDraft()
-      utils.chats.list.invalidate()
-      setSelectedChatId(data.id)
+      editorRef.current?.clear();
+      clearImages();
+      clearFiles();
+      clearPastedTexts();
+      fileContentsRef.current.clear();
+      clearCurrentDraft();
+      utils.chats.list.invalidate();
+      setSelectedChatId(data.id);
       // New chats are always local
-      setSelectedChatIsRemote(false)
-      setChatSourceMode("local")
+      setSelectedChatIsRemote(false);
+      setChatSourceMode('local');
       // Track this chat and its first subchat as just created for typewriter effect
-      const ids = [data.id]
+      const ids = [data.id];
       if (data.subChats?.[0]?.id) {
-        ids.push(data.subChats[0].id)
+        ids.push(data.subChats[0].id);
       }
-      setJustCreatedIds((prev) => new Set([...prev, ...ids]))
+      setJustCreatedIds((prev) => new Set([...prev, ...ids]));
     },
     onError: (error) => {
-      toast.error(error.message)
-    },
-  })
+      toast.error(error.message);
+    }
+  });
 
   // Open folder mutation for selecting a project
   const openFolder = trpc.projects.openFolder.useMutation({
@@ -1197,123 +1068,109 @@ export function NewChatForm({
         // Optimistically update the projects list cache to prevent "Select repo" flash
         // This ensures validatedProject can find the new project immediately
         utils.projects.list.setData(undefined, (oldData) => {
-          if (!oldData) return [project]
+          if (!oldData) return [project];
           // Check if project already exists (reopened existing project)
-          const exists = oldData.some((p) => p.id === project.id)
+          const exists = oldData.some((p) => p.id === project.id);
           if (exists) {
             // Update existing project's timestamp
-            return oldData.map((p) =>
-              p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p,
-            )
+            return oldData.map((p) => (p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p));
           }
           // Add new project at the beginning
-          return [project, ...oldData]
-        })
+          return [project, ...oldData];
+        });
 
         setSelectedProject({
           id: project.id,
           name: project.name,
           path: project.path,
           gitRemoteUrl: project.gitRemoteUrl,
-          gitProvider: project.gitProvider as
-            | "github"
-            | "gitlab"
-            | "bitbucket"
-            | null,
+          gitProvider: project.gitProvider as 'github' | 'gitlab' | 'bitbucket' | null,
           gitOwner: project.gitOwner,
-          gitRepo: project.gitRepo,
-        })
+          gitRepo: project.gitRepo
+        });
       }
-    },
-  })
+    }
+  });
 
   const handleOpenFolder = async () => {
-    await openFolder.mutateAsync()
-  }
+    await openFolder.mutateAsync();
+  };
 
-  const trpcUtils = trpc.useUtils()
+  const trpcUtils = trpc.useUtils();
 
   // Snapshot of the form's current model/thinking selection for both submit
   // paths. Captured synchronously before mutate() so onSuccess applies what
   // the user actually saw at submit time, even if state changes later.
   const getFormSelection = useCallback(
     () => ({
-      provider: selectedAgent.id as "claude-code" | "codex",
-      claudeModelId: selectedModel?.id ?? "opus",
+      provider: selectedAgent.id as 'claude-code' | 'codex',
+      claudeModelId: selectedModel?.id ?? 'opus',
       claudeThinking: selectedClaudeThinking,
       codexModelId: selectedCodexModel.id,
-      codexThinking: selectedCodexThinking,
+      codexThinking: selectedCodexThinking
     }),
-    [
-      selectedAgent.id,
-      selectedModel?.id,
-      selectedClaudeThinking,
-      selectedCodexModel.id,
-      selectedCodexThinking,
-    ],
-  )
+    [selectedAgent.id, selectedModel?.id, selectedClaudeThinking, selectedCodexModel.id, selectedCodexThinking]
+  );
 
   const handleSend = useCallback(async () => {
     // Get value from uncontrolled editor
-    let message = editorRef.current?.getValue() || ""
+    let message = editorRef.current?.getValue() || '';
 
     // Allow send if there's text, images, files, or pasted text files
-    const hasText = message.trim().length > 0
-    const hasImages = images.filter((img) => !img.isLoading && img.url).length > 0
-    const hasFiles = files.filter((f) => !f.isLoading).length > 0
-    const hasPastedTexts = pastedTexts.length > 0
+    const hasText = message.trim().length > 0;
+    const hasImages = images.filter((img) => !img.isLoading && img.url).length > 0;
+    const hasFiles = files.filter((f) => !f.isLoading).length > 0;
+    const hasPastedTexts = pastedTexts.length > 0;
 
     if ((!hasText && !hasImages && !hasFiles && !hasPastedTexts) || !selectedProject || existingLocalChat) {
-      return
+      return;
     }
 
     // Check if message is a slash command with arguments (e.g. "/hello world")
     // Note: 's' flag makes '.' match newlines, so multi-line arguments are captured
-    const slashMatch = message.match(/^\/(\S+)\s*(.*)$/s)
-    let reviewModelOverride: string | null = null
-    let isReviewSend = false
+    const slashMatch = message.match(/^\/(\S+)\s*(.*)$/s);
+    let reviewModelOverride: string | null = null;
+    let isReviewSend = false;
     if (slashMatch) {
-      const [, commandName, args] = slashMatch
+      const [, commandName, args] = slashMatch;
 
       // Check if it's a builtin command - if so, don't process as custom command
-      const builtinNames = new Set(
-        BUILTIN_SLASH_COMMANDS.map((cmd) => cmd.name),
-      )
+      const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((cmd) => cmd.name));
       // Review-type commands should create the new chat on the Review-mode
       // default model instead of the agent/plan default.
-      if (commandName === "review" || commandName === "security-review") {
-        isReviewSend = true
-        const reviewModelId = getDefaultModelForMode("review")
-        const reviewProvider = getProviderForModelId(reviewModelId)
-        const reviewThinking = getDefaultThinkingForMode("review")
-        if (reviewProvider === "codex") {
-          const codexModel = CODEX_MODELS.find((m) => m.id === reviewModelId)
+      if (commandName === 'review' || commandName === 'security-review') {
+        isReviewSend = true;
+        const reviewModelId = getDefaultModelForMode('review');
+        const reviewProvider = getProviderForModelId(reviewModelId);
+        const reviewThinking = getDefaultThinkingForMode('review');
+        if (reviewProvider === 'codex') {
+          const codexModel = CODEX_MODELS.find((m) => m.id === reviewModelId);
           const coerced = coerceCodexThinking(
             reviewThinking,
-            codexModel?.thinkings ?? ["low", "medium", "high", "xhigh"],
-          )
-          reviewModelOverride = `${reviewModelId}/${coerced}`
+            codexModel?.thinkings ?? ['low', 'medium', 'high', 'xhigh']
+          );
+          reviewModelOverride = `${reviewModelId}/${coerced}`;
         } else {
-          reviewModelOverride = reviewModelId
+          reviewModelOverride = reviewModelId;
         }
       }
       if (!builtinNames.has(commandName)) {
         // This is a custom command - load content and replace $ARGUMENTS
         try {
           const commands = await trpcUtils.commands.list.fetch({
-            projectPath: validatedProject?.path,
-          })
-          const cmd = commands.find((c) => c.name.toLowerCase() === commandName.toLowerCase())
+            projectPath: validatedProject?.path
+          });
+          const cmd = commands.find((c) => c.name.toLowerCase() === commandName.toLowerCase());
 
           if (cmd) {
             const { content } = await trpcUtils.commands.getContent.fetch({
-              path: cmd.path,
-            })
+              path: cmd.path
+            });
             // Replace $ARGUMENTS with the provided args
-            message = content.replace(/\$ARGUMENTS/g, args.trim())
+            message = content.replace(/\$ARGUMENTS/g, args.trim());
           }
         } catch (error) {
-          console.error("Failed to process custom command:", error)
+          console.error('Failed to process custom command:', error);
           // Fall through with original message
         }
       }
@@ -1321,51 +1178,51 @@ export function NewChatForm({
 
     // Build message parts array (images first, then text, then hidden file contents)
     type MessagePart =
-      | { type: "text"; text: string }
+      | { type: 'text'; text: string }
       | {
-          type: "data-image"
+          type: 'data-image';
           data: {
-            url: string
-            mediaType?: string
-            filename?: string
-            base64Data?: string
-          }
+            url: string;
+            mediaType?: string;
+            filename?: string;
+            base64Data?: string;
+          };
         }
       | {
-          type: "file-content"
-          filePath: string
-          content: string
-        }
+          type: 'file-content';
+          filePath: string;
+          content: string;
+        };
 
     const parts: MessagePart[] = images
       .filter((img) => !img.isLoading && img.url)
       .map((img) => ({
-        type: "data-image" as const,
+        type: 'data-image' as const,
         data: {
           url: img.url!,
           mediaType: img.mediaType,
           filename: img.filename,
-          base64Data: img.base64Data,
-        },
-      }))
+          base64Data: img.base64Data
+        }
+      }));
 
     // Add pasted text as pasted mentions (format: pasted:size:preview|filepath)
     // Using | as separator since filepath can contain colons
-    let finalMessage = message.trim()
+    let finalMessage = message.trim();
     if (pastedTexts.length > 0) {
       const pastedMentions = pastedTexts
         .map((pt) => {
           // Sanitize preview to remove special characters that break mention parsing
-          const sanitizedPreview = pt.preview.replace(/[:\[\]|]/g, "")
-          const prefix = pt.kind === "chatHistory" ? MENTION_PREFIXES.CHAT_HISTORY : MENTION_PREFIXES.PASTED
-          return `@[${prefix}${pt.size}:${sanitizedPreview}|${pt.filePath}]`
+          const sanitizedPreview = pt.preview.replace(/[:\[\]|]/g, '');
+          const prefix = pt.kind === 'chatHistory' ? MENTION_PREFIXES.CHAT_HISTORY : MENTION_PREFIXES.PASTED;
+          return `@[${prefix}${pt.size}:${sanitizedPreview}|${pt.filePath}]`;
         })
-        .join(" ")
-      finalMessage = pastedMentions + (finalMessage ? " " + finalMessage : "")
+        .join(' ');
+      finalMessage = pastedMentions + (finalMessage ? ' ' + finalMessage : '');
     }
 
     if (finalMessage) {
-      parts.push({ type: "text" as const, text: finalMessage })
+      parts.push({ type: 'text' as const, text: finalMessage });
     }
 
     // Add cached file contents as hidden parts (sent to agent but not displayed in UI)
@@ -1373,18 +1230,18 @@ export function NewChatForm({
     if (fileContentsRef.current.size > 0) {
       for (const [mentionId, content] of fileContentsRef.current.entries()) {
         // Extract file path from mentionId (file:local:path or file:external:path)
-        const filePath = mentionId.replace(/^file:(local|external):/, "")
+        const filePath = mentionId.replace(/^file:(local|external):/, '');
         parts.push({
-          type: "file-content" as const,
+          type: 'file-content' as const,
           filePath,
-          content,
-        })
+          content
+        });
       }
     }
 
     // Capture form selection synchronously before any await so the closure
     // holds the values the user actually saw in the form at submit time.
-    const formSelection = getFormSelection()
+    const formSelection = getFormSelection();
 
     // Create chat with selected project, branch, and initial message
     createChatMutation.mutate(
@@ -1393,25 +1250,23 @@ export function NewChatForm({
         name: message.trim().slice(0, 50), // Use first 50 chars as chat name
         model: reviewModelOverride ?? selectedChatModel,
         initialMessageParts: parts.length > 0 ? parts : undefined,
-        baseBranch:
-          workMode === "worktree" ? selectedBranch || undefined : undefined,
-        branchType:
-          workMode === "worktree" ? selectedBranchType : undefined,
-        useWorktree: workMode === "worktree",
-        mode: agentMode,
+        baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
+        branchType: workMode === 'worktree' ? selectedBranchType : undefined,
+        useWorktree: workMode === 'worktree',
+        mode: agentMode
       },
       {
         onSuccess: (data) => {
-          const newSubChatId = data.subChats?.[0]?.id
-          if (!newSubChatId) return
+          const newSubChatId = data.subChats?.[0]?.id;
+          if (!newSubChatId) return;
           if (isReviewSend) {
-            applyModeDefaultModel(newSubChatId, "review")
+            applyModeDefaultModel(newSubChatId, 'review');
           } else {
-            applyFormSelectionToSubChat(newSubChatId, formSelection)
+            applyFormSelectionToSubChat(newSubChatId, formSelection);
           }
-        },
-      },
-    )
+        }
+      }
+    );
     // Editor, images, files, and pasted texts are cleared in onSuccess callback
   }, [
     selectedProject,
@@ -1427,43 +1282,43 @@ export function NewChatForm({
     selectedChatModel,
     agentMode,
     getFormSelection,
-    trpcUtils,
-  ])
+    trpcUtils
+  ]);
 
   const handleOpen = useCallback(async () => {
-    if (!selectedProject || existingLocalChat) return
-    const text = (editorRef.current?.getValue() || "").trim()
-    const readyImages = images.filter((i) => !i.isLoading && i.url)
-    const readyFiles = files.filter((f) => !f.isLoading)
-    const hasDraftContent = text.length > 0 || readyImages.length > 0 || readyFiles.length > 0
+    if (!selectedProject || existingLocalChat) return;
+    const text = (editorRef.current?.getValue() || '').trim();
+    const readyImages = images.filter((i) => !i.isLoading && i.url);
+    const readyFiles = files.filter((f) => !f.isLoading);
+    const hasDraftContent = text.length > 0 || readyImages.length > 0 || readyFiles.length > 0;
     // Capture form selection before the mutation (same ordering invariant as handleApprovePlan)
-    const formSelection = getFormSelection()
+    const formSelection = getFormSelection();
     createChatMutation.mutate(
       {
         projectId: selectedProject.id,
-        name: text ? text.slice(0, 50) : "New chat",
+        name: text ? text.slice(0, 50) : 'New chat',
         model: selectedChatModel,
-        useWorktree: workMode === "worktree",
-        baseBranch: workMode === "worktree" ? selectedBranch || undefined : undefined,
-        branchType: workMode === "worktree" ? selectedBranchType : undefined,
-        mode: agentMode,
+        useWorktree: workMode === 'worktree',
+        baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
+        branchType: workMode === 'worktree' ? selectedBranchType : undefined,
+        mode: agentMode
       },
       {
         onSuccess: async (data) => {
-          const newSubChatId = data.subChats?.[0]?.id
+          const newSubChatId = data.subChats?.[0]?.id;
           if (newSubChatId) {
             // Apply form selection synchronously before any await
-            applyFormSelectionToSubChat(newSubChatId, formSelection)
+            applyFormSelectionToSubChat(newSubChatId, formSelection);
           }
           if (hasDraftContent && newSubChatId) {
             await saveSubChatDraftWithAttachments(data.id, newSubChatId, text, {
               images: readyImages,
-              files: readyFiles,
-            })
+              files: readyFiles
+            });
           }
-        },
-      },
-    )
+        }
+      }
+    );
   }, [
     selectedProject,
     existingLocalChat,
@@ -1475,58 +1330,58 @@ export function NewChatForm({
     agentMode,
     selectedChatModel,
     getFormSelection,
-    createChatMutation,
-  ])
+    createChatMutation
+  ]);
 
   const handleMentionSelect = useCallback((mention: FileMentionOption) => {
     // Category navigation - enter subpage instead of inserting mention
-    if (mention.type === "category") {
-      if (mention.id === "files") {
-        setShowingFilesList(true)
-        return
+    if (mention.type === 'category') {
+      if (mention.id === 'files') {
+        setShowingFilesList(true);
+        return;
       }
-      if (mention.id === "skills") {
-        setShowingSkillsList(true)
-        return
+      if (mention.id === 'skills') {
+        setShowingSkillsList(true);
+        return;
       }
-      if (mention.id === "agents") {
-        setShowingAgentsList(true)
-        return
+      if (mention.id === 'agents') {
+        setShowingAgentsList(true);
+        return;
       }
-      if (mention.id === "tools") {
-        setShowingToolsList(true)
-        return
+      if (mention.id === 'tools') {
+        setShowingToolsList(true);
+        return;
       }
     }
 
     // Otherwise: insert mention as normal
-    editorRef.current?.insertMention(mention)
-    setShowMentionDropdown(false)
+    editorRef.current?.insertMention(mention);
+    setShowMentionDropdown(false);
     // Reset subpage state
-    setShowingFilesList(false)
-    setShowingSkillsList(false)
-    setShowingAgentsList(false)
-    setShowingToolsList(false)
-  }, [])
+    setShowingFilesList(false);
+    setShowingSkillsList(false);
+    setShowingAgentsList(false);
+    setShowingToolsList(false);
+  }, []);
 
   // Save draft to localStorage when content changes
   const handleContentChange = useCallback(
     (newHasContent: boolean) => {
       if (newHasContent && !hasContent && isVoiceRecording) {
-        cancelRecording()
+        cancelRecording();
       }
-      setHasContent(newHasContent)
-      const text = editorRef.current?.getValue() || ""
+      setHasContent(newHasContent);
+      const text = editorRef.current?.getValue() || '';
 
       // Skip if text hasn't changed
       if (text === lastSavedTextRef.current) {
-        return
+        return;
       }
-      lastSavedTextRef.current = text
+      lastSavedTextRef.current = text;
 
       if (text.trim() && validatedProject) {
         if (!currentDraftIdRef.current) {
-          currentDraftIdRef.current = generateDraftId()
+          currentDraftIdRef.current = generateDraftId();
         }
         const project: DraftProject = {
           id: validatedProject.id,
@@ -1534,235 +1389,293 @@ export function NewChatForm({
           path: validatedProject.path,
           gitOwner: validatedProject.gitOwner,
           gitRepo: validatedProject.gitRepo,
-          gitProvider: validatedProject.gitProvider,
-        }
-        saveNewChatDraftWithAttachments(currentDraftIdRef.current, text, project, { images })
+          gitProvider: validatedProject.gitProvider
+        };
+        saveNewChatDraftWithAttachments(currentDraftIdRef.current, text, project, { images });
       } else if (currentDraftIdRef.current) {
-        deleteNewChatDraft(currentDraftIdRef.current)
-        currentDraftIdRef.current = null
+        deleteNewChatDraft(currentDraftIdRef.current);
+        currentDraftIdRef.current = null;
       }
     },
-    [cancelRecording, hasContent, images, isVoiceRecording, validatedProject],
-  )
+    [cancelRecording, hasContent, images, isVoiceRecording, validatedProject]
+  );
 
   // Re-save draft when images change (text may not have changed)
   useEffect(() => {
-    const draftId = currentDraftIdRef.current
-    if (!draftId || !validatedProject) return
-    const text = editorRef.current?.getValue() || ""
-    if (!text.trim()) return
+    const draftId = currentDraftIdRef.current;
+    if (!draftId || !validatedProject) return;
+    const text = editorRef.current?.getValue() || '';
+    if (!text.trim()) return;
     const project: DraftProject = {
       id: validatedProject.id,
       name: validatedProject.name,
       path: validatedProject.path,
       gitOwner: validatedProject.gitOwner,
       gitRepo: validatedProject.gitRepo,
-      gitProvider: validatedProject.gitProvider,
-    }
-    saveNewChatDraftWithAttachments(draftId, text, project, { images })
-  }, [images, validatedProject])
+      gitProvider: validatedProject.gitProvider
+    };
+    saveNewChatDraftWithAttachments(draftId, text, project, { images });
+  }, [images, validatedProject]);
 
   // Clear current draft when chat is created
   const clearCurrentDraft = useCallback(() => {
-    if (!currentDraftIdRef.current) return
+    if (!currentDraftIdRef.current) return;
 
-    deleteNewChatDraft(currentDraftIdRef.current)
-    currentDraftIdRef.current = null
-    setSelectedDraftId(null)
-  }, [setSelectedDraftId])
+    deleteNewChatDraft(currentDraftIdRef.current);
+    currentDraftIdRef.current = null;
+    setSelectedDraftId(null);
+  }, [setSelectedDraftId]);
 
   // Memoized callbacks to prevent re-renders
   const handleMentionTrigger = useCallback(
     ({ searchText, rect }: { searchText: string; rect: DOMRect }) => {
       if (validatedProject) {
-        setMentionSearchText(searchText)
-        setMentionPosition({ top: rect.top, left: rect.left })
+        setMentionSearchText(searchText);
+        setMentionPosition({ top: rect.top, left: rect.left });
         // Reset subpage state when opening dropdown
-        setShowingFilesList(false)
-        setShowingSkillsList(false)
-        setShowingAgentsList(false)
-        setShowingToolsList(false)
-        setShowMentionDropdown(true)
+        setShowingFilesList(false);
+        setShowingSkillsList(false);
+        setShowingAgentsList(false);
+        setShowingToolsList(false);
+        setShowMentionDropdown(true);
       }
     },
-    [validatedProject],
-  )
+    [validatedProject]
+  );
 
   const handleCloseTrigger = useCallback(() => {
-    setShowMentionDropdown(false)
+    setShowMentionDropdown(false);
     // Reset subpage state when closing
-    setShowingFilesList(false)
-    setShowingSkillsList(false)
-    setShowingAgentsList(false)
-    setShowingToolsList(false)
-  }, [])
+    setShowingFilesList(false);
+    setShowingSkillsList(false);
+    setShowingAgentsList(false);
+    setShowingToolsList(false);
+  }, []);
 
   // Slash command handlers
-  const handleSlashTrigger = useCallback(
-    ({ searchText, rect }: { searchText: string; rect: DOMRect }) => {
-      setSlashSearchText(searchText)
-      setSlashPosition({ top: rect.top, left: rect.left })
-      setShowSlashDropdown(true)
-    },
-    [],
-  )
+  const handleSlashTrigger = useCallback(({ searchText, rect }: { searchText: string; rect: DOMRect }) => {
+    setSlashSearchText(searchText);
+    setSlashPosition({ top: rect.top, left: rect.left });
+    setShowSlashDropdown(true);
+  }, []);
 
   const handleCloseSlashTrigger = useCallback(() => {
-    setShowSlashDropdown(false)
-  }, [])
+    setShowSlashDropdown(false);
+  }, []);
 
   const handleSlashSelect = useCallback(
     (command: SlashCommandOption) => {
       // Clear the slash command text from editor
-      editorRef.current?.clearSlashCommand()
-      setShowSlashDropdown(false)
+      editorRef.current?.clearSlashCommand();
+      setShowSlashDropdown(false);
 
       // Handle builtin commands that change app state (no text input needed)
-      if (command.category === "builtin") {
+      if (command.category === 'builtin') {
         switch (command.name) {
-          case "clear":
-            editorRef.current?.clear()
-            return
-          case "plan":
-            if (agentMode !== "plan") {
-              setAgentMode("plan")
+          case 'clear':
+            editorRef.current?.clear();
+            return;
+          case 'plan':
+            if (agentMode !== 'plan') {
+              setAgentMode('plan');
             }
-            return
-          case "agent":
-            if (agentMode === "plan") {
-              setAgentMode("agent")
+            return;
+          case 'agent':
+            if (agentMode === 'plan') {
+              setAgentMode('agent');
             }
-            return
-          case "help": {
-            const lines = BUILTIN_SLASH_COMMANDS.map(
-              (c) => `${c.command} — ${c.description}`,
-            ).join("\n")
-            toast.message("Available slash commands", {
+            return;
+          case 'help': {
+            const lines = BUILTIN_SLASH_COMMANDS.map((c) => `${c.command} — ${c.description}`).join('\n');
+            toast.message('Available slash commands', {
               description: lines,
-              duration: 8000,
-            })
-            return
+              duration: 8000
+            });
+            return;
           }
         }
       }
 
       // For all other commands (builtin prompts and custom):
       // insert the command and let user add arguments or press Shift+Enter to send
-      editorRef.current?.setValue(`/${command.name} `)
+      editorRef.current?.setValue(`/${command.name} `);
     },
-    [agentMode],
-  )
+    [agentMode]
+  );
 
   // Paste handler for images, plain text, and large text (saved as files)
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => handlePasteEvent(e, handleAddAttachments, addPastedText),
-    [handleAddAttachments, addPastedText],
-  )
+    [handleAddAttachments, addPastedText]
+  );
 
   // Drag and drop handlers
-  const [isDragOver, setIsDragOver] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Focus state for ring
-  const [isFocused, setIsFocused] = useState(false)
+  const [isFocused, setIsFocused] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(true)
-  }, [])
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-  }, [])
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
 
   // Text file extensions that should have content read and attached
   const TEXT_FILE_EXTENSIONS = new Set([
     // Code
-    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-    ".py", ".rb", ".go", ".rs", ".java", ".kt", ".swift", ".c", ".cpp", ".h", ".hpp",
-    ".cs", ".php", ".lua", ".r", ".m", ".mm", ".scala", ".clj", ".ex", ".exs",
-    ".hs", ".elm", ".erl", ".fs", ".fsx", ".ml", ".v", ".vhdl", ".zig",
+    '.ts',
+    '.tsx',
+    '.js',
+    '.jsx',
+    '.mjs',
+    '.cjs',
+    '.py',
+    '.rb',
+    '.go',
+    '.rs',
+    '.java',
+    '.kt',
+    '.swift',
+    '.c',
+    '.cpp',
+    '.h',
+    '.hpp',
+    '.cs',
+    '.php',
+    '.lua',
+    '.r',
+    '.m',
+    '.mm',
+    '.scala',
+    '.clj',
+    '.ex',
+    '.exs',
+    '.hs',
+    '.elm',
+    '.erl',
+    '.fs',
+    '.fsx',
+    '.ml',
+    '.v',
+    '.vhdl',
+    '.zig',
     // Config/Data
-    ".json", ".yaml", ".yml", ".toml", ".xml", ".ini", ".env", ".conf", ".cfg",
-    ".properties", ".plist",
+    '.json',
+    '.yaml',
+    '.yml',
+    '.toml',
+    '.xml',
+    '.ini',
+    '.env',
+    '.conf',
+    '.cfg',
+    '.properties',
+    '.plist',
     // Web
-    ".html", ".htm", ".css", ".scss", ".sass", ".less", ".vue", ".svelte", ".astro",
+    '.html',
+    '.htm',
+    '.css',
+    '.scss',
+    '.sass',
+    '.less',
+    '.vue',
+    '.svelte',
+    '.astro',
     // Documentation
-    ".md", ".mdx", ".rst", ".txt", ".text",
+    '.md',
+    '.mdx',
+    '.rst',
+    '.txt',
+    '.text',
     // Graphics (text-based)
-    ".svg",
+    '.svg',
     // Shell/Scripts
-    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+    '.sh',
+    '.bash',
+    '.zsh',
+    '.fish',
+    '.ps1',
+    '.bat',
+    '.cmd',
     // Other
-    ".sql", ".graphql", ".gql", ".prisma", ".dockerfile", ".makefile",
-    ".gitignore", ".gitattributes", ".editorconfig", ".eslintrc", ".prettierrc",
-  ])
+    '.sql',
+    '.graphql',
+    '.gql',
+    '.prisma',
+    '.dockerfile',
+    '.makefile',
+    '.gitignore',
+    '.gitattributes',
+    '.editorconfig',
+    '.eslintrc',
+    '.prettierrc'
+  ]);
 
-  const MAX_FILE_SIZE_FOR_CONTENT = 100 * 1024 // 100KB - files larger than this only get path mention
+  const MAX_FILE_SIZE_FOR_CONTENT = 100 * 1024; // 100KB - files larger than this only get path mention
 
   // Image extensions that should be handled as attachments (base64)
-  const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"])
+  const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']);
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
-      e.preventDefault()
-      setIsDragOver(false)
-      const droppedFiles = Array.from(e.dataTransfer.files)
+      e.preventDefault();
+      setIsDragOver(false);
+      const droppedFiles = Array.from(e.dataTransfer.files);
 
       // Separate images from other files
-      const imageFiles: File[] = []
-      const otherFiles: File[] = []
+      const imageFiles: File[] = [];
+      const otherFiles: File[] = [];
 
       for (const file of droppedFiles) {
-        const ext = file.name.includes(".") ? "." + file.name.split(".").pop()?.toLowerCase() : ""
+        const ext = file.name.includes('.') ? '.' + file.name.split('.').pop()?.toLowerCase() : '';
         if (IMAGE_EXTENSIONS.has(ext)) {
-          imageFiles.push(file)
+          imageFiles.push(file);
         } else {
-          otherFiles.push(file)
+          otherFiles.push(file);
         }
       }
 
       // Handle images via existing attachment system (base64)
       if (imageFiles.length > 0) {
-        handleAddAttachments(imageFiles)
+        handleAddAttachments(imageFiles);
       }
 
       // Process other files - for text files, read content and add as file mention
       for (const file of otherFiles) {
         // Get file path using Electron's webUtils API (more reliable than file.path)
-        const filePath: string | undefined = window.webUtils?.getPathForFile?.(file) || (file as File & { path?: string }).path
+        const filePath: string | undefined =
+          window.webUtils?.getPathForFile?.(file) || (file as File & { path?: string }).path;
 
-        let mentionId: string
-        let mentionPath: string
+        let mentionId: string;
+        let mentionPath: string;
 
         // Check if file is inside the project
-        if (
-          validatedProject?.path &&
-          filePath &&
-          filePath.startsWith(validatedProject.path)
-        ) {
+        if (validatedProject?.path && filePath && filePath.startsWith(validatedProject.path)) {
           // Project file: use relative path with file:local: prefix
-          const relativePath = filePath
-            .slice(validatedProject.path.length)
-            .replace(/^\//, "")
-          mentionId = `file:local:${relativePath}`
-          mentionPath = relativePath
+          const relativePath = filePath.slice(validatedProject.path.length).replace(/^\//, '');
+          mentionId = `file:local:${relativePath}`;
+          mentionPath = relativePath;
         } else if (filePath) {
           // External file: use absolute path with file:external: prefix
-          mentionId = `file:external:${filePath}`
-          mentionPath = filePath
+          mentionId = `file:external:${filePath}`;
+          mentionPath = filePath;
         } else {
           // Fallback: use filename only
-          mentionId = `file:external:${file.name}`
-          mentionPath = file.name
+          mentionId = `file:external:${file.name}`;
+          mentionPath = file.name;
         }
 
-        const fileName = file.name
-        const ext = fileName.includes(".") ? "." + fileName.split(".").pop()?.toLowerCase() : ""
+        const fileName = file.name;
+        const ext = fileName.includes('.') ? '.' + fileName.split('.').pop()?.toLowerCase() : '';
         // Files without extension are likely directories or special files - skip content reading
-        const hasExtension = ext !== ""
-        const isTextFile = hasExtension && TEXT_FILE_EXTENSIONS.has(ext)
-        const isSmallEnough = file.size <= MAX_FILE_SIZE_FOR_CONTENT
+        const hasExtension = ext !== '';
+        const isTextFile = hasExtension && TEXT_FILE_EXTENSIONS.has(ext);
+        const isSmallEnough = file.size <= MAX_FILE_SIZE_FOR_CONTENT;
 
         // For text files that are small enough, read content and store it
         // Show file chip, content will be added to prompt on send
@@ -1772,17 +1685,17 @@ export function NewChatForm({
             id: mentionId,
             label: fileName,
             path: mentionPath,
-            repository: "local",
-            type: "file",
-          })
+            repository: 'local',
+            type: 'file'
+          });
 
           // Read and cache content (will be added to prompt on send)
           try {
-            const content = await trpcUtils.files.readFile.fetch({ filePath })
-            fileContentsRef.current.set(mentionId, content)
+            const content = await trpcUtils.files.readFile.fetch({ filePath });
+            fileContentsRef.current.set(mentionId, content);
           } catch (err) {
             // If reading fails, chip is still there - agent can try to read via path
-            console.error(`[handleDrop] Failed to read file content ${filePath}:`, err)
+            console.error(`[handleDrop] Failed to read file content ${filePath}:`, err);
           }
         } else {
           // For binary files, large files - add as mention only
@@ -1791,21 +1704,21 @@ export function NewChatForm({
             id: mentionId,
             label: fileName,
             path: mentionPath,
-            repository: "local",
-            type: "file",
-          })
+            repository: 'local',
+            type: 'file'
+          });
         }
       }
 
       // Focus after state update - use double rAF to wait for React render
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          editorRef.current?.focus()
-        })
-      })
+          editorRef.current?.focus();
+        });
+      });
     },
-    [validatedProject?.path, handleAddAttachments, trpcUtils],
-  )
+    [validatedProject?.path, handleAddAttachments, trpcUtils]
+  );
 
   // Context items for images, files, and pasted text files
   const contextItems =
@@ -1818,8 +1731,8 @@ export function NewChatForm({
             .map((img) => ({
               id: img.id,
               filename: img.filename,
-              url: img.url,
-            }))
+              url: img.url
+            }));
 
           return images.map((img, idx) => (
             <AgentImageItem
@@ -1832,14 +1745,14 @@ export function NewChatForm({
               allImages={allImages}
               imageIndex={idx}
             />
-          ))
+          ));
         })()}
         {files.map((f) => (
           <AgentFileItem
             key={f.id}
             id={f.id}
             filename={f.filename}
-            url={f.url || ""}
+            url={f.url || ''}
             size={f.size}
             isLoading={f.isLoading}
             onRemove={() => removeFile(f.id)}
@@ -1856,17 +1769,14 @@ export function NewChatForm({
           />
         ))}
       </div>
-    ) : null
+    ) : null;
 
   // Handle container click to focus editor
   const handleContainerClick = useCallback((e: React.MouseEvent) => {
-    if (
-      e.target === e.currentTarget ||
-      !(e.target as HTMLElement).closest("button, [contenteditable]")
-    ) {
-      editorRef.current?.focus()
+    if (e.target === e.currentTarget || !(e.target as HTMLElement).closest('button, [contenteditable]')) {
+      editorRef.current?.focus();
     }
-  }, [])
+  }, []);
 
   return (
     <div className="flex h-full relative">
@@ -1875,530 +1785,473 @@ export function NewChatForm({
           and span the full surface height so their own header rows line up
           with the new-workspace header. */}
       <div className="flex flex-col flex-1 min-w-0">
-      {/* Header - Simple burger on mobile, AgentsHeaderControls on desktop.
+        {/* Header - Simple burger on mobile, AgentsHeaderControls on desktop.
           Drag region for window — child buttons (hamburger, Explore/Search)
           opt out via WebkitAppRegion: "no-drag" so clicks still register. */}
-      <div
-        className="flex-shrink-0 flex items-center justify-between bg-background p-1.5"
-        style={{
-          WebkitAppRegion: "drag",
-        }}
-      >
-        <div className="flex-1 min-w-0 flex items-center gap-2">
-          {isMobileFullscreen ? (
-            // Simple burger button for mobile - just opens chats list
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onBackToChats}
-              className="h-7 w-7 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md"
-              aria-label="All projects"
-              style={{
-                WebkitAppRegion: "no-drag",
-              }}
-            >
-              <AlignJustify className="h-4 w-4" />
-            </Button>
-          ) : (
-            <AgentsHeaderControls
-              isSidebarOpen={sidebarOpen}
-              onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-              hasUnseenChanges={hasAnyUnseenChanges}
-            />
-          )}
+        <div
+          className="flex-shrink-0 flex items-center justify-between bg-background p-1.5"
+          style={{
+            WebkitAppRegion: 'drag'
+          }}>
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            {isMobileFullscreen ? (
+              // Simple burger button for mobile - just opens chats list
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onBackToChats}
+                className="h-7 w-7 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md"
+                aria-label="All projects"
+                style={{
+                  WebkitAppRegion: 'no-drag'
+                }}>
+                <AlignJustify className="h-4 w-4" />
+              </Button>
+            ) : (
+              <AgentsHeaderControls
+                isSidebarOpen={sidebarOpen}
+                onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+                hasUnseenChanges={hasAnyUnseenChanges}
+              />
+            )}
+          </div>
+          <NewWorkspaceActions visible={!isMobileFullscreen && !!validatedProjectPath} />
         </div>
-        <NewWorkspaceActions
-          visible={!isMobileFullscreen && !!validatedProjectPath}
-        />
-      </div>
 
-      <div className="flex flex-1 min-w-0 items-center justify-center overflow-y-auto relative">
-        <div className="w-full max-w-5xl space-y-4 md:space-y-6 relative z-10 px-4">
-          {/* Title - only show when project is selected */}
-          {validatedProject && (
-            <div className="text-center">
-              <h1 className="text-2xl md:text-4xl font-medium tracking-tight">
-                What do you want to get done?
-              </h1>
-            </div>
-          )}
+        <div className="flex flex-1 min-w-0 items-center justify-center overflow-y-auto relative">
+          <div className="w-full max-w-5xl space-y-4 md:space-y-6 relative z-10 px-4">
+            {/* Title - only show when project is selected */}
+            {validatedProject && (
+              <div className="text-center">
+                <h1 className="text-2xl md:text-4xl font-medium tracking-tight">What do you want to get done?</h1>
+              </div>
+            )}
 
-          {/* Input Area or Select Repo State */}
-          {!validatedProject ? (
-            // No project selected - show select repo button (like Sign in button)
-            <div className="flex justify-center">
-              <button
-                onClick={handleOpenFolder}
-                disabled={openFolder.isPending}
-                className="h-8 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.97] shadow-[0_0_0_0.5px_rgb(23,23,23),inset_0_0_0_1px_rgba(255,255,255,0.14)] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {openFolder.isPending ? "Opening..." : "Select repo"}
-              </button>
-            </div>
-          ) : (
-            // Project selected - show input form
-            <div
-              className="relative w-full"
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
+            {/* Input Area or Select Repo State */}
+            {!validatedProject ? (
+              // No project selected - show select repo button (like Sign in button)
+              <div className="flex justify-center">
+                <button
+                  onClick={handleOpenFolder}
+                  disabled={openFolder.isPending}
+                  className="h-8 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.97] shadow-[0_0_0_0.5px_rgb(23,23,23),inset_0_0_0_1px_rgba(255,255,255,0.14)] disabled:opacity-50 disabled:cursor-not-allowed">
+                  {openFolder.isPending ? 'Opening...' : 'Select repo'}
+                </button>
+              </div>
+            ) : (
+              // Project selected - show input form
               <div
-                className="relative w-full cursor-text"
-                onClick={handleContainerClick}
-              >
-                <PromptInput
-                  className={cn(
-                    "border bg-input-background relative z-10 p-2 rounded-md transition-[border-color,box-shadow] duration-150",
-                    isDragOver && "ring-2 ring-primary/50 border-primary/50",
-                    isFocused && !isDragOver && "ring-2 ring-primary/50",
-                  )}
-                  maxHeight={240}
-                  onSubmit={handleSend}
-                  contextItems={contextItems}
-                >
-                  <PromptInputContextItems />
-                  <div className="relative">
-                    <AgentsMentionsEditor
-                      ref={editorRef}
-                      onTrigger={handleMentionTrigger}
-                      onCloseTrigger={handleCloseTrigger}
-                      onSlashTrigger={handleSlashTrigger}
-                      onCloseSlashTrigger={handleCloseSlashTrigger}
-                      onContentChange={handleContentChange}
-                      onSubmit={handleSend}
-                      onShiftTab={toggleMode}
-                      placeholder="Describe your task — Shift+Enter to send"
-                      className={cn(
-                        "bg-transparent max-h-[240px] overflow-y-auto p-1 transition-[min-height] duration-150",
-                        isMobileFullscreen ? "min-h-[56px]" : "min-h-[120px]",
-                      )}
-                      onPaste={handlePaste}
-                      disabled={createChatMutation.isPending}
-                      onFocus={() => setIsFocused(true)}
-                      onBlur={() => setIsFocused(false)}
-                    />
-                  </div>
-                  <PromptInputActions className="w-full">
-                    <div className="flex items-center gap-0.5 flex-1 min-w-0">
-                      {/* Mode toggle (Agent/Plan) */}
-                      <DropdownMenu
-                        open={modeDropdownOpen}
-                        onOpenChange={(open) => {
-                          setModeDropdownOpen(open)
-                          if (!open) {
-                            if (tooltipTimeoutRef.current) {
-                              clearTimeout(tooltipTimeoutRef.current)
-                              tooltipTimeoutRef.current = null
-                            }
-                            setModeTooltip(null)
-                            hasShownTooltipRef.current = false
-                          }
-                        }}
-                      >
-                        <DropdownMenuTrigger className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
-                          {agentMode === "plan" ? (
-                            <PlanIcon className="h-3.5 w-3.5" />
-                          ) : (
-                            <AgentIcon className="h-3.5 w-3.5" />
-                          )}
-                          <span>{agentMode === "plan" ? "Plan" : "Agent"}</span>
-                          <IconChevronDown className="h-3 w-3 shrink-0 opacity-50" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="start"
-                          sideOffset={6}
-                          className="!min-w-[116px] !w-[116px]"
-                          onCloseAutoFocus={(e) => e.preventDefault()}
-                        >
-                          <DropdownMenuItem
-                            onClick={() => {
-                              // Clear tooltip before closing dropdown (onMouseLeave won't fire)
-                              if (tooltipTimeoutRef.current) {
-                                clearTimeout(tooltipTimeoutRef.current)
-                                tooltipTimeoutRef.current = null
-                              }
-                              setModeTooltip(null)
-                              setAgentMode("agent")
-                              setModeDropdownOpen(false)
-                            }}
-                            className="justify-between gap-2"
-                            onMouseEnter={(e) => {
-                              if (tooltipTimeoutRef.current) {
-                                clearTimeout(tooltipTimeoutRef.current)
-                                tooltipTimeoutRef.current = null
-                              }
-                              const rect =
-                                e.currentTarget.getBoundingClientRect()
-                              const showTooltip = () => {
-                                setModeTooltip({
-                                  visible: true,
-                                  position: {
-                                    top: rect.top,
-                                    left: rect.right + 8,
-                                  },
-                                  mode: "agent",
-                                })
-                                hasShownTooltipRef.current = true
-                                tooltipTimeoutRef.current = null
-                              }
-                              if (hasShownTooltipRef.current) {
-                                showTooltip()
-                              } else {
-                                tooltipTimeoutRef.current = setTimeout(
-                                  showTooltip,
-                                  1000,
-                                )
-                              }
-                            }}
-                            onMouseLeave={() => {
-                              if (tooltipTimeoutRef.current) {
-                                clearTimeout(tooltipTimeoutRef.current)
-                                tooltipTimeoutRef.current = null
-                              }
-                              setModeTooltip(null)
-                            }}
-                          >
-                            <div className="flex items-center gap-2">
-                              <AgentIcon className="w-4 h-4 text-muted-foreground" />
-                              <span>Agent</span>
-                            </div>
-                            {agentMode !== "plan" && (
-                              <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              // Clear tooltip before closing dropdown (onMouseLeave won't fire)
-                              if (tooltipTimeoutRef.current) {
-                                clearTimeout(tooltipTimeoutRef.current)
-                                tooltipTimeoutRef.current = null
-                              }
-                              setModeTooltip(null)
-                              setAgentMode("plan")
-                              setModeDropdownOpen(false)
-                            }}
-                            className="justify-between gap-2"
-                            onMouseEnter={(e) => {
-                              if (tooltipTimeoutRef.current) {
-                                clearTimeout(tooltipTimeoutRef.current)
-                                tooltipTimeoutRef.current = null
-                              }
-                              const rect = e.currentTarget.getBoundingClientRect()
-                              const showTooltip = () => {
-                                setModeTooltip({
-                                  visible: true,
-                                  position: {
-                                    top: rect.top,
-                                    left: rect.right + 8,
-                                  },
-                                  mode: "plan",
-                                })
-                                hasShownTooltipRef.current = true
-                                tooltipTimeoutRef.current = null
-                              }
-                              if (hasShownTooltipRef.current) {
-                                showTooltip()
-                              } else {
-                                tooltipTimeoutRef.current = setTimeout(
-                                  showTooltip,
-                                  1000,
-                                )
-                              }
-                            }}
-                            onMouseLeave={() => {
-                              if (tooltipTimeoutRef.current) {
-                                clearTimeout(tooltipTimeoutRef.current)
-                                tooltipTimeoutRef.current = null
-                              }
-                              setModeTooltip(null)
-                            }}
-                          >
-                            <div className="flex items-center gap-2">
-                              <PlanIcon className="w-4 h-4 text-muted-foreground" />
-                              <span>Plan</span>
-                            </div>
-                            {agentMode === "plan" && (
-                              <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />
-                            )}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                        {modeTooltip?.visible &&
-                          createPortal(
-                            <div
-                              className="fixed z-[100000]"
-                              style={{
-                                top: modeTooltip.position.top + 14,
-                                left: modeTooltip.position.left,
-                                transform: "translateY(-50%)",
-                              }}
-                            >
-                              <div
-                                data-tooltip="true"
-                                className="relative rounded-[12px] bg-popover px-2.5 py-1.5 text-xs text-popover-foreground dark max-w-[150px]"
-                              >
-                                <span>
-                                  {modeTooltip.mode === "agent"
-                                    ? "Apply changes directly without a plan"
-                                    : "Create a plan before making changes"}
-                                </span>
-                              </div>
-                            </div>,
-                            document.body,
-                          )}
-                      </DropdownMenu>
-
-                      <div className="group/model-controls flex items-center gap-0.5">
-                        <AgentModelSelector
-                          open={isModelDropdownOpen}
-                          onOpenChange={setIsModelDropdownOpen}
-                          selectedAgentId={selectedAgent.id as "claude-code" | "codex"}
-                          onSelectedAgentIdChange={(provider) => {
-                            if (provider === "claude-code") {
-                              setSelectedAgent(claudeAgent)
-                            } else {
-                              setSelectedAgent(enabledAgents.find((agent) => agent.id === "codex") || fallbackAgent)
-                            }
-                            setLastSelectedAgentId(provider)
-                          }}
-                          selectedModelLabel={selectedModelLabel}
-                          onOpenModelsSettings={() => {
-                            setSettingsActiveTab("models")
-                            setSettingsDialogOpen(true)
-                          }}
-                          claude={{
-                            models: availableModels.models.filter((m) => !hiddenModels.includes(m.id)),
-                            selectedModelId: selectedModel?.id,
-                            onSelectModel: (modelId) => {
-                              const model =
-                                availableModels.models.find((m) => m.id === modelId) ||
-                                availableModels.models[0]
-                              if (!model) return
-                              setSelectedModel(model)
-                              setLastSelectedModelId(model.id)
-                            },
-                            hasCustomModelConfig: hasCustomClaudeConfig,
-                            isOffline: availableModels.isOffline && availableModels.hasOllama,
-                            ollamaModels: availableModels.ollamaModels,
-                            selectedOllamaModel: currentOllamaModel,
-                            recommendedOllamaModel: availableModels.recommendedModel,
-                            onSelectOllamaModel: setSelectedOllamaModel,
-                            isConnected: isClaudeConnected,
-                            selectedThinking: selectedClaudeThinking,
-                            onSelectThinking: setLastSelectedClaudeThinking,
-                          }}
-                          codex={{
-                            models: codexUiModels,
-                            selectedModelId: selectedCodexModel.id,
-                            onSelectModel: (modelId) => {
-                              const model = codexUiModels.find((item) => item.id === modelId)
-                              if (!model) return
-                              const nextThinking = model.thinkings.includes(
-                                lastSelectedCodexThinking as CodexThinkingLevel,
-                              )
-                                ? (lastSelectedCodexThinking as CodexThinkingLevel)
-                                : (model.thinkings.includes("high")
-                                  ? "high"
-                                  : model.thinkings[0]!)
-
-                              setLastSelectedCodexModelId(model.id)
-                              setLastSelectedCodexThinking(nextThinking)
-                            },
-                            selectedThinking: selectedCodexThinking,
-                            onSelectThinking: setLastSelectedCodexThinking,
-                            isConnected: codexOnboardingCompleted,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-0.5 ml-auto flex-shrink-0">
-                      {/* Hidden file input */}
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        hidden
-                        multiple
-                        onChange={(e) => {
-                          const inputFiles = Array.from(e.target.files || [])
-                          handleAddAttachments(inputFiles)
-                          e.target.value = "" // Reset to allow same file selection
-                        }}
+                className="relative w-full"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}>
+                <div className="relative w-full cursor-text" onClick={handleContainerClick}>
+                  <PromptInput
+                    className={cn(
+                      'border bg-input-background relative z-10 p-2 rounded-md transition-[border-color,box-shadow] duration-150',
+                      isDragOver && 'ring-2 ring-primary/50 border-primary/50',
+                      isFocused && !isDragOver && 'ring-2 ring-primary/50'
+                    )}
+                    maxHeight={240}
+                    onSubmit={handleSend}
+                    contextItems={contextItems}>
+                    <PromptInputContextItems />
+                    <div className="relative">
+                      <AgentsMentionsEditor
+                        ref={editorRef}
+                        onTrigger={handleMentionTrigger}
+                        onCloseTrigger={handleCloseTrigger}
+                        onSlashTrigger={handleSlashTrigger}
+                        onCloseSlashTrigger={handleCloseSlashTrigger}
+                        onContentChange={handleContentChange}
+                        onSubmit={handleSend}
+                        onShiftTab={toggleMode}
+                        placeholder="Describe your task — Shift+Enter to send"
+                        className={cn(
+                          'bg-transparent max-h-[240px] overflow-y-auto p-1 transition-[min-height] duration-150',
+                          isMobileFullscreen ? 'min-h-[56px]' : 'min-h-[120px]'
+                        )}
+                        onPaste={handlePaste}
+                        disabled={createChatMutation.isPending}
+                        onFocus={() => setIsFocused(true)}
+                        onBlur={() => setIsFocused(false)}
                       />
-                      {/* Voice wave indicator or Attachment button */}
-                      {isVoiceRecording ? (
-                        <VoiceWaveIndicator isRecording={isVoiceRecording} audioLevel={voiceAudioLevel} />
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 rounded-sm outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={images.length >= 5 && files.length >= 10}
-                        >
-                          <AttachIcon className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <div className="ml-1">
-                        <AgentSendButton
-                          isStreaming={false}
-                          isSubmitting={
-                            createChatMutation.isPending || isUploading
-                          }
-                          disabled={Boolean(
-                            !hasContent || !selectedProject || isUploading || existingLocalChat,
-                          )}
-                          onClick={handleSend}
-                          mode={agentMode}
-                          hasContent={hasContent}
-                          showVoiceInput={isVoiceAvailable}
-                          isRecording={isVoiceRecording}
-                          isTranscribing={isTranscribing}
-                          onVoiceMouseDown={handleVoiceMouseDown}
-                          onVoiceMouseUp={handleVoiceMouseUp}
-                          onVoiceMouseLeave={handleVoiceMouseLeave}
-                        />
-                      </div>
                     </div>
-                  </PromptInputActions>
-                </PromptInput>
-
-                {/* Project, Work Mode, and Branch selectors - directly under input */}
-                <div className="mt-1.5 md:mt-2 ml-[5px] flex items-center gap-2">
-                  <ProjectSelector />
-
-                  {/* Work mode selector - between project and branch */}
-                  {validatedProject && (
-                    <WorkModeSelector
-                      value={workMode}
-                      onChange={setWorkMode}
-                      disabled={createChatMutation.isPending}
-                    />
-                  )}
-
-                  {/* Branch selector - only visible when worktree mode is selected */}
-                  {validatedProject && workMode === "worktree" && (
-                    <Popover
-                      open={branchPopoverOpen}
-                      onOpenChange={(open) => {
-                        if (!open) {
-                          setBranchSearch("") // Clear search on close
-                        }
-                        setBranchPopoverOpen(open)
-                      }}
-                    >
-                      <PopoverTrigger asChild>
-                        <button
-                          className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
-                          disabled={branchesQuery.isLoading}
-                        >
-                          <BranchIcon className="w-4 h-4" />
-                          <span className="truncate max-w-[100px]">
-                            {selectedBranch ||
-                              branchesQuery.data?.defaultBranch ||
-                              "main"}
-                          </span>
-                          <IconChevronDown className="w-3 h-3 opacity-50" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-80 p-0" align="start">
-                        {/* Search input with Create button */}
-                        <div className="flex items-center gap-1.5 h-7 px-1.5 mx-1 my-1 rounded-md bg-muted/50">
-                          <SearchIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <input
-                            type="text"
-                            placeholder="Search branches..."
-                            value={branchSearch}
-                            onChange={(e) => setBranchSearch(e.target.value)}
-                            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                            autoFocus
-                          />
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 px-1.5 flex items-center gap-1 text-xs shrink-0"
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setCreateBranchDialogOpen(true)
-                              setBranchPopoverOpen(false)
-                            }}
-                          >
-                            <Plus className="h-3 w-3" />
-                            Create
-                          </Button>
-                        </div>
-
-                        {/* Virtualized branch list */}
-                        {filteredBranches.length === 0 ? (
-                          <div className="py-6 text-center text-sm text-muted-foreground">
-                            No branches found.
-                          </div>
-                        ) : (
-                          <div
-                            ref={branchListRef}
-                            className="overflow-auto py-1 scrollbar-hide"
-                            style={{
-                              height: Math.min(
-                                filteredBranches.length * 32 + 8,
-                                300,
-                              ),
-                            }}
-                          >
-                            <div
-                              style={{
-                                height: `${branchVirtualizer.getTotalSize()}px`,
-                                width: "100%",
-                                position: "relative",
+                    <PromptInputActions className="w-full">
+                      <div className="flex items-center gap-0.5 flex-1 min-w-0">
+                        {/* Mode toggle (Agent/Plan) */}
+                        <DropdownMenu
+                          open={modeDropdownOpen}
+                          onOpenChange={(open) => {
+                            setModeDropdownOpen(open);
+                            if (!open) {
+                              if (tooltipTimeoutRef.current) {
+                                clearTimeout(tooltipTimeoutRef.current);
+                                tooltipTimeoutRef.current = null;
+                              }
+                              setModeTooltip(null);
+                              hasShownTooltipRef.current = false;
+                            }
+                          }}>
+                          <DropdownMenuTrigger className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
+                            {agentMode === 'plan' ? (
+                              <PlanIcon className="h-3.5 w-3.5" />
+                            ) : (
+                              <AgentIcon className="h-3.5 w-3.5" />
+                            )}
+                            <span>{agentMode === 'plan' ? 'Plan' : 'Agent'}</span>
+                            <IconChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="start"
+                            sideOffset={6}
+                            className="!min-w-[116px] !w-[116px]"
+                            onCloseAutoFocus={(e) => e.preventDefault()}>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                // Clear tooltip before closing dropdown (onMouseLeave won't fire)
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                setModeTooltip(null);
+                                setAgentMode('agent');
+                                setModeDropdownOpen(false);
                               }}
-                            >
-                              {branchVirtualizer
-                                .getVirtualItems()
-                                .map((virtualItem) => {
-                                  const branch =
-                                    filteredBranches[virtualItem.index]
+                              className="justify-between gap-2"
+                              onMouseEnter={(e) => {
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const showTooltip = () => {
+                                  setModeTooltip({
+                                    visible: true,
+                                    position: {
+                                      top: rect.top,
+                                      left: rect.right + 8
+                                    },
+                                    mode: 'agent'
+                                  });
+                                  hasShownTooltipRef.current = true;
+                                  tooltipTimeoutRef.current = null;
+                                };
+                                if (hasShownTooltipRef.current) {
+                                  showTooltip();
+                                } else {
+                                  tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                setModeTooltip(null);
+                              }}>
+                              <div className="flex items-center gap-2">
+                                <AgentIcon className="w-4 h-4 text-muted-foreground" />
+                                <span>Agent</span>
+                              </div>
+                              {agentMode !== 'plan' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                // Clear tooltip before closing dropdown (onMouseLeave won't fire)
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                setModeTooltip(null);
+                                setAgentMode('plan');
+                                setModeDropdownOpen(false);
+                              }}
+                              className="justify-between gap-2"
+                              onMouseEnter={(e) => {
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const showTooltip = () => {
+                                  setModeTooltip({
+                                    visible: true,
+                                    position: {
+                                      top: rect.top,
+                                      left: rect.right + 8
+                                    },
+                                    mode: 'plan'
+                                  });
+                                  hasShownTooltipRef.current = true;
+                                  tooltipTimeoutRef.current = null;
+                                };
+                                if (hasShownTooltipRef.current) {
+                                  showTooltip();
+                                } else {
+                                  tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                setModeTooltip(null);
+                              }}>
+                              <div className="flex items-center gap-2">
+                                <PlanIcon className="w-4 h-4 text-muted-foreground" />
+                                <span>Plan</span>
+                              </div>
+                              {agentMode === 'plan' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                          {modeTooltip?.visible &&
+                            createPortal(
+                              <div
+                                className="fixed z-[100000]"
+                                style={{
+                                  top: modeTooltip.position.top + 14,
+                                  left: modeTooltip.position.left,
+                                  transform: 'translateY(-50%)'
+                                }}>
+                                <div
+                                  data-tooltip="true"
+                                  className="relative rounded-[12px] bg-popover px-2.5 py-1.5 text-xs text-popover-foreground dark max-w-[150px]">
+                                  <span>
+                                    {modeTooltip.mode === 'agent'
+                                      ? 'Apply changes directly without a plan'
+                                      : 'Create a plan before making changes'}
+                                  </span>
+                                </div>
+                              </div>,
+                              document.body
+                            )}
+                        </DropdownMenu>
+
+                        <div className="group/model-controls flex items-center gap-0.5">
+                          <AgentModelSelector
+                            open={isModelDropdownOpen}
+                            onOpenChange={setIsModelDropdownOpen}
+                            selectedAgentId={selectedAgent.id as 'claude-code' | 'codex'}
+                            onSelectedAgentIdChange={(provider) => {
+                              if (provider === 'claude-code') {
+                                setSelectedAgent(claudeAgent);
+                              } else {
+                                setSelectedAgent(enabledAgents.find((agent) => agent.id === 'codex') || fallbackAgent);
+                              }
+                              setLastSelectedAgentId(provider);
+                            }}
+                            selectedModelLabel={selectedModelLabel}
+                            onOpenModelsSettings={() => {
+                              setSettingsActiveTab('models');
+                              setSettingsDialogOpen(true);
+                            }}
+                            claude={{
+                              models: availableModels.models.filter((m) => !hiddenModels.includes(m.id)),
+                              selectedModelId: selectedModel?.id,
+                              onSelectModel: (modelId) => {
+                                const model =
+                                  availableModels.models.find((m) => m.id === modelId) || availableModels.models[0];
+                                if (!model) return;
+                                setSelectedModel(model);
+                                setLastSelectedModelId(model.id);
+                              },
+                              hasCustomModelConfig: hasCustomClaudeConfig,
+                              isOffline: availableModels.isOffline && availableModels.hasOllama,
+                              ollamaModels: availableModels.ollamaModels,
+                              selectedOllamaModel: currentOllamaModel,
+                              recommendedOllamaModel: availableModels.recommendedModel,
+                              onSelectOllamaModel: setSelectedOllamaModel,
+                              isConnected: isClaudeConnected,
+                              selectedThinking: selectedClaudeThinking,
+                              onSelectThinking: setLastSelectedClaudeThinking
+                            }}
+                            codex={{
+                              models: codexUiModels,
+                              selectedModelId: selectedCodexModel.id,
+                              onSelectModel: (modelId) => {
+                                const model = codexUiModels.find((item) => item.id === modelId);
+                                if (!model) return;
+                                const nextThinking = model.thinkings.includes(
+                                  lastSelectedCodexThinking as CodexThinkingLevel
+                                )
+                                  ? (lastSelectedCodexThinking as CodexThinkingLevel)
+                                  : model.thinkings.includes('high')
+                                    ? 'high'
+                                    : model.thinkings[0]!;
+
+                                setLastSelectedCodexModelId(model.id);
+                                setLastSelectedCodexThinking(nextThinking);
+                              },
+                              selectedThinking: selectedCodexThinking,
+                              onSelectThinking: setLastSelectedCodexThinking,
+                              isConnected: codexOnboardingCompleted
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-0.5 ml-auto flex-shrink-0">
+                        {/* Hidden file input */}
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          hidden
+                          multiple
+                          onChange={(e) => {
+                            const inputFiles = Array.from(e.target.files || []);
+                            handleAddAttachments(inputFiles);
+                            e.target.value = ''; // Reset to allow same file selection
+                          }}
+                        />
+                        {/* Voice wave indicator or Attachment button */}
+                        {isVoiceRecording ? (
+                          <VoiceWaveIndicator isRecording={isVoiceRecording} audioLevel={voiceAudioLevel} />
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded-sm outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={images.length >= 5 && files.length >= 10}>
+                            <AttachIcon className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <div className="ml-1">
+                          <AgentSendButton
+                            isStreaming={false}
+                            isSubmitting={createChatMutation.isPending || isUploading}
+                            disabled={Boolean(!hasContent || !selectedProject || isUploading || existingLocalChat)}
+                            onClick={handleSend}
+                            mode={agentMode}
+                            hasContent={hasContent}
+                            showVoiceInput={isVoiceAvailable}
+                            isRecording={isVoiceRecording}
+                            isTranscribing={isTranscribing}
+                            onVoiceMouseDown={handleVoiceMouseDown}
+                            onVoiceMouseUp={handleVoiceMouseUp}
+                            onVoiceMouseLeave={handleVoiceMouseLeave}
+                          />
+                        </div>
+                      </div>
+                    </PromptInputActions>
+                  </PromptInput>
+
+                  {/* Project, Work Mode, and Branch selectors - directly under input */}
+                  <div className="mt-1.5 md:mt-2 ml-[5px] flex items-center gap-2">
+                    <ProjectSelector />
+
+                    {/* Work mode selector - between project and branch */}
+                    {validatedProject && (
+                      <WorkModeSelector
+                        value={workMode}
+                        onChange={setWorkMode}
+                        disabled={createChatMutation.isPending}
+                      />
+                    )}
+
+                    {/* Branch selector - only visible when worktree mode is selected */}
+                    {validatedProject && workMode === 'worktree' && (
+                      <Popover
+                        open={branchPopoverOpen}
+                        onOpenChange={(open) => {
+                          if (!open) {
+                            setBranchSearch(''); // Clear search on close
+                          }
+                          setBranchPopoverOpen(open);
+                        }}>
+                        <PopoverTrigger asChild>
+                          <button
+                            className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+                            disabled={branchesQuery.isLoading}>
+                            <BranchIcon className="w-4 h-4" />
+                            <span className="truncate max-w-[100px]">
+                              {selectedBranch || branchesQuery.data?.defaultBranch || 'main'}
+                            </span>
+                            <IconChevronDown className="w-3 h-3 opacity-50" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-80 p-0" align="start">
+                          {/* Search input with Create button */}
+                          <div className="flex items-center gap-1.5 h-7 px-1.5 mx-1 my-1 rounded-md bg-muted/50">
+                            <SearchIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <input
+                              type="text"
+                              placeholder="Search branches..."
+                              value={branchSearch}
+                              onChange={(e) => setBranchSearch(e.target.value)}
+                              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                              autoFocus
+                            />
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-1.5 flex items-center gap-1 text-xs shrink-0"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setCreateBranchDialogOpen(true);
+                                setBranchPopoverOpen(false);
+                              }}>
+                              <Plus className="h-3 w-3" />
+                              Create
+                            </Button>
+                          </div>
+
+                          {/* Virtualized branch list */}
+                          {filteredBranches.length === 0 ? (
+                            <div className="py-6 text-center text-sm text-muted-foreground">No branches found.</div>
+                          ) : (
+                            <div
+                              ref={branchListRef}
+                              className="overflow-auto py-1 scrollbar-hide"
+                              style={{
+                                height: Math.min(filteredBranches.length * 32 + 8, 300)
+                              }}>
+                              <div
+                                style={{
+                                  height: `${branchVirtualizer.getTotalSize()}px`,
+                                  width: '100%',
+                                  position: 'relative'
+                                }}>
+                                {branchVirtualizer.getVirtualItems().map((virtualItem) => {
+                                  const branch = filteredBranches[virtualItem.index];
                                   const isSelected =
-                                    (selectedBranch === branch.name &&
-                                      selectedBranchType === branch.type) ||
-                                    (!selectedBranch && branch.isDefault && branch.type === "local")
+                                    (selectedBranch === branch.name && selectedBranchType === branch.type) ||
+                                    (!selectedBranch && branch.isDefault && branch.type === 'local');
                                   return (
                                     <button
                                       key={`${branch.type}-${branch.name}`}
                                       onClick={() => {
-                                        setSelectedBranch(branch.name, branch.type)
-                                        setBranchPopoverOpen(false)
-                                        setBranchSearch("")
+                                        setSelectedBranch(branch.name, branch.type);
+                                        setBranchPopoverOpen(false);
+                                        setBranchSearch('');
                                       }}
                                       className={cn(
-                                        "flex items-center gap-1.5 w-[calc(100%-8px)] mx-1 px-1.5 text-sm text-left absolute left-0 top-0 rounded-md cursor-default select-none outline-none transition-colors",
+                                        'flex items-center gap-1.5 w-[calc(100%-8px)] mx-1 px-1.5 text-sm text-left absolute left-0 top-0 rounded-md cursor-default select-none outline-none transition-colors',
                                         isSelected
-                                          ? "dark:bg-neutral-800 text-foreground"
-                                          : "dark:hover:bg-neutral-800 hover:text-foreground",
+                                          ? 'dark:bg-neutral-800 text-foreground'
+                                          : 'dark:hover:bg-neutral-800 hover:text-foreground'
                                       )}
                                       style={{
                                         height: `${virtualItem.size}px`,
-                                        transform: `translateY(${virtualItem.start}px)`,
-                                      }}
-                                    >
+                                        transform: `translateY(${virtualItem.start}px)`
+                                      }}>
                                       <BranchIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                                      <span className="truncate flex-1">
-                                        {branch.name}
-                                      </span>
+                                      <span className="truncate flex-1">{branch.name}</span>
                                       <span
                                         className={cn(
-                                          "text-[10px] px-1.5 py-0.5 rounded shrink-0",
-                                          branch.type === "local"
-                                            ? "bg-blue-500/10 text-blue-500"
-                                            : "bg-orange-500/10 text-orange-500",
-                                        )}
-                                      >
+                                          'text-[10px] px-1.5 py-0.5 rounded shrink-0',
+                                          branch.type === 'local'
+                                            ? 'bg-blue-500/10 text-blue-500'
+                                            : 'bg-orange-500/10 text-orange-500'
+                                        )}>
                                         {branch.type}
                                       </span>
                                       {branch.committedAt && (
                                         <span className="text-xs text-muted-foreground/70 shrink-0">
-                                          {formatRelativeTime(
-                                            branch.committedAt,
-                                          )}
+                                          {formatRelativeTime(branch.committedAt)}
                                         </span>
                                       )}
                                       {branch.isDefault && (
@@ -2406,110 +2259,108 @@ export function NewChatForm({
                                           default
                                         </span>
                                       )}
-                                      {isSelected && (
-                                        <CheckIcon className="h-4 w-4 shrink-0 ml-auto" />
-                                      )}
+                                      {isSelected && <CheckIcon className="h-4 w-4 shrink-0 ml-auto" />}
                                     </button>
-                                  )
+                                  );
                                 })}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </PopoverContent>
-                    </Popover>
-                  )}
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    )}
 
-                  {/* Open workspace button — creates an empty chat without requiring a prompt */}
-                  {validatedProject && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="ml-auto h-7 px-2 gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 flex-shrink-0"
-                      onClick={handleOpen}
-                      disabled={
-                        createChatMutation.isPending ||
-                        Boolean(existingLocalChat) ||
-                        (workMode === "worktree" && !selectedBranch && !branchesQuery.data?.defaultBranch)
-                      }
-                      title={existingLocalChat ? `A Local workspace is already open for ${validatedProject.name}` : "Open workspace without a prompt"}
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" />
-                      Open
-                    </Button>
-                  )}
+                    {/* Open workspace button — creates an empty chat without requiring a prompt */}
+                    {validatedProject && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto h-7 px-2 gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 flex-shrink-0"
+                        onClick={handleOpen}
+                        disabled={
+                          createChatMutation.isPending ||
+                          Boolean(existingLocalChat) ||
+                          (workMode === 'worktree' && !selectedBranch && !branchesQuery.data?.defaultBranch)
+                        }
+                        title={
+                          existingLocalChat
+                            ? `A Local workspace is already open for ${validatedProject.name}`
+                            : 'Open workspace without a prompt'
+                        }>
+                        <FolderOpen className="h-3.5 w-3.5" />
+                        Open
+                      </Button>
+                    )}
 
-                  {/* Create Branch Dialog */}
-                  {validatedProject && (
-                    <CreateBranchDialog
-                      open={createBranchDialogOpen}
-                      onOpenChange={setCreateBranchDialogOpen}
-                      projectPath={validatedProject.path}
-                      branches={branches}
-                      defaultBranch={
-                        branchesQuery.data?.defaultBranch || "main"
-                      }
-                      onBranchCreated={(branchName) => {
-                        setSelectedBranch(branchName, "local")
-                      }}
-                    />
-                  )}
-                </div>
-
-                {/* Local workspace conflict hint */}
-                {existingLocalChat && validatedProject && (
-                  <div className="flex items-center gap-1 mt-1 ml-[5px] text-xs text-amber-600 dark:text-amber-500">
-                    <span>
-                      A Local workspace is already open for <strong>{validatedProject.name}</strong>.
-                    </span>
-                    <button
-                      className="underline hover:no-underline ml-0.5 transition-opacity hover:opacity-80"
-                      onClick={() => setSelectedChatId(existingLocalChat.id)}
-                    >
-                      Go to it →
-                    </button>
+                    {/* Create Branch Dialog */}
+                    {validatedProject && (
+                      <CreateBranchDialog
+                        open={createBranchDialogOpen}
+                        onOpenChange={setCreateBranchDialogOpen}
+                        projectPath={validatedProject.path}
+                        branches={branches}
+                        defaultBranch={branchesQuery.data?.defaultBranch || 'main'}
+                        onBranchCreated={(branchName) => {
+                          setSelectedBranch(branchName, 'local');
+                        }}
+                      />
+                    )}
                   </div>
-                )}
 
-                {/* Worktree config banner - moved to corner banner below */}
+                  {/* Local workspace conflict hint */}
+                  {existingLocalChat && validatedProject && (
+                    <div className="flex items-center gap-1 mt-1 ml-[5px] text-xs text-amber-600 dark:text-amber-500">
+                      <span>
+                        A Local workspace is already open for <strong>{validatedProject.name}</strong>.
+                      </span>
+                      <button
+                        className="underline hover:no-underline ml-0.5 transition-opacity hover:opacity-80"
+                        onClick={() => setSelectedChatId(existingLocalChat.id)}>
+                        Go to it →
+                      </button>
+                    </div>
+                  )}
 
-                {/* File mention dropdown */}
-                {/* Desktop: use projectPath for local file search */}
-                <AgentsFileMention
-                  isOpen={showMentionDropdown && !!validatedProject}
-                  onClose={() => {
-                    setShowMentionDropdown(false)
-                    // Reset subpage state when dropdown closes
-                    setShowingFilesList(false)
-                    setShowingSkillsList(false)
-                    setShowingAgentsList(false)
-                    setShowingToolsList(false)
-                  }}
-                  onSelect={handleMentionSelect}
-                  searchText={mentionSearchText}
-                  position={mentionPosition}
-                  projectPath={validatedProject?.path}
-                  showingFilesList={showingFilesList}
-                  showingSkillsList={showingSkillsList}
-                  showingAgentsList={showingAgentsList}
-                  showingToolsList={showingToolsList}
-                />
+                  {/* Worktree config banner - moved to corner banner below */}
 
-                {/* Slash command dropdown */}
-                <AgentsSlashCommand
-                  isOpen={showSlashDropdown}
-                  onClose={handleCloseSlashTrigger}
-                  onSelect={handleSlashSelect}
-                  searchText={slashSearchText}
-                  position={slashPosition}
-                  projectPath={validatedProject?.path}
-                  mode={agentMode}
-                  disabledCommands={["clear"]}
-                />
+                  {/* File mention dropdown */}
+                  {/* Desktop: use projectPath for local file search */}
+                  <AgentsFileMention
+                    isOpen={showMentionDropdown && !!validatedProject}
+                    onClose={() => {
+                      setShowMentionDropdown(false);
+                      // Reset subpage state when dropdown closes
+                      setShowingFilesList(false);
+                      setShowingSkillsList(false);
+                      setShowingAgentsList(false);
+                      setShowingToolsList(false);
+                    }}
+                    onSelect={handleMentionSelect}
+                    searchText={mentionSearchText}
+                    position={mentionPosition}
+                    projectPath={validatedProject?.path}
+                    showingFilesList={showingFilesList}
+                    showingSkillsList={showingSkillsList}
+                    showingAgentsList={showingAgentsList}
+                    showingToolsList={showingToolsList}
+                  />
+
+                  {/* Slash command dropdown */}
+                  <AgentsSlashCommand
+                    isOpen={showSlashDropdown}
+                    onClose={handleCloseSlashTrigger}
+                    onSelect={handleSlashSelect}
+                    searchText={slashSearchText}
+                    position={slashPosition}
+                    projectPath={validatedProject?.path}
+                    mode={agentMode}
+                    disabledCommands={['clear']}
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
       </div>
       <NewWorkspaceExplorer worktreePath={validatedProjectPath} />
 
@@ -2517,40 +2368,32 @@ export function NewChatForm({
       {showWorktreeBanner && (
         <div className="absolute bottom-4 right-4 max-w-sm p-3 pb-4 bg-muted/50 backdrop-blur-sm rounded-lg border border-border space-y-3 shadow-lg z-50">
           <p className="text-sm text-muted-foreground">
-            Configure a worktree setup script to install dependencies or copy
-            environment variables.
+            Configure a worktree setup script to install dependencies or copy environment variables.
           </p>
           <div className="flex items-center justify-end gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleConfigureWorktree}
-            >
+            <Button variant="secondary" size="sm" onClick={handleConfigureWorktree}>
               Settings
             </Button>
             <Button
               size="sm"
               onClick={() => {
-                const prompt = COMMAND_PROMPTS["worktree-setup"]
+                const prompt = COMMAND_PROMPTS['worktree-setup'];
                 if (prompt && validatedProject) {
                   createChatMutation.mutate({
                     projectId: validatedProject.id,
-                    name: "Worktree Setup",
+                    name: 'Worktree Setup',
                     model: selectedChatModel,
-                    initialMessageParts: [
-                      { type: "text", text: prompt },
-                    ],
+                    initialMessageParts: [{ type: 'text', text: prompt }],
                     useWorktree: false,
-                    mode: "agent",
-                  })
+                    mode: 'agent'
+                  });
                 }
-              }}
-            >
+              }}>
               Fill with AI
             </Button>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
