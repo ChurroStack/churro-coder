@@ -134,20 +134,14 @@ import { BUILTIN_SLASH_COMMANDS } from "../commands"
 import { useChatViewState } from "../hooks/use-chat-view-state"
 import { useModeSwitchDeps } from "../hooks/use-mode-switch-deps"
 import { useTransportFactoryDeps } from "../hooks/use-transport-factory-deps"
-import {
-  planApproveInFlight,
-  useApprovePlanDeps,
-} from "../hooks/use-approve-plan-deps"
+import { useApprovePlanDeps } from "../hooks/use-approve-plan-deps"
 import {
   getChatMessages,
+  messageIdSignature,
   parseStoredMessages,
   shouldRecreateStaleRuntimeChat,
 } from "../lib/chat-instance-helpers"
-import {
-  IMPLEMENT_PLAN_BASE_TEXT,
-  buildImplementPlanParts,
-  type ApprovedPlanContent,
-} from "../lib/implement-plan-parts"
+import type { ApprovedPlanContent } from "../lib/implement-plan-parts"
 import {
   sendPendingMessage,
   type PendingMessage,

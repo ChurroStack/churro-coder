@@ -42,7 +42,17 @@ export function getChatMessages(chat: Chat<any> | null | undefined): unknown[] {
   return Array.isArray(messages) ? messages : []
 }
 
-function messageIdSignature(messages: unknown[]): string {
+/**
+ * Build a `|`-separated signature of message IDs. Used both by
+ * `shouldRecreateStaleRuntimeChat` (to detect divergent histories with
+ * the same row count) and by `active-chat.tsx`'s persisted-hydration
+ * dedupe (`persistedHydrationSignature`) — re-running the hydration is
+ * skipped when the signature matches the last applied one.
+ *
+ * Exported so callers don't roll their own and risk drift in the join
+ * format.
+ */
+export function messageIdSignature(messages: unknown[]): string {
   return messages
     .map((message) => String((message as { id?: unknown })?.id ?? ""))
     .join("|")
