@@ -556,6 +556,30 @@ Side-effectful orchestrators that compose the machines with injected deps so eac
 
 Six layers, each catching a different class of bug. Lower layers are cheaper, faster, and more deterministic — push regression tests as low as possible.
 
+### When to add a test (and when to skip)
+
+**Default rule**: every new feature ships with a test at the lowest layer that captures its essential behavior — _but only when a test makes sense_. The qualifier matters. A test that re-asserts what TypeScript already enforces, or that pins implementation details so tightly that any refactor breaks it, is worse than no test. Be honest about whether the test is providing real coverage.
+
+Use this decision tree before you start writing:
+
+| Feature shape | Layer | Test? |
+|---|---|---|
+| Pure decision / state machine / data transform | L1 | **Yes** — write the test first if you can. These are cheap and stay green forever. |
+| Service / orchestrator with side effects | L2 | **Yes** — tag any regression invariants with the PR number that introduced them. |
+| Per-subChatId or per-chatId hook that glues atoms | L3.5 | **Yes** — the isolation guarantee is the whole point of the hook. |
+| Component that owns business logic (event handlers, derivations) | L3 | **Yes** — render + simulate + assert on output. |
+| Multi-step user flow that crosses 3+ files | L4 | **Yes** if the flow has historically been bug-prone (see the bug-cluster matrix). |
+| Component that's pure presentation (CSS, layout, mostly markup) | — | **Skip** — RTL tests on these are mostly snapshots, which decay into churn. |
+| One-line config / env / dev-experience tweak | — | **Skip** unless the wiring is non-obvious (like the `update-config` skill workflow's "pipe-test the raw command"). |
+| Bug fix | L1 / L2 / L4 | **Always** — reproduce the bug in a failing test FIRST, then fix. Tag the test name with the PR number and add a row to the bug-cluster matrix. |
+| Refactor that doesn't change behavior | — | The existing tests should keep passing. If they don't, the refactor changed behavior — write a test for the new behavior or revert. |
+
+**The cost-of-no-test argument**: skipping a test is fine when (a) the existing battery already exercises the code path, or (b) the feature is small enough that the next code review catches mistakes more cheaply than a test would. It is _not_ fine when the feature touches a recurring bug surface (mode/plan/transport/session), introduces a new cross-component contract, or extends a deps interface — those areas have a track record of breaking silently.
+
+**When tests don't make sense, say so in the commit body.** A one-line "no test — pure CSS tweak" is enough; it tells the next reader you considered it.
+
+### Layers
+
 | Layer | Tooling | Lives in | When to use |
 |---|---|---|---|
 | **L1: Pure** | vitest (node env) | `machines/`, `utils/` | Decision logic, FSM transitions, idempotence — no React, no DOM, no IPC |
@@ -588,11 +612,14 @@ Six layers, each catching a different class of bug. Lower layers are cheaper, fa
 `active-chat.tsx` is ~8.7k LOC. It owns ~28 distinct concerns and was edited in 7 of the last 50 fix commits — the recurring bug clusters are: cross-provider state pollution (#52, #44, #40, #36), plan↔agent mode racing (#51, #45, #38), session/transport lifecycle (#45, #44, #40, #7), atom↔local-state desync (#52, #51, #32), and timing/await ordering (#36, #41, #40).
 
 **Before adding code to `active-chat.tsx`, ask**:
-1. Is this a *decision* (given X, do Y)? → put it in `machines/` as a pure function and write an L1 test.
-2. Is this an *async sequence* with side effects (mutate DB, recreate transport)? → put it in `services/` (Phase 2) with injected deps; write an L2 test that mocks the deps.
-3. Is this *render*? → put it in `components/` (Phase 3) and write an L3 component test.
-4. Is this *atom/tRPC glue*? → put it in `hooks/` and let `active-chat.tsx` just call the hook.
-5. None of the above? Re-examine — it probably is one of them.
+1. Is this a *decision* (given X, do Y)? → put it in `machines/` as a pure function and write an **L1** test.
+2. Is this an *async sequence* with side effects (mutate DB, recreate transport)? → put it in `services/` (Phase 2) with injected deps; write an **L2** test that mocks the deps.
+3. Is this *render*? → put it in `components/` (Phase 3) and write an **L3** component test.
+4. Is this *atom/tRPC glue* (hook composing per-id state)? → put it in `hooks/` with an **L3.5** test (`renderHook` + jotai `<Provider>`) and let `active-chat.tsx` just call the hook.
+5. Is this a multi-step user flow that crosses 3+ files (especially in the mode/plan/transport bug cluster)? → add an **L4** integration test under `__tests__/integration/`.
+6. None of the above? Re-examine — it probably is one of them.
+
+**Then ask**: does the test I'm about to write actually catch a regression class, or is it pinning implementation details? If it's the latter, skip it and note _"no test — implementation detail"_ in the commit body. The "only if it makes sense" qualifier from the [Test battery → When to add a test](#when-to-add-a-test-and-when-to-skip) decision tree applies here too.
 
 **Extraction order** (low → high blast radius):
 1. **Phase 0 — Test infra** (✅ landed): RTL + jsdom + `test-utils/`.
@@ -648,6 +675,10 @@ The recurring-bug pattern in this repo had two root causes: (a) a single 8.7k-LO
 **6. Service-level wire-in path.** Each service's file header carries the imperative-source line range it replaces in `active-chat.tsx`. When a Phase 3 component is extracted, the new component imports the service rather than reaching into `appStore`/`agentChatStore` directly — the renderer's only remaining job is wiring the deps.
 
 **7. Browser verification is non-optional for Phase 3 cuts.** The CLAUDE.md note ("verify changes by running the app in the UI") applies double when extracting a component out of `active-chat.tsx`: closures into the parent `useState` / `useRef` / atom subscriptions are easy to miss and TypeScript won't catch them. Agents without `bun run dev` access should ship Phase 3 cuts as draft PRs annotated with the smoke-test steps, never as merged commits.
+
+**8. New features ship with a test (or an honest justification for not).** Apply the decision tree under [Test battery → When to add a test](#when-to-add-a-test-and-when-to-skip) for every new feature, hook, service, or non-trivial component. The "only if it makes sense" qualifier matters — a brittle test that pins implementation details is worse than no test. When skipping, include a one-line rationale in the commit body (e.g. _"no test — pure CSS tweak"_, _"covered by existing L4 flow-plan-to-agent suite"_). The next reader needs to know you considered it.
+
+**9. Cross-component scope check after extracting helpers.** Two runtime crashes this branch (`messageIdSignature is not defined`, `hydratedSubChatIdsRef is not defined`) came from the same class of mistake: lifting a helper or ref out of the surrounding component without verifying that all call sites are still in the same lexical scope. After any extraction, `git grep` for every reference to the lifted symbol and confirm each one is either in the new module's scope OR can reach it via import. TypeScript will NOT catch this — JS module resolution accepts unbound identifiers as possibly-injected runtime values, and our `ts:check` is too noisy to rely on for fresh signal.
 
 ### Phase 3 wiring contract
 
