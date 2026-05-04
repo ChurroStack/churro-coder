@@ -16,7 +16,11 @@ vi.mock('../db', () => ({
   subChats: { id: 'subChats.id', chatId: 'subChats.chatId' }
 }));
 
-vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));
+// `eq(field, value)` returns a marker the mock db can read to filter `.all()`.
+// Field is the column mock (a string in our setup) — capture it verbatim.
+vi.mock('drizzle-orm', () => ({
+  eq: vi.fn((field: unknown, value: unknown) => ({ __field: field, __value: value }))
+}));
 
 import { resolveSandboxPolicy } from './policy';
 import { getDatabase } from '../db';
@@ -24,18 +28,26 @@ import { getDatabase } from '../db';
 const FAKE_USER_DATA = '/fake/userData';
 const SESSIONS_BASE = path.join(FAKE_USER_DATA, 'claude-sessions');
 
-function makeDb(subChatRows: { id: string }[], globalEnabled = true) {
+interface EqMarker {
+  __field: unknown;
+  __value: unknown;
+}
+
+/**
+ * Stateful db mock. `subChatsByChatId` is the source of truth — `.where(eq(subChats.chatId, x)).all()`
+ * actually filters by the eq marker so a missing/wrong filter in production code would surface here.
+ */
+function makeDb(subChatsByChatId: Record<string, { id: string }[]>) {
   return {
     select: () => ({
       from: (table: unknown) => ({
-        where: () => ({
+        where: (condition: EqMarker) => ({
           get: () => {
-            // sandboxSettings singleton row
             const t = table as { id: string };
             if (t?.id === 'sandboxSettings.id') {
               return {
                 id: 'singleton',
-                sandboxEnabled: globalEnabled,
+                sandboxEnabled: true,
                 extraWritablePaths: '[]',
                 extraDeniedPaths: '[]',
                 allowToolchainCaches: true
@@ -43,7 +55,14 @@ function makeDb(subChatRows: { id: string }[], globalEnabled = true) {
             }
             return null;
           },
-          all: () => subChatRows
+          all: () => {
+            // Filter sub_chats rows by the captured `eq(subChats.chatId, chatId)` value.
+            const t = table as { id: string };
+            if (t?.id === 'subChats.id' && condition?.__field === 'subChats.chatId') {
+              return subChatsByChatId[String(condition.__value)] ?? [];
+            }
+            return [];
+          }
         })
       })
     })
@@ -56,7 +75,7 @@ beforeEach(() => {
 
 describe('resolveSandboxPolicy — per-workspace session dirs', () => {
   it('includes a subChat session dir in writableRoots', async () => {
-    vi.mocked(getDatabase).mockReturnValue(makeDb([{ id: 'sub-A1' }]) as ReturnType<typeof getDatabase>);
+    vi.mocked(getDatabase).mockReturnValue(makeDb({ 'chat-A': [{ id: 'sub-A1' }] }) as ReturnType<typeof getDatabase>);
 
     const policy = await resolveSandboxPolicy('chat-A', os.tmpdir(), os.tmpdir());
 
@@ -65,7 +84,7 @@ describe('resolveSandboxPolicy — per-workspace session dirs', () => {
 
   it('includes all subChat session dirs for a workspace', async () => {
     vi.mocked(getDatabase).mockReturnValue(
-      makeDb([{ id: 'sub-A1' }, { id: 'sub-A2' }]) as ReturnType<typeof getDatabase>
+      makeDb({ 'chat-A': [{ id: 'sub-A1' }, { id: 'sub-A2' }] }) as ReturnType<typeof getDatabase>
     );
 
     const policy = await resolveSandboxPolicy('chat-A', os.tmpdir(), os.tmpdir());
@@ -75,30 +94,37 @@ describe('resolveSandboxPolicy — per-workspace session dirs', () => {
   });
 
   it('includes the chatId session dir (Ollama path)', async () => {
-    vi.mocked(getDatabase).mockReturnValue(makeDb([]) as ReturnType<typeof getDatabase>);
+    vi.mocked(getDatabase).mockReturnValue(makeDb({}) as ReturnType<typeof getDatabase>);
 
     const policy = await resolveSandboxPolicy('chat-ollama', os.tmpdir(), os.tmpdir());
 
     expect(policy.writableRoots).toContain(path.join(SESSIONS_BASE, 'chat-ollama'));
   });
 
-  it('does NOT include session dirs for a different workspace', async () => {
-    // Workspace A has sub-A1; workspace B has sub-B1.
-    // When queried for chat-A we return only A's sub-chats.
-    vi.mocked(getDatabase).mockReturnValue(makeDb([{ id: 'sub-A1' }]) as ReturnType<typeof getDatabase>);
+  it('does NOT leak workspace B session dirs into workspace A policy', async () => {
+    // Both workspaces exist in the db; querying for chat-A must not return chat-B's rows.
+    // This actually exercises the eq(subChats.chatId, chatId) filter in production code —
+    // if the production code dropped the where clause, sub-B1 would leak in here.
+    vi.mocked(getDatabase).mockReturnValue(
+      makeDb({
+        'chat-A': [{ id: 'sub-A1' }],
+        'chat-B': [{ id: 'sub-B1' }]
+      }) as ReturnType<typeof getDatabase>
+    );
 
     const policy = await resolveSandboxPolicy('chat-A', os.tmpdir(), os.tmpdir());
 
+    expect(policy.writableRoots).toContain(path.join(SESSIONS_BASE, 'sub-A1'));
     expect(policy.writableRoots).not.toContain(path.join(SESSIONS_BASE, 'sub-B1'));
+    expect(policy.writableRoots).not.toContain(path.join(SESSIONS_BASE, 'chat-B'));
   });
 
-  it('writableRootsExpanded contains both resolved and realpath forms of session dirs', async () => {
-    vi.mocked(getDatabase).mockReturnValue(makeDb([{ id: 'sub-X' }]) as ReturnType<typeof getDatabase>);
+  it('writableRootsExpanded contains the resolved form of session dirs', async () => {
+    vi.mocked(getDatabase).mockReturnValue(makeDb({ 'chat-X': [{ id: 'sub-X' }] }) as ReturnType<typeof getDatabase>);
 
     const policy = await resolveSandboxPolicy('chat-X', os.tmpdir(), os.tmpdir());
     const sessionDir = path.join(SESSIONS_BASE, 'sub-X');
 
-    // The expanded set must include at least the resolved form
     expect(policy.writableRootsExpanded).toContain(path.resolve(sessionDir));
   });
 });
