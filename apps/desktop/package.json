@@ -34,6 +34,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "ts:check": "tsgo --noEmit",
+    "format": "prettier --write --ignore-unknown ./src",
     "postinstall": "node -e \"if(!process.env.VERCEL && !process.env.SKIP_ELECTRON_REBUILD){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\" && node scripts/patch-electron-dev.mjs && node scripts/patch-radix-slot.mjs"
   },
   "dependencies": {
@@ -140,6 +141,7 @@
     "electron-vite": "^3.0.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.1",
+    "prettier": "^3.8.3",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.4.5",
@@ -269,5 +271,15 @@
     "overrides": {
       "source-map-support>source-map": "0.7.4"
     }
+  },
+  "prettier": {
+    "printWidth": 120,
+    "semi": true,
+    "bracketSameLine": true,
+    "useTabs": false,
+    "tabWidth": 2,
+    "trailingComma": "none",
+    "singleQuote": true,
+    "bracketSpacing": true
   }
 }
