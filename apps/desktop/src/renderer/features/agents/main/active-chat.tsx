@@ -1889,14 +1889,10 @@ export const ChatViewInner = memo(function ChatViewInner({
       }
 
       if (!planPath.startsWith('codex-plan://')) {
-        try {
-          const fileContent = await trpcClient.files.readFile.query({ filePath: planPath });
-          if (fileContent.trim()) {
-            console.log(`[PLAN] resolve:from-file sub=${subChatId.slice(-8)} bytes=${fileContent.length}`);
-            return { content: fileContent.trim(), source: planPath };
-          }
-        } catch (error) {
-          console.warn('[plan-approval] Failed to read plan file:', error);
+        const fileContent = await trpcClient.files.readTextFile.query({ filePath: planPath });
+        if (fileContent.ok && fileContent.content.trim()) {
+          console.log(`[PLAN] resolve:from-file sub=${subChatId.slice(-8)} bytes=${fileContent.content.length}`);
+          return { content: fileContent.content.trim(), source: planPath };
         }
       }
     }

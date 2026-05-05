@@ -13,8 +13,7 @@ import {
   electronBreadcrumbsIntegration,
   normalizePathsIntegration
 } from '@sentry/electron/main';
-import type { Event } from '@sentry/electron/main';
-
+import type { ErrorEvent } from '@sentry/electron/main';
 const TELEMETRY_FILE = 'telemetry.json';
 
 // Sentry DSN is a public identifier — safe to embed in shipped binaries.
@@ -53,10 +52,22 @@ function redact(s: string): string {
   return s.replace(API_KEY_RE, '[KEY]').replace(EMAIL_RE, '[EMAIL]');
 }
 
-function sanitizeEvent(event: Event): Event | null {
+export function redactUnknown(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(redact(JSON.stringify(value)));
+  } catch {
+    if (typeof value === 'string') {
+      return redact(value);
+    }
+    return value;
+  }
+}
+
+function sanitizeEvent(event: ErrorEvent): ErrorEvent | null {
   if (readOptOut()) return null;
   try {
-    return JSON.parse(redact(JSON.stringify(event)));
+    return redactUnknown(event) as ErrorEvent;
   } catch {
     return event;
   }
