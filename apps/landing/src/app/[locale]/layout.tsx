@@ -51,14 +51,7 @@ export async function generateMetadata({
       siteName: "Churro Coder",
       title: t("title"),
       description: t("description"),
-      images: [
-        {
-          url: "/og-image.png",
-          width: 1200,
-          height: 630,
-          alt: "Churro Coder",
-        },
-      ],
+      images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "Churro Coder" }],
     },
     twitter: {
       card: "summary_large_image",
@@ -70,11 +63,7 @@ export async function generateMetadata({
     robots: {
       index: true,
       follow: true,
-      googleBot: {
-        index: true,
-        follow: true,
-        "max-image-preview": "large",
-      },
+      googleBot: { index: true, follow: true, "max-image-preview": "large" },
     },
   };
 }
@@ -90,19 +79,17 @@ export default async function LocaleLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="dark"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <NextIntlClientProvider messages={messages}>
-            {children}
-          </NextIntlClientProvider>
-        </ThemeProvider>
-      </body>
-    </html>
+    <div className={`${geistSans.variable} ${geistMono.variable}`}>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <NextIntlClientProvider messages={messages} locale={locale}>
+          {children}
+        </NextIntlClientProvider>
+      </ThemeProvider>
+    </div>
   );
 }

@@ -9,28 +9,13 @@ export function CtaBanner({ stars }: { stars: number | null }) {
 
   return (
     <section className="py-32 relative overflow-hidden">
-      {/* Background gradient */}
       <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 70% at 50% 50%, #f59e0b12 0%, transparent 70%)",
-        }}
-      />
-      {/* Top / bottom border lines */}
-      <div
-        className="absolute top-0 left-1/4 right-1/4 h-px"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, #f59e0b40, transparent)",
-        }}
+        className="absolute top-0 left-0 right-0 h-px"
+        style={{ backgroundColor: "var(--border)" }}
       />
       <div
-        className="absolute bottom-0 left-1/4 right-1/4 h-px"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, #f59e0b40, transparent)",
-        }}
+        className="absolute bottom-0 left-0 right-0 h-px"
+        style={{ backgroundColor: "var(--border)" }}
       />
 
       <div className="relative max-w-3xl mx-auto px-4 sm:px-6 text-center">
@@ -65,7 +50,11 @@ export function CtaBanner({ stars }: { stars: number | null }) {
             href="https://github.com/ChurroStack/churro-coder/releases"
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex items-center gap-2 px-8 py-3.5 rounded-xl font-semibold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-all duration-200 shadow-lg shadow-amber-500/25 hover:shadow-amber-400/35 hover:scale-[1.02]"
+            className="group flex items-center gap-2 px-8 py-3.5 rounded-xl font-semibold transition-all duration-200 hover:opacity-90 hover:scale-[1.02]"
+            style={{
+              backgroundColor: "var(--btn-primary-bg)",
+              color: "var(--btn-primary-fg)",
+            }}
           >
             <Download className="w-4 h-4" />
             {t("primary")}
@@ -75,8 +64,8 @@ export function CtaBanner({ stars }: { stars: number | null }) {
             href="https://github.com/ChurroStack/churro-coder"
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex items-center gap-2 px-8 py-3.5 rounded-xl font-semibold border transition-all duration-200 hover:bg-white/10 hover:scale-[1.02]"
-            style={{ borderColor: "var(--border)", color: "var(--fg)" }}
+            className="group flex items-center gap-2 px-8 py-3.5 rounded-xl font-semibold border transition-all duration-200 hover:scale-[1.02]"
+            style={{ borderColor: "var(--border-strong)", color: "var(--fg)" }}
           >
             <Github className="w-4 h-4" />
             {t("secondary")}
@@ -85,7 +74,7 @@ export function CtaBanner({ stars }: { stars: number | null }) {
                 className="flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full text-xs font-medium"
                 style={{ backgroundColor: "var(--muted)", color: "var(--muted-fg)" }}
               >
-                <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                <Star className="w-3 h-3" />
                 {stars.toLocaleString()}
               </span>
             )}

@@ -8,7 +8,7 @@
     "start": "bunx --bun next start",
     "lint": "bunx --bun next lint",
     "typecheck": "tsc --noEmit",
-    "copy-assets": "mkdir -p public/images && cp ../desktop/assets/*.png public/images/ && cp ../desktop/build/logo-mono.png public/logo-mono.png && cp ../desktop/build/logo-mono-dark.png public/logo-mono-dark.png",
+    "copy-assets": "python3 scripts/process-assets.py",
     "prebuild": "bun run copy-assets",
     "predev": "bun run copy-assets"
   },

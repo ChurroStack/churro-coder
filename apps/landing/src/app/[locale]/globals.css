@@ -3,46 +3,34 @@
 @theme {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-
-  --color-churro-50: oklch(0.987 0.026 95.26);
-  --color-churro-100: oklch(0.966 0.057 95.17);
-  --color-churro-200: oklch(0.925 0.12 90.08);
-  --color-churro-300: oklch(0.879 0.169 86.83);
-  --color-churro-400: oklch(0.828 0.189 84.43);
-  --color-churro-500: oklch(0.769 0.188 70.08);
-  --color-churro-600: oklch(0.666 0.179 58.32);
-  --color-churro-700: oklch(0.554 0.163 48.95);
-  --color-churro-800: oklch(0.473 0.137 46.2);
-  --color-churro-900: oklch(0.414 0.112 45.9);
-  --color-churro-950: oklch(0.266 0.079 36.26);
-
-  --color-background: var(--bg);
-  --color-foreground: var(--fg);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-fg);
-  --color-border: var(--border);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-fg);
 }
 
 :root {
   --bg: #09090b;
   --fg: #fafafa;
   --card: #18181b;
-  --card-fg: #fafafa;
+  --card-hover: #27272a;
   --border: #27272a;
+  --border-strong: #3f3f46;
   --muted: #27272a;
   --muted-fg: #a1a1aa;
+  --btn-primary-bg: #fafafa;
+  --btn-primary-fg: #09090b;
+  --btn-primary-hover: #e4e4e7;
 }
 
 .light {
-  --bg: #fafafa;
+  --bg: #ffffff;
   --fg: #09090b;
-  --card: #ffffff;
-  --card-fg: #09090b;
+  --card: #fafafa;
+  --card-hover: #f4f4f5;
   --border: #e4e4e7;
+  --border-strong: #d4d4d8;
   --muted: #f4f4f5;
   --muted-fg: #71717a;
+  --btn-primary-bg: #09090b;
+  --btn-primary-fg: #fafafa;
+  --btn-primary-hover: #27272a;
 }
 
 html {
@@ -58,11 +46,11 @@ body {
 }
 
 ::selection {
-  background-color: #f59e0b40;
+  background-color: rgba(161, 161, 170, 0.3);
   color: var(--fg);
 }
 
 :focus-visible {
-  outline: 2px solid #f59e0b;
+  outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
