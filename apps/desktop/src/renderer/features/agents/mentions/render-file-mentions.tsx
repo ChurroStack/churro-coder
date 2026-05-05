@@ -545,6 +545,16 @@ export function extractTextMentions(text: string): {
 }
 
 /**
+ * Convert a raw user message into a string suitable for use as a chat title.
+ */
+export function messageToTitleText(message: string): string {
+  const { textMentions, cleanedText } = extractTextMentions(message);
+  if (cleanedText.length > 0) return cleanedText;
+  const firstLabel = textMentions[0]?.label?.trim();
+  return firstLabel || '';
+}
+
+/**
  * Format bytes to human readable size
  */
 function formatSize(bytes: number): string {

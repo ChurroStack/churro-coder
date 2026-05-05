@@ -13,6 +13,7 @@ export {
   RenderFileMentions,
   extractFileMentions,
   hasFileMentions,
+  messageToTitleText,
   FileOpenProvider,
   useFileOpen
 } from './render-file-mentions';

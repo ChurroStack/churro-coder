@@ -179,7 +179,7 @@ import {
   type SelectedTextContext
 } from '../lib/queue-utils';
 import { RemoteChatTransport } from '../lib/remote-chat-transport';
-import { FileOpenProvider, MENTION_PREFIXES, type AgentsMentionsEditorHandle } from '../mentions';
+import { FileOpenProvider, MENTION_PREFIXES, messageToTitleText, type AgentsMentionsEditorHandle } from '../mentions';
 import { ChatSearchBar, chatSearchCurrentMatchAtom, SearchHighlightProvider } from '../search';
 import { agentChatStore } from '../stores/agent-chat-store';
 import { EMPTY_QUEUE, useMessageQueueStore } from '../stores/message-queue-store';
@@ -2704,7 +2704,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     const hasPersistedName = Boolean(persistedName) && persistedName !== 'New Chat';
     if (messagesLengthRef.current === 0 && !hasTriggeredRenameRef.current && !hasPersistedName) {
       hasTriggeredRenameRef.current = true;
-      onAutoRename(finalText || 'Image message', subChatId);
+      onAutoRename(messageToTitleText(finalText) || 'Image message', subChatId);
     }
 
     // Build message parts: images first, then files, then text
