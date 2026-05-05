@@ -42,12 +42,25 @@ describe('computeWorkflowState — plan milestone', () => {
     expect(s.code.hint).toBe('Waiting on plan');
   });
 
-  test('plan mode + idle + no AI response yet → idle (blank new chat)', () => {
-    const s = computeWorkflowState({ ...base, mode: 'plan', isStreaming: false, hasAiResponded: false });
+  test('plan mode + idle + no AI response yet → idle (blank new chat, all idle)', () => {
+    // A truly blank new chat: plan mode, no AI response, no plan ever generated,
+    // no files changed, no commits to push.
+    const s = computeWorkflowState({
+      ...base,
+      mode: 'plan',
+      isStreaming: false,
+      hasAiResponded: false,
+      planEverGenerated: false,
+      changedFilesCount: 0,
+      pushCount: 0
+    });
     expect(s.plan.status).toBe('idle');
     expect(s.plan.hint).toBe('Start chatting to begin');
-    // Code should not be blocked (plan is idle, not attention)
-    expect(s.code.status).not.toBe('idle');
+    expect(s.code.status).toBe('idle');
+    expect(s.code.hint).toBe('No changes');
+    expect(s.review.status).toBe('idle');
+    expect(s.pr.status).toBe('idle');
+    expect(s.next).toBeNull();
   });
 
   test('agent mode + planEverGenerated → plan done', () => {
@@ -114,10 +127,10 @@ describe('computeWorkflowState — code milestone', () => {
     expect(s.code.status).not.toBe('in_progress');
   });
 
-  test('no changes + no pushes + hasAiResponded → code done (all work committed and pushed)', () => {
+  test('no changes + no pushes + hasAiResponded → code done (clean tree after AI work)', () => {
     const s = computeWorkflowState({ ...base, changedFilesCount: 0, pushCount: 0, hasAiResponded: true });
     expect(s.code.status).toBe('done');
-    expect(s.code.hint).toBe('All changes pushed');
+    expect(s.code.hint).toBe('Up to date');
   });
 
   test('no changes + no pushes + !hasAiResponded → code idle (fresh chat, no work done)', () => {
@@ -164,13 +177,45 @@ describe('computeWorkflowState — review milestone', () => {
     expect(s.pr.actionKind).toBe('openPr');
   });
 
-  test('prState: closed → review info, pr info', () => {
-    const s = computeWorkflowState({ ...base, prState: 'closed' });
+  test('prState: closed + no new work → review info, pr info (terminal)', () => {
+    const s = computeWorkflowState({ ...base, prState: 'closed', changedFilesCount: 0, pushCount: 0 });
     expect(s.review.status).toBe('info');
     expect(s.review.hint).toBe('PR closed');
     expect(s.pr.status).toBe('info');
     expect(s.pr.hint).toBe('PR closed');
     expect(s.pr.actionKind).toBe('openPr');
+  });
+
+  test('prState: closed + unpushed commits → code attention pushBranch (recovery path)', () => {
+    // Closed PR but new work to push: surface push as the next action.
+    const s = computeWorkflowState({ ...base, prState: 'closed', pushCount: 2, changedFilesCount: 0 });
+    expect(s.code.status).toBe('attention');
+    expect(s.code.actionKind).toBe('pushBranch');
+  });
+
+  test('prState: closed + pushed work → review attention reviewLocal, pr attention createPr (recovery path)', () => {
+    // Closed PR with pushed/clean work → workflow should let the user open a fresh PR.
+    const s = computeWorkflowState({ ...base, prState: 'closed', pushCount: 0, changedFilesCount: 1 });
+    expect(s.code.status).toBe('done');
+    expect(s.review.status).toBe('attention');
+    expect(s.review.actionKind).toBe('reviewLocal');
+    expect(s.pr.status).toBe('attention');
+    expect(s.pr.actionKind).toBe('createPr');
+    expect(s.pr.hint).toBe('Ready to open PR');
+  });
+
+  test('prState: closed + localReviewCompleted + new work → review done, pr attention createPr', () => {
+    const s = computeWorkflowState({
+      ...base,
+      prState: 'closed',
+      localReviewCompleted: true,
+      changedFilesCount: 1,
+      pushCount: 0
+    });
+    expect(s.review.status).toBe('done');
+    expect(s.review.hint).toBe('Reviewed');
+    expect(s.pr.status).toBe('attention');
+    expect(s.pr.actionKind).toBe('createPr');
   });
 
   test('reviewDecision: changes_requested → review attention regardless of localReviewCompleted', () => {

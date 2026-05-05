@@ -158,10 +158,11 @@ function computeCode(i: WorkflowInputs, planStatus: MilestoneStatus): MilestoneS
   }
   // baseBranchBehind === 0 already guaranteed by the early return above.
   if (i.changedFilesCount === 0 && i.pushCount === 0) {
-    // If the AI has already done work, a clean tree means everything is committed
-    // and pushed. Show done. Only show idle when the agent hasn't run yet (fresh chat).
+    // Clean tree once the AI has done work → done. Use "Up to date" rather than
+    // "All changes pushed" because a text-only AI response leaves the tree clean
+    // without anything actually being pushed. Only show idle when no AI run yet.
     if (i.hasAiResponded) {
-      return { id: 'code', status: 'done', label: 'Code', hint: 'All changes pushed' };
+      return { id: 'code', status: 'done', label: 'Code', hint: 'Up to date' };
     }
     return { id: 'code', status: 'idle', label: 'Code', hint: 'No changes' };
   }
@@ -198,9 +199,6 @@ function computeReview(i: WorkflowInputs, codeStatus: MilestoneStatus): Mileston
     // approved) which are handled above — no need to prompt again here.
     return { id: 'review', status: 'done', label: 'Review', hint: 'PR open' };
   }
-  if (i.prState === 'closed') {
-    return { id: 'review', status: 'info', label: 'Review', hint: 'PR closed' };
-  }
   if (i.prState === 'draft') {
     return {
       id: 'review',
@@ -210,7 +208,13 @@ function computeReview(i: WorkflowInputs, codeStatus: MilestoneStatus): Mileston
       actionKind: 'reviewPr'
     };
   }
-  if (i.localReviewCompleted && i.prState === 'none') {
+  // prState === 'closed' with no new work → informational; the closed PR is the latest signal.
+  // With new work (unpushed commits or unstaged changes), treat as 'none' so the user can
+  // re-review and open a fresh PR — falling through to the localReviewCompleted / reviewLocal paths.
+  if (i.prState === 'closed' && i.changedFilesCount === 0 && i.pushCount === 0) {
+    return { id: 'review', status: 'info', label: 'Review', hint: 'PR closed' };
+  }
+  if (i.localReviewCompleted && (i.prState === 'none' || i.prState === 'closed')) {
     return { id: 'review', status: 'done', label: 'Review', hint: 'Reviewed' };
   }
   return {
@@ -245,11 +249,13 @@ function computePr(i: WorkflowInputs, codeStatus: MilestoneStatus, reviewStatus:
     // PR exists and is ready for review — the author's work on this step is done.
     return { id: 'pr', status: 'done', label: 'PR', hint: 'PR open', actionKind: 'openPr' };
   }
-  if (i.prState === 'closed') {
-    return { id: 'pr', status: 'info', label: 'PR', hint: 'PR closed', actionKind: 'openPr' };
-  }
   if (i.prState === 'draft') {
     return { id: 'pr', status: 'info', label: 'PR', hint: 'Draft PR open', actionKind: 'openPr' };
+  }
+  // Closed PR with no new work → terminal info state. With unpushed/uncommitted work,
+  // fall through so the user can open a fresh PR from this branch.
+  if (i.prState === 'closed' && i.changedFilesCount === 0 && i.pushCount === 0) {
+    return { id: 'pr', status: 'info', label: 'PR', hint: 'PR closed', actionKind: 'openPr' };
   }
   if (i.prCreating) {
     return {

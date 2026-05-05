@@ -113,12 +113,18 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
   // When a streaming session ends: mark that the AI has responded at least once
   // (so Plan/Code milestones don't show as idle for fresh-but-not-empty chats),
   // and clear the prCreating spinner if the PR never appeared within 10 s.
+  // The aiEverResponded ref lets us skip redundant localStorage writes after
+  // the flag has flipped to true (atomWithStorage writes on every set call).
   const wasStreamingRef = useRef(isStreaming);
+  const aiEverRespondedRef = useRef(aiEverResponded);
+  aiEverRespondedRef.current = aiEverResponded;
   useEffect(() => {
     const wasStreaming = wasStreamingRef.current;
     wasStreamingRef.current = isStreaming;
     if (wasStreaming && !isStreaming) {
-      setAiEverResponded(true);
+      if (!aiEverRespondedRef.current) {
+        setAiEverResponded(true);
+      }
       if (prCreating) {
         const timeout = setTimeout(() => setPrCreating(false), 10000);
         return () => clearTimeout(timeout);
