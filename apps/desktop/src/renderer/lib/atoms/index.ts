@@ -165,6 +165,9 @@ export const clearSubChatSelectionAtom = atom(null, (_get, set) => {
 // DIALOG ATOMS (unique to lib/atoms)
 // ============================================
 
+// Feedback dialog
+export const feedbackDialogOpenAtom = atom<boolean>(false);
+
 // Settings dialog
 export type SettingsTab =
   | 'profile'

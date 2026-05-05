@@ -13,7 +13,6 @@ import {
   createTransformer,
   getBundledClaudeBinaryPath,
   logClaudeEnv,
-  logRawClaudeMessage,
   type UIMessageChunk
 } from '../../claude';
 import {
@@ -2108,9 +2107,6 @@ ${prompt}
                       );
                     }
                   }
-
-                  // Log raw message for debugging
-                  logRawClaudeMessage(input.chatId, msg);
 
                   // Check for error messages from SDK (error can be embedded in message payload!)
                   const msgAny = msg as any;
