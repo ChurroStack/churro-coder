@@ -6,6 +6,7 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 const config: NextConfig = {
   output: "standalone",
+  outputFileTracingRoot: path.resolve(__dirname, "../.."),
   turbopack: {
     root: path.resolve(__dirname),
   },

@@ -41,6 +41,12 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      # apps/landing's prebuild runs scripts/process-assets.py which uses PIL
+      # to crop/round desktop screenshots before `next build`. Mirrors the
+      # python3-pil install in apps/landing/Dockerfile.
+      - name: Install Pillow (for landing prebuild)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-pil
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
@@ -54,7 +60,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .nx/cache
-          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/bun.lock', 'apps/gateway/Gateway.csproj', 'apps/daemon/go.mod') }}
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/bun.lock', 'apps/landing/bun.lock', 'apps/gateway/Gateway.csproj', 'apps/daemon/go.mod') }}
           restore-keys: |
             nx-${{ runner.os }}-
 
@@ -69,6 +75,14 @@ jobs:
           path: apps/desktop/node_modules
           key: bun-desktop-${{ runner.os }}-${{ hashFiles('apps/desktop/bun.lock') }}
 
+      # apps/landing is bun-managed too (also outside the pnpm workspace).
+      - name: Cache landing node_modules
+        id: cache-landing
+        uses: actions/cache@v4
+        with:
+          path: apps/landing/node_modules
+          key: bun-landing-${{ runner.os }}-${{ hashFiles('apps/landing/bun.lock') }}
+
       - name: Install root deps (pnpm)
         run: pnpm install --frozen-lockfile
 
@@ -77,6 +91,11 @@ jobs:
         working-directory: apps/desktop
         env:
           SKIP_ELECTRON_REBUILD: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Install landing deps (bun)
+        if: steps.cache-landing.outputs.cache-hit != 'true'
+        working-directory: apps/landing
         run: bun install --frozen-lockfile
 
       - name: Restore .NET deps
