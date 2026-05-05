@@ -36,6 +36,8 @@ export interface WorkflowInputs {
   isStreaming: boolean;
   isCompacting: boolean;
   planEverGenerated: boolean;
+  /** True once the AI has completed at least one streaming response in this sub-chat. */
+  hasAiResponded: boolean;
   changedFilesCount: number;
   pushCount: number;
   hasUpstream: boolean;
@@ -85,10 +87,13 @@ function computePlan(i: WorkflowInputs): MilestoneState {
     return { id: 'plan', status: 'in_progress', label: 'Plan', hint: 'Drafting plan…' };
   }
 
-  // mode === "plan", not streaming → plan exists and is awaiting approval.
-  // The persisted mode atom is the source of truth — it only flips to "agent"
-  // once the user approves, so as long as we're in plan mode we know the
-  // plan is awaiting approval and Code stays blocked.
+  // mode === "plan", not streaming, AI hasn't responded yet → brand-new / empty chat.
+  // Don't claim a plan is ready to approve when no plan has been drafted.
+  if (!i.hasAiResponded) {
+    return { id: 'plan', status: 'idle', label: 'Plan', hint: 'Start chatting to begin' };
+  }
+
+  // mode === "plan", not streaming, AI has responded → plan awaits approval.
   return {
     id: 'plan',
     status: 'attention',
@@ -153,12 +158,12 @@ function computeCode(i: WorkflowInputs, planStatus: MilestoneStatus): MilestoneS
   }
   // baseBranchBehind === 0 already guaranteed by the early return above.
   if (i.changedFilesCount === 0 && i.pushCount === 0) {
-    return {
-      id: 'code',
-      status: 'idle',
-      label: 'Code',
-      hint: 'No changes'
-    };
+    // If the AI has already done work, a clean tree means everything is committed
+    // and pushed. Show done. Only show idle when the agent hasn't run yet (fresh chat).
+    if (i.hasAiResponded) {
+      return { id: 'code', status: 'done', label: 'Code', hint: 'All changes pushed' };
+    }
+    return { id: 'code', status: 'idle', label: 'Code', hint: 'No changes' };
   }
   return {
     id: 'code',
@@ -170,12 +175,7 @@ function computeCode(i: WorkflowInputs, planStatus: MilestoneStatus): MilestoneS
 
 function computeReview(i: WorkflowInputs, codeStatus: MilestoneStatus): MilestoneState {
   if (codeStatus !== 'done') {
-    return {
-      id: 'review',
-      status: 'idle',
-      label: 'Review',
-      hint: 'Waiting on code'
-    };
+    return { id: 'review', status: 'idle', label: 'Review', hint: 'Waiting on code' };
   }
   if (i.reviewDecision === 'changes_requested') {
     return {
@@ -187,14 +187,21 @@ function computeReview(i: WorkflowInputs, codeStatus: MilestoneStatus): Mileston
     };
   }
   if (i.reviewDecision === 'approved') {
-    return {
-      id: 'review',
-      status: 'done',
-      label: 'Review',
-      hint: 'PR approved'
-    };
+    return { id: 'review', status: 'done', label: 'Review', hint: 'PR approved' };
   }
-  if (i.prState === 'open' || i.prState === 'draft') {
+  if (i.prState === 'merged') {
+    return { id: 'review', status: 'done', label: 'Review', hint: 'PR merged' };
+  }
+  if (i.prState === 'open') {
+    // A PR being open means the author has reviewed the work and it is ready for
+    // external review. Reviewer activity surfaces via reviewDecision (changes_requested /
+    // approved) which are handled above — no need to prompt again here.
+    return { id: 'review', status: 'done', label: 'Review', hint: 'PR open' };
+  }
+  if (i.prState === 'closed') {
+    return { id: 'review', status: 'info', label: 'Review', hint: 'PR closed' };
+  }
+  if (i.prState === 'draft') {
     return {
       id: 'review',
       status: 'attention',
@@ -204,12 +211,7 @@ function computeReview(i: WorkflowInputs, codeStatus: MilestoneStatus): Mileston
     };
   }
   if (i.localReviewCompleted && i.prState === 'none') {
-    return {
-      id: 'review',
-      status: 'done',
-      label: 'Review',
-      hint: 'Reviewed'
-    };
+    return { id: 'review', status: 'done', label: 'Review', hint: 'Reviewed' };
   }
   return {
     id: 'review',
@@ -239,14 +241,15 @@ function computePr(i: WorkflowInputs, codeStatus: MilestoneStatus, reviewStatus:
       actionKind: 'openPr'
     };
   }
-  if (i.prState === 'open' || i.prState === 'draft') {
-    return {
-      id: 'pr',
-      status: 'info',
-      label: 'PR',
-      hint: i.prState === 'draft' ? 'Draft PR open' : 'PR open',
-      actionKind: 'openPr'
-    };
+  if (i.prState === 'open') {
+    // PR exists and is ready for review — the author's work on this step is done.
+    return { id: 'pr', status: 'done', label: 'PR', hint: 'PR open', actionKind: 'openPr' };
+  }
+  if (i.prState === 'closed') {
+    return { id: 'pr', status: 'info', label: 'PR', hint: 'PR closed', actionKind: 'openPr' };
+  }
+  if (i.prState === 'draft') {
+    return { id: 'pr', status: 'info', label: 'PR', hint: 'Draft PR open', actionKind: 'openPr' };
   }
   if (i.prCreating) {
     return {
