@@ -19,7 +19,7 @@ type LightboxData = { src: string; alt: string; width: number; height: number };
 
 export function Screenshots() {
   const t = useTranslations("screenshots");
-  const [active, setActive] = useState<(typeof tabs)[number]["key"]>("usage");
+  const [active, setActive] = useState<(typeof tabs)[number]["key"]>("review");
   const [lightbox, setLightbox] = useState<LightboxData | null>(null);
   const [open, setOpen] = useState(false);
 
