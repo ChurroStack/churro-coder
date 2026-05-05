@@ -2877,7 +2877,7 @@ export const codexRouter = router({
                     'Do not write the final plan as plain text only, do not call PlanWrite more than once, and do not restate the plan after PlanWrite.',
                     "After PlanWrite, stop and wait for the user's approval before implementing anything."
                   ].join('\n')
-                : '';
+                : '[AGENT MODE] You are in implementation mode. Implement changes directly using your available tools. Do not call PlanWrite and do not create a new plan — the plan has already been approved. Execute each step now.';
             const augmentedPrompt = [planInstruction, catchup, input.prompt]
               .filter((segment): segment is string => Boolean(segment))
               .join('\n\n');
@@ -3233,16 +3233,24 @@ export const codexRouter = router({
       return { cancelled: true, ignoredStale: false };
     }),
 
-  cleanup: publicProcedure.input(z.object({ subChatId: z.string() })).mutation(({ input }) => {
-    cleanupCodexAppServerSubChat(input.subChatId);
+  cleanup: publicProcedure
+    .input(z.object({ subChatId: z.string(), runId: z.string().optional() }))
+    .mutation(({ input }) => {
+      cleanupCodexAppServerSubChat(input.subChatId);
 
-    const activeStream = activeStreams.get(input.subChatId);
-    if (activeStream) {
-      activeStream.controller.abort();
-      activeStreams.delete(input.subChatId);
-    }
-    clearPendingApprovals('Session ended.', input.subChatId);
+      const activeStream = activeStreams.get(input.subChatId);
+      if (activeStream) {
+        // Guard against stale cleanup calls aborting a newer stream (e.g. the plan turn's
+        // cleanup() arriving after the implement-plan subscription has already started).
+        // When a runId is provided, only abort if it matches the current active stream.
+        const shouldAbort = !input.runId || activeStream.runId === input.runId;
+        if (shouldAbort) {
+          activeStream.controller.abort();
+          activeStreams.delete(input.subChatId);
+        }
+      }
+      clearPendingApprovals('Session ended.', input.subChatId);
 
-    return { success: true };
-  })
+      return { success: true };
+    })
 });
