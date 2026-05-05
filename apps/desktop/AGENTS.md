@@ -91,10 +91,8 @@ For the full annotated tree (renderer features, dock subsystem, agent layers), s
 
 ## File Naming
 
-- Components: PascalCase (`ActiveChat.tsx`, `AgentsSidebar.tsx`)
-- Utilities/hooks: camelCase (`useFileUpload.ts`, `formatters.ts`)
-- Stores: kebab-case (`sub-chat-store.ts`, `agent-chat-store.ts`)
-- Atoms: camelCase with `Atom` suffix (`selectedAgentChatIdAtom`)
+- Files: kebab-case for components, hooks, stores, and utilities (`active-chat.tsx`, `agents-sidebar.tsx`, `use-overflow-detection.ts`, `agent-chat-store.ts`)
+- Atoms: camelCase with `Atom` suffix (`spotlightOpenAtom`, `terminalSidebarOpenAtom`)
 
 ## Resetting App State
 
@@ -112,6 +110,3 @@ bun run dev
 **Dev vs Production App:**
 - Dev mode uses separate userData path (`~/Library/Application Support/Churro Coder Dev/`)
 - This prevents conflicts between dev and production installs
-
-**Common First-Install Bugs:**
-- **Folder dialog not appearing**: Window focus timing issues on first launch. Fixed by ensuring window focus before showing `dialog.showOpenDialog()`.

@@ -48,7 +48,7 @@ pnpm exec nx reset             # clear Nx daemon + cache when project graph seem
 | App | Dev/run | Build | Notes |
 |---|---|---|---|
 | gateway | `pnpm exec nx run gateway:run` (or `:watch`) | `pnpm exec nx run gateway:build` | API listens on `http://localhost:5111` (see `apps/gateway/Properties/launchSettings.json`). `GET /health` → JSON `{status:"ok",service:"churro-code-gateway"}`. The serve-style target is named **`run`**, not `serve` — that's the `@nx/dotnet` convention. Other inferred targets: `restore`, `clean`, `publish`, `build:release`. |
-| desktop | `pnpm exec nx run desktop:dev` | `pnpm exec nx run desktop:build` | Opens an Electron window with shadcn `<Button>`. Targets shell out to `bun run` inside `apps/desktop`. To package installers: `pnpm exec nx run desktop:dist` (or `:package` for a dir-only build). For platform-specific installers, run `bun run dist:mac` / `dist:win` / `dist:linux` from `apps/desktop`. |
+| desktop | `pnpm exec nx run desktop:dev` | `pnpm exec nx run desktop:build` | Targets shell out to `bun run` inside `apps/desktop`. To package installers: `pnpm exec nx run desktop:dist` (or `:package` for a dir-only build). For platform-specific installers, run `bun run package:mac` / `package:win` / `package:linux` from `apps/desktop`. See `apps/desktop/AGENTS.md` for app-specific details. |
 | daemon | `pnpm exec nx run daemon:serve` | `pnpm exec nx run daemon:build` | Build output: `dist/apps/daemon/daemon`. Run directly: `./dist/apps/daemon/daemon` or `./dist/apps/daemon/daemon --version`. Inferred targets: `build`, `serve`, `test`, `tidy`, `lint`, `generate`. |
 
 ### Working inside `apps/desktop` directly (bun-native)
@@ -57,7 +57,6 @@ cd apps/desktop
 bun install                    # NOT pnpm
 bun run dev                    # electron-vite dev (with HMR)
 bun run build                  # electron-vite build → out/{main,preload,renderer}
-bun run typecheck              # tsc on both tsconfig.node.json + tsconfig.web.json
 bunx shadcn@latest add <component>   # add more shadcn components
 ```
 Renderer code lives in `src/renderer/` with a `@/*` alias to that directory. Main process is `src/main/index.ts`; preload bridge is `src/preload/index.ts` (sandboxed, contextIsolation on).
