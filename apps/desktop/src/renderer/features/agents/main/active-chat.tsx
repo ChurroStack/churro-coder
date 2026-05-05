@@ -162,6 +162,7 @@ import { usePastedTextFiles, type PastedTextFile } from '../hooks/use-pasted-tex
 import { useTextContextSelection } from '../hooks/use-text-context-selection';
 import { useToggleFocusOnCmdEsc } from '../hooks/use-toggle-focus-on-cmd-esc';
 import { CodexChatTransport } from '../lib/codex-chat-transport';
+import { formatStructuredPlanAsMarkdown, getPlanFromPlanWritePart } from '../../../../shared/plans/format-codex-plan';
 import { formatHistoryForContext } from '../lib/export-chat';
 import { clearSubChatDraft, getSubChatDraftFull } from '../lib/drafts';
 import { IPCChatTransport } from '../lib/ipc-chat-transport';
@@ -304,60 +305,6 @@ function parseMcpContentJson(value: unknown): any | null {
   } catch {
     return null;
   }
-}
-
-function formatStructuredPlanAsMarkdown(plan: any): string {
-  if (!isRecord(plan)) return '';
-
-  const lines: string[] = [];
-  const steps = Array.isArray(plan.steps) ? plan.steps : [];
-
-  if (typeof plan.title === 'string' && plan.title.trim()) {
-    lines.push(`# ${plan.title.trim()}`);
-  }
-
-  if (typeof plan.summary === 'string' && plan.summary.trim()) {
-    lines.push('## Context');
-    lines.push(plan.summary.trim());
-  }
-
-  if (steps.length > 0) {
-    lines.push('## Implementation Steps');
-    lines.push(
-      steps
-        .map((step: any, index: number) => {
-          const title = typeof step?.title === 'string' && step.title.trim() ? step.title.trim() : `Step ${index + 1}`;
-          const stepLines = [`${index + 1}. ${title}`];
-          if (typeof step?.description === 'string' && step.description.trim()) {
-            stepLines.push(`   ${step.description.trim()}`);
-          }
-          if (Array.isArray(step?.files) && step.files.length > 0) {
-            stepLines.push(`   Files: ${step.files.map((file: unknown) => `\`${String(file)}\``).join(', ')}`);
-          }
-          return stepLines.join('\n');
-        })
-        .join('\n\n')
-    );
-  }
-
-  return lines.join('\n\n').trim();
-}
-
-function getPlanFromPlanWritePart(part: any): any | null {
-  const candidates = [
-    part?.input?.plan,
-    part?.input?.args?.plan,
-    part?.input?.arguments?.plan,
-    part?.args?.plan,
-    part?.output?.plan,
-    part?.result?.plan,
-    part?.output?.structuredContent?.plan,
-    part?.result?.structuredContent?.plan,
-    parseMcpContentJson(part?.output)?.plan,
-    parseMcpContentJson(part?.result)?.plan
-  ];
-
-  return candidates.find((plan) => isRecord(plan)) || null;
 }
 
 function getExitPlanText(part: any): string | null {

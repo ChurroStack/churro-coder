@@ -24,6 +24,9 @@ import { fetchMcpTools, fetchMcpToolsStdio, type McpToolInfo } from '../../mcp-a
 import { publicProcedure, router } from '../index';
 import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { resolveSandboxPolicy } from '../../sandbox/policy';
+import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
+import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-codex-plan';
+import { initMcpHttpServer } from '../../mcp/http-transport';
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
@@ -2424,6 +2427,51 @@ function waitForAppServerTurn(params: {
   });
 }
 
+/**
+ * Register the churro-memory MCP server with the Codex CLI on startup.
+ * Self-heals: re-runs mcp add if the entry is absent or the URL has drifted.
+ * Codex reads the bearer token from process.env.CHURRO_MCP_BEARER at session start.
+ */
+export async function bootstrapChurroMemoryMcp(): Promise<void> {
+  const { url, bearer } = await initMcpHttpServer();
+  process.env.CHURRO_MCP_BEARER = bearer;
+
+  const serverName = `churro-memory${process.env.ELECTRON_RENDERER_URL ? '-dev' : ''}`;
+  let existing: any[] = [];
+  try {
+    const listResult = await runCodexCli(['mcp', 'list', '--json']);
+    if (listResult.exitCode === 0) {
+      existing = JSON.parse(listResult.stdout);
+    }
+  } catch {
+    // Codex CLI may not be installed; degrade gracefully
+    console.warn('[churro-memory] Could not list Codex MCP servers — CLI unavailable?');
+    return;
+  }
+
+  const entry = Array.isArray(existing) ? existing.find((s: any) => s.name === serverName) : null;
+  const existingUrl = entry?.transport?.url ?? entry?.url ?? null;
+  const alreadyRegistered = entry && existingUrl === url;
+
+  if (alreadyRegistered) {
+    console.log(`[churro-memory] Codex MCP entry "${serverName}" already up-to-date`);
+    return;
+  }
+
+  if (entry) {
+    // Remove stale entry (URL drifted — port changed between launches)
+    await runCodexCli(['mcp', 'remove', serverName]).catch(() => {});
+  }
+
+  try {
+    await runCodexCliChecked(['mcp', 'add', serverName, '--url', url, '--bearer-token-env-var', 'CHURRO_MCP_BEARER']);
+    clearCodexMcpCache();
+    console.log(`[churro-memory] Registered Codex MCP server "${serverName}" at ${url}`);
+  } catch (err) {
+    console.error('[churro-memory] Failed to register Codex MCP server:', err);
+  }
+}
+
 export const codexRouter = router({
   getIntegration: publicProcedure.query(async () => {
     const result = await runCodexCli(['login', 'status']);
@@ -2878,7 +2926,11 @@ export const codexRouter = router({
                     "After PlanWrite, stop and wait for the user's approval before implementing anything."
                   ].join('\n')
                 : '';
-            const augmentedPrompt = [planInstruction, catchup, input.prompt]
+            const subChatPlanHint =
+              input.mode === 'agent' && (await hasPlan(input.subChatId))
+                ? `[CONTEXT] Sub-chat id: ${input.subChatId}. An approved plan is available — call the \`read_plan\` MCP tool (server: churro-memory) with { subChatId: "${input.subChatId}" } to retrieve it.`
+                : '';
+            const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
               .filter((segment): segment is string => Boolean(segment))
               .join('\n\n');
 
@@ -3137,6 +3189,25 @@ export const codexRouter = router({
                     })
                   : { messages: messagesWithAssistant, fallbackPart: null };
               planWriteFallbackPart = messagesWithPlanFallback.fallbackPart;
+
+              // Persist plan to disk for cross-provider retrieval via churro-memory MCP
+              if (input.mode === 'plan') {
+                const lastAssistant = [...messagesWithPlanFallback.messages]
+                  .reverse()
+                  .find((m: any) => m.role === 'assistant');
+                if (lastAssistant) {
+                  const planObj = findPlanFromAnyPlanWritePart(lastAssistant);
+                  const planContent = planObj ? formatStructuredPlanAsMarkdown(planObj) : null;
+                  if (planContent) {
+                    void writeCurrentPlan({
+                      subChatId: input.subChatId,
+                      content: planContent,
+                      source: 'codex:PlanWrite',
+                      title: typeof planObj?.title === 'string' ? planObj.title : 'Plan'
+                    }).catch((err: unknown) => console.error('[churro-memory] Failed to persist codex plan:', err));
+                  }
+                }
+              }
 
               const cleanedMessages = messagesWithPlanFallback.messages
                 .map(cleanAssistantMessageForPersistence)

@@ -85,6 +85,7 @@ export const subChats = sqliteTable(
     fileStatsAdditions: integer('file_stats_additions').notNull().default(0),
     fileStatsDeletions: integer('file_stats_deletions').notNull().default(0),
     fileStatsFileCount: integer('file_stats_file_count').notNull().default(0),
+    currentPlanPath: text('current_plan_path'),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
   },
