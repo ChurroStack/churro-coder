@@ -14,7 +14,6 @@ import { trpcClient } from '../../../lib/trpc';
 import {
   askUserQuestionResultsAtom,
   expiredUserQuestionsAtom,
-  MODEL_ID_MAP,
   pendingAuthRetryMessageAtom,
   pendingUserQuestionsAtom,
   subChatCodexModelIdAtomFamily,
@@ -22,7 +21,6 @@ import {
 } from '../atoms';
 import { CODEX_MODELS, type CodexThinkingLevel } from './models';
 import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
-import type { AgentMessageMetadata } from '../ui/agent-message-usage';
 
 type UIMessageChunk = any;
 
@@ -118,10 +116,6 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     const prompt = this.extractText(lastUser);
     const images = this.extractImages(lastUser);
 
-    const lastAssistant = [...options.messages].reverse().find((message) => message.role === 'assistant');
-    const metadata = lastAssistant?.metadata as AgentMessageMetadata | undefined;
-    const sessionId = metadata?.sessionId;
-
     const currentMode = getCurrentSubChatMode(this.config.subChatId);
     const forceNewSession = forceFreshSessionSubChats.has(this.config.subChatId);
     if (forceNewSession) {
@@ -131,27 +125,9 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     const selectedModel = getSelectedCodexModel(this.config.subChatId);
     const enableTasks = appStore.get(enableTasksAtom);
 
-    const lastAssistantModel = (metadata as any)?.model;
-
-    // Drop Claude session UUIDs before they reach the Codex router — the Codex
-    // router's getLastSessionId already filters to Codex-only thread IDs, but
-    // passing a Claude UUID as input.sessionId bypasses that filter.
-    const sessionLooksLikeClaude =
-      typeof sessionId === 'string' && typeof lastAssistantModel === 'string' && lastAssistantModel in MODEL_ID_MAP;
-
-    const codexSessionId = sessionLooksLikeClaude ? undefined : sessionId;
-    if (sessionLooksLikeClaude) {
-      console.warn(
-        `[SD] R:CLAUDE-SESSION-DROP sub=${this.config.subChatId.slice(-8)} ` +
-          `lastAssistantModel=${lastAssistantModel} → dropping leaked Claude session UUID`
-      );
-    }
-
     console.log(
       `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
         `provider=codex mode=${currentMode} ` +
-        `sessionIdShort=${codexSessionId?.slice(-8) ?? 'none'} ` +
-        `lastAssistantModel=${lastAssistantModel ?? 'none'} ` +
         `selectedModel=${selectedModel}`
     );
 
@@ -185,7 +161,6 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
             ...(this.config.projectPath ? { projectPath: this.config.projectPath } : {}),
             model: selectedModel,
             mode: currentMode,
-            ...(codexSessionId ? { sessionId: codexSessionId } : {}),
             ...(forceNewSession ? { forceNewSession: true } : {}),
             ...(images.length > 0 ? { images } : {}),
             enableTasks: enableTasks !== false,
