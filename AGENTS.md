@@ -4,6 +4,10 @@ This file is the single source of truth for AI coding agents working in this rep
 
 > Note for Windows contributors: git symlinks may need `core.symlinks=true` and Developer Mode. If `CLAUDE.md` shows up as a text file containing the string `AGENTS.md`, run `git config core.symlinks true && git checkout -- CLAUDE.md` after enabling symlink support.
 
+## Worktree Discipline
+- Always verify `pwd` before editing; this repo uses git worktrees and edits must land in the active worktree, not the main repo path.
+- If a worktree directory appears missing or stale, stop and ask before retrying exploration.
+
 ## What this project is
 **churro-code** is "an opinionated open-source coding agent client. Run Claude Code, Codex, and more — locally or in the cloud" (from README). It's a polyglot Nx monorepo with three apps that share the same product surface:
 
@@ -104,6 +108,14 @@ bun run test:watch        # watch mode for local development
 
 ### CI
 GitHub Actions runs tests on every PR via the existing `.github/workflows/ci.yml` workflow (`nx run-many -t test`). The desktop `bun install` step sets `SKIP_ELECTRON_REBUILD=1` so native-module compilation is skipped in the Linux runner.
+
+## Build & Verification
+- Run builds synchronously (foreground) and report results directly; do not background long-running build/test commands and poll.
+- After multi-file edits, run typecheck/build before declaring done.
+
+## Change Scope
+- Prefer the simplest fix that solves the reported problem; do not introduce new config fields, abstractions, or specificity hacks before reading the relevant library/theming docs.
+- When a user says 'one-line fix', apply only that—do not refactor surrounding code.
 
 ## Adding a new project
 
