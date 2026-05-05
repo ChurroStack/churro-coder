@@ -2430,7 +2430,10 @@ function waitForAppServerTurn(params: {
 /**
  * Register the churro-memory MCP server with the Codex CLI on startup.
  * Self-heals: re-runs mcp add if the entry is absent or the URL has drifted.
- * Codex reads the bearer token from process.env.CHURRO_MCP_BEARER at session start.
+ *
+ * Codex reads the bearer from process.env.CHURRO_MCP_BEARER at session start
+ * (referenced by name, not value), so rotating the bearer in churro-mcp.json
+ * does not require re-registration — the CLI entry stays valid.
  */
 export async function bootstrapChurroMemoryMcp(): Promise<void> {
   const { url, bearer } = await initMcpHttpServer();
@@ -2468,7 +2471,13 @@ export async function bootstrapChurroMemoryMcp(): Promise<void> {
     clearCodexMcpCache();
     console.log(`[churro-memory] Registered Codex MCP server "${serverName}" at ${url}`);
   } catch (err) {
-    console.error('[churro-memory] Failed to register Codex MCP server:', err);
+    // Most likely cause: bundled Codex CLI doesn't accept --bearer-token-env-var.
+    // The plan tracks this as a follow-up (fall back to writing ~/.codex/config.toml).
+    console.error(
+      '[churro-memory] Failed to register Codex MCP server. ' +
+        'Codex agents will not be able to call read_plan until this is resolved. Error:',
+      err
+    );
   }
 }
 

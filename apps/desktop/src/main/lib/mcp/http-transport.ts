@@ -35,7 +35,12 @@ async function loadSavedBearer(): Promise<string | null> {
   try {
     const raw = await readFile(getMcpStatePath(), 'utf8');
     const parsed = JSON.parse(raw);
-    if (typeof parsed.bearer === 'string' && parsed.bearer.length > 0) {
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof parsed.bearer === 'string' &&
+      parsed.bearer.length > 0
+    ) {
       return parsed.bearer;
     }
   } catch {
@@ -57,7 +62,15 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
   const mcpServer = createMcpServerStateless();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
+  const MAX_BODY_BYTES = 1_048_576; // 1 MiB — MCP messages are small JSON-RPC envelopes
+  const REQUEST_TIMEOUT_MS = 30_000;
+
   const server = http.createServer(async (req, res) => {
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      res.writeHead(408, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Request timeout' }));
+    });
+
     // Simple bearer-token auth check
     const authHeader = req.headers['authorization'] ?? '';
     if (authHeader !== `Bearer ${bearer}`) {
@@ -66,12 +79,20 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
       return;
     }
 
-    // Collect body for POST requests
+    // Collect body for POST requests with size cap
     let body: unknown;
     if (req.method === 'POST') {
       const chunks: Buffer[] = [];
+      let total = 0;
       for await (const chunk of req) {
-        chunks.push(chunk as Buffer);
+        const buf = chunk as Buffer;
+        total += buf.length;
+        if (total > MAX_BODY_BYTES) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Payload too large' }));
+          return;
+        }
+        chunks.push(buf);
       }
       try {
         body = JSON.parse(Buffer.concat(chunks).toString('utf8'));

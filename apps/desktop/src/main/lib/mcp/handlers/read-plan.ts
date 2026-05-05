@@ -15,6 +15,7 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
           .string()
           .optional()
           .describe('Sub-chat ID. Omit when the server is bound to a specific sub-chat (Claude).'),
+        // Future-proofing: keeps the wire format ready for revision history without breaking callers.
         revision: z
           .literal('current')
           .optional()

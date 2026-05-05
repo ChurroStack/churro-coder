@@ -16,7 +16,6 @@ import {
   abortAllCodexStreams,
   bootstrapChurroMemoryMcp
 } from './lib/trpc/routers/codex';
-import { initMcpHttpServer } from './lib/mcp/http-transport';
 import { createMainWindow, createWindow, getWindow, getAllWindows, setIsQuitting } from './windows/main';
 import { windowManager } from './windows/window-manager';
 
@@ -274,10 +273,9 @@ if (gotTheLock) {
     // This helps diagnose first-install issues where the protocol isn't recognized yet
     verifyProtocolRegistration();
 
-    // Start churro-memory MCP HTTP server (used by Codex; Claude uses per-turn SDK instance)
-    await initMcpHttpServer().catch((e) => console.error('[churro-memory] HTTP server init failed:', e));
-    // Register churro-memory with Codex CLI (self-heals on each launch)
-    bootstrapChurroMemoryMcp().catch((e) => console.error('[churro-memory] Codex bootstrap failed:', e));
+    // Start churro-memory MCP HTTP server + register with Codex CLI (self-heals each launch).
+    // Claude uses a per-turn SDK instance and doesn't depend on this completing.
+    bootstrapChurroMemoryMcp().catch((e) => console.error('[churro-memory] bootstrap failed:', e));
 
     // Get bundled CLI versions for About panel
     const isDev = !app.isPackaged;

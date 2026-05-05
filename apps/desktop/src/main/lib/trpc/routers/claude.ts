@@ -1519,15 +1519,17 @@ export const claudeRouter = router({
                 mcpServersFiltered = mcpServersForSdk;
               }
 
-              // Inject churro-memory MCP server (per-turn, subChatId closed over)
-              mcpServersFiltered = {
-                ...(mcpServersFiltered ?? {}),
-                'churro-memory': {
-                  type: 'sdk' as const,
-                  name: 'churro-memory',
-                  instance: createMcpServerForSubChat(input.subChatId)
-                }
-              };
+              // Inject churro-memory MCP server only in agent mode — plan mode has no plan yet to read.
+              if (input.mode === 'agent') {
+                mcpServersFiltered = {
+                  ...(mcpServersFiltered ?? {}),
+                  'churro-memory': {
+                    type: 'sdk' as const,
+                    name: 'churro-memory',
+                    instance: createMcpServerForSubChat(input.subChatId)
+                  }
+                };
+              }
             }
 
             // Log SDK configuration for debugging

@@ -46,7 +46,9 @@ export async function writeCurrentPlan(opts: {
     createdAt: new Date().toISOString()
   };
 
-  // Atomic write via tmp-file + rename
+  // Each rename is atomic; the pair isn't. A crash between the two renames leaves
+  // metadata stale relative to content, but readers tolerate this (read returns null
+  // if either file is missing, and the worst case is a slightly stale title).
   const tmpId = randomUUID();
   const tmpMd = join(dir, `${tmpId}.tmp.md`);
   const tmpJson = join(dir, `${tmpId}.tmp.json`);
