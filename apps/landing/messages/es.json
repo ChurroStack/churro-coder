@@ -1,0 +1,116 @@
+{
+  "metadata": {
+    "title": "Churro Coder — Cliente de Agente de Código IA",
+    "description": "Ejecuta Claude Code, Codex y más — localmente o en la nube. El cliente de codificación IA con convenciones propias y de código abierto. Crea aplicaciones como churros.",
+    "keywords": "agente de código IA, Claude Code, Codex, herramientas de desarrollo, código abierto"
+  },
+  "nav": {
+    "features": "Características",
+    "workflow": "Cómo funciona",
+    "screenshots": "Capturas",
+    "github": "GitHub",
+    "download": "Descargar",
+    "openMenu": "Abrir menú",
+    "closeMenu": "Cerrar menú",
+    "switchLanguage": "English"
+  },
+  "hero": {
+    "badge": "Código Abierto · Gratis Para Siempre",
+    "title": "Crea aplicaciones",
+    "titleAccent": "como churros",
+    "subtitle": "Ejecuta Claude Code, Codex y más — localmente o en la nube. El cliente de codificación IA que hace que publicar software sea rápido, preciso y realmente disfrutable.",
+    "ctaPrimary": "Descargar Gratis",
+    "ctaSecondary": "Estrella en GitHub",
+    "stars": "estrellas",
+    "worksWith": "Funciona con"
+  },
+  "features": {
+    "title": "Todo lo que necesitas para programar con IA",
+    "subtitle": "Diseñado para desarrolladores que quieren velocidad, control y cero compromisos en calidad.",
+    "multiProvider": {
+      "title": "Soporte Multi-Proveedor",
+      "description": "Cambia entre Claude Code y Codex durante la conversación. Siempre usa el mejor modelo para cada tarea."
+    },
+    "planMode": {
+      "title": "Planifica Antes de Codear",
+      "description": "El modo de solo lectura permite que la IA analice tu código base y proponga un plan antes de escribir una sola línea."
+    },
+    "agentMode": {
+      "title": "Autonomía Total del Agente",
+      "description": "Deja que la IA escriba archivos, ejecute comandos bash, busque en la web e itere — todo en tiempo real, en tu máquina."
+    },
+    "localFirst": {
+      "title": "Local-First y Privado",
+      "description": "Sin sincronización en la nube, sin analíticas, sin inicio de sesión obligatorio. Tu código y conversaciones permanecen en tu máquina."
+    },
+    "gitIntegration": {
+      "title": "Integración Git Nativa",
+      "description": "Gestión de ramas, creación de pull requests y resolución de conflictos integrados directamente en el flujo de trabajo."
+    },
+    "realTime": {
+      "title": "Ejecución en Tiempo Real",
+      "description": "Observa cómo la IA ejecuta comandos, edita archivos y toma decisiones mientras sucede. Total transparencia, siempre."
+    }
+  },
+  "workflow": {
+    "title": "Cómo funciona Churro Coder",
+    "subtitle": "Un flujo de trabajo de cuatro pasos que te mantiene en control en cada etapa.",
+    "plan": {
+      "label": "Planear",
+      "title": "Analizar y Planear",
+      "description": "La IA lee tu código base y crea un plan detallado paso a paso. Tú lo apruebas antes de que cambie un solo archivo."
+    },
+    "code": {
+      "label": "Codear",
+      "title": "Ejecutar e Iterar",
+      "description": "El agente escribe archivos, ejecuta comandos e itera en tiempo real. Cada decisión es transparente y observable."
+    },
+    "review": {
+      "label": "Revisar",
+      "title": "Inspeccionar Cambios",
+      "description": "Ve diffs en vivo de cada cambio. Aprueba, solicita modificaciones o revierte con un clic."
+    },
+    "pr": {
+      "label": "PR",
+      "title": "Publica",
+      "description": "Haz push a tu rama y abre un pull request directamente desde la app. De idea a PR en minutos."
+    }
+  },
+  "lightbox": {
+    "close": "Cerrar"
+  },
+  "screenshots": {
+    "title": "Vélo en acción",
+    "subtitle": "Un entorno de desarrollo completo impulsado por IA que corre en tu máquina.",
+    "plan": "Plan",
+    "code": "Código",
+    "review": "Revisión",
+    "design": "Diseño",
+    "usage": "Uso"
+  },
+  "cta": {
+    "title": "¿Listo para publicar más rápido?",
+    "subtitle": "Únete a los desarrolladores que construyen con IA, de la manera correcta. Gratis y de código abierto.",
+    "primary": "Descargar Gratis",
+    "secondary": "Ver en GitHub"
+  },
+  "footer": {
+    "tagline": "El cliente de agente de codificación IA con convenciones propias y de código abierto.",
+    "company": {
+      "title": "Empresa",
+      "features": "Características",
+      "workflow": "Cómo funciona",
+      "docs": "Documentación",
+      "about": "Acerca de",
+      "contact": "Contacto"
+    },
+    "legal": {
+      "title": "Legal",
+      "privacy": "Política de Privacidad",
+      "terms": "Términos de Servicio",
+      "cookies": "Política de Cookies"
+    },
+    "copyright": "© 2026 ChurroStack. Todos los derechos reservados.",
+    "madeWith": "Hecho con ♥ para desarrolladores"
+  }
+}

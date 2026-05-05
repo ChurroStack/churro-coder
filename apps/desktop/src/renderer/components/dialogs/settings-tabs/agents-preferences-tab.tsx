@@ -550,23 +550,19 @@ export function AgentsPreferencesTab() {
         </div>
       </div>
 
-      {/* OFFLINE-MODE: Share Usage Analytics hidden (analytics are no-ops in offline mode) */}
-      {/* <div className="bg-background rounded-lg border border-border overflow-hidden">
+      {/* Crash reports & telemetry */}
+      <div className="bg-background rounded-lg border border-border overflow-hidden">
         <div className="flex items-center justify-between gap-6 p-4">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">
-              Share Usage Analytics
-            </span>
+            <span className="text-sm font-medium text-foreground">Share crash reports</span>
             <span className="text-xs text-muted-foreground">
-              Help us improve Agents by sharing anonymous usage data. We only track feature usage and app performance–never your code, prompts, or messages. No AI training on your data.
+              Automatically send crash reports and app flow events to help fix bugs. Never includes code, prompts, or
+              message content.
             </span>
           </div>
-          <Switch
-            checked={!analyticsOptOut}
-            onCheckedChange={(enabled) => handleAnalyticsToggle(!enabled)}
-          />
+          <Switch checked={!analyticsOptOut} onCheckedChange={(enabled) => handleAnalyticsToggle(!enabled)} />
         </div>
-      </div> */}
+      </div>
 
       {/* Panel Placement */}
       <div className="bg-background rounded-lg border border-border overflow-hidden">

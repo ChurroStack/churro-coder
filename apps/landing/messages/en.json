@@ -1,0 +1,116 @@
+{
+  "metadata": {
+    "title": "Churro Coder — AI Coding Agent Client",
+    "description": "Run Claude Code, Codex, and more — locally or in the cloud. The opinionated open-source AI coding client. Create applications like churros.",
+    "keywords": "AI coding agent, Claude Code, Codex, developer tools, open source"
+  },
+  "nav": {
+    "features": "Features",
+    "workflow": "How it works",
+    "screenshots": "Screenshots",
+    "github": "GitHub",
+    "download": "Download",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "switchLanguage": "Español"
+  },
+  "hero": {
+    "badge": "Open Source · Free Forever",
+    "title": "Create applications",
+    "titleAccent": "like churros",
+    "subtitle": "Run Claude Code, Codex, and more — locally or in the cloud. The opinionated AI coding client that makes shipping software fast, precise, and actually enjoyable.",
+    "ctaPrimary": "Download Free",
+    "ctaSecondary": "Star on GitHub",
+    "stars": "stars",
+    "worksWith": "Works with"
+  },
+  "features": {
+    "title": "Everything you need to code with AI",
+    "subtitle": "Built for developers who want speed, control, and zero compromise on quality.",
+    "multiProvider": {
+      "title": "Multi-Provider Support",
+      "description": "Switch between Claude Code and Codex mid-conversation. Always use the best model for the task at hand."
+    },
+    "planMode": {
+      "title": "Plan Before You Code",
+      "description": "Read-only analysis mode lets the AI survey your codebase and propose a plan before writing a single line."
+    },
+    "agentMode": {
+      "title": "Full Agent Autonomy",
+      "description": "Let the AI write files, run bash commands, search the web, and iterate — all in real-time, right on your machine."
+    },
+    "localFirst": {
+      "title": "Local-First & Private",
+      "description": "No cloud sync, no analytics, no mandatory login. Your code and conversations stay on your machine."
+    },
+    "gitIntegration": {
+      "title": "Native Git Integration",
+      "description": "Branch management, pull request creation, and conflict resolution built right into the workflow."
+    },
+    "realTime": {
+      "title": "Real-Time Execution",
+      "description": "Watch AI execute commands, edit files, and make decisions as it happens. Full transparency, always."
+    }
+  },
+  "workflow": {
+    "title": "How Churro Coder works",
+    "subtitle": "An opinionated, four-step workflow that keeps you in control at every stage.",
+    "plan": {
+      "label": "Plan",
+      "title": "Analyze & Plan",
+      "description": "The AI reads your codebase and creates a detailed, step-by-step plan. You approve it before a single file changes."
+    },
+    "code": {
+      "label": "Code",
+      "title": "Execute & Iterate",
+      "description": "The agent writes files, runs commands, and iterates in real-time. Every decision is transparent and observable."
+    },
+    "review": {
+      "label": "Review",
+      "title": "Inspect Changes",
+      "description": "See live diffs of every change. Approve, request modifications, or roll back with one click."
+    },
+    "pr": {
+      "label": "PR",
+      "title": "Ship It",
+      "description": "Push to your branch and open a pull request directly from the app. From idea to PR in minutes."
+    }
+  },
+  "lightbox": {
+    "close": "Close"
+  },
+  "screenshots": {
+    "title": "See it in action",
+    "subtitle": "A complete AI-powered development environment that runs on your machine.",
+    "plan": "Plan",
+    "code": "Code",
+    "review": "Review",
+    "design": "Design",
+    "usage": "Usage"
+  },
+  "cta": {
+    "title": "Ready to ship faster?",
+    "subtitle": "Join developers who are building with AI, the right way. Free and open source.",
+    "primary": "Download Free",
+    "secondary": "View on GitHub"
+  },
+  "footer": {
+    "tagline": "The opinionated open-source AI coding agent client.",
+    "company": {
+      "title": "Company",
+      "features": "Features",
+      "workflow": "How it works",
+      "docs": "Documentation",
+      "about": "About",
+      "contact": "Contact"
+    },
+    "legal": {
+      "title": "Legal",
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Service",
+      "cookies": "Cookie Policy"
+    },
+    "copyright": "© 2026 ChurroStack. All rights reserved.",
+    "madeWith": "Made with ♥ for developers"
+  }
+}

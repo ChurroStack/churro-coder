@@ -1,0 +1,27 @@
+{
+  "name": "landing",
+  "projectType": "application",
+  "tags": ["type:app", "platform:web"],
+  "targets": {
+    "dev": {
+      "command": "bun run dev",
+      "options": { "cwd": "{projectRoot}" }
+    },
+    "build": {
+      "command": "bun run build",
+      "options": { "cwd": "{projectRoot}" }
+    },
+    "start": {
+      "command": "bun run start",
+      "options": { "cwd": "{projectRoot}" }
+    },
+    "typecheck": {
+      "command": "bun run typecheck",
+      "options": { "cwd": "{projectRoot}" }
+    },
+    "lint": {
+      "command": "bun run lint",
+      "options": { "cwd": "{projectRoot}" }
+    }
+  }
+}

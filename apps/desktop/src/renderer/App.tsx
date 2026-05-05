@@ -9,6 +9,7 @@ import { WindowProvider, getInitialWindowParams } from './contexts/WindowContext
 import { selectedProjectAtom, selectedAgentChatIdAtom } from './features/agents/atoms';
 import { useAgentSubChatStore } from './features/agents/stores/sub-chat-store';
 import { AgentsLayout } from './features/layout/agents-layout';
+import { FeedbackDialog } from './components/dialogs/feedback-dialog';
 import {
   AnthropicOnboardingPage,
   ApiKeyOnboardingPage,
@@ -211,6 +212,7 @@ export function App() {
                   <div data-agents-page className="h-screen w-screen bg-background text-foreground overflow-hidden">
                     <AppContent />
                   </div>
+                  <FeedbackDialog />
                   <ThemedToaster />
                 </TRPCProvider>
               </TooltipProvider>
