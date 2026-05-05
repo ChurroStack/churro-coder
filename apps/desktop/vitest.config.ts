@@ -37,6 +37,7 @@ export default defineConfig({
         "src/renderer/features/kanban/lib/derive-status.ts",
         "src/shared/provider-from-model.ts",
         "src/shared/codex-tool-normalizer.ts",
+        "src/main/lib/sandbox/policy.ts",
       ],
       reporter: ["text", "html"],
     },
