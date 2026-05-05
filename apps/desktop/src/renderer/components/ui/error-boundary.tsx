@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { Button } from './button';
+import { captureRendererError } from '../../lib/analytics';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -25,6 +26,7 @@ export class ViewerErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error(`[ViewerErrorBoundary] ${this.props.viewerType || 'viewer'} crashed:`, error, errorInfo);
+    captureRendererError(error, { viewerType: this.props.viewerType, componentStack: errorInfo.componentStack });
   }
 
   handleReset = () => {
@@ -87,6 +89,7 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, AppErro
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[AppErrorBoundary] Root crash:', error, errorInfo);
+    captureRendererError(error, { source: 'AppErrorBoundary', componentStack: errorInfo.componentStack });
     this.maybeAutoReload();
   }
 
