@@ -58,11 +58,20 @@ function sendWorktreeSetupFailure(windowId: number | null, payload: WorktreeSetu
   }
 }
 
+// Strip title-only mention tokens before using a message as a fallback name
+// or as LLM input for title generation.
+function stripTitleMentionTokens(message: string): string {
+  return message
+    .replace(/@\[(?:quote|diff|pasted|chatHistory):[^\]]+\]/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 // Fallback to user message if AI generation fails. 255-char cap is a
 // safety floor against pathological pasted prompts bloating the row;
 // any sane title fits well within it and the UI handles overflow.
 function getFallbackName(userMessage: string): string {
-  return userMessage.trim().slice(0, 255) || 'New Chat';
+  return stripTitleMentionTokens(userMessage).slice(0, 255) || 'New Chat';
 }
 
 function parseMcpContentJson(value: any): any | null {
@@ -102,6 +111,11 @@ function getPlanFromPlanWritePart(part: any): any | null {
  */
 async function generateChatNameWithOllama(userMessage: string, model?: string | null): Promise<string | null> {
   try {
+    const cleanedMessage = stripTitleMentionTokens(userMessage);
+    if (!cleanedMessage) {
+      return null;
+    }
+
     const ollamaStatus = await checkOllamaStatus();
     if (!ollamaStatus.available) {
       return null;
@@ -116,7 +130,7 @@ async function generateChatNameWithOllama(userMessage: string, model?: string | 
 
     const prompt = `Generate a very short (2-5 words) title for a coding chat that starts with this message. The title MUST be in the same language as the user's message. Only output the title, nothing else. No quotes, no explanations.
 
-User message: "${userMessage.slice(0, 500)}"
+User message: "${cleanedMessage.slice(0, 500)}"
 
 Title:`;
 

@@ -89,6 +89,7 @@ import {
   AgentsFileMention,
   AgentsMentionsEditor,
   MENTION_PREFIXES,
+  messageToTitleText,
   type AgentsMentionsEditorHandle,
   type FileMentionOption
 } from '../mentions';
@@ -1247,7 +1248,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     createChatMutation.mutate(
       {
         projectId: selectedProject.id,
-        name: message.trim().slice(0, 50), // Use first 50 chars as chat name
+        name: messageToTitleText(message).slice(0, 50) || 'New chat',
         model: reviewModelOverride ?? selectedChatModel,
         initialMessageParts: parts.length > 0 ? parts : undefined,
         baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
@@ -1297,7 +1298,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     createChatMutation.mutate(
       {
         projectId: selectedProject.id,
-        name: text ? text.slice(0, 50) : 'New chat',
+        name: messageToTitleText(text).slice(0, 50) || 'New chat',
         model: selectedChatModel,
         useWorktree: workMode === 'worktree',
         baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
