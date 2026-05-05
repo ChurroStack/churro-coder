@@ -14,9 +14,15 @@ export function setOptOut(optedOut: boolean): void {
 }
 
 export function isOptedOut(): boolean {
-  // Renderer doesn't know the main-process state — callers should read
-  // the analyticsOptOutAtom instead of this function.
-  return true;
+  // Read directly from localStorage so this function is safe to call from
+  // non-React contexts. Callers inside React should still prefer
+  // analyticsOptOutAtom for reactivity.
+  try {
+    const stored = localStorage.getItem('preferences:analytics-opt-out');
+    return stored === null ? true : stored === 'true';
+  } catch {
+    return true;
+  }
 }
 
 export function trackPageView(page: string): void {

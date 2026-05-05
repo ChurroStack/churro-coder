@@ -12,6 +12,11 @@ const POSTHOG_HOST = process.env.POSTHOG_HOST ?? 'https://eu.i.posthog.com';
 let client: PostHog | null = null;
 let deviceId: string | null = null;
 let _optedOut = true; // strict opt-in: default to opted-out until user enables
+// trackAppOpened is called from main/index.ts before posthog-node has loaded
+// and before the renderer has synced the user's opt-out preference. We defer
+// the actual fire until both gates pass and only fire once per session.
+let appOpenedPending = false;
+let appOpenedFired = false;
 
 // Properties allowed to pass through to PostHog. Everything else is dropped.
 const SAFE_KEYS = new Set([
@@ -37,7 +42,11 @@ function scrub(props?: Record<string, unknown>): Record<string, unknown> {
   if (!props) return {};
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(props)) {
-    if (SAFE_KEYS.has(k) || k.startsWith('$')) {
+    if (!(SAFE_KEYS.has(k) || k.startsWith('$'))) continue;
+    // SAFE_KEYS values are primitives by contract — a nested object on an
+    // allowlisted key would smuggle arbitrary fields past the filter.
+    const t = typeof v;
+    if (v === null || v === undefined || t === 'string' || t === 'number' || t === 'boolean') {
       out[k] = v;
     }
   }
@@ -63,30 +72,60 @@ function getDeviceId(): string {
   return deviceId;
 }
 
-export function initAnalytics(): void {
-  if (!POSTHOG_API_KEY) return;
+function tryFireAppOpened(): void {
+  if (!appOpenedPending || appOpenedFired) return;
+  if (_optedOut || !client) return;
+  appOpenedFired = true;
+  try {
+    client.capture({
+      distinctId: getDeviceId(),
+      event: 'app_opened',
+      properties: scrub({
+        app_version: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+        is_packaged: app.isPackaged
+      })
+    });
+  } catch {}
+}
+
+// Returns a Promise so tests can await readiness; production callers can
+// ignore the return value (the original `void` contract is preserved).
+export function initAnalytics(): Promise<void> {
+  if (!POSTHOG_API_KEY) return Promise.resolve();
   // Dynamic import keeps posthog-node out of the initial bundle parse.
-  import('posthog-node')
+  return import('posthog-node')
     .then(({ PostHog: PHClass }) => {
       client = new PHClass(POSTHOG_API_KEY, {
         host: POSTHOG_HOST,
         flushAt: 20,
         flushInterval: 30_000
       });
-      // Start opted out; the renderer syncs the stored preference once it loads.
-      client.optOut();
+      // Apply the current opt-out state. The renderer may have already
+      // synced an opt-in via setOptOut() while we were loading; an
+      // unconditional optOut() here would silently drop every event for
+      // opted-in users.
+      if (_optedOut) {
+        client.optOut();
+      } else {
+        client.optIn();
+      }
+      tryFireAppOpened();
     })
     .catch(() => {});
 }
 
 export function setOptOut(optedOut: boolean): void {
   _optedOut = optedOut;
-  if (!client) return;
-  if (optedOut) {
-    client.optOut();
-  } else {
-    client.optIn();
+  if (client) {
+    if (optedOut) {
+      client.optOut();
+    } else {
+      client.optIn();
+    }
   }
+  tryFireAppOpened();
 }
 
 export function isOptedOut(): boolean {
@@ -112,12 +151,8 @@ export function setSubscriptionPlan(_plan: string): void {}
 export function setConnectionMethod(_method: string): void {}
 
 export function trackAppOpened(): void {
-  capture('app_opened', {
-    app_version: app.getVersion(),
-    platform: process.platform,
-    arch: process.arch,
-    is_packaged: app.isPackaged
-  });
+  appOpenedPending = true;
+  tryFireAppOpened();
 }
 
 export function trackAuthCompleted(_userId: string, _email?: string): void {

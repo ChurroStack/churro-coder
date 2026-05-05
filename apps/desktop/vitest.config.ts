@@ -38,6 +38,7 @@ export default defineConfig({
         "src/shared/provider-from-model.ts",
         "src/shared/codex-tool-normalizer.ts",
         "src/main/lib/sandbox/policy.ts",
+        "src/main/lib/analytics.ts",
       ],
       reporter: ["text", "html"],
     },
