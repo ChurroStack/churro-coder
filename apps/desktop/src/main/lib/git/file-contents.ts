@@ -274,8 +274,9 @@ async function getCommittedVersions(
   originalPath: string,
   commitHash: string
 ): Promise<FileVersions> {
+  // ^1 is explicit first-parent; safeGitShow's catch handles root commits and shallow clones (returns '' → renders as added).
   const [original, modified] = await Promise.all([
-    safeGitShow(git, `${commitHash}^:${originalPath}`),
+    safeGitShow(git, `${commitHash}^1:${originalPath}`),
     safeGitShow(git, `${commitHash}:${filePath}`)
   ]);
 

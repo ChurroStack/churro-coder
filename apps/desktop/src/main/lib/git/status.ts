@@ -183,8 +183,17 @@ export const createStatusRouter = () => {
         const git = simpleGit(input.worktreePath);
 
         try {
-          // Get diff for specific file comparing commit to its parent
-          const diff = await git.raw(['diff', `${input.commitHash}^`, input.commitHash, '--', input.filePath]);
+          // git show works for root commits and shallow clones (no parent dereference needed);
+          // -m --first-parent produces a first-parent diff for merge commits, matching GitHub's behaviour.
+          const diff = await git.raw([
+            'show',
+            input.commitHash,
+            '--format=',
+            '-m',
+            '--first-parent',
+            '--',
+            input.filePath
+          ]);
 
           return diff;
         } catch (error) {

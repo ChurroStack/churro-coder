@@ -188,6 +188,23 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   const handleCommitFileSelect = useCallback((file: ChangedFile, _commitHash: string) => {
     setSelectedFilePath(file.path);
   }, []);
+
+  const { data: commitFileDiff } = trpc.changes.getCommitFileDiff.useQuery(
+    {
+      worktreePath: worktreePath || '',
+      commitHash: selectedCommit?.hash || '',
+      filePath: selectedFilePath || ''
+    },
+    {
+      enabled: !!worktreePath && !!selectedCommit && !!selectedFilePath,
+      staleTime: 60_000
+    }
+  );
+
+  const shouldUseCommitDiff = activeTab === 'history' && !!selectedCommit;
+  const effectiveDiff = shouldUseCommitDiff && commitFileDiff ? commitFileDiff : cache.diffContent;
+  const effectiveParsedFiles = shouldUseCommitDiff ? null : cache.parsedFileDiffs;
+  const effectivePrefetchedContents = shouldUseCommitDiff ? {} : (cache.prefetchedFileContents ?? {});
   const handleActiveTabChange = useCallback(
     (tab: 'changes' | 'history') => {
       setActiveTab(tab);
@@ -504,9 +521,9 @@ Make sure to preserve all functionality from both branches when resolving confli
             sandboxId={sandboxId ?? ''}
             worktreePath={worktreePath}
             repository={repository ?? undefined}
-            initialDiff={cache.diffContent}
-            initialParsedFiles={cache.parsedFileDiffs}
-            prefetchedFileContents={cache.prefetchedFileContents ?? {}}
+            initialDiff={effectiveDiff}
+            initialParsedFiles={effectiveParsedFiles}
+            prefetchedFileContents={effectivePrefetchedContents}
             showFooter={false}
             initialSelectedFile={initialSelectedFile}
             onViewedCountChange={setViewedCount}
