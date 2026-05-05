@@ -1,0 +1,14 @@
+**/node_modules
+**/.next
+**/dist
+**/out
+**/.turbo
+**/coverage
+**/.git
+**/.DS_Store
+**/*.tsbuildinfo
+apps/landing/node_modules
+apps/landing/.next
+apps/landing/public/images
+apps/landing/public/logo-mono.png
+apps/landing/public/logo-mono-dark.png
