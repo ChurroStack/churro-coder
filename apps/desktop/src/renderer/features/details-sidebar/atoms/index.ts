@@ -267,6 +267,22 @@ export const planEverGeneratedAtomFamily = atomFamily((subChatId: string) =>
   )
 );
 
+// True once the AI has completed at least one streaming response in this sub-chat.
+// Persisted so that Plan/Code milestones don't revert to "idle" after a reload.
+const aiEverRespondedStorageAtom = atomWithStorage<Record<string, boolean>>('overview:aiEverResponded', {}, undefined, {
+  getOnInit: true
+});
+
+export const aiEverRespondedAtomFamily = atomFamily((subChatId: string) =>
+  atom(
+    (get) => get(aiEverRespondedStorageAtom)[subChatId] ?? false,
+    (get, set, value: boolean) => {
+      const current = get(aiEverRespondedStorageAtom);
+      set(aiEverRespondedStorageAtom, { ...current, [subChatId]: value });
+    }
+  )
+);
+
 // Optimistic spinner while AI is creating a PR (cleared once the PR shows up
 // in getPrStatus). In-memory only — survives page navigation but not reloads.
 const prCreatingStorageAtom = atom<Record<string, boolean>>({});
