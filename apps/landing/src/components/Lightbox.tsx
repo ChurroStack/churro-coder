@@ -4,6 +4,7 @@ import { useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { X } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 interface LightboxProps {
   src: string;
@@ -15,6 +16,7 @@ interface LightboxProps {
 }
 
 export function Lightbox({ src, alt, width, height, open, onClose }: LightboxProps) {
+  const t = useTranslations("lightbox");
   const handleKey = useCallback(
     (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); },
     [onClose]
@@ -47,7 +49,7 @@ export function Lightbox({ src, alt, width, height, open, onClose }: LightboxPro
             onClick={onClose}
             className="absolute top-4 right-4 flex items-center justify-center w-10 h-10 rounded-full transition-colors"
             style={{ backgroundColor: "rgba(255,255,255,0.15)", color: "#fff" }}
-            aria-label="Close"
+            aria-label={t("close")}
           >
             <X className="w-5 h-5" />
           </button>

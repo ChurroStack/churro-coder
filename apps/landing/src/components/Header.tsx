@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useTranslations, useLocale } from "next-intl";
 import { useTheme } from "next-themes";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter } from "@/i18n/navigation";
 import { Menu, X, Sun, Moon, Github, Star, Languages } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,9 +33,7 @@ function LanguageToggle() {
 
   const switchLocale = () => {
     const nextLocale = locale === "en" ? "es" : "en";
-    const segments = pathname.split("/");
-    segments[1] = nextLocale;
-    router.push(segments.join("/"));
+    router.replace(pathname, { locale: nextLocale });
   };
 
   return (

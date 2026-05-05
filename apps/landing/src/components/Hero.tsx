@@ -103,7 +103,7 @@ export function Hero({ stars }: { stars: number | null }) {
           custom={4} variants={fadeUp} initial="hidden" animate="show"
           className="mt-10 flex items-center justify-center gap-4"
         >
-          <span className="text-xs font-medium" style={{ color: "var(--muted-fg)" }}>Works with</span>
+          <span className="text-xs font-medium" style={{ color: "var(--muted-fg)" }}>{t("worksWith")}</span>
           {["Claude Code", "Codex CLI"].map((p) => (
             <span key={p} className="px-3 py-1 rounded-lg text-xs font-semibold border"
               style={{ borderColor: "var(--border-strong)", color: "var(--muted-fg)" }}>

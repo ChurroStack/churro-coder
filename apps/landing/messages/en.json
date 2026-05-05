@@ -21,7 +21,8 @@
     "subtitle": "Run Claude Code, Codex, and more — locally or in the cloud. The opinionated AI coding client that makes shipping software fast, precise, and actually enjoyable.",
     "ctaPrimary": "Download Free",
     "ctaSecondary": "Star on GitHub",
-    "stars": "stars"
+    "stars": "stars",
+    "worksWith": "Works with"
   },
   "features": {
     "title": "Everything you need to code with AI",
@@ -74,6 +75,9 @@
       "title": "Ship It",
       "description": "Push to your branch and open a pull request directly from the app. From idea to PR in minutes."
     }
+  },
+  "lightbox": {
+    "close": "Close"
   },
   "screenshots": {
     "title": "See it in action",

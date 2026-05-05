@@ -1,7 +1,7 @@
 {
   "metadata": {
     "title": "Churro Coder — Cliente de Agente de Código IA",
-    "description": "Ejecuta Claude Code, Codex y más — localmente o en la nube. El cliente de codificación IA opinionado y de código abierto. Crea aplicaciones como churros.",
+    "description": "Ejecuta Claude Code, Codex y más — localmente o en la nube. El cliente de codificación IA con convenciones propias y de código abierto. Crea aplicaciones como churros.",
     "keywords": "agente de código IA, Claude Code, Codex, herramientas de desarrollo, código abierto"
   },
   "nav": {
@@ -21,7 +21,8 @@
     "subtitle": "Ejecuta Claude Code, Codex y más — localmente o en la nube. El cliente de codificación IA que hace que publicar software sea rápido, preciso y realmente disfrutable.",
     "ctaPrimary": "Descargar Gratis",
     "ctaSecondary": "Estrella en GitHub",
-    "stars": "estrellas"
+    "stars": "estrellas",
+    "worksWith": "Funciona con"
   },
   "features": {
     "title": "Todo lo que necesitas para programar con IA",
@@ -75,6 +76,9 @@
       "description": "Haz push a tu rama y abre un pull request directamente desde la app. De idea a PR en minutos."
     }
   },
+  "lightbox": {
+    "close": "Cerrar"
+  },
   "screenshots": {
     "title": "Vélo en acción",
     "subtitle": "Un entorno de desarrollo completo impulsado por IA que corre en tu máquina.",
@@ -91,7 +95,7 @@
     "secondary": "Ver en GitHub"
   },
   "footer": {
-    "tagline": "El cliente de agente de codificación IA opinionado y de código abierto.",
+    "tagline": "El cliente de agente de codificación IA con convenciones propias y de código abierto.",
     "company": {
       "title": "Empresa",
       "features": "Características",
