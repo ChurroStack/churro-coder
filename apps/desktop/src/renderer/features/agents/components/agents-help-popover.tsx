@@ -9,11 +9,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel
 } from '../../../components/ui/dropdown-menu';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, MessageSquareIcon } from 'lucide-react';
 import { KeyboardIcon } from '../../../components/ui/icons';
 import { DiscordIcon } from '../../../icons';
 import { useSetAtom } from 'jotai';
-import { agentsSettingsDialogOpenAtom, agentsSettingsDialogActiveTabAtom } from '../../../lib/atoms';
+import {
+  agentsSettingsDialogOpenAtom,
+  agentsSettingsDialogActiveTabAtom,
+  feedbackDialogOpenAtom
+} from '../../../lib/atoms';
 
 interface ReleaseHighlight {
   version: string;
@@ -63,6 +67,7 @@ export function AgentsHelpPopover({
   const [internalOpen, setInternalOpen] = useState(false);
   const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom);
   const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
+  const setFeedbackDialogOpen = useSetAtom(feedbackDialogOpenAtom);
   const [highlights, setHighlights] = useState<ReleaseHighlight[]>([]);
 
   const open = controlledOpen ?? internalOpen;
@@ -119,6 +124,11 @@ export function AgentsHelpPopover({
     setSettingsDialogOpen(true);
   };
 
+  const handleSendFeedbackClick = () => {
+    setOpen(false);
+    setFeedbackDialogOpen(true);
+  };
+
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
@@ -134,6 +144,13 @@ export function AgentsHelpPopover({
             <span className="flex-1">Shortcuts</span>
           </DropdownMenuItem>
         )}
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuItem onClick={handleSendFeedbackClick} className="gap-2">
+          <MessageSquareIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="flex-1">Send feedback</span>
+        </DropdownMenuItem>
 
         {/* UPDATES-DISABLED: re-enable to restore "What's new" changelog section */}
         {/*

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readlinkSync, unlinkSync } from 'fs';
 import { createServer } from 'http';
 import { join } from 'path';
 import { AuthManager, initAuthManager, getAuthManager as getAuthManagerFromModule } from './auth-manager';
-import { initAnalytics, shutdown as shutdownAnalytics, trackAppOpened } from './lib/analytics';
+import { initAnalytics, shutdown as shutdownAnalytics, trackAppOpened, captureError } from './lib/analytics';
 import { checkForUpdates, downloadUpdate, initAutoUpdater, setupFocusUpdateCheck } from './lib/auto-updater';
 import { closeDatabase, initDatabase } from './lib/db';
 import { getLaunchDirectory, isCliInstalled, installCli, uninstallCli, parseLaunchDirectory } from './lib/cli';
@@ -28,6 +28,9 @@ if (IS_DEV) {
   app.setPath('userData', devUserData);
   console.log('[Dev] Using separate userData path:', devUserData);
 }
+
+// Must init before app 'ready' fires — @sentry/electron/main requires this
+initAnalytics();
 
 // Increase V8 old-space limit for renderer/main processes to reduce OOM frequency
 // under heavy multi-chat workloads. Must be set before app readiness/window creation.
@@ -582,7 +585,6 @@ if (gotTheLock) {
     console.log('[App] Auth manager initialized');
 
     // Track app opened
-    initAnalytics();
     trackAppOpened();
 
     // Initialize database
@@ -728,9 +730,11 @@ if (gotTheLock) {
   // Handle uncaught exceptions
   process.on('uncaughtException', (error) => {
     console.error('[App] Uncaught exception:', error);
+    captureError(error, { source: 'uncaughtException' });
   });
 
   process.on('unhandledRejection', (reason, promise) => {
     console.error('[App] Unhandled rejection at:', promise, 'reason:', reason);
+    captureError(reason instanceof Error ? reason : new Error(String(reason)), { source: 'unhandledRejection' });
   });
 }
