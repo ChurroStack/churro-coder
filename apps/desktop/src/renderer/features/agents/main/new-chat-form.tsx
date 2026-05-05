@@ -1253,7 +1253,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
         branchType: workMode === 'worktree' ? selectedBranchType : undefined,
         useWorktree: workMode === 'worktree',
-        mode: agentMode
+        mode: agentMode,
+        tempPastedSubChatId: pastedTexts.length > 0 ? tempPastedIdRef.current : undefined
       },
       {
         onSuccess: (data) => {

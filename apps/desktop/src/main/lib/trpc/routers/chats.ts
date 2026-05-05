@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
-import { BrowserWindow, safeStorage } from 'electron';
+import { app, BrowserWindow, safeStorage } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import simpleGit from 'simple-git';
@@ -463,7 +463,11 @@ export const chatsRouter = router({
         baseBranch: z.string().optional(), // Branch to base the worktree off
         branchType: z.enum(['local', 'remote']).optional(), // Whether baseBranch is local or remote
         useWorktree: z.boolean().default(true), // If false, work directly in project dir
-        mode: z.enum(['plan', 'agent']).default('agent')
+        mode: z.enum(['plan', 'agent']).default('agent'),
+        tempPastedSubChatId: z
+          .string()
+          .regex(/^new-chat-\d+$/)
+          .optional()
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -522,6 +526,54 @@ export const chatsRouter = router({
         .returning()
         .get();
       console.log('[chats.create] created subChat:', subChat);
+
+      let claimedSubChat = subChat;
+
+      if (input.tempPastedSubChatId && input.tempPastedSubChatId !== subChat.id) {
+        try {
+          const userData = app.getPath('userData');
+          const tempDir = path.join(userData, 'claude-sessions', input.tempPastedSubChatId);
+          const realDir = path.join(userData, 'claude-sessions', subChat.id);
+          const tempPastedDir = path.join(tempDir, 'pasted');
+          const realPastedDir = path.join(realDir, 'pasted');
+
+          const tempPastedDirExists = await fs
+            .stat(tempPastedDir)
+            .then((stats) => stats.isDirectory())
+            .catch((error: NodeJS.ErrnoException) => {
+              if (error.code === 'ENOENT') return false;
+              throw error;
+            });
+
+          if (tempPastedDirExists) {
+            await fs.mkdir(realDir, { recursive: true });
+            await fs.rename(tempPastedDir, realPastedDir);
+            await fs.rmdir(tempDir).catch(() => {});
+
+            const parsedMessages = JSON.parse(subChat.messages) as Array<{
+              parts?: Array<{ type?: string; text?: string }>;
+            }>;
+            const updatedMessages = parsedMessages.map((message) => ({
+              ...message,
+              parts: message.parts?.map((part) =>
+                part.type === 'text' && typeof part.text === 'string'
+                  ? { ...part, text: part.text.split(tempDir).join(realDir) }
+                  : part
+              )
+            }));
+            const updatedMessagesJson = JSON.stringify(updatedMessages);
+
+            db.update(subChats).set({ messages: updatedMessagesJson }).where(eq(subChats.id, subChat.id)).run();
+            claimedSubChat = { ...subChat, messages: updatedMessagesJson };
+          }
+        } catch (error) {
+          console.warn('[chats.create] Failed to claim pasted dir for new chat', {
+            tempPastedSubChatId: input.tempPastedSubChatId,
+            subChatId: subChat.id,
+            error
+          });
+        }
+      }
 
       // Worktree creation result (will be set if useWorktree is true)
       let worktreeResult: {
@@ -590,7 +642,7 @@ export const chatsRouter = router({
         worktreePath: worktreeResult.worktreePath || project.path,
         branch: worktreeResult.branch,
         baseBranch: worktreeResult.baseBranch,
-        subChats: [subChat]
+        subChats: [claimedSubChat]
       };
 
       // Track workspace created
