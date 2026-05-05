@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAtom } from 'jotai';
 import { ArchiveRestoreIcon, Trash2Icon, SearchIcon, ArchiveXIcon } from 'lucide-react';
+import { WorkspaceIcon } from './workspace-icon';
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
 import {
   AlertDialog,
@@ -42,6 +43,8 @@ export function AgentsArchivePopover({
   const utils = trpc.useUtils();
 
   const { data: archivedChats = [], isLoading } = trpc.chats.listArchived.useQuery({}, { enabled: open });
+  const { data: projects = [] } = trpc.projects.list.useQuery(undefined, { enabled: open });
+  const projectsMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
   const restoreMutation = trpc.chats.restore.useMutation({
     onSuccess: (chat) => {
@@ -100,13 +103,13 @@ export function AgentsArchivePopover({
           {/* Search */}
           {archivedChats.length > 0 && (
             <div className="relative px-3 py-2 border-b border-border/50">
-              <SearchIcon className="absolute left-5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search archive…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-5 pr-2 py-0.5 text-xs bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground"
+                className="w-full pl-[22px] pr-2 py-0.5 text-xs bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground"
               />
             </div>
           )}
@@ -126,27 +129,35 @@ export function AgentsArchivePopover({
               <div className="px-3 py-4 text-xs text-muted-foreground text-center">No results</div>
             )}
 
-            {filtered.map((chat) => (
-              <div key={chat.id} className="flex items-center gap-1 px-3 py-1.5 hover:bg-muted/50 group">
-                <span className="flex-1 truncate text-xs text-foreground">{chat.name ?? 'Untitled workspace'}</span>
-                <button
-                  type="button"
-                  onClick={() => restoreMutation.mutate({ id: chat.id })}
-                  disabled={restoreMutation.isPending}
-                  className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
-                  title="Restore workspace">
-                  <ArchiveRestoreIcon className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmDeleteChat(chat)}
-                  disabled={deleteMutation.isPending}
-                  className="shrink-0 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
-                  title="Delete permanently">
-                  <Trash2Icon className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
+            {filtered.map((chat) => {
+              const project = chat.projectId ? projectsMap.get(chat.projectId) : null;
+              return (
+                <div key={chat.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50 group">
+                  <WorkspaceIcon
+                    gitOwner={project?.gitOwner}
+                    gitProvider={project?.gitProvider}
+                    className="h-3.5 w-3.5 flex-shrink-0"
+                  />
+                  <span className="flex-1 truncate text-xs text-foreground">{chat.name ?? 'Untitled workspace'}</span>
+                  <button
+                    type="button"
+                    onClick={() => restoreMutation.mutate({ id: chat.id })}
+                    disabled={restoreMutation.isPending}
+                    className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                    title="Restore workspace">
+                    <ArchiveRestoreIcon className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteChat(chat)}
+                    disabled={deleteMutation.isPending}
+                    className="shrink-0 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                    title="Delete permanently">
+                    <Trash2Icon className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </PopoverContent>
       </Popover>
