@@ -19,6 +19,7 @@ import {
 import { addOrFocus } from '@/features/dock/add-or-focus';
 import { useDockApi } from '@/features/dock/dock-context';
 import {
+  aiEverRespondedAtomFamily,
   localReviewCompletedAtomFamily,
   planEverGeneratedAtomFamily,
   prCreatingAtomFamily
@@ -56,6 +57,7 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
   const loading = useAtomValue(loadingSubChatsAtom);
   const compacting = useAtomValue(compactingSubChatsAtom);
   const [planEverGenerated, setPlanEverGenerated] = useAtom(planEverGeneratedAtomFamily(safeSubChatId));
+  const [aiEverResponded, setAiEverResponded] = useAtom(aiEverRespondedAtomFamily(safeSubChatId));
   const localReviewCompleted = useAtomValue(localReviewCompletedAtomFamily(safeSubChatId));
   const [prCreating, setPrCreating] = useAtom(prCreatingAtomFamily(safeSubChatId));
   // Force re-evaluation after each AI run (e.g. a new file was committed externally).
@@ -108,20 +110,27 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
     }
   }, [prCreating, hasRemoteForPr, setPrCreating]);
 
-  // Clear prCreating when the AI run that was supposed to open the PR ends
-  // without one appearing. The 10s grace window covers the gap between the
-  // stream finishing and the next getPrStatus poll picking up the new PR.
-  // Without this, an AI failure (network error, gh-auth, agent abort) would
-  // leave the spinner stuck forever.
+  // When a streaming session ends: mark that the AI has responded at least once
+  // (so Plan/Code milestones don't show as idle for fresh-but-not-empty chats),
+  // and clear the prCreating spinner if the PR never appeared within 10 s.
+  // The aiEverResponded ref lets us skip redundant localStorage writes after
+  // the flag has flipped to true (atomWithStorage writes on every set call).
   const wasStreamingRef = useRef(isStreaming);
+  const aiEverRespondedRef = useRef(aiEverResponded);
+  aiEverRespondedRef.current = aiEverResponded;
   useEffect(() => {
     const wasStreaming = wasStreamingRef.current;
     wasStreamingRef.current = isStreaming;
-    if (wasStreaming && !isStreaming && prCreating) {
-      const timeout = setTimeout(() => setPrCreating(false), 10000);
-      return () => clearTimeout(timeout);
+    if (wasStreaming && !isStreaming) {
+      if (!aiEverRespondedRef.current) {
+        setAiEverResponded(true);
+      }
+      if (prCreating) {
+        const timeout = setTimeout(() => setPrCreating(false), 10000);
+        return () => clearTimeout(timeout);
+      }
     }
-  }, [isStreaming, prCreating, setPrCreating]);
+  }, [isStreaming, prCreating, setPrCreating, setAiEverResponded]);
 
   const inputs: WorkflowInputs = useMemo(() => {
     const changedFilesCount =
@@ -136,6 +145,7 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
       isStreaming,
       isCompacting,
       planEverGenerated,
+      hasAiResponded: aiEverResponded,
       changedFilesCount,
       pushCount: gitStatus?.pushCount ?? 0,
       hasUpstream: gitStatus?.hasUpstream ?? false,
@@ -151,6 +161,7 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
     isStreaming,
     isCompacting,
     planEverGenerated,
+    aiEverResponded,
     gitStatus?.staged,
     gitStatus?.unstaged,
     gitStatus?.untracked,
