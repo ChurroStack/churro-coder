@@ -293,6 +293,11 @@ function registerIpcHandlers(): void {
     setOptOut(optedOut);
   });
 
+  ipcMain.handle('analytics:capture', async (_event, eventName: string, properties?: Record<string, unknown>) => {
+    const { capture } = await import('../lib/analytics');
+    capture(eventName, properties);
+  });
+
   // Shell
   ipcMain.handle('shell:open-external', (_event, url: string) => shell.openExternal(url));
 

@@ -154,10 +154,12 @@ export function App() {
   useEffect(() => {
     initAnalytics();
 
-    // Sync analytics opt-out status to main process
+    // Sync analytics opt-out status to main process.
+    // If the key is absent (fresh install), strict opt-in means we default to opted-out.
     const syncOptOutStatus = async () => {
       try {
-        const optOut = localStorage.getItem('preferences:analytics-opt-out') === 'true';
+        const stored = localStorage.getItem('preferences:analytics-opt-out');
+        const optOut = stored === null ? true : stored === 'true';
         await window.desktopApi?.setAnalyticsOptOut(optOut);
       } catch (error) {
         console.warn('[Analytics] Failed to sync opt-out status:', error);

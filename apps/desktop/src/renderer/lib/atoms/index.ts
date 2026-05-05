@@ -384,7 +384,7 @@ export const useNativeFrameAtom = atomWithStorage<boolean>(
 // When true, user has opted out of analytics tracking
 export const analyticsOptOutAtom = atomWithStorage<boolean>(
   'preferences:analytics-opt-out',
-  false, // Default to opt-in (false means not opted out)
+  true, // Strict opt-in: default to opted-out. User must explicitly enable.
   undefined,
   { getOnInit: true }
 );

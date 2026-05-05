@@ -1,26 +1,186 @@
-// Analytics removed — all functions are no-ops.
-// Argument types are intentionally `unknown` so callers can pass anything
-// without fighting the no-op stubs.
+import { app } from 'electron';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
+import type { PostHog } from 'posthog-node';
 
-export function initAnalytics(): void {}
-export function identify(_userId: string, _traits?: unknown): void {}
-export function capture(_eventName: string, _properties?: unknown): void {}
-export function setSubscriptionPlan(_plan: string): void {}
-export async function shutdown(): Promise<void> {}
-export function setOptOut(_optedOut: boolean): void {}
-export function isOptedOut(): boolean {
-  return true;
+// Set POSTHOG_API_KEY env var at build time to enable telemetry.
+// Without it the module is a no-op — safe to ship without a key.
+const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY ?? '';
+const POSTHOG_HOST = process.env.POSTHOG_HOST ?? 'https://eu.i.posthog.com';
+
+let client: PostHog | null = null;
+let deviceId: string | null = null;
+let _optedOut = true; // strict opt-in: default to opted-out until user enables
+
+// Properties allowed to pass through to PostHog. Everything else is dropped.
+const SAFE_KEYS = new Set([
+  'app_version',
+  'platform',
+  'arch',
+  'is_packaged',
+  'provider',
+  'model_id',
+  'mode',
+  'tool_name',
+  'success',
+  'error_type',
+  'error_code',
+  'setting_key',
+  'message_count',
+  'session_duration_ms',
+  'page_name',
+  'feature_name'
+]);
+
+function scrub(props?: Record<string, unknown>): Record<string, unknown> {
+  if (!props) return {};
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (SAFE_KEYS.has(k) || k.startsWith('$')) {
+      out[k] = v;
+    }
+  }
+  return out;
 }
-export function trackAppOpened(): void {}
-export function trackAuthCompleted(_userId: string, _email?: string): void {}
-export function trackProjectOpened(_project: unknown): void {}
-export function trackWorkspaceCreated(_workspace: unknown): void {}
-export function trackChatStarted(_chat: unknown): void {}
-export function trackMessageSent(_message: unknown): void {}
-export function trackToolUsed(_tool: unknown): void {}
-export function trackSettingsChanged(_settings: unknown): void {}
-export function trackError(_error: unknown): void {}
+
+function getDeviceId(): string {
+  if (deviceId) return deviceId;
+  const idPath = join(app.getPath('userData'), 'analytics-device-id.json');
+  try {
+    if (existsSync(idPath)) {
+      const data = JSON.parse(readFileSync(idPath, 'utf8')) as { id?: string };
+      if (typeof data.id === 'string' && data.id) {
+        deviceId = data.id;
+        return deviceId;
+      }
+    }
+  } catch {}
+  deviceId = randomUUID();
+  try {
+    writeFileSync(idPath, JSON.stringify({ id: deviceId }), 'utf8');
+  } catch {}
+  return deviceId;
+}
+
+export function initAnalytics(): void {
+  if (!POSTHOG_API_KEY) return;
+  // Dynamic import keeps posthog-node out of the initial bundle parse.
+  import('posthog-node')
+    .then(({ PostHog: PHClass }) => {
+      client = new PHClass(POSTHOG_API_KEY, {
+        host: POSTHOG_HOST,
+        flushAt: 20,
+        flushInterval: 30_000
+      });
+      // Start opted out; the renderer syncs the stored preference once it loads.
+      client.optOut();
+    })
+    .catch(() => {});
+}
+
+export function setOptOut(optedOut: boolean): void {
+  _optedOut = optedOut;
+  if (!client) return;
+  if (optedOut) {
+    client.optOut();
+  } else {
+    client.optIn();
+  }
+}
+
+export function isOptedOut(): boolean {
+  return _optedOut;
+}
+
+export function capture(eventName: string, properties?: Record<string, unknown>): void {
+  if (_optedOut || !client) return;
+  try {
+    client.capture({
+      distinctId: getDeviceId(),
+      event: eventName,
+      properties: scrub(properties)
+    });
+  } catch {}
+}
+
+export function identify(_userId: string, _traits?: unknown): void {
+  // All events are device-scoped and anonymous — no user identity sent.
+}
+
+export function setSubscriptionPlan(_plan: string): void {}
 export function setConnectionMethod(_method: string): void {}
-export function trackPRCreated(_pr: unknown): void {}
-export function trackWorkspaceArchived(_workspace: unknown): void {}
-export function trackWorkspaceDeleted(_workspace: unknown): void {}
+
+export function trackAppOpened(): void {
+  capture('app_opened', {
+    app_version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    is_packaged: app.isPackaged
+  });
+}
+
+export function trackAuthCompleted(_userId: string, _email?: string): void {
+  capture('auth_completed', {});
+}
+
+export function trackProjectOpened(_project: unknown): void {
+  capture('project_opened', {});
+}
+
+export function trackWorkspaceCreated(_workspace: unknown): void {
+  capture('workspace_created', {});
+}
+
+export function trackChatStarted(_chat: unknown): void {
+  capture('chat_started', {});
+}
+
+export function trackMessageSent(message: unknown): void {
+  const m = message as { provider?: string; modelId?: string; mode?: string } | null;
+  capture('message_sent', {
+    provider: m?.provider,
+    model_id: m?.modelId,
+    mode: m?.mode
+  });
+}
+
+export function trackToolUsed(tool: unknown): void {
+  const t = tool as { name?: string; success?: boolean } | null;
+  capture('tool_used', {
+    tool_name: t?.name,
+    success: t?.success
+  });
+}
+
+export function trackSettingsChanged(settings: unknown): void {
+  const s = settings as { key?: string } | null;
+  capture('settings_changed', { setting_key: s?.key });
+}
+
+export function trackError(error: unknown): void {
+  const e = error as { type?: string; code?: string } | null;
+  capture('error_occurred', {
+    error_type: e?.type,
+    error_code: e?.code
+  });
+}
+
+export function trackPRCreated(_pr: unknown): void {
+  capture('pr_created', {});
+}
+
+export function trackWorkspaceArchived(_workspace: unknown): void {
+  capture('workspace_archived', {});
+}
+
+export function trackWorkspaceDeleted(_workspace: unknown): void {
+  capture('workspace_deleted', {});
+}
+
+export async function shutdown(): Promise<void> {
+  if (client) {
+    await client.shutdown();
+    client = null;
+  }
+}
