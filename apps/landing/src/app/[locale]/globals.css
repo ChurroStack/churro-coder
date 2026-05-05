@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --color-churro-50: oklch(0.987 0.026 95.26);
+  --color-churro-100: oklch(0.966 0.057 95.17);
+  --color-churro-200: oklch(0.925 0.12 90.08);
+  --color-churro-300: oklch(0.879 0.169 86.83);
+  --color-churro-400: oklch(0.828 0.189 84.43);
+  --color-churro-500: oklch(0.769 0.188 70.08);
+  --color-churro-600: oklch(0.666 0.179 58.32);
+  --color-churro-700: oklch(0.554 0.163 48.95);
+  --color-churro-800: oklch(0.473 0.137 46.2);
+  --color-churro-900: oklch(0.414 0.112 45.9);
+  --color-churro-950: oklch(0.266 0.079 36.26);
+
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-fg);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-fg);
+}
+
+:root {
+  --bg: #09090b;
+  --fg: #fafafa;
+  --card: #18181b;
+  --card-fg: #fafafa;
+  --border: #27272a;
+  --muted: #27272a;
+  --muted-fg: #a1a1aa;
+}
+
+.light {
+  --bg: #fafafa;
+  --fg: #09090b;
+  --card: #ffffff;
+  --card-fg: #09090b;
+  --border: #e4e4e7;
+  --muted: #f4f4f5;
+  --muted-fg: #71717a;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background-color: #f59e0b40;
+  color: var(--fg);
+}
+
+:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
