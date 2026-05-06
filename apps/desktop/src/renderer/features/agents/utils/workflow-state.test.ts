@@ -466,6 +466,25 @@ describe('computeWorkflowState — next cascade', () => {
     expect(s.next?.actionKind).toBe('createPr');
   });
 
+  test('plan attention beats PR-stale (plan mode with stale local edits)', () => {
+    // User is mid-planning AND happens to have uncommitted local edits with a
+    // PR open. Plan-attention must still own `next` — redirecting to PR work
+    // would skip plan approval. The cascade-reorder must NOT preempt plan.
+    const s = computeWorkflowState({
+      ...base,
+      mode: 'plan',
+      isStreaming: false,
+      hasAiResponded: true,
+      prState: 'open',
+      changedFilesCount: 1,
+      pushCount: 0
+    });
+    expect(s.plan.status).toBe('attention');
+    expect(s.pr.status).toBe('attention'); // PR still amber-stale
+    expect(s.next?.milestone).toBe('plan');
+    expect(s.next?.actionKind).toBe('expandPlan');
+  });
+
   test('next label comes from hint when hint is set', () => {
     const s = computeWorkflowState({ ...base, mode: 'plan', isStreaming: false, hasAiResponded: true });
     expect(s.next?.label).toBe('Plan ready — review and approve');

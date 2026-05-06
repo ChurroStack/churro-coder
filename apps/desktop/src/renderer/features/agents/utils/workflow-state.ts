@@ -59,8 +59,10 @@ export function computeWorkflowState(i: WorkflowInputs): WorkflowState {
   // prompt handles commit+push+(maybe-create) end-to-end, so prompting the
   // user toward "pushBranch" or "reviewLocal" first would just delay the same
   // work. PR-stale beats Code/Review attention when "PR exists, but local
-  // has new work."
+  // has new work." Plan-attention always wins regardless — the user is still
+  // mid-planning and shouldn't be redirected to PR work.
   const prIsStale =
+    plan.status !== 'attention' &&
     pr.status === 'attention' &&
     pr.actionKind === 'createPr' &&
     (i.prState === 'open' || i.prState === 'merged');

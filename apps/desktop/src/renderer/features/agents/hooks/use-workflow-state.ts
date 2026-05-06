@@ -303,9 +303,10 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
             '   - Commit with a clear, concise message (under 80 chars subject; body if needed).',
             '3. Run `git status -sb` to confirm the tree is clean and check ahead/behind.',
             '4. If there are unpushed commits, run `git push` (use `git push -u origin HEAD` if there is no upstream).',
-            '5. Check whether a PR already exists for this branch (`gh pr view --json number,state,url 2>/dev/null`, or the `az repos pr list` equivalent for Azure DevOps).',
-            '   - If a PR already exists (open or merged): do NOT create a duplicate. Report the PR URL and stop.',
-            `   - If no PR exists: create one with \`gh pr create --base ${baseBranch}\` (or the Azure DevOps equivalent). Title under 80 chars; description under five sentences.`,
+            '5. Check whether a PR already exists for this branch. Use `gh pr list --head "$(git branch --show-current)" --state all --json number,state,url` (or the `az repos pr list` equivalent for Azure DevOps). Inspect the JSON output: an empty array `[]` means no PR exists; a non-empty array means a PR exists.',
+            '   - If `gh` (or `az`) is not installed, not authenticated, or the command otherwise errors: STOP. Do NOT assume "no PR exists" and do NOT call `gh pr create` — that risks a duplicate PR. Report the failure and ask the user for help.',
+            '   - If a PR already exists (any state — open, merged, or closed): do NOT create a duplicate. Report the PR URL and stop.',
+            `   - If the lookup succeeded and the array is empty: create one with \`gh pr create --base "${baseBranch}"\` (or the Azure DevOps equivalent). Title under 80 chars; description under five sentences.`,
             '6. If any step fails, stop and ask the user for help — do not proceed with later steps.'
           ].join('\n');
           setPendingPrMessage({ message, subChatId });

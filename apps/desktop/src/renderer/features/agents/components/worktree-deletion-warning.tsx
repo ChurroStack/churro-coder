@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
@@ -6,15 +7,30 @@ interface Props {
 }
 
 export function WorktreeDeletionWarning({ worktreePath }: Props) {
-  const { data, isError } = trpc.changes.getStatus.useQuery(
+  const { data, isError, error } = trpc.changes.getStatus.useQuery(
     { worktreePath: worktreePath ?? '' },
     { enabled: !!worktreePath, staleTime: 30000 }
   );
 
+  // The query throws when the worktree isn't registered with the main-process
+  // SecureFs registry — typical for archived workspaces in a fresh app session.
+  // Swallowing it silently means a workspace with real pending work would show
+  // no warning, defeating the purpose of this component. Log loudly so the
+  // failure mode is visible during dev.
+  useEffect(() => {
+    if (isError && worktreePath) {
+      console.warn(
+        '[WorktreeDeletionWarning] getStatus failed for worktreePath',
+        worktreePath,
+        '— pending-work warning will not be shown.',
+        error?.message
+      );
+    }
+  }, [isError, worktreePath, error?.message]);
+
   if (!worktreePath || isError || !data) return null;
 
-  const changedFilesCount =
-    (data.staged?.length ?? 0) + (data.unstaged?.length ?? 0) + (data.untracked?.length ?? 0);
+  const changedFilesCount = (data.staged?.length ?? 0) + (data.unstaged?.length ?? 0) + (data.untracked?.length ?? 0);
   const pushCount = data.hasUpstream ? data.pushCount : 0;
   if (changedFilesCount === 0 && pushCount === 0) return null;
 
