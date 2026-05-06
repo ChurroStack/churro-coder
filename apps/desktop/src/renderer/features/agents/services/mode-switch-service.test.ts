@@ -246,7 +246,7 @@ describe('hydrateMode — stale refetch race (PR #51)', () => {
     expect(states.get('sub-1')?.mode).toBe('agent');
   });
 
-  test('hydrate with same mode + newer version is a silent version bump', () => {
+  test('hydrate with same mode + newer version still syncs the external mode atom', () => {
     const { deps, states } = makeDeps('plan');
     states.set('sub-1', {
       mode: 'plan',
@@ -257,9 +257,22 @@ describe('hydrateMode — stale refetch race (PR #51)', () => {
     vi.clearAllMocks();
 
     const result = hydrateMode('sub-1', 'plan', 5, deps);
-    // applied=true because state changed (version increased) but setMode is NOT called.
+    // applied=true because state changed (version increased). setMode still
+    // runs because the external mode atom may be stale independently of the FSM.
     expect(result.finalState.hydrationVersion).toBe(5);
-    expect(deps.setMode).not.toHaveBeenCalled();
+    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'plan');
+  });
+
+  test('hydrate agent over initial agent still syncs stale persisted localStorage', () => {
+    const { deps, states } = makeDeps('agent');
+    const before = states.get('sub-1') ?? initialState('agent');
+
+    const result = hydrateMode('sub-1', 'agent', before.hydrationVersion + 1, deps);
+
+    expect(result.applied).toBe(true);
+    expect(result.finalState.mode).toBe('agent');
+    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'agent');
+    expect(deps.applyDefaultModel).not.toHaveBeenCalled();
   });
 });
 

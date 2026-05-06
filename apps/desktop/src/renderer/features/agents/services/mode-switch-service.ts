@@ -250,15 +250,18 @@ export async function forceMode(
  * one (PR #51). The caller is expected to track the version it last applied
  * and pass it in here so a stale refetch can't overwrite a forced flip.
  *
- * No side effects — hydration is the *source* of truth for an initial mount,
- * not a write target.
+ * Hydration is the *source* of truth for an initial mount. It must also sync
+ * the external mode atom/store even when the FSM mode is unchanged: the FSM
+ * starts at "agent", while `subChatModeAtomFamily` may still contain a stale
+ * persisted "plan" value from localStorage after an app restart.
  */
 export function hydrateMode(
   subChatId: string,
   from: ChatMode,
   hydrationVersion: number,
-  deps: Pick<ModeSwitchDeps, 'readState' | 'writeState' | 'setMode' | 'applyDefaultModel'>
+  deps: Pick<ModeSwitchDeps, 'readState' | 'writeState' | 'setMode' | 'applyDefaultModel' | 'log'>
 ): { applied: boolean; finalState: ChatModeState } {
+  const log = deps.log ?? (() => {});
   const state = deps.readState(subChatId);
   const candidate = reduceChatMode(state, { type: 'HYDRATE', from, hydrationVersion });
   // Stale-rejected (PR #51): the FSM returns a refreshed state with the same
@@ -267,13 +270,24 @@ export function hydrateMode(
   // produces a new object to clear the one-shot mustApplyDefaults flag).
   const staleRejected = candidate.mode === state.mode && candidate.hydrationVersion === state.hydrationVersion;
   if (staleRejected) {
+    log(
+      `[MODE] hydrate:stale-rejected sub=${subChatId.slice(-8)} ` +
+        `from=${from} incomingVersion=${hydrationVersion} state=${state.mode}/${state.hydrationVersion}`
+    );
     return { applied: false, finalState: candidate };
   }
-  if (candidate.mode !== state.mode) {
-    deps.setMode(subChatId, candidate.mode);
-    if (candidate.mustApplyDefaults) {
-      deps.applyDefaultModel(subChatId, candidate.mode);
-    }
+  // Always sync the external atom/store even when `candidate.mode === state.mode`.
+  // Jotai's `set` short-circuits on `Object.is` equality, so calling setMode with
+  // an unchanged value is a no-op for FSM-aligned subscribers; the call exists
+  // to overwrite stale persisted values (e.g. localStorage from before restart)
+  // that the FSM has no visibility into.
+  deps.setMode(subChatId, candidate.mode);
+  log(
+    `[MODE] hydrate:sync sub=${subChatId.slice(-8)} ` +
+      `db=${from}/${hydrationVersion} fsm=${state.mode}/${state.hydrationVersion} final=${candidate.mode}/${candidate.hydrationVersion}`
+  );
+  if (candidate.mustApplyDefaults) {
+    deps.applyDefaultModel(subChatId, candidate.mode);
   }
   deps.writeState(subChatId, candidate);
   return { applied: true, finalState: candidate };

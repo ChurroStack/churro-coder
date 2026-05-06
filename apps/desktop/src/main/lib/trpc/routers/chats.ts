@@ -23,6 +23,7 @@ import type { WorktreeSetupResult } from '../../git/worktree-config';
 import { computeContentHash, gitCache } from '../../git/cache';
 import { splitUnifiedDiffByFile } from '../../git/diff-parser';
 import { applyRollbackStash } from '../../git/stash';
+import { repairSubChatModeForHydration } from '../../sub-chat-mode';
 import { checkOllamaStatus } from '../../ollama';
 import { terminalManager } from '../../terminal/manager';
 import { publicProcedure, router } from '../index';
@@ -436,7 +437,8 @@ export const chatsRouter = router({
       .from(subChats)
       .where(eq(subChats.chatId, input.id))
       .orderBy(subChats.createdAt)
-      .all();
+      .all()
+      .map((row) => repairSubChatModeForHydration(db, row));
 
     const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 

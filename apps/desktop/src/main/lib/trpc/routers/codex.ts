@@ -29,6 +29,7 @@ import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-codex-plan';
 import { initMcpHttpServer } from '../../mcp/http-transport';
 import { recordChatEvent } from '../../chat-event-buffer';
+import { persistSubChatRunMode } from '../../sub-chat-mode';
 import { resolveAppOwnedMcpHeaders, shouldRemoveStaleAppOwnedMcpEntry } from '../codex-mcp-auth';
 import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from '../codex-mode-prompts';
 import { createTaskListPartFromPlan } from '../codex-plan-task-part';
@@ -2942,6 +2943,13 @@ export const codexRouter = router({
                 if (!existingSubChat) {
                   throw new Error('Sub-chat not found');
                 }
+
+                persistSubChatRunMode({
+                  db,
+                  subChatId: input.subChatId,
+                  existingMode: existingSubChat.mode,
+                  inputMode: input.mode
+                });
 
                 const existingMessages = parseStoredMessages(existingSubChat.messages);
                 const requestedModelId = extractCodexModelId(input.model) || DEFAULT_CODEX_MODEL;

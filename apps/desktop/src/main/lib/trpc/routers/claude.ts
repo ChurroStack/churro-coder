@@ -66,6 +66,7 @@ import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { createMcpServerForSubChat } from '../../mcp/server';
 import { recordChatEvent } from '../../chat-event-buffer';
+import { persistSubChatRunMode } from '../../sub-chat-mode';
 
 /**
  * Parse @[agent:name], @[skill:name], and @[tool:servername] mentions from prompt text
@@ -974,6 +975,13 @@ export const claudeRouter = router({
                     .run();
                   existing = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
                 }
+
+                persistSubChatRunMode({
+                  db,
+                  subChatId: input.subChatId,
+                  existingMode: existing?.mode,
+                  inputMode: input.mode
+                });
 
                 const existingMessages = JSON.parse(existing?.messages || '[]');
                 const existingSessionId = existing?.sessionId || null;

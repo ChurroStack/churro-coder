@@ -9,8 +9,9 @@
  *
  * The integration test simulates this race: a sequence of FORCE_MODE then
  * a stale HYDRATE with an older version. The mode atom must end on "agent",
- * setMode must NOT have been called for the hydration, and the FSM's
- * hydrationVersion must reflect the forced flip.
+ * stale hydrations must not call setMode, and the FSM's hydrationVersion must
+ * reflect the forced flip. Current hydrations always call setMode so DB state
+ * can overwrite stale localStorage after an app restart.
  */
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
@@ -103,7 +104,7 @@ describe('L4 integration — stale DB hydration race (PR #51)', () => {
     expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
   });
 
-  test('forced flip then NEWER hydrate with same mode: silent version bump, no setMode', async () => {
+  test('forced flip then NEWER hydrate with same mode: syncs external atom', async () => {
     const subChatId = newSubChatId();
     const { deps, states, setModeCalls } = makeDeps(subChatId, 'plan');
 
@@ -116,8 +117,21 @@ describe('L4 integration — stale DB hydration race (PR #51)', () => {
     // already saw the exitPlan write from PR #45 and bumped its own version).
     const result = hydrateMode(subChatId, 'agent', versionAfterFlip + 5, deps);
 
+    expect(result.applied).toBe(true);
     expect(states.get(subChatId)!.hydrationVersion).toBe(versionAfterFlip + 5);
-    expect(setModeCalls.length).toBe(0);
+    expect(setModeCalls).toEqual([{ subChatId, mode: 'agent' }]);
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+  });
+
+  test('restart hydrate with initial agent FSM still overwrites stale plan localStorage', () => {
+    const subChatId = newSubChatId();
+    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    const { deps, setModeCalls } = makeDeps(subChatId, 'agent');
+
+    const result = hydrateMode(subChatId, 'agent', 1, deps);
+
+    expect(result.applied).toBe(true);
+    expect(setModeCalls).toEqual([{ subChatId, mode: 'agent' }]);
     expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
   });
 
@@ -157,11 +171,11 @@ describe('L4 integration — stale DB hydration race (PR #51)', () => {
     expect(setModeCalls).toEqual([]);
     expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
 
-    // Now a current-version hydrate that agrees with the FSM: silent bump,
-    // no setMode.
+    // Now a current-version hydrate that agrees with the FSM: it still syncs
+    // the external atom/store in case localStorage drifted from DB state.
     const result = hydrateMode(subChatId, 'agent', versionAfterFlip + 1, deps);
     expect(result.applied).toBe(true);
-    expect(setModeCalls).toEqual([]);
+    expect(setModeCalls).toEqual([{ subChatId, mode: 'agent' }]);
     expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
   });
 });
