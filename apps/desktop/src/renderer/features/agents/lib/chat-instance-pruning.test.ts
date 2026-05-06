@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { evictChatsForParentChatSwitch, evictInactiveChatsForWorkspace } from './chat-instance-pruning';
 import { agentChatStore } from '../stores/agent-chat-store';
+import { useStreamingStatusStore } from '../stores/streaming-status-store';
+import { useMessageQueueStore } from '../stores/message-queue-store';
 
 function makeChat(cleanup = vi.fn()) {
   return {
@@ -10,10 +12,25 @@ function makeChat(cleanup = vi.fn()) {
   } as any;
 }
 
+function resetStreamingStore() {
+  useStreamingStatusStore.setState({ statuses: {} });
+}
+
+function resetQueueStore() {
+  useMessageQueueStore.setState({ queues: {}, queueSentTriggers: {} });
+}
+
 describe('chat-instance-pruning', () => {
   beforeEach(() => {
     agentChatStore.clear();
+    resetStreamingStore();
+    resetQueueStore();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetStreamingStore();
+    resetQueueStore();
   });
 
   test("evictChatsForParentChatSwitch evicts the previous parent's sub-chats without calling transport.cleanup", () => {
@@ -53,6 +70,42 @@ describe('chat-instance-pruning', () => {
     expect(agentChatStore.has('sub-a')).toBe(true);
   });
 
+  test('evictChatsForParentChatSwitch preserves sub-chats with an active stream', () => {
+    const clearRuntimeCachesForSubChat = vi.fn();
+    agentChatStore.set('sub-streaming', makeChat(), 'workspace-a');
+    agentChatStore.set('sub-submitted', makeChat(), 'workspace-a');
+    agentChatStore.set('sub-idle', makeChat(), 'workspace-a');
+
+    useStreamingStatusStore.getState().setStatus('sub-streaming', 'streaming');
+    useStreamingStatusStore.getState().setStatus('sub-submitted', 'submitted');
+
+    evictChatsForParentChatSwitch('workspace-a', 'workspace-b', clearRuntimeCachesForSubChat);
+
+    expect(agentChatStore.has('sub-streaming')).toBe(true);
+    expect(agentChatStore.has('sub-submitted')).toBe(true);
+    expect(agentChatStore.has('sub-idle')).toBe(false);
+    expect(clearRuntimeCachesForSubChat).toHaveBeenCalledTimes(1);
+    expect(clearRuntimeCachesForSubChat).toHaveBeenCalledWith('sub-idle');
+  });
+
+  test('evictChatsForParentChatSwitch preserves sub-chats with queued messages', () => {
+    const clearRuntimeCachesForSubChat = vi.fn();
+    agentChatStore.set('sub-queued', makeChat(), 'workspace-a');
+    agentChatStore.set('sub-idle', makeChat(), 'workspace-a');
+
+    useMessageQueueStore.setState({
+      queues: { 'sub-queued': [{ id: 'q1' } as any] },
+      queueSentTriggers: {}
+    });
+
+    evictChatsForParentChatSwitch('workspace-a', 'workspace-b', clearRuntimeCachesForSubChat);
+
+    expect(agentChatStore.has('sub-queued')).toBe(true);
+    expect(agentChatStore.has('sub-idle')).toBe(false);
+    expect(clearRuntimeCachesForSubChat).toHaveBeenCalledTimes(1);
+    expect(clearRuntimeCachesForSubChat).toHaveBeenCalledWith('sub-idle');
+  });
+
   test('evictInactiveChatsForWorkspace evicts non-kept sub-chats in the workspace without cleanup', () => {
     const activeCleanup = vi.fn();
     const keptCleanup = vi.fn();
@@ -77,5 +130,28 @@ describe('chat-instance-pruning', () => {
     expect(agentChatStore.has('sub-other-workspace')).toBe(true);
     expect(clearRuntimeCachesForSubChat).toHaveBeenCalledTimes(1);
     expect(clearRuntimeCachesForSubChat).toHaveBeenCalledWith('sub-evicted');
+  });
+
+  test('evictInactiveChatsForWorkspace preserves non-kept sub-chats with an active stream or queue', () => {
+    const clearRuntimeCachesForSubChat = vi.fn();
+    agentChatStore.set('sub-active', makeChat(), 'workspace-a');
+    agentChatStore.set('sub-streaming', makeChat(), 'workspace-a');
+    agentChatStore.set('sub-queued', makeChat(), 'workspace-a');
+    agentChatStore.set('sub-idle', makeChat(), 'workspace-a');
+
+    useStreamingStatusStore.getState().setStatus('sub-streaming', 'streaming');
+    useMessageQueueStore.setState({
+      queues: { 'sub-queued': [{ id: 'q1' } as any] },
+      queueSentTriggers: {}
+    });
+
+    evictInactiveChatsForWorkspace('workspace-a', ['sub-active'], clearRuntimeCachesForSubChat);
+
+    expect(agentChatStore.has('sub-active')).toBe(true);
+    expect(agentChatStore.has('sub-streaming')).toBe(true);
+    expect(agentChatStore.has('sub-queued')).toBe(true);
+    expect(agentChatStore.has('sub-idle')).toBe(false);
+    expect(clearRuntimeCachesForSubChat).toHaveBeenCalledTimes(1);
+    expect(clearRuntimeCachesForSubChat).toHaveBeenCalledWith('sub-idle');
   });
 });
