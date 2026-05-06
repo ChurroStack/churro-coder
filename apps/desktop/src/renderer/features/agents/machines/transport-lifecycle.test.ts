@@ -165,6 +165,25 @@ describe('decideTransportAction — rule precedence', () => {
   });
 });
 
+describe('decideTransportAction — streaming safety (R5)', () => {
+  test('isStreaming + same provider + hasMessages → KEEP (active stream must not be torn down)', () => {
+    const result = decideTransportAction(
+      withInput({
+        isStreaming: true,
+        hasMessages: true,
+        existingProvider: 'claude-code',
+        targetProvider: 'claude-code'
+      })
+    );
+    expect(result).toEqual({ kind: 'keep' });
+  });
+
+  test('isStreaming + stale runtime → KEEP (streaming guard wins over stale-runtime)', () => {
+    const result = decideTransportAction(withInput({ isStreaming: true, isStaleRuntime: true }));
+    expect(result).toEqual({ kind: 'keep' });
+  });
+});
+
 describe('decidePlanApprovalCrossProviderRecreate', () => {
   test("same provider → KEEP (PR #44 regression — don't orphan in-flight events)", () => {
     expect(

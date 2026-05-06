@@ -2808,13 +2808,14 @@ export const codexRouter = router({
     )
     .subscription(({ input }) => {
       return observable<any>((emit) => {
+        // If a live stream already exists for this subChatId, do NOT abort it —
+        // return an empty observable instead. This makes tab-switching a no-op
+        // at the backend level, so in-flight streams survive workspace switches.
         const existingStream = activeStreams.get(input.subChatId);
-        if (existingStream) {
-          existingStream.cancelRequested = true;
-          existingStream.controller.abort();
-          clearPendingApprovals('Session ended.', input.subChatId);
-          // Ensure old run cannot continue emitting after supersede.
-          cleanupCodexAppServerSubChat(input.subChatId);
+        if (existingStream && !existingStream.controller.signal.aborted) {
+          console.log(`[SD] M:SKIP_DUPLICATE_START sub=${input.subChatId.slice(-8)} reason=already_active`);
+          emit.complete();
+          return () => {};
         }
 
         const abortController = new AbortController();
