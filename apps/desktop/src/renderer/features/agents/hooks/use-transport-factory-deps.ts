@@ -100,6 +100,8 @@ export interface UseTransportFactoryDepsConfig {
   fetchDiffStatsRef: React.MutableRefObject<() => void>;
   /** tRPC utils for invalidating queries after stream end (Codex provider only). */
   invalidateChatQuery: () => void;
+  /** Invalidate widget-backing queries (changes, PR status) after stream end. */
+  invalidateWidgetQueries: () => void;
 }
 
 export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): TransportFactoryDeps<Chat<any>> {
@@ -117,7 +119,8 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
     setUnseenChanges,
     notifyAgentComplete,
     fetchDiffStatsRef,
-    invalidateChatQuery
+    invalidateChatQuery,
+    invalidateWidgetQueries
   } = config;
 
   return useMemo<TransportFactoryDeps<Chat<any>>>(
@@ -289,6 +292,7 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
             // changes (file edits, partial PR creation, etc.) worth fetching.
             appStore.set(agentFinishedTickAtomFamily(id));
             appStore.set(agentFinishedTickAtomFamily(chatId));
+            invalidateWidgetQueries();
             // Bump plan-refetch trigger so Plan widget re-reads file
             // content on every finish (covers Write-not-Edit cases the
             // tool-call detector misses).
@@ -318,7 +322,8 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
       setUnseenChanges,
       notifyAgentComplete,
       fetchDiffStatsRef,
-      invalidateChatQuery
+      invalidateChatQuery,
+      invalidateWidgetQueries
     ]
   );
 }

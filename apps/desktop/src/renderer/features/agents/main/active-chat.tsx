@@ -5430,7 +5430,14 @@ Make sure to preserve all functionality from both branches when resolving confli
     setUnseenChanges,
     notifyAgentComplete,
     fetchDiffStatsRef,
-    invalidateChatQuery: useCallback(() => void utils.agents.getAgentChat.invalidate({ chatId }), [utils, chatId])
+    invalidateChatQuery: useCallback(() => void utils.agents.getAgentChat.invalidate({ chatId }), [utils, chatId]),
+    invalidateWidgetQueries: useCallback(() => {
+      if (worktreePath) {
+        void trpcUtils.changes.getStatus.invalidate({ worktreePath });
+        void trpcUtils.changes.getGitHubStatus.invalidate({ worktreePath });
+      }
+      void trpcUtils.chats.getPrStatus.invalidate({ chatId });
+    }, [trpcUtils, worktreePath, chatId])
   });
 
   const getOrCreateChat = useCallback(
@@ -5698,6 +5705,14 @@ Make sure to preserve all functionality from both branches when resolving confli
           // file content on every finish (covers Write-not-Edit cases the
           // tool-call detector at active-chat.tsx:3320 misses).
           appStore.set(planEditRefetchTriggerAtomFamily(newId));
+
+          // Refresh widget-backing queries now instead of waiting for polling
+          // or file/git watchers to catch up.
+          if (worktreePath) {
+            void trpcUtils.changes.getStatus.invalidate({ worktreePath });
+            void trpcUtils.changes.getGitHubStatus.invalidate({ worktreePath });
+          }
+          void trpcUtils.chats.getPrStatus.invalidate({ chatId });
 
           pruneIfDetachedAndIdle(newId, chatId);
 
