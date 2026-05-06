@@ -26,11 +26,29 @@ export interface MessageTokenData {
 
 interface AgentContextIndicatorProps {
   tokenData: MessageTokenData;
-  modelId?: ModelId;
+  modelId?: string;
   className?: string;
   onCompact?: () => void;
   isCompacting?: boolean;
   disabled?: boolean;
+}
+
+export function progressColorClass(percent: number): string {
+  if (percent <= 0) return 'text-muted-foreground/60';
+  if (percent <= 40) return 'text-green-500';
+  if (percent <= 60) return 'text-yellow-500';
+  if (percent <= 80) return 'text-orange-500';
+  return 'text-red-500';
+}
+
+export function resolveContextWindow(args: {
+  modelId: string | undefined;
+  metadataWindow: number | undefined;
+}): number {
+  const claudeWindow = args.modelId !== undefined ? CONTEXT_WINDOWS[args.modelId as ModelId] : undefined;
+  const metadataWindow = args.metadataWindow !== undefined && args.metadataWindow > 0 ? args.metadataWindow : undefined;
+
+  return claudeWindow ?? metadataWindow ?? CONTEXT_WINDOWS.sonnet;
 }
 
 function formatTokens(tokens: number): string {
@@ -82,7 +100,7 @@ function CircularProgress({
         strokeDasharray={circumference}
         strokeDashoffset={offset}
         strokeLinecap="round"
-        className="transition-all duration-300 text-muted-foreground/60"
+        className={cn('transition-all duration-300', progressColorClass(percent))}
       />
     </svg>
   );
@@ -90,14 +108,17 @@ function CircularProgress({
 
 export const AgentContextIndicator = memo(function AgentContextIndicator({
   tokenData,
-  modelId = 'sonnet',
+  modelId,
   className,
   onCompact,
   isCompacting,
   disabled
 }: AgentContextIndicatorProps) {
   const contextTokens = tokenData.totalInputTokens;
-  const contextWindow = tokenData.contextWindow ?? CONTEXT_WINDOWS[modelId];
+  const contextWindow = resolveContextWindow({
+    modelId,
+    metadataWindow: tokenData.contextWindow
+  });
   const percentUsed = Math.min(100, (contextTokens / contextWindow) * 100);
   const isEmpty = contextTokens === 0;
 
