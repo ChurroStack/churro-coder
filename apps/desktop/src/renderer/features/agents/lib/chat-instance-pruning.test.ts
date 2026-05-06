@@ -16,7 +16,7 @@ describe('chat-instance-pruning', () => {
     vi.clearAllMocks();
   });
 
-  test('evictChatsForParentChatSwitch evicts the previous parent\'s sub-chats without calling transport.cleanup', () => {
+  test("evictChatsForParentChatSwitch evicts the previous parent's sub-chats without calling transport.cleanup", () => {
     const runningCleanup = vi.fn();
     const siblingCleanup = vi.fn();
     const nextWorkspaceCleanup = vi.fn();
