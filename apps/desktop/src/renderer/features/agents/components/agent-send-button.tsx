@@ -89,7 +89,7 @@ export function AgentSendButton({
   // Determine if button should be disabled
   // During streaming with content, enable the button for queue
   // In voice mode, button should always be enabled (unless transcribing)
-  const isDisabled = isVoiceMode ? false : isStreaming ? false : disabled;
+  const isDisabled = isVoiceMode ? false : isStreaming ? false : disabled || isSubmitting;
 
   // Determine icon to show
   const getIcon = () => {

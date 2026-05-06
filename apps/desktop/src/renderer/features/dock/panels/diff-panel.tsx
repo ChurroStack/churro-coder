@@ -21,7 +21,7 @@ import {
   type SelectedCommit
 } from '../../agents/atoms';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
-import { applyModeDefaultModel } from '../../agents/lib/model-switching';
+import { applyModeDefaultModelAndSwitchProvider, reviewInFlight } from '../../agents/lib/model-switching';
 import { generatePrMessage, generateReviewMessage } from '../../agents/utils/pr-message';
 import { usePRStatus } from '../../../hooks/usePRStatus';
 import { trpc, trpcClient } from '../../../lib/trpc';
@@ -188,6 +188,23 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   const handleCommitFileSelect = useCallback((file: ChangedFile, _commitHash: string) => {
     setSelectedFilePath(file.path);
   }, []);
+
+  const { data: commitFileDiff } = trpc.changes.getCommitFileDiff.useQuery(
+    {
+      worktreePath: worktreePath || '',
+      commitHash: selectedCommit?.hash || '',
+      filePath: selectedFilePath || ''
+    },
+    {
+      enabled: !!worktreePath && !!selectedCommit && !!selectedFilePath,
+      staleTime: 60_000
+    }
+  );
+
+  const shouldUseCommitDiff = activeTab === 'history' && !!selectedCommit;
+  const effectiveDiff = shouldUseCommitDiff && commitFileDiff ? commitFileDiff : cache.diffContent;
+  const effectiveParsedFiles = shouldUseCommitDiff ? null : cache.parsedFileDiffs;
+  const effectivePrefetchedContents = shouldUseCommitDiff ? {} : (cache.prefetchedFileContents ?? {});
   const handleActiveTabChange = useCallback(
     (tab: 'changes' | 'history') => {
       setActiveTab(tab);
@@ -282,20 +299,19 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   const filteredSubChatIdValue = useAtomValue(filteredSubChatIdAtom);
   const handleReview = useCallback(async () => {
     if (!chatId) return;
+    const subChatStore = useAgentSubChatStore.getState();
+    const activeSubChatId = subChatStore.activeSubChatId;
+    if (!activeSubChatId) {
+      toast.error('No active chat available', { position: 'top-center' });
+      return;
+    }
+    if (reviewInFlight.has(activeSubChatId)) return;
+    reviewInFlight.add(activeSubChatId);
+
     setIsReviewing(true);
     try {
-      // Switch the sub-chat to the configured Review-mode model + thinking
-      // FIRST, synchronously, before any await yields the event loop. This
-      // guarantees the model is in place by the time the transport reads it
-      // (transport reads `subChatModelIdAtomFamily` at send time).
-      const subChatStore = useAgentSubChatStore.getState();
-      const activeSubChatId = subChatStore.activeSubChatId;
-      if (!activeSubChatId) {
-        toast.error('No active chat available', { position: 'top-center' });
-        return;
-      }
       subChatStore.addToOpenSubChats(activeSubChatId);
-      applyModeDefaultModel(activeSubChatId, 'review');
+      applyModeDefaultModelAndSwitchProvider(activeSubChatId, 'review');
 
       const context = await trpcClient.chats.getPrContext.query({ chatId });
       if (!context) {
@@ -317,6 +333,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       });
     } finally {
       setIsReviewing(false);
+      reviewInFlight.delete(activeSubChatId);
     }
   }, [chatId, dockApi, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles]);
 
@@ -504,9 +521,9 @@ Make sure to preserve all functionality from both branches when resolving confli
             sandboxId={sandboxId ?? ''}
             worktreePath={worktreePath}
             repository={repository ?? undefined}
-            initialDiff={cache.diffContent}
-            initialParsedFiles={cache.parsedFileDiffs}
-            prefetchedFileContents={cache.prefetchedFileContents ?? {}}
+            initialDiff={effectiveDiff}
+            initialParsedFiles={effectiveParsedFiles}
+            prefetchedFileContents={effectivePrefetchedContents}
             showFooter={false}
             initialSelectedFile={initialSelectedFile}
             onViewedCountChange={setViewedCount}

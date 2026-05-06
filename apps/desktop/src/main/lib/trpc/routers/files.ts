@@ -340,7 +340,6 @@ export const filesRouter = router({
       const content = await readFile(filePath, 'utf-8');
       return content;
     } catch (error) {
-      console.error(`[files] Error reading file ${filePath}:`, error);
       throw new Error(`Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }),

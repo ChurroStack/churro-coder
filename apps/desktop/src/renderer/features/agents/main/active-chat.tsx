@@ -166,7 +166,12 @@ import { formatStructuredPlanAsMarkdown, getPlanFromPlanWritePart } from '../../
 import { formatHistoryForContext } from '../lib/export-chat';
 import { clearSubChatDraft, getSubChatDraftFull } from '../lib/drafts';
 import { IPCChatTransport } from '../lib/ipc-chat-transport';
-import { applyModeDefaultModel, getProviderForModelId } from '../lib/model-switching';
+import {
+  applyModeDefaultModel,
+  applyModeDefaultModelAndSwitchProvider,
+  getProviderForModelId,
+  reviewInFlight
+} from '../lib/model-switching';
 import {
   createQueueItem,
   createTextPreview,
@@ -180,7 +185,7 @@ import {
   type SelectedTextContext
 } from '../lib/queue-utils';
 import { RemoteChatTransport } from '../lib/remote-chat-transport';
-import { FileOpenProvider, MENTION_PREFIXES, type AgentsMentionsEditorHandle } from '../mentions';
+import { FileOpenProvider, MENTION_PREFIXES, messageToTitleText, type AgentsMentionsEditorHandle } from '../mentions';
 import { ChatSearchBar, chatSearchCurrentMatchAtom, SearchHighlightProvider } from '../search';
 import { agentChatStore } from '../stores/agent-chat-store';
 import { EMPTY_QUEUE, useMessageQueueStore } from '../stores/message-queue-store';
@@ -1836,14 +1841,10 @@ export const ChatViewInner = memo(function ChatViewInner({
       }
 
       if (!planPath.startsWith('codex-plan://')) {
-        try {
-          const fileContent = await trpcClient.files.readFile.query({ filePath: planPath });
-          if (fileContent.trim()) {
-            console.log(`[PLAN] resolve:from-file sub=${subChatId.slice(-8)} bytes=${fileContent.length}`);
-            return { content: fileContent.trim(), source: planPath };
-          }
-        } catch (error) {
-          console.warn('[plan-approval] Failed to read plan file:', error);
+        const fileContent = await trpcClient.files.readTextFile.query({ filePath: planPath });
+        if (fileContent.ok && fileContent.content.trim()) {
+          console.log(`[PLAN] resolve:from-file sub=${subChatId.slice(-8)} bytes=${fileContent.content.length}`);
+          return { content: fileContent.content.trim(), source: planPath };
         }
       }
     }
@@ -2655,7 +2656,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     const hasPersistedName = Boolean(persistedName) && persistedName !== 'New Chat';
     if (messagesLengthRef.current === 0 && !hasTriggeredRenameRef.current && !hasPersistedName) {
       hasTriggeredRenameRef.current = true;
-      onAutoRename(finalText || 'Image message', subChatId);
+      onAutoRename(messageToTitleText(finalText) || 'Image message', subChatId);
     }
 
     // Build message parts: images first, then files, then text
@@ -4842,15 +4843,18 @@ export function ChatView({
       toast.error('Chat ID is required', { position: 'top-center' });
       return;
     }
+    if (!activeSubChatId) return;
+
+    if (reviewInFlight.has(activeSubChatId)) return;
+    reviewInFlight.add(activeSubChatId);
 
     setIsReviewing(true);
     try {
       // Switch the sub-chat to the configured Review-mode model + thinking
-      // FIRST, synchronously, before any await yields the event loop. This
-      // guarantees the model is in place by the time the transport reads it.
-      if (activeSubChatId) {
-        applyModeDefaultModel(activeSubChatId, 'review');
-      }
+      // FIRST, synchronously, before any await yields the event loop. If the
+      // provider crosses, tear down the existing transport so the next
+      // getOrCreateChat recreates under the new provider.
+      applyModeDefaultModelAndSwitchProvider(activeSubChatId, 'review');
 
       // Get PR context from backend
       const context = await trpcClient.chats.getPrContext.query({ chatId });
@@ -4871,13 +4875,12 @@ export function ChatView({
 
       // Generate review message and set it for ChatViewInner to send
       const message = generateReviewMessage(context, scopedFiles.length > 0 ? scopedFiles : undefined);
-      if (activeSubChatId) {
-        setPendingReviewMessage({ message, subChatId: activeSubChatId });
-      }
+      setPendingReviewMessage({ message, subChatId: activeSubChatId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to start review', { position: 'top-center' });
     } finally {
       setIsReviewing(false);
+      reviewInFlight.delete(activeSubChatId);
     }
   }, [chatId, activeSubChatId, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles]);
 

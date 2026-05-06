@@ -1,6 +1,37 @@
 import { initTRPC } from '@trpc/server';
-import { BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
 import superjson from 'superjson';
+import { captureError, redactUnknown } from '../analytics';
+
+const CLIENT_ERROR_CODES = new Set([
+  'BAD_REQUEST',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'CONFLICT',
+  'PRECONDITION_FAILED'
+]);
+
+export function shouldCaptureTrpcErrorCode(code: string | undefined): boolean {
+  return !code || !CLIENT_ERROR_CODES.has(code);
+}
+
+export function reportTrpcError(args: {
+  code: string | undefined;
+  error: { cause?: unknown } & Error;
+  path: string | undefined;
+  type: string;
+  input: unknown;
+}): void {
+  if (!shouldCaptureTrpcErrorCode(args.code)) return;
+
+  captureError(args.error.cause ?? args.error, {
+    trpcPath: args.path,
+    trpcType: args.type,
+    code: args.code,
+    input: redactUnknown(args.input)
+  });
+}
 
 /**
  * Context passed to all tRPC procedures
@@ -14,7 +45,9 @@ export interface Context {
  */
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
-  errorFormatter({ shape, error }) {
+  errorFormatter({ shape, error, path, type, input }) {
+    reportTrpcError({ code: shape.data.code, error, path, type, input });
+
     return {
       ...shape,
       data: {

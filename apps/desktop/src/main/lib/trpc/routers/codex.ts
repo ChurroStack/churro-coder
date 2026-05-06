@@ -2758,7 +2758,6 @@ export const codexRouter = router({
         cwd: z.string(),
         projectPath: z.string().optional(),
         mode: z.enum(['plan', 'agent']).default('agent'),
-        sessionId: z.string().optional(),
         forceNewSession: z.boolean().optional(),
         images: z.array(imageAttachmentSchema).optional(),
         enableTasks: z.boolean().optional(),
@@ -3030,7 +3029,7 @@ export const codexRouter = router({
             const hasAppManagedApiKey = Boolean(input.authConfig?.apiKey?.trim());
             const persistedThreadId =
               subChatThreadIds.get(input.subChatId) ||
-              (!hasAppManagedApiKey ? input.sessionId || getLastSessionId(existingMessages) : undefined);
+              (!hasAppManagedApiKey ? getLastSessionId(existingMessages) : undefined);
 
             let threadId: string;
             try {
@@ -3045,7 +3044,7 @@ export const codexRouter = router({
                 throw resumeError;
               }
 
-              console.warn('[codex] Failed to resume app-server thread, starting a new one:', resumeError);
+              console.info('[codex] App-server thread not resumable, starting fresh:', resumeError);
               threadId = await startOrResumeAppServerThread({
                 client,
                 cwd: input.cwd,

@@ -18,9 +18,25 @@ import {
 } from '../atoms';
 import { getProviderForModelId, type Provider } from '../../../../shared/provider-from-model';
 import { CODEX_MODELS, coerceCodexThinking, type CodexThinkingLevel } from './models';
+import { agentChatStore } from '../stores/agent-chat-store';
+import { CodexChatTransport } from './codex-chat-transport';
 export type { Provider };
 export { getProviderForModelId };
 export type ModeContext = AgentMode | 'review';
+
+/**
+ * Module-level set: prevents two `handleReview` invocations from racing on
+ * the same sub-chat. Gates against:
+ *   - Two `DiffSidebarHeader` mounts (legacy active-chat sidebar + dockview
+ *     diff panel) where the user clicks Review on each.
+ *   - Rapid double-click on a single button (the per-component
+ *     `setIsReviewing` state doesn't update synchronously).
+ *
+ * Mirrors `planApproveInFlight` in `hooks/use-approve-plan-deps.ts`.
+ * Lifecycle is handler-owned: mark on entry, release in `finally` so the
+ * lock clears even on throw or early return.
+ */
+export const reviewInFlight = new Set<string>();
 
 export function getDefaultModelForMode(mode: ModeContext): string {
   switch (mode) {
@@ -112,4 +128,28 @@ export function applyModeDefaultModel(subChatId: string, mode: ModeContext): { m
   }
 
   return { modelId, provider };
+}
+
+export function applyModeDefaultModelAndSwitchProvider(
+  subChatId: string,
+  mode: ModeContext
+): { modelId: string; provider: Provider; providerSwitched: boolean } {
+  const existing = agentChatStore.get(subChatId) as { transport?: unknown } | undefined;
+  const previousProvider: Provider | null = existing
+    ? existing.transport instanceof CodexChatTransport
+      ? 'codex'
+      : 'claude-code'
+    : null;
+
+  const result = applyModeDefaultModel(subChatId, mode);
+  const providerSwitched = previousProvider !== null && previousProvider !== result.provider;
+
+  if (providerSwitched) {
+    agentChatStore.delete(subChatId);
+  }
+
+  return {
+    ...result,
+    providerSwitched
+  };
 }

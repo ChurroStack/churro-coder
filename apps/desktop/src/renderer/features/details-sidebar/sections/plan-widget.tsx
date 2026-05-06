@@ -72,14 +72,16 @@ export const PlanWidget = memo(function PlanWidget({
   // Fetch plan file content using tRPC
   const shouldReadPlanFile = !!planPath && !virtualPlan && !isCodexPlan;
   const {
-    data: filePlanContent,
+    data: filePlanResult,
     isLoading: isFileLoading,
-    error: fileError,
     refetch
-  } = trpc.files.readFile.useQuery({ filePath: planPath || '' }, { enabled: shouldReadPlanFile });
+  } = trpc.files.readTextFile.useQuery({ filePath: planPath || '' }, { enabled: shouldReadPlanFile });
+  const filePlanContent = filePlanResult?.ok ? filePlanResult.content : null;
+  const fileErrorReason = filePlanResult && !filePlanResult.ok ? filePlanResult.reason : null;
   const planContent = virtualPlan?.content ?? filePlanContent;
   const isLoading = !virtualPlan && !isCodexPlan && isFileLoading;
-  const error = virtualPlan ? null : fileError;
+  const showFileError = fileErrorReason === 'too-large' || fileErrorReason === 'binary';
+  const error = virtualPlan ? null : showFileError ? fileErrorReason : null;
 
   useEffect(() => {
     if (!planPath) return;
@@ -238,7 +240,7 @@ export const PlanWidget = memo(function PlanWidget({
             </div>
           ) : !displayContent ? (
             <div className="px-3 py-4 text-center">
-              <p className="text-xs text-muted-foreground">No plan content</p>
+              <p className="text-xs text-muted-foreground">No plan yet</p>
             </div>
           ) : (
             <div className="relative">

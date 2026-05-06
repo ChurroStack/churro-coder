@@ -17,6 +17,16 @@ vi.mock('../../../lib/window-storage', async () => {
     })
   };
 });
+vi.mock('../../../lib/trpc', () => ({
+  trpcClient: {
+    codex: {
+      cleanup: {
+        mutate: vi.fn(async () => undefined)
+      }
+    }
+  },
+  trpc: {}
+}));
 import { appStore } from '../../../lib/jotai-store';
 import {
   defaultPlanModeModelAtom,
@@ -36,11 +46,15 @@ import {
 import {
   applyFormSelectionToSubChat,
   applyModeDefaultModel,
+  applyModeDefaultModelAndSwitchProvider,
   getDefaultModelForMode,
-  getDefaultThinkingForMode
+  getDefaultThinkingForMode,
+  reviewInFlight
 } from './model-switching';
 import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
 import { subChatModeAtomFamily } from '../atoms';
+import { agentChatStore } from '../stores/agent-chat-store';
+import { CodexChatTransport } from './codex-chat-transport';
 
 let testCounter = 0;
 function nextSubChatId(): string {
@@ -48,6 +62,8 @@ function nextSubChatId(): string {
 }
 
 beforeEach(() => {
+  agentChatStore.clear();
+  reviewInFlight.clear();
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
   appStore.set(defaultAgentModeModelAtom, 'sonnet');
   appStore.set(defaultReviewModeModelAtom, 'opus');
@@ -55,6 +71,15 @@ beforeEach(() => {
   appStore.set(defaultAgentModeThinkingAtom, 'high');
   appStore.set(defaultReviewModeThinkingAtom, 'high');
 });
+
+function createCodexTransport(): CodexChatTransport {
+  const transport = {
+    config: { subChatId: 'test-sub-chat' },
+    cleanup: vi.fn()
+  };
+  Object.setPrototypeOf(transport, CodexChatTransport.prototype);
+  return transport as CodexChatTransport;
+}
 
 describe('getDefaultModelForMode', () => {
   test('plan → reads defaultPlanModeModelAtom', () => {
@@ -278,6 +303,99 @@ describe('applyModeDefaultModel — return value', () => {
     const result = applyModeDefaultModel(id, 'agent');
 
     expect(result).toEqual({ modelId: 'gpt-5.4', provider: 'codex' });
+  });
+});
+
+describe('applyModeDefaultModelAndSwitchProvider', () => {
+  test('cross-provider Codex -> Claude deletes the existing chat and reports providerSwitched', () => {
+    const id = nextSubChatId();
+    agentChatStore.set(id, { transport: createCodexTransport() } as any, 'parent-chat');
+    appStore.set(defaultReviewModeModelAtom, 'opus');
+    appStore.set(defaultReviewModeThinkingAtom, 'high');
+
+    const result = applyModeDefaultModelAndSwitchProvider(id, 'review');
+
+    expect(agentChatStore.get(id)).toBeUndefined();
+    expect(result).toEqual({ modelId: 'opus', provider: 'claude-code', providerSwitched: true });
+  });
+
+  test('cross-provider Claude -> Codex deletes the existing chat and reports providerSwitched', () => {
+    const id = nextSubChatId();
+    agentChatStore.set(id, { transport: {} } as any, 'parent-chat');
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.4');
+    appStore.set(defaultReviewModeThinkingAtom, 'medium');
+
+    const result = applyModeDefaultModelAndSwitchProvider(id, 'review');
+
+    expect(agentChatStore.get(id)).toBeUndefined();
+    expect(result).toEqual({ modelId: 'gpt-5.4', provider: 'codex', providerSwitched: true });
+  });
+
+  test('same-provider Claude -> Claude keeps the existing chat', () => {
+    const id = nextSubChatId();
+    agentChatStore.set(id, { transport: {} } as any, 'parent-chat');
+    appStore.set(defaultReviewModeModelAtom, 'sonnet');
+
+    const result = applyModeDefaultModelAndSwitchProvider(id, 'review');
+
+    expect(agentChatStore.get(id)).toBeDefined();
+    expect(result.providerSwitched).toBe(false);
+    expect(result.provider).toBe('claude-code');
+  });
+
+  test('same-provider Codex -> Codex keeps the existing chat', () => {
+    const id = nextSubChatId();
+    agentChatStore.set(id, { transport: createCodexTransport() } as any, 'parent-chat');
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.4');
+
+    const result = applyModeDefaultModelAndSwitchProvider(id, 'review');
+
+    expect(agentChatStore.get(id)).toBeDefined();
+    expect(result.providerSwitched).toBe(false);
+    expect(result.provider).toBe('codex');
+  });
+
+  test('no existing chat returns providerSwitched=false and does not throw', () => {
+    const id = nextSubChatId();
+    appStore.set(defaultReviewModeModelAtom, 'opus');
+
+    const result = applyModeDefaultModelAndSwitchProvider(id, 'review');
+
+    expect(result.providerSwitched).toBe(false);
+    expect(agentChatStore.get(id)).toBeUndefined();
+  });
+
+  test('delegates atom writes to applyModeDefaultModel before deleting on cross-provider switch', () => {
+    const id = nextSubChatId();
+    agentChatStore.set(id, { transport: createCodexTransport() } as any, 'parent-chat');
+    appStore.set(defaultReviewModeModelAtom, 'opus');
+    appStore.set(defaultReviewModeThinkingAtom, 'high');
+
+    applyModeDefaultModelAndSwitchProvider(id, 'review');
+
+    expect(appStore.get(subChatModelIdAtomFamily(id))).toBe('opus');
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe('claude-code');
+  });
+});
+
+describe('reviewInFlight Set', () => {
+  test('starts empty for a fresh sub-chat id', () => {
+    expect(reviewInFlight.has(nextSubChatId())).toBe(false);
+  });
+
+  test('add marks the sub-chat id as in flight', () => {
+    const id = nextSubChatId();
+    reviewInFlight.add(id);
+
+    expect(reviewInFlight.has(id)).toBe(true);
+  });
+
+  test('delete releases the sub-chat id', () => {
+    const id = nextSubChatId();
+    reviewInFlight.add(id);
+    reviewInFlight.delete(id);
+
+    expect(reviewInFlight.has(id)).toBe(false);
   });
 });
 
