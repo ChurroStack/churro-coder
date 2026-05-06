@@ -3,34 +3,55 @@ import { z } from 'zod';
 import { readCurrentPlan } from '../../plans/plan-store';
 
 export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?: string }): void {
-  server.registerTool(
-    'read_plan',
-    {
-      title: 'Read Plan',
-      description:
-        'Retrieve the approved plan for the current sub-chat. ' +
-        'Call this whenever you need to consult the plan — including after compaction or a provider switch.',
-      inputSchema: {
-        subChatId: z
-          .string()
-          .optional()
-          .describe('Sub-chat ID. Omit when the server is bound to a specific sub-chat (Claude).'),
-        // Future-proofing: keeps the wire format ready for revision history without breaking callers.
+  // Schema branches on bound vs unbound:
+  //  - bound (Claude per-turn SDK instance): subChatId is closed over, the agent
+  //    must NOT pass it. Schema omits the field so the agent doesn't see it.
+  //  - unbound (Codex via HTTP transport): the agent MUST pass subChatId. Schema
+  //    marks it required so the model's tool-call layer doesn't silently drop it
+  //    when the model neglects to read the prompt-side hint.
+  const inputSchema = opts.boundSubChatId
+    ? {
         revision: z
           .literal('current')
           .optional()
           .default('current')
           .describe('Plan revision to fetch. Only "current" is supported.')
       }
+    : {
+        subChatId: z
+          .string()
+          .min(1)
+          .describe(
+            'REQUIRED. The sub-chat ID for which to retrieve the approved plan. ' +
+              'The host app provides this in the prompt context as "Sub-chat id: <value>".'
+          ),
+        revision: z
+          .literal('current')
+          .optional()
+          .default('current')
+          .describe('Plan revision to fetch. Only "current" is supported.')
+      };
+
+  server.registerTool(
+    'read_plan',
+    {
+      title: 'Read Plan',
+      description:
+        'Retrieve the approved plan for the current sub-chat. ' +
+        'Call this whenever you need to consult the plan — including after compaction or a provider switch. ' +
+        (opts.boundSubChatId
+          ? ''
+          : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").'),
+      inputSchema
     },
-    async (input) => {
+    async (input: { subChatId?: string; revision?: 'current' }) => {
       const id = opts.boundSubChatId ?? input.subChatId;
       if (!id) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: 'Error: subChatId is required when the server is not bound to a specific sub-chat.'
+              text: 'Error: subChatId is required. The host app provides it in the prompt context as "Sub-chat id: <value>" — pass that value as the subChatId argument.'
             }
           ],
           isError: true

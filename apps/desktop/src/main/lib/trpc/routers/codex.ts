@@ -2974,7 +2974,12 @@ export const codexRouter = router({
                 : '[AGENT MODE] You are in implementation mode. Implement changes directly using your available tools. Do not call PlanWrite and do not create a new plan — the plan has already been approved. Execute each step now.';
             const subChatPlanHint =
               input.mode === 'agent' && (await hasPlan(input.subChatId))
-                ? `[CONTEXT] Sub-chat id: ${input.subChatId}. An approved plan is available — call the \`read_plan\` MCP tool (server: churro-coder) with { subChatId: "${input.subChatId}" } to retrieve it.`
+                ? [
+                    `[CONTEXT] Sub-chat id: ${input.subChatId}.`,
+                    `An approved plan governs this sub-chat. To retrieve it, call the \`read_plan\` MCP tool`,
+                    `on the \`churro-coder\` server with EXACTLY this argument: { "subChatId": "${input.subChatId}" }.`,
+                    `The subChatId argument is required — do not call read_plan without it.`
+                  ].join(' ')
                 : '';
             const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
               .filter((segment): segment is string => Boolean(segment))

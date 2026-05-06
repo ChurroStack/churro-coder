@@ -68,13 +68,16 @@ describe('read_plan tool', () => {
     expect(content[0].text).toContain('free body');
   });
 
-  test('errors when unbound and no subChatId is provided', async () => {
+  test('errors when unbound and no subChatId is provided (schema-level rejection)', async () => {
+    // The unbound schema marks subChatId required so the model's tool-call
+    // layer cannot silently drop it; the MCP SDK rejects with -32602.
     const { client } = await makeClientServer(undefined);
     const result = await client.callTool({ name: 'read_plan', arguments: {} });
 
     expect(result.isError).toBe(true);
     const content = result.content as Array<{ type: string; text: string }>;
-    expect(content[0].text).toMatch(/subChatId is required/);
+    expect(content[0].text).toMatch(/subChatId/);
+    expect(content[0].text).toMatch(/Required|invalid_type/);
   });
 
   test('errors with friendly message when no plan exists', async () => {
