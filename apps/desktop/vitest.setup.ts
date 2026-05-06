@@ -20,3 +20,15 @@ Object.defineProperty(global, "localStorage", {
   value: localStorage,
   writable: true,
 })
+
+type ElectronTRPCMessageHandler = (args: unknown) => void
+
+const electronTRPC = {
+  sendMessage: (_args: unknown) => {},
+  onMessage: (_callback: ElectronTRPCMessageHandler) => {}
+}
+
+Object.defineProperty(globalThis, "electronTRPC", {
+  value: electronTRPC,
+  writable: true,
+})

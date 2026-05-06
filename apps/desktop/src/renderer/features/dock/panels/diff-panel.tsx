@@ -21,7 +21,7 @@ import {
   type SelectedCommit
 } from '../../agents/atoms';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
-import { applyModeDefaultModel } from '../../agents/lib/model-switching';
+import { applyModeDefaultModelAndSwitchProvider, reviewInFlight } from '../../agents/lib/model-switching';
 import { generatePrMessage, generateReviewMessage } from '../../agents/utils/pr-message';
 import { usePRStatus } from '../../../hooks/usePRStatus';
 import { trpc, trpcClient } from '../../../lib/trpc';
@@ -299,20 +299,19 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   const filteredSubChatIdValue = useAtomValue(filteredSubChatIdAtom);
   const handleReview = useCallback(async () => {
     if (!chatId) return;
+    const subChatStore = useAgentSubChatStore.getState();
+    const activeSubChatId = subChatStore.activeSubChatId;
+    if (!activeSubChatId) {
+      toast.error('No active chat available', { position: 'top-center' });
+      return;
+    }
+    if (reviewInFlight.has(activeSubChatId)) return;
+    reviewInFlight.add(activeSubChatId);
+
     setIsReviewing(true);
     try {
-      // Switch the sub-chat to the configured Review-mode model + thinking
-      // FIRST, synchronously, before any await yields the event loop. This
-      // guarantees the model is in place by the time the transport reads it
-      // (transport reads `subChatModelIdAtomFamily` at send time).
-      const subChatStore = useAgentSubChatStore.getState();
-      const activeSubChatId = subChatStore.activeSubChatId;
-      if (!activeSubChatId) {
-        toast.error('No active chat available', { position: 'top-center' });
-        return;
-      }
       subChatStore.addToOpenSubChats(activeSubChatId);
-      applyModeDefaultModel(activeSubChatId, 'review');
+      applyModeDefaultModelAndSwitchProvider(activeSubChatId, 'review');
 
       const context = await trpcClient.chats.getPrContext.query({ chatId });
       if (!context) {
@@ -334,6 +333,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       });
     } finally {
       setIsReviewing(false);
+      reviewInFlight.delete(activeSubChatId);
     }
   }, [chatId, dockApi, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles]);
 
