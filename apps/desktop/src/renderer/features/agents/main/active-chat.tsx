@@ -231,6 +231,7 @@ import { TextSelectionPopover } from '../ui/text-selection-popover';
 import { autoRenameAgentChat } from '../utils/auto-rename';
 import { generateCommitToPrMessage, generatePrMessage, generateReviewMessage } from '../utils/pr-message';
 import { extractGitActivity } from '../utils/git-activity';
+import { evictChatsForParentChatSwitch, evictInactiveChatsForWorkspace } from '../lib/chat-instance-pruning';
 import { ChatInputArea } from './chat-input-area';
 import { IsolatedMessagesSection } from './isolated-messages-section';
 const clearSubChatSelectionAtom = atom(null, () => {});
@@ -4231,37 +4232,18 @@ export function ChatView({
   // Prevents cross-workspace memory accumulation.
   const previousParentChatIdRef = useRef<string | null>(chatId);
   useEffect(() => {
-    const previousParentChatId = previousParentChatIdRef.current;
-    if (previousParentChatId && previousParentChatId !== chatId) {
-      for (const subChatId of agentChatStore.keys()) {
-        if (agentChatStore.getParentChatId(subChatId) !== previousParentChatId) continue;
-        if (useStreamingStatusStore.getState().isStreaming(subChatId)) continue;
-        if ((useMessageQueueStore.getState().queues[subChatId]?.length ?? 0) > 0) continue;
-        agentChatStore.delete(subChatId);
-        clearRuntimeCachesForSubChat(subChatId);
-      }
-    }
+    evictChatsForParentChatSwitch(previousParentChatIdRef.current, chatId, clearRuntimeCachesForSubChat);
     previousParentChatIdRef.current = chatId;
   }, [chatId]);
 
   // Bound resident chat instances in memory for current workspace.
-  // Keep mounted tabs and currently streaming chats; evict everything else.
+  // Keep mounted tabs and the active sub-chat; evict everything else from the runtime cache.
   useEffect(() => {
     if (chatSourceMode !== 'local') return;
     if (!activeSubChatId) return;
     if (tabsToRender.length === 0) return;
 
-    const keep = new Set(tabsToRender);
-    keep.add(activeSubChatId);
-    for (const subChatId of agentChatStore.keys()) {
-      if (agentChatStore.getParentChatId(subChatId) !== chatId) continue;
-      if (keep.has(subChatId)) continue;
-      if (useStreamingStatusStore.getState().isStreaming(subChatId)) continue;
-      if ((useMessageQueueStore.getState().queues[subChatId]?.length ?? 0) > 0) continue;
-
-      agentChatStore.delete(subChatId);
-      clearRuntimeCachesForSubChat(subChatId);
-    }
+    evictInactiveChatsForWorkspace(chatId, new Set([...tabsToRender, activeSubChatId]), clearRuntimeCachesForSubChat);
   }, [activeSubChatId, chatId, chatSourceMode, tabsToRender]);
 
   // Get PR status when PR exists (for checking if it's open/merged/closed)

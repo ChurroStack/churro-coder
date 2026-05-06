@@ -22,13 +22,18 @@ export const agentChatStore = {
 
   has: (id: string) => chats.has(id),
 
-  delete: (id: string) => {
-    const chat = chats.get(id) as any;
-    chat?.transport?.cleanup?.();
+  // `evict` only drops the in-memory chat instance; `delete` also tears down transport state.
+  evict: (id: string) => {
     chats.delete(id);
     streamIds.delete(id);
     parentChatIds.delete(id);
     manuallyAborted.delete(id);
+  },
+
+  delete: (id: string) => {
+    const chat = chats.get(id) as any;
+    chat?.transport?.cleanup?.();
+    agentChatStore.evict(id);
   },
 
   // Get the ORIGINAL parentChatId that was set when the Chat was created
