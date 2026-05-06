@@ -32,3 +32,9 @@ export function resolveAppOwnedMcpHeaders(params: {
   headers.Authorization = `Bearer ${endpoint.bearer}`;
   return headers;
 }
+
+export function shouldRemoveStaleAppOwnedMcpEntry(name: string, currentServerName: string): boolean {
+  if (name === 'churro-memory' || name === 'churro-memory-dev') return true;
+  if (name !== 'churro-coder' && name !== 'churro-coder-dev') return false;
+  return name !== currentServerName;
+}

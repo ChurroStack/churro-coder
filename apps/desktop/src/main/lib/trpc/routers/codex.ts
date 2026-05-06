@@ -27,8 +27,9 @@ import { resolveSandboxPolicy } from '../../sandbox/policy';
 import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-codex-plan';
 import { initMcpHttpServer } from '../../mcp/http-transport';
-import { resolveAppOwnedMcpHeaders } from '../codex-mcp-auth';
+import { resolveAppOwnedMcpHeaders, shouldRemoveStaleAppOwnedMcpEntry } from '../codex-mcp-auth';
 import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from '../codex-mode-prompts';
+import { createTaskListPartFromPlan } from '../codex-plan-task-part';
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
@@ -1950,59 +1951,6 @@ function createPlanWritePartFromPlan(params: { itemId: string; prompt: string; t
   };
 }
 
-export function createTaskListPartFromPlan(params: { itemId: string; text?: string; plan?: any }): any {
-  const planLike = params.plan;
-  const normalizedPlan =
-    planLike && typeof planLike === 'object' && Array.isArray(planLike.steps)
-      ? normalizeCodexPlan(planLike)
-      : normalizeCodexPlan({
-          id: `plan-${Date.now()}`,
-          title: 'Implementation tasks',
-          summary: params.text || '',
-          status: 'awaiting_approval',
-          steps: Array.isArray(planLike)
-            ? planLike.map((step: any, index: number) => ({
-                title:
-                  typeof step?.step === 'string'
-                    ? step.step
-                    : typeof step?.title === 'string'
-                      ? step.title
-                      : `Task ${index + 1}`,
-                description: typeof step?.description === 'string' ? step.description : undefined,
-                status:
-                  step?.status === 'inProgress'
-                    ? 'in_progress'
-                    : step?.status === 'completed'
-                      ? 'completed'
-                      : 'pending'
-              }))
-            : extractPlanStepTitles(params.text || '').map((title) => ({
-                title,
-                status: 'pending'
-              }))
-        });
-
-  const tasks = normalizedPlan.steps.map((step, index) => ({
-    id: step.id || `step-${index + 1}`,
-    subject: step.title || `Task ${index + 1}`,
-    ...(step.description ? { description: step.description } : {}),
-    status: step.status === 'completed' || step.status === 'in_progress' ? step.status : 'pending'
-  }));
-
-  const output = { tasks };
-
-  return {
-    type: 'tool-TaskList',
-    toolCallId: params.itemId,
-    toolName: 'TaskList',
-    state: 'output-available',
-    input: {},
-    output,
-    result: output,
-    startedAt: Date.now()
-  };
-}
-
 function handleItemStarted(accumulator: AppServerTurnAccumulator, item: any) {
   if (!isAppServerRecord(item)) return;
 
@@ -2567,12 +2515,7 @@ export async function bootstrapChurroCoderMcp(): Promise<void> {
   if (Array.isArray(existing)) {
     for (const server of existing) {
       const name = typeof server?.name === 'string' ? server.name : '';
-      if (
-        name &&
-        (name === 'churro-memory' ||
-          name === 'churro-memory-dev' ||
-          (name.startsWith('churro-coder') && name !== serverName))
-      ) {
+      if (name && shouldRemoveStaleAppOwnedMcpEntry(name, serverName)) {
         await runCodexCli(['mcp', 'remove', name]).catch(() => {});
       }
     }
