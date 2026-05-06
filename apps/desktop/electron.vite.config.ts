@@ -15,8 +15,9 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf-8")
 const SENTRY_DSN = "https://14d00a05791c7d015f24c50232a0336a@o4511333711282176.ingest.de.sentry.io/4511333717639248"
 const sentryRelease = `churro-coder@${pkg.version}`
 const sentryPlugin = sentryVitePlugin({
-  org: "churro-coder",
+  org: "atamayoiberantes",
   project: "churro-coder",
+  url: "https://de.sentry.io/",
   authToken: process.env.SENTRY_AUTH_TOKEN,
   release: { name: sentryRelease },
   disable: !process.env.SENTRY_AUTH_TOKEN,
@@ -37,6 +38,7 @@ export default defineConfig({
       "process.env.MAIN_VITE_APP_VERSION": JSON.stringify(pkg.version),
     },
     build: {
+      sourcemap: true,
       lib: {
         entry: resolve(__dirname, "src/main/index.ts"),
       },
@@ -60,6 +62,7 @@ export default defineConfig({
       }),
     ],
     build: {
+      sourcemap: true,
       lib: {
         entry: resolve(__dirname, "src/preload/index.ts"),
       },
@@ -91,6 +94,7 @@ export default defineConfig({
       },
     },
     build: {
+      sourcemap: true,
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
