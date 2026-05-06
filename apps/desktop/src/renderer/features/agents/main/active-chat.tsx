@@ -165,7 +165,12 @@ import { CodexChatTransport } from '../lib/codex-chat-transport';
 import { formatHistoryForContext } from '../lib/export-chat';
 import { clearSubChatDraft, getSubChatDraftFull } from '../lib/drafts';
 import { IPCChatTransport } from '../lib/ipc-chat-transport';
-import { applyModeDefaultModel, getProviderForModelId } from '../lib/model-switching';
+import {
+  applyModeDefaultModel,
+  applyModeDefaultModelAndSwitchProvider,
+  getProviderForModelId,
+  reviewInFlight
+} from '../lib/model-switching';
 import {
   createQueueItem,
   createTextPreview,
@@ -4891,15 +4896,18 @@ export function ChatView({
       toast.error('Chat ID is required', { position: 'top-center' });
       return;
     }
+    if (!activeSubChatId) return;
+
+    if (reviewInFlight.has(activeSubChatId)) return;
+    reviewInFlight.add(activeSubChatId);
 
     setIsReviewing(true);
     try {
       // Switch the sub-chat to the configured Review-mode model + thinking
-      // FIRST, synchronously, before any await yields the event loop. This
-      // guarantees the model is in place by the time the transport reads it.
-      if (activeSubChatId) {
-        applyModeDefaultModel(activeSubChatId, 'review');
-      }
+      // FIRST, synchronously, before any await yields the event loop. If the
+      // provider crosses, tear down the existing transport so the next
+      // getOrCreateChat recreates under the new provider.
+      applyModeDefaultModelAndSwitchProvider(activeSubChatId, 'review');
 
       // Get PR context from backend
       const context = await trpcClient.chats.getPrContext.query({ chatId });
@@ -4920,13 +4928,12 @@ export function ChatView({
 
       // Generate review message and set it for ChatViewInner to send
       const message = generateReviewMessage(context, scopedFiles.length > 0 ? scopedFiles : undefined);
-      if (activeSubChatId) {
-        setPendingReviewMessage({ message, subChatId: activeSubChatId });
-      }
+      setPendingReviewMessage({ message, subChatId: activeSubChatId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to start review', { position: 'top-center' });
     } finally {
       setIsReviewing(false);
+      reviewInFlight.delete(activeSubChatId);
     }
   }, [chatId, activeSubChatId, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles]);
 
