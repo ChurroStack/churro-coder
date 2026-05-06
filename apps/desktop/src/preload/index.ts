@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { hookupIpc as hookupSentryIpc } from '@sentry/electron/preload-namespaced';
 import { exposeElectronTRPC } from 'trpc-electron/main';
+
+hookupSentryIpc();
 
 // Expose tRPC IPC bridge for type-safe communication.
 // Guard against a race where exposeElectronTRPC throws during preload boot

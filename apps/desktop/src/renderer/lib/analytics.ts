@@ -43,14 +43,25 @@ function redact(s: string): string {
   return s.replace(API_KEY_RE, '[KEY]').replace(EMAIL_RE, '[EMAIL]');
 }
 
+function redactUnknown<T>(value: T): T {
+  if (typeof value === 'string') {
+    return redact(value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactUnknown(item)) as T;
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, redactUnknown(item)])
+    ) as T;
+  }
+  return value;
+}
+
 function sanitizeEvent(event: Event): Event | null {
   if (isOptedOutLocal()) return null;
   attachChatEventContext(event);
-  try {
-    return JSON.parse(redact(JSON.stringify(event)));
-  } catch {
-    return event;
-  }
+  return redactUnknown(event);
 }
 
 function attachChatEventContext(event: Event): void {
@@ -67,6 +78,15 @@ function attachChatEventContext(event: Event): void {
 
 const ALWAYS_ALLOWED_LOG_LEVELS = new Set(['error', 'fatal']);
 
+function sanitizeLogMessage(message: Log['message']): Log['message'] {
+  return redactUnknown(message);
+}
+
+function sanitizeLogAttributes(attributes: Log['attributes']): Log['attributes'] {
+  if (!attributes) return attributes;
+  return redactUnknown(attributes);
+}
+
 export function sanitizeRendererLogForSend(log: Log): Log | null {
   if (import.meta.env.PROD && !isDebugSession() && !ALWAYS_ALLOWED_LOG_LEVELS.has(log.level)) {
     return null;
@@ -74,8 +94,8 @@ export function sanitizeRendererLogForSend(log: Log): Log | null {
 
   return {
     ...log,
-    message: redact(JSON.stringify(log.message)) as Log['message'],
-    attributes: JSON.parse(redact(JSON.stringify(log.attributes ?? {}))) as Log['attributes']
+    message: sanitizeLogMessage(log.message),
+    attributes: sanitizeLogAttributes(log.attributes)
   };
 }
 
@@ -169,6 +189,8 @@ export function trackMessageSent(message: Record<string, any>): void {
 
 export async function shutdown(): Promise<void> {
   if (sentryInitialized) {
-    await Sentry.getClient()?.close?.(2000).catch(() => {});
+    await Sentry.getClient()
+      ?.close?.(2000)
+      .catch(() => {});
   }
 }

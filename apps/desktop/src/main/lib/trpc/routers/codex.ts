@@ -2843,6 +2843,17 @@ export const codexRouter = router({
               ...extra
             });
 
+            // If a live stream already exists for this subChatId, do NOT abort it —
+            // return an empty observable instead. This makes tab-switching a no-op
+            // at the backend level, so in-flight streams survive workspace switches.
+            const existingStream = activeStreams.get(input.subChatId);
+            if (existingStream && !existingStream.controller.signal.aborted) {
+              console.log(`[SD] M:SKIP_DUPLICATE_START sub=${input.subChatId.slice(-8)} reason=already_active`);
+              emit.complete();
+              finishStreamSpan('duplicate_start');
+              return () => {};
+            }
+
             recordChatEvent({
               ts: Date.now(),
               phase: 'dispatch',
@@ -2856,572 +2867,575 @@ export const codexRouter = router({
               Sentry.logger.info(`stream start sub=${input.subChatId.slice(-8)}`, logAttributes());
             });
 
-        // If a live stream already exists for this subChatId, do NOT abort it —
-        // return an empty observable instead. This makes tab-switching a no-op
-        // at the backend level, so in-flight streams survive workspace switches.
-        const existingStream = activeStreams.get(input.subChatId);
-        if (existingStream && !existingStream.controller.signal.aborted) {
-          console.log(`[SD] M:SKIP_DUPLICATE_START sub=${input.subChatId.slice(-8)} reason=already_active`);
-          emit.complete();
-          finishStreamSpan('duplicate_start');
-          return () => {};
-        }
-
-        const abortController = new AbortController();
-        activeStreams.set(input.subChatId, {
-          runId: input.runId,
-          controller: abortController,
-          cancelRequested: false
-        });
-
-        let isActive = true;
-        let emittedFinish = false;
-
-        const safeEmit = (chunk: any) => {
-          if (!isActive) return;
-          if (chunk?.type === 'finish') emittedFinish = true;
-          try {
-            emit.next(chunk);
-          } catch {
-            isActive = false;
-          }
-        };
-
-        const safeComplete = () => {
-          if (!isActive) return;
-          isActive = false;
-          try {
-            emit.complete();
-          } catch {
-            // Ignore double completion
-          }
-        };
-
-        void Sentry.withActiveSpan(span, async () => {
-          try {
-            const db = getDatabase();
-
-            const existingSubChat = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
-
-            if (!existingSubChat) {
-              throw new Error('Sub-chat not found');
-            }
-
-            const existingMessages = parseStoredMessages(existingSubChat.messages);
-            const requestedModelId = extractCodexModelId(input.model) || DEFAULT_CODEX_MODEL;
-            const selectedModelId = preprocessCodexModelName({
-              modelId: requestedModelId,
-              authConfig: input.authConfig
+            const abortController = new AbortController();
+            activeStreams.set(input.subChatId, {
+              runId: input.runId,
+              controller: abortController,
+              cancelRequested: false
             });
-            const metadataModel = selectedModelId;
 
-            const lastMessage = existingMessages[existingMessages.length - 1];
-            const isDuplicatePrompt =
-              lastMessage?.role === 'user' && extractPromptFromStoredMessage(lastMessage) === input.prompt;
+            let isActive = true;
+            let emittedFinish = false;
 
-            let messagesForStream = existingMessages;
-            const isAuthoritativeRun = () => {
-              const currentStream = activeStreams.get(input.subChatId);
-              return !currentStream || currentStream.runId === input.runId;
+            const safeEmit = (chunk: any) => {
+              if (!isActive) return;
+              if (chunk?.type === 'finish') emittedFinish = true;
+              try {
+                emit.next(chunk);
+              } catch {
+                isActive = false;
+              }
             };
 
-            const persistSubChatMessages = (messages: any[]) => {
-              if (!isAuthoritativeRun()) {
-                return false;
+            const safeComplete = () => {
+              if (!isActive) return;
+              isActive = false;
+              try {
+                emit.complete();
+              } catch {
+                // Ignore double completion
               }
-
-              const json = JSON.stringify(messages);
-              db.update(subChats)
-                .set({
-                  messages: json,
-                  ...computeFileStatsFromMessages(json),
-                  updatedAt: new Date()
-                })
-                .where(eq(subChats.id, input.subChatId))
-                .run();
-              return true;
             };
 
-            const cleanAssistantMessageForPersistence = (message: any) => {
-              if (!message || message.role !== 'assistant') return message;
-              if (!Array.isArray(message.parts)) return message;
+            void Sentry.withActiveSpan(span, async () => {
+              try {
+                const db = getDatabase();
 
-              const cleanedParts = message.parts.filter((part: any) => part?.state !== 'input-streaming');
+                const existingSubChat = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
 
-              if (cleanedParts.length === 0) {
-                return null;
-              }
-
-              const cleanedMessage = {
-                ...message,
-                parts: cleanedParts
-              };
-
-              return normalizeCodexAssistantMessage(cleanedMessage, {
-                normalizeState: true
-              });
-            };
-
-            if (!isDuplicatePrompt) {
-              const userMessage = {
-                id: crypto.randomUUID(),
-                role: 'user',
-                parts: buildUserParts(input.prompt, input.images),
-                metadata: { model: metadataModel }
-              };
-
-              messagesForStream = [...existingMessages, userMessage];
-
-              {
-                const messagesForStreamJson = JSON.stringify(messagesForStream);
-                db.update(subChats)
-                  .set({
-                    messages: messagesForStreamJson,
-                    ...computeFileStatsFromMessages(messagesForStreamJson),
-                    updatedAt: new Date()
-                  })
-                  .where(eq(subChats.id, input.subChatId))
-                  .run();
-              }
-            }
-
-            if (input.forceNewSession) {
-              cleanupCodexAppServerSubChat(input.subChatId);
-            }
-
-            let mcpSnapshot: CodexMcpSnapshot = {
-              mcpServersForSession: [],
-              groups: [],
-              fingerprint: getCodexMcpFingerprint([]),
-              fetchedAt: Date.now(),
-              toolsResolved: false
-            };
-            try {
-              const resolvedProjectPathFromCwd = resolveProjectPathFromWorktree(input.cwd);
-              const mcpLookupPath = input.projectPath || resolvedProjectPathFromCwd || input.cwd;
-              mcpSnapshot = await resolveCodexMcpSnapshot({
-                lookupPath: mcpLookupPath
-              });
-            } catch (mcpError) {
-              console.error('[codex] Failed to resolve MCP servers:', mcpError);
-            }
-
-            const startedAt = Date.now();
-            const catchup = computeCatchupBlock(messagesForStream, 'codex');
-            const planInstruction =
-              input.mode === 'plan'
-                ? [
-                    '[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.',
-                    'Read the codebase as needed using read-only tools.',
-                    'If any high-impact requirement is ambiguous and cannot be resolved from the repository, call AskUserQuestion with concise multiple-choice follow-up questions before planning.',
-                    'A plan-mode turn is incomplete until PlanWrite succeeds. Do not stop after inspection or status text.',
-                    'When no clarification is needed, immediately call PlanWrite in this same turn.',
-                    'Call PlanWrite exactly once with action "create" and plan.status "awaiting_approval".',
-                    'PlanWrite input must include a concrete task-specific plan with title, summary, and pending steps. Include step descriptions and files when useful.',
-                    'Do not write the final plan as plain text only, do not call PlanWrite more than once, and do not restate the plan after PlanWrite.',
-                    "After PlanWrite, stop and wait for the user's approval before implementing anything."
-                  ].join('\n')
-                : '[AGENT MODE] You are in implementation mode. Implement changes directly using your available tools. Do not call PlanWrite and do not create a new plan — the plan has already been approved. Execute each step now.';
-            const subChatPlanHint =
-              input.mode === 'agent' && (await hasPlan(input.subChatId))
-                ? [
-                    `[CONTEXT] Sub-chat id: ${input.subChatId}.`,
-                    `An approved plan governs this sub-chat. To retrieve it, call the \`read_plan\` MCP tool`,
-                    `on the \`churro-coder\` server with EXACTLY this argument: { "subChatId": "${input.subChatId}" }.`,
-                    `The subChatId argument is required — do not call read_plan without it.`
-                  ].join(' ')
-                : '';
-            const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
-              .filter((segment): segment is string => Boolean(segment))
-              .join('\n\n');
-
-            let planWriteFallbackPart: any | null = null;
-            let planWriteFallbackEmitted = false;
-            let suppressPlanWriteFallback = false;
-            const planStreamAccumulator = input.mode === 'plan' ? createCodexPlanStreamAccumulator() : null;
-
-            const emitPlanWriteFallbackIfNeeded = () => {
-              if (
-                input.mode !== 'plan' ||
-                !planStreamAccumulator ||
-                planWriteFallbackEmitted ||
-                suppressPlanWriteFallback
-              ) {
-                return;
-              }
-
-              flushCodexPlanText(planStreamAccumulator);
-              const messagesWithPlanFallback = ensurePlanWriteForCodexPlanMode({
-                messages: [
-                  {
-                    id: 'codex-plan-stream-accumulator',
-                    role: 'assistant',
-                    parts: planStreamAccumulator.parts
-                  }
-                ],
-                prompt: input.prompt,
-                fallbackPart: planWriteFallbackPart
-              });
-
-              planWriteFallbackPart = messagesWithPlanFallback.fallbackPart;
-              if (!planWriteFallbackPart) return;
-
-              planWriteFallbackEmitted = true;
-              safeEmit({
-                type: 'tool-input-start',
-                toolCallId: planWriteFallbackPart.toolCallId,
-                toolName: 'PlanWrite',
-                providerMetadata: {
-                  custom: {
-                    startedAt: planWriteFallbackPart.startedAt,
-                    synthesized: true
-                  }
+                if (!existingSubChat) {
+                  throw new Error('Sub-chat not found');
                 }
-              });
-              safeEmit({
-                type: 'tool-input-available',
-                toolCallId: planWriteFallbackPart.toolCallId,
-                toolName: 'PlanWrite',
-                input: planWriteFallbackPart.input,
-                providerMetadata: {
-                  custom: {
-                    startedAt: planWriteFallbackPart.startedAt,
-                    synthesized: true
+
+                const existingMessages = parseStoredMessages(existingSubChat.messages);
+                const requestedModelId = extractCodexModelId(input.model) || DEFAULT_CODEX_MODEL;
+                const selectedModelId = preprocessCodexModelName({
+                  modelId: requestedModelId,
+                  authConfig: input.authConfig
+                });
+                const metadataModel = selectedModelId;
+
+                const lastMessage = existingMessages[existingMessages.length - 1];
+                const isDuplicatePrompt =
+                  lastMessage?.role === 'user' && extractPromptFromStoredMessage(lastMessage) === input.prompt;
+
+                let messagesForStream = existingMessages;
+                const isAuthoritativeRun = () => {
+                  const currentStream = activeStreams.get(input.subChatId);
+                  return !currentStream || currentStream.runId === input.runId;
+                };
+
+                const persistSubChatMessages = (messages: any[]) => {
+                  if (!isAuthoritativeRun()) {
+                    return false;
                   }
-                }
-              });
-              safeEmit({
-                type: 'tool-output-available',
-                toolCallId: planWriteFallbackPart.toolCallId,
-                output: planWriteFallbackPart.output
-              });
-            };
 
-            const safeEmitTurn = (chunk: any) => {
-              if (chunk?.type === 'error' || chunk?.type === 'auth-error') {
-                suppressPlanWriteFallback = true;
-              }
-              if (planStreamAccumulator) {
-                accumulateCodexPlanStreamChunk(planStreamAccumulator, chunk);
-              }
-              safeEmit(chunk);
-            };
-
-            const beforeSnapshot = await captureGitChangeSnapshot(input.cwd).catch((error) => {
-              console.warn('[codex] Failed to capture pre-turn git snapshot:', error);
-              return new Map<string, GitChangeSnapshotEntry>();
-            });
-            const client = await getOrCreateAppServerClient({
-              authConfig: input.authConfig
-            });
-            const activeStream = activeStreams.get(input.subChatId);
-            if (activeStream?.runId === input.runId) {
-              activeStream.client = client;
-            }
-
-            const hasAppManagedApiKey = Boolean(input.authConfig?.apiKey?.trim());
-            const persistedThreadId =
-              subChatThreadIds.get(input.subChatId) ||
-              (!hasAppManagedApiKey ? getLastSessionId(existingMessages) : undefined);
-
-            let threadId: string;
-            try {
-              threadId = await startOrResumeAppServerThread({
-                client,
-                threadId: input.forceNewSession ? undefined : persistedThreadId,
-                cwd: input.cwd,
-                selectedModelId
-              });
-            } catch (resumeError) {
-              if (!persistedThreadId || input.forceNewSession) {
-                throw resumeError;
-              }
-
-              console.info('[codex] App-server thread not resumable, starting fresh:', resumeError);
-              threadId = await startOrResumeAppServerThread({
-                client,
-                cwd: input.cwd,
-                selectedModelId
-              });
-            }
-
-            subChatThreadIds.set(input.subChatId, threadId);
-            activeStreamsByThreadId.set(threadId, input.subChatId);
-            if (activeStream?.runId === input.runId) {
-              activeStream.threadId = threadId;
-            }
-            span.setAttribute('session_id', threadId);
-            resolvedSessionId = threadId;
-            recordChatEvent({
-              ts: Date.now(),
-              phase: 'session-resolved',
-              sub: input.subChatId.slice(-8),
-              workspace_id: input.chatId,
-              mode: input.mode,
-              session_id: threadId,
-              stream_id: input.runId.slice(-8)
-            });
-            Sentry.logger.info(`stream session resolved sub=${input.subChatId.slice(-8)}`, logAttributes({ session_id: threadId }));
-
-            const mcpServersForUi = mcpSnapshot.groups.flatMap((group) =>
-              group.mcpServers.map((server) => ({
-                name: server.name,
-                status: server.status,
-                ...(typeof server.config?.serverInfo === 'object' ? { serverInfo: server.config.serverInfo } : {}),
-                ...(typeof server.config?.error === 'string' ? { error: server.config.error } : {})
-              }))
-            );
-            const mcpTools = mcpSnapshot.groups
-              .flatMap((group) => group.mcpServers)
-              .flatMap((server) =>
-                server.tools.map((tool) => `mcp__${server.name}__${tool.name.replaceAll('/', '__')}`)
-              );
-            const builtInTools =
-              input.mode === 'plan'
-                ? ['Read', 'Glob', 'Grep', 'Thinking', 'PlanWrite', 'AskUserQuestion']
-                : ['Bash', 'Edit', 'Write', 'Read', 'Glob', 'Grep', 'Thinking', 'WebSearch', 'WebFetch'];
-            safeEmit({
-              type: 'session-init',
-              tools: [...builtInTools, ...mcpTools],
-              mcpServers: mcpServersForUi,
-              plugins: [],
-              skills: []
-            });
-            safeEmit({ type: 'start' });
-            safeEmit({ type: 'start-step' });
-
-            const turnAccumulator: AppServerTurnAccumulator = {
-              subChatId: input.subChatId,
-              prompt: input.prompt,
-              model: metadataModel,
-              mode: input.mode,
-              startedAt,
-              safeEmit: safeEmitTurn,
-              parts: [],
-              currentTextId: null,
-              currentText: '',
-              toolPartsByItemId: new Map(),
-              usageMetadata: null,
-              completed: false,
-              lastEventAt: Date.now()
-            };
-
-            activeAppServerTurns.set(threadId, turnAccumulator);
-            const onAbort = () => {
-              const stream = activeStreams.get(input.subChatId);
-              if (stream?.runId === input.runId) {
-                void interruptCodexTurn(stream);
-              }
-            };
-            abortController.signal.addEventListener('abort', onAbort, {
-              once: true
-            });
-
-            const codexSandboxPolicy = await resolveSandboxPolicy(
-              input.chatId,
-              input.cwd,
-              input.projectPath ?? input.cwd
-            );
-            const turnResult = await client.request(
-              'turn/start',
-              {
-                threadId,
-                input: buildAppServerInput(augmentedPrompt, input.images),
-                ...buildCodexTurnConfig({
-                  cwd: input.cwd,
-                  mode: input.mode,
-                  selectedModelId,
-                  sandboxEnabled: codexSandboxPolicy.enabled,
-                  // Pass the symlink-expanded set so the OS sandbox accepts
-                  // both forms of paths like macOS /tmp <-> /private/tmp.
-                  writableRoots: codexSandboxPolicy.writableRootsExpanded.filter((r) => r !== input.cwd)
-                })
-              },
-              30_000
-            );
-            const turnId = extractTurnIdFromStartResult(turnResult);
-            if (turnId) {
-              activeThreadIdsByTurnId.set(turnId, threadId);
-              const stream = activeStreams.get(input.subChatId);
-              if (stream?.runId === input.runId) {
-                stream.turnId = turnId;
-              }
-            }
-
-            await waitForAppServerTurn({
-              accumulator: turnAccumulator,
-              signal: abortController.signal,
-              idleTimeoutMs: 60_000,
-              maxRuntimeMs: 60 * 60 * 1000
-            });
-            if (!turnAccumulator.usageMetadata && !abortController.signal.aborted) {
-              await new Promise((resolve) => setTimeout(resolve, 750));
-            }
-            abortController.signal.removeEventListener('abort', onAbort);
-
-            flushTextPart(turnAccumulator);
-
-            if (input.mode === 'plan') {
-              emitPlanWriteFallbackIfNeeded();
-            }
-
-            const afterSnapshot = await captureGitChangeSnapshot(input.cwd).catch((error) => {
-              console.warn('[codex] Failed to capture post-turn git snapshot:', error);
-              return new Map<string, GitChangeSnapshotEntry>();
-            });
-            const changedFiles = diffGitChangeSnapshots(beforeSnapshot, afterSnapshot);
-            const finalMetadata = {
-              model: metadataModel,
-              sessionId: threadId,
-              durationMs: Date.now() - startedAt,
-              resultSubtype:
-                turnAccumulator.resultSubtype || (abortController.signal.aborted ? 'interrupted' : 'success'),
-              stopReason: turnAccumulator.stopReason || (abortController.signal.aborted ? 'interrupted' : 'stop'),
-              ...(turnAccumulator.usageMetadata || {}),
-              ...(changedFiles.length > 0 ? { changedFiles } : {})
-            };
-
-            try {
-              const assistantMessage = {
-                id: crypto.randomUUID(),
-                role: 'assistant',
-                parts: turnAccumulator.parts,
-                metadata: finalMetadata
-              };
-              const shouldPersistAssistant =
-                assistantMessage.parts.length > 0 || changedFiles.length > 0 || Boolean(turnAccumulator.usageMetadata);
-              const messagesWithAssistant = shouldPersistAssistant
-                ? [...messagesForStream, assistantMessage]
-                : messagesForStream;
-              const messagesWithPlanFallback =
-                input.mode === 'plan'
-                  ? ensurePlanWriteForCodexPlanMode({
-                      messages: messagesWithAssistant,
-                      prompt: input.prompt,
-                      fallbackPart: planWriteFallbackPart
+                  const json = JSON.stringify(messages);
+                  db.update(subChats)
+                    .set({
+                      messages: json,
+                      ...computeFileStatsFromMessages(json),
+                      updatedAt: new Date()
                     })
-                  : { messages: messagesWithAssistant, fallbackPart: null };
-              planWriteFallbackPart = messagesWithPlanFallback.fallbackPart;
+                    .where(eq(subChats.id, input.subChatId))
+                    .run();
+                  return true;
+                };
 
-              // Persist plan to disk for cross-provider retrieval via churro-coder MCP
-              if (input.mode === 'plan') {
-                const lastAssistant = [...messagesWithPlanFallback.messages]
-                  .reverse()
-                  .find((m: any) => m.role === 'assistant');
-                if (lastAssistant) {
-                  const planObj = findPlanFromAnyPlanWritePart(lastAssistant);
-                  const planContent = planObj ? formatStructuredPlanAsMarkdown(planObj) : null;
-                  if (planContent) {
-                    void writeCurrentPlan({
-                      subChatId: input.subChatId,
-                      content: planContent,
-                      source: 'codex:PlanWrite',
-                      title: typeof planObj?.title === 'string' ? planObj.title : 'Plan'
-                    }).catch((err: unknown) => console.error('[churro-coder] Failed to persist codex plan:', err));
+                const cleanAssistantMessageForPersistence = (message: any) => {
+                  if (!message || message.role !== 'assistant') return message;
+                  if (!Array.isArray(message.parts)) return message;
+
+                  const cleanedParts = message.parts.filter((part: any) => part?.state !== 'input-streaming');
+
+                  if (cleanedParts.length === 0) {
+                    return null;
+                  }
+
+                  const cleanedMessage = {
+                    ...message,
+                    parts: cleanedParts
+                  };
+
+                  return normalizeCodexAssistantMessage(cleanedMessage, {
+                    normalizeState: true
+                  });
+                };
+
+                if (!isDuplicatePrompt) {
+                  const userMessage = {
+                    id: crypto.randomUUID(),
+                    role: 'user',
+                    parts: buildUserParts(input.prompt, input.images),
+                    metadata: { model: metadataModel }
+                  };
+
+                  messagesForStream = [...existingMessages, userMessage];
+
+                  {
+                    const messagesForStreamJson = JSON.stringify(messagesForStream);
+                    db.update(subChats)
+                      .set({
+                        messages: messagesForStreamJson,
+                        ...computeFileStatsFromMessages(messagesForStreamJson),
+                        updatedAt: new Date()
+                      })
+                      .where(eq(subChats.id, input.subChatId))
+                      .run();
                   }
                 }
+
+                if (input.forceNewSession) {
+                  cleanupCodexAppServerSubChat(input.subChatId);
+                }
+
+                let mcpSnapshot: CodexMcpSnapshot = {
+                  mcpServersForSession: [],
+                  groups: [],
+                  fingerprint: getCodexMcpFingerprint([]),
+                  fetchedAt: Date.now(),
+                  toolsResolved: false
+                };
+                try {
+                  const resolvedProjectPathFromCwd = resolveProjectPathFromWorktree(input.cwd);
+                  const mcpLookupPath = input.projectPath || resolvedProjectPathFromCwd || input.cwd;
+                  mcpSnapshot = await resolveCodexMcpSnapshot({
+                    lookupPath: mcpLookupPath
+                  });
+                } catch (mcpError) {
+                  console.error('[codex] Failed to resolve MCP servers:', mcpError);
+                }
+
+                const startedAt = Date.now();
+                const catchup = computeCatchupBlock(messagesForStream, 'codex');
+                const planInstruction =
+                  input.mode === 'plan'
+                    ? [
+                        '[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.',
+                        'Read the codebase as needed using read-only tools.',
+                        'If any high-impact requirement is ambiguous and cannot be resolved from the repository, call AskUserQuestion with concise multiple-choice follow-up questions before planning.',
+                        'A plan-mode turn is incomplete until PlanWrite succeeds. Do not stop after inspection or status text.',
+                        'When no clarification is needed, immediately call PlanWrite in this same turn.',
+                        'Call PlanWrite exactly once with action "create" and plan.status "awaiting_approval".',
+                        'PlanWrite input must include a concrete task-specific plan with title, summary, and pending steps. Include step descriptions and files when useful.',
+                        'Do not write the final plan as plain text only, do not call PlanWrite more than once, and do not restate the plan after PlanWrite.',
+                        "After PlanWrite, stop and wait for the user's approval before implementing anything."
+                      ].join('\n')
+                    : '[AGENT MODE] You are in implementation mode. Implement changes directly using your available tools. Do not call PlanWrite and do not create a new plan — the plan has already been approved. Execute each step now.';
+                const subChatPlanHint =
+                  input.mode === 'agent' && (await hasPlan(input.subChatId))
+                    ? [
+                        `[CONTEXT] Sub-chat id: ${input.subChatId}.`,
+                        `An approved plan governs this sub-chat. To retrieve it, call the \`read_plan\` MCP tool`,
+                        `on the \`churro-coder\` server with EXACTLY this argument: { "subChatId": "${input.subChatId}" }.`,
+                        `The subChatId argument is required — do not call read_plan without it.`
+                      ].join(' ')
+                    : '';
+                const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
+                  .filter((segment): segment is string => Boolean(segment))
+                  .join('\n\n');
+
+                let planWriteFallbackPart: any | null = null;
+                let planWriteFallbackEmitted = false;
+                let suppressPlanWriteFallback = false;
+                const planStreamAccumulator = input.mode === 'plan' ? createCodexPlanStreamAccumulator() : null;
+
+                const emitPlanWriteFallbackIfNeeded = () => {
+                  if (
+                    input.mode !== 'plan' ||
+                    !planStreamAccumulator ||
+                    planWriteFallbackEmitted ||
+                    suppressPlanWriteFallback
+                  ) {
+                    return;
+                  }
+
+                  flushCodexPlanText(planStreamAccumulator);
+                  const messagesWithPlanFallback = ensurePlanWriteForCodexPlanMode({
+                    messages: [
+                      {
+                        id: 'codex-plan-stream-accumulator',
+                        role: 'assistant',
+                        parts: planStreamAccumulator.parts
+                      }
+                    ],
+                    prompt: input.prompt,
+                    fallbackPart: planWriteFallbackPart
+                  });
+
+                  planWriteFallbackPart = messagesWithPlanFallback.fallbackPart;
+                  if (!planWriteFallbackPart) return;
+
+                  planWriteFallbackEmitted = true;
+                  safeEmit({
+                    type: 'tool-input-start',
+                    toolCallId: planWriteFallbackPart.toolCallId,
+                    toolName: 'PlanWrite',
+                    providerMetadata: {
+                      custom: {
+                        startedAt: planWriteFallbackPart.startedAt,
+                        synthesized: true
+                      }
+                    }
+                  });
+                  safeEmit({
+                    type: 'tool-input-available',
+                    toolCallId: planWriteFallbackPart.toolCallId,
+                    toolName: 'PlanWrite',
+                    input: planWriteFallbackPart.input,
+                    providerMetadata: {
+                      custom: {
+                        startedAt: planWriteFallbackPart.startedAt,
+                        synthesized: true
+                      }
+                    }
+                  });
+                  safeEmit({
+                    type: 'tool-output-available',
+                    toolCallId: planWriteFallbackPart.toolCallId,
+                    output: planWriteFallbackPart.output
+                  });
+                };
+
+                const safeEmitTurn = (chunk: any) => {
+                  if (chunk?.type === 'error' || chunk?.type === 'auth-error') {
+                    suppressPlanWriteFallback = true;
+                  }
+                  if (planStreamAccumulator) {
+                    accumulateCodexPlanStreamChunk(planStreamAccumulator, chunk);
+                  }
+                  safeEmit(chunk);
+                };
+
+                const beforeSnapshot = await captureGitChangeSnapshot(input.cwd).catch((error) => {
+                  console.warn('[codex] Failed to capture pre-turn git snapshot:', error);
+                  return new Map<string, GitChangeSnapshotEntry>();
+                });
+                const client = await getOrCreateAppServerClient({
+                  authConfig: input.authConfig
+                });
+                const activeStream = activeStreams.get(input.subChatId);
+                if (activeStream?.runId === input.runId) {
+                  activeStream.client = client;
+                }
+
+                const hasAppManagedApiKey = Boolean(input.authConfig?.apiKey?.trim());
+                const persistedThreadId =
+                  subChatThreadIds.get(input.subChatId) ||
+                  (!hasAppManagedApiKey ? getLastSessionId(existingMessages) : undefined);
+
+                let threadId: string;
+                try {
+                  threadId = await startOrResumeAppServerThread({
+                    client,
+                    threadId: input.forceNewSession ? undefined : persistedThreadId,
+                    cwd: input.cwd,
+                    selectedModelId
+                  });
+                } catch (resumeError) {
+                  if (!persistedThreadId || input.forceNewSession) {
+                    throw resumeError;
+                  }
+
+                  console.info('[codex] App-server thread not resumable, starting fresh:', resumeError);
+                  threadId = await startOrResumeAppServerThread({
+                    client,
+                    cwd: input.cwd,
+                    selectedModelId
+                  });
+                }
+
+                subChatThreadIds.set(input.subChatId, threadId);
+                activeStreamsByThreadId.set(threadId, input.subChatId);
+                if (activeStream?.runId === input.runId) {
+                  activeStream.threadId = threadId;
+                }
+                span.setAttribute('session_id', threadId);
+                resolvedSessionId = threadId;
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'session-resolved',
+                  sub: input.subChatId.slice(-8),
+                  workspace_id: input.chatId,
+                  mode: input.mode,
+                  session_id: threadId,
+                  stream_id: input.runId.slice(-8)
+                });
+                Sentry.logger.info(
+                  `stream session resolved sub=${input.subChatId.slice(-8)}`,
+                  logAttributes({ session_id: threadId })
+                );
+
+                const mcpServersForUi = mcpSnapshot.groups.flatMap((group) =>
+                  group.mcpServers.map((server) => ({
+                    name: server.name,
+                    status: server.status,
+                    ...(typeof server.config?.serverInfo === 'object' ? { serverInfo: server.config.serverInfo } : {}),
+                    ...(typeof server.config?.error === 'string' ? { error: server.config.error } : {})
+                  }))
+                );
+                const mcpTools = mcpSnapshot.groups
+                  .flatMap((group) => group.mcpServers)
+                  .flatMap((server) =>
+                    server.tools.map((tool) => `mcp__${server.name}__${tool.name.replaceAll('/', '__')}`)
+                  );
+                const builtInTools =
+                  input.mode === 'plan'
+                    ? ['Read', 'Glob', 'Grep', 'Thinking', 'PlanWrite', 'AskUserQuestion']
+                    : ['Bash', 'Edit', 'Write', 'Read', 'Glob', 'Grep', 'Thinking', 'WebSearch', 'WebFetch'];
+                safeEmit({
+                  type: 'session-init',
+                  tools: [...builtInTools, ...mcpTools],
+                  mcpServers: mcpServersForUi,
+                  plugins: [],
+                  skills: []
+                });
+                safeEmit({ type: 'start' });
+                safeEmit({ type: 'start-step' });
+
+                const turnAccumulator: AppServerTurnAccumulator = {
+                  subChatId: input.subChatId,
+                  prompt: input.prompt,
+                  model: metadataModel,
+                  mode: input.mode,
+                  startedAt,
+                  safeEmit: safeEmitTurn,
+                  parts: [],
+                  currentTextId: null,
+                  currentText: '',
+                  toolPartsByItemId: new Map(),
+                  usageMetadata: null,
+                  completed: false,
+                  lastEventAt: Date.now()
+                };
+
+                activeAppServerTurns.set(threadId, turnAccumulator);
+                const onAbort = () => {
+                  const stream = activeStreams.get(input.subChatId);
+                  if (stream?.runId === input.runId) {
+                    void interruptCodexTurn(stream);
+                  }
+                };
+                abortController.signal.addEventListener('abort', onAbort, {
+                  once: true
+                });
+
+                const codexSandboxPolicy = await resolveSandboxPolicy(
+                  input.chatId,
+                  input.cwd,
+                  input.projectPath ?? input.cwd
+                );
+                const turnResult = await client.request(
+                  'turn/start',
+                  {
+                    threadId,
+                    input: buildAppServerInput(augmentedPrompt, input.images),
+                    ...buildCodexTurnConfig({
+                      cwd: input.cwd,
+                      mode: input.mode,
+                      selectedModelId,
+                      sandboxEnabled: codexSandboxPolicy.enabled,
+                      // Pass the symlink-expanded set so the OS sandbox accepts
+                      // both forms of paths like macOS /tmp <-> /private/tmp.
+                      writableRoots: codexSandboxPolicy.writableRootsExpanded.filter((r) => r !== input.cwd)
+                    })
+                  },
+                  30_000
+                );
+                const turnId = extractTurnIdFromStartResult(turnResult);
+                if (turnId) {
+                  activeThreadIdsByTurnId.set(turnId, threadId);
+                  const stream = activeStreams.get(input.subChatId);
+                  if (stream?.runId === input.runId) {
+                    stream.turnId = turnId;
+                  }
+                }
+
+                await waitForAppServerTurn({
+                  accumulator: turnAccumulator,
+                  signal: abortController.signal,
+                  idleTimeoutMs: 60_000,
+                  maxRuntimeMs: 60 * 60 * 1000
+                });
+                if (!turnAccumulator.usageMetadata && !abortController.signal.aborted) {
+                  await new Promise((resolve) => setTimeout(resolve, 750));
+                }
+                abortController.signal.removeEventListener('abort', onAbort);
+
+                flushTextPart(turnAccumulator);
+
+                if (input.mode === 'plan') {
+                  emitPlanWriteFallbackIfNeeded();
+                }
+
+                const afterSnapshot = await captureGitChangeSnapshot(input.cwd).catch((error) => {
+                  console.warn('[codex] Failed to capture post-turn git snapshot:', error);
+                  return new Map<string, GitChangeSnapshotEntry>();
+                });
+                const changedFiles = diffGitChangeSnapshots(beforeSnapshot, afterSnapshot);
+                const finalMetadata = {
+                  model: metadataModel,
+                  sessionId: threadId,
+                  durationMs: Date.now() - startedAt,
+                  resultSubtype:
+                    turnAccumulator.resultSubtype || (abortController.signal.aborted ? 'interrupted' : 'success'),
+                  stopReason: turnAccumulator.stopReason || (abortController.signal.aborted ? 'interrupted' : 'stop'),
+                  ...(turnAccumulator.usageMetadata || {}),
+                  ...(changedFiles.length > 0 ? { changedFiles } : {})
+                };
+
+                try {
+                  const assistantMessage = {
+                    id: crypto.randomUUID(),
+                    role: 'assistant',
+                    parts: turnAccumulator.parts,
+                    metadata: finalMetadata
+                  };
+                  const shouldPersistAssistant =
+                    assistantMessage.parts.length > 0 ||
+                    changedFiles.length > 0 ||
+                    Boolean(turnAccumulator.usageMetadata);
+                  const messagesWithAssistant = shouldPersistAssistant
+                    ? [...messagesForStream, assistantMessage]
+                    : messagesForStream;
+                  const messagesWithPlanFallback =
+                    input.mode === 'plan'
+                      ? ensurePlanWriteForCodexPlanMode({
+                          messages: messagesWithAssistant,
+                          prompt: input.prompt,
+                          fallbackPart: planWriteFallbackPart
+                        })
+                      : { messages: messagesWithAssistant, fallbackPart: null };
+                  planWriteFallbackPart = messagesWithPlanFallback.fallbackPart;
+
+                  // Persist plan to disk for cross-provider retrieval via churro-coder MCP
+                  if (input.mode === 'plan') {
+                    const lastAssistant = [...messagesWithPlanFallback.messages]
+                      .reverse()
+                      .find((m: any) => m.role === 'assistant');
+                    if (lastAssistant) {
+                      const planObj = findPlanFromAnyPlanWritePart(lastAssistant);
+                      const planContent = planObj ? formatStructuredPlanAsMarkdown(planObj) : null;
+                      if (planContent) {
+                        void writeCurrentPlan({
+                          subChatId: input.subChatId,
+                          content: planContent,
+                          source: 'codex:PlanWrite',
+                          title: typeof planObj?.title === 'string' ? planObj.title : 'Plan'
+                        }).catch((err: unknown) => console.error('[churro-coder] Failed to persist codex plan:', err));
+                      }
+                    }
+                  }
+
+                  const cleanedMessages = messagesWithPlanFallback.messages
+                    .map(cleanAssistantMessageForPersistence)
+                    .filter(Boolean);
+
+                  if (cleanedMessages.length > 0) {
+                    persistSubChatMessages(cleanedMessages);
+                  } else {
+                    persistSubChatMessages(messagesForStream);
+                  }
+                } catch (persistError) {
+                  console.error('[codex] Failed to persist messages:', persistError);
+                }
+
+                if (turnAccumulator.usageMetadata || changedFiles.length > 0) {
+                  safeEmit({
+                    type: 'message-metadata',
+                    messageMetadata: finalMetadata
+                  });
+                }
+                safeEmit({ type: 'finish', messageMetadata: finalMetadata });
+
+                safeComplete();
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'end',
+                  sub: input.subChatId.slice(-8),
+                  workspace_id: input.chatId,
+                  mode: input.mode,
+                  session_id: threadId,
+                  stream_id: input.runId.slice(-8),
+                  note: 'ok'
+                });
+                Sentry.logger.info(
+                  `stream end sub=${input.subChatId.slice(-8)}`,
+                  logAttributes({ session_id: threadId, reason: 'ok' })
+                );
+                finishStreamSpan('ok', { session_id: threadId });
+              } catch (error) {
+                const normalized = extractCodexError(error);
+
+                console.error('[codex] chat stream error:', error);
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'error',
+                  sub: input.subChatId.slice(-8),
+                  workspace_id: input.chatId,
+                  mode: input.mode,
+                  stream_id: input.runId.slice(-8),
+                  note: normalized.message
+                });
+                Sentry.logger.info(
+                  `stream error sub=${input.subChatId.slice(-8)}`,
+                  logAttributes({ reason: normalized.message })
+                );
+                if (isCodexAuthError(normalized)) {
+                  safeEmit({ type: 'auth-error', errorText: normalized.message });
+                } else {
+                  safeEmit({ type: 'error', errorText: normalized.message });
+                }
+                safeEmit({ type: 'finish' });
+                safeComplete();
+                finishStreamSpan('error');
+              } finally {
+                const activeStream = activeStreams.get(input.subChatId);
+                if (activeStream?.runId === input.runId) {
+                  if (activeStream.turnId) {
+                    activeThreadIdsByTurnId.delete(activeStream.turnId);
+                  }
+                  if (activeStream.threadId) {
+                    activeStreamsByThreadId.delete(activeStream.threadId);
+                    activeAppServerTurns.delete(activeStream.threadId);
+                  }
+                  activeStreams.delete(input.subChatId);
+                }
               }
-
-              const cleanedMessages = messagesWithPlanFallback.messages
-                .map(cleanAssistantMessageForPersistence)
-                .filter(Boolean);
-
-              if (cleanedMessages.length > 0) {
-                persistSubChatMessages(cleanedMessages);
-              } else {
-                persistSubChatMessages(messagesForStream);
-              }
-            } catch (persistError) {
-              console.error('[codex] Failed to persist messages:', persistError);
-            }
-
-            if (turnAccumulator.usageMetadata || changedFiles.length > 0) {
-              safeEmit({
-                type: 'message-metadata',
-                messageMetadata: finalMetadata
-              });
-            }
-            safeEmit({ type: 'finish', messageMetadata: finalMetadata });
-
-            safeComplete();
-            recordChatEvent({
-              ts: Date.now(),
-              phase: 'end',
-              sub: input.subChatId.slice(-8),
-              workspace_id: input.chatId,
-              mode: input.mode,
-              session_id: threadId,
-              stream_id: input.runId.slice(-8),
-              note: 'ok'
             });
-            Sentry.logger.info(`stream end sub=${input.subChatId.slice(-8)}`, logAttributes({ session_id: threadId, reason: 'ok' }));
-            finishStreamSpan('ok', { session_id: threadId });
-          } catch (error) {
-            const normalized = extractCodexError(error);
 
-            console.error('[codex] chat stream error:', error);
-            recordChatEvent({
-              ts: Date.now(),
-              phase: 'error',
-              sub: input.subChatId.slice(-8),
-              workspace_id: input.chatId,
-              mode: input.mode,
-              stream_id: input.runId.slice(-8),
-              note: normalized.message
-            });
-            Sentry.logger.info(`stream error sub=${input.subChatId.slice(-8)}`, logAttributes({ reason: normalized.message }));
-            if (isCodexAuthError(normalized)) {
-              safeEmit({ type: 'auth-error', errorText: normalized.message });
-            } else {
-              safeEmit({ type: 'error', errorText: normalized.message });
-            }
-            safeEmit({ type: 'finish' });
-            safeComplete();
-            finishStreamSpan('error');
-          } finally {
-            const activeStream = activeStreams.get(input.subChatId);
-            if (activeStream?.runId === input.runId) {
-              if (activeStream.turnId) {
-                activeThreadIdsByTurnId.delete(activeStream.turnId);
+            return () => {
+              // If the stream never emitted a finish chunk (e.g. app-server
+              // process or turn wait hung), emit one synthetically so the
+              // renderer's chatStatus transitions to "ready" and the UI stops
+              // showing tools as "Running" forever. Must precede isActive=false
+              // because safeEmit no-ops once isActive is cleared.
+              if (!emittedFinish) {
+                console.log(`[codex] CLEANUP_SYNTHETIC_FINISH sub=${input.subChatId}`);
+                safeEmit({ type: 'finish' });
               }
-              if (activeStream.threadId) {
-                activeStreamsByThreadId.delete(activeStream.threadId);
-                activeAppServerTurns.delete(activeStream.threadId);
+              isActive = false;
+              const shouldRecordAbort = !spanEnded;
+              abortController.abort();
+              if (shouldRecordAbort) {
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'abort',
+                  sub: input.subChatId.slice(-8),
+                  workspace_id: input.chatId,
+                  mode: input.mode,
+                  stream_id: input.runId.slice(-8)
+                });
+                Sentry.logger.info(`stream abort sub=${input.subChatId.slice(-8)}`, logAttributes({ reason: 'abort' }));
+                finishStreamSpan('abort');
               }
-              activeStreams.delete(input.subChatId);
-            }
-          }
-        });
+              clearPendingApprovals('Session ended.', input.subChatId);
 
-        return () => {
-          // If the stream never emitted a finish chunk (e.g. app-server
-          // process or turn wait hung), emit one synthetically so the
-          // renderer's chatStatus transitions to "ready" and the UI stops
-          // showing tools as "Running" forever. Must precede isActive=false
-          // because safeEmit no-ops once isActive is cleared.
-          if (!emittedFinish) {
-            console.log(`[codex] CLEANUP_SYNTHETIC_FINISH sub=${input.subChatId}`);
-            safeEmit({ type: 'finish' });
-          }
-          isActive = false;
-          abortController.abort();
-          recordChatEvent({
-            ts: Date.now(),
-            phase: 'abort',
-            sub: input.subChatId.slice(-8),
-            workspace_id: input.chatId,
-            mode: input.mode,
-            stream_id: input.runId.slice(-8)
-          });
-          Sentry.logger.info(`stream abort sub=${input.subChatId.slice(-8)}`, logAttributes({ reason: 'abort' }));
-          finishStreamSpan('abort');
-          clearPendingApprovals('Session ended.', input.subChatId);
-
-          const activeStream = activeStreams.get(input.subChatId);
-          if (activeStream?.runId === input.runId) {
-            activeStream.cancelRequested = true;
-          }
-        };
+              const activeStream = activeStreams.get(input.subChatId);
+              if (activeStream?.runId === input.runId) {
+                activeStream.cancelRequested = true;
+              }
+            };
           })
       );
     }),

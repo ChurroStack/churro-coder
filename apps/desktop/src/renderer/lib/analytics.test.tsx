@@ -33,7 +33,7 @@ vi.mock('../features/agents/stores/sub-chat-store', () => {
 });
 
 import { appStore } from './jotai-store';
-import { useSentryWorkspaceTags } from './analytics';
+import { sanitizeRendererLogForSend, useSentryWorkspaceTags } from './analytics';
 import { selectedAgentChatIdAtom } from '../features/agents/atoms';
 import { useAgentSubChatStore } from '../features/agents/stores/sub-chat-store';
 
@@ -64,5 +64,18 @@ describe('useSentryWorkspaceTags', () => {
       expect(scopeSetTag).toHaveBeenCalledWith('workspace_id', 'workspace-1');
       expect(scopeSetTag).toHaveBeenCalledWith('subchat_id', 'subchat-1');
     });
+  });
+});
+
+describe('sanitizeRendererLogForSend', () => {
+  test('keeps string messages as strings while redacting sensitive values', () => {
+    const sanitized = sanitizeRendererLogForSend({
+      level: 'error',
+      message: 'failed for user@example.com',
+      attributes: { token: 'Bearer abcdefghijklmnopqrstuvwxyz123456' }
+    });
+
+    expect(sanitized?.message).toBe('failed for [EMAIL]');
+    expect(JSON.stringify(sanitized?.attributes)).not.toContain('Bearer abcdefghijklmnopqrstuvwxyz123456');
   });
 });
