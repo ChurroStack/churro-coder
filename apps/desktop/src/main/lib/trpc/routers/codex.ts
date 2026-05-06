@@ -2428,18 +2428,40 @@ function waitForAppServerTurn(params: {
 }
 
 /**
- * Register the churro-memory MCP server with the Codex CLI on startup.
+ * Status of the Codex MCP bootstrap, exposed via `getChurroCoderMcpStatus` so the
+ * renderer can surface a user-visible toast when registration fails (otherwise the
+ * failure is silent and read_plan doesn't work for Codex with no obvious cause).
+ *
+ * - 'pending'      — bootstrap not yet attempted
+ * - 'ready'        — Codex MCP entry registered and pointing at our HTTP server
+ * - 'cli-missing'  — Codex CLI not installed; nothing to register (not an error)
+ * - 'failed'       — Codex CLI ran but `mcp add` failed (worth a toast)
+ */
+export type ChurroCoderMcpStatus =
+  | { state: 'pending' }
+  | { state: 'ready'; serverName: string; url: string }
+  | { state: 'cli-missing' }
+  | { state: 'failed'; serverName: string; error: string };
+
+let churroCoderMcpStatus: ChurroCoderMcpStatus = { state: 'pending' };
+
+export function getChurroCoderMcpStatus(): ChurroCoderMcpStatus {
+  return churroCoderMcpStatus;
+}
+
+/**
+ * Register the churro-coder MCP server with the Codex CLI on startup.
  * Self-heals: re-runs mcp add if the entry is absent or the URL has drifted.
  *
  * Codex reads the bearer from process.env.CHURRO_MCP_BEARER at session start
  * (referenced by name, not value), so rotating the bearer in churro-mcp.json
  * does not require re-registration — the CLI entry stays valid.
  */
-export async function bootstrapChurroMemoryMcp(): Promise<void> {
+export async function bootstrapChurroCoderMcp(): Promise<void> {
   const { url, bearer } = await initMcpHttpServer();
   process.env.CHURRO_MCP_BEARER = bearer;
 
-  const serverName = `churro-memory${process.env.ELECTRON_RENDERER_URL ? '-dev' : ''}`;
+  const serverName = `churro-coder${process.env.ELECTRON_RENDERER_URL ? '-dev' : ''}`;
   let existing: any[] = [];
   try {
     const listResult = await runCodexCli(['mcp', 'list', '--json']);
@@ -2448,8 +2470,19 @@ export async function bootstrapChurroMemoryMcp(): Promise<void> {
     }
   } catch {
     // Codex CLI may not be installed; degrade gracefully
-    console.warn('[churro-memory] Could not list Codex MCP servers — CLI unavailable?');
+    console.warn('[churro-coder] Could not list Codex MCP servers — CLI unavailable?');
+    churroCoderMcpStatus = { state: 'cli-missing' };
     return;
+  }
+
+  // Clean up legacy entries from prior versions of this branch (server was renamed
+  // from churro-memory → churro-coder). Safe no-op if absent.
+  if (Array.isArray(existing)) {
+    for (const legacyName of ['churro-memory', 'churro-memory-dev']) {
+      if (existing.some((s: any) => s.name === legacyName)) {
+        await runCodexCli(['mcp', 'remove', legacyName]).catch(() => {});
+      }
+    }
   }
 
   const entry = Array.isArray(existing) ? existing.find((s: any) => s.name === serverName) : null;
@@ -2457,7 +2490,8 @@ export async function bootstrapChurroMemoryMcp(): Promise<void> {
   const alreadyRegistered = entry && existingUrl === url;
 
   if (alreadyRegistered) {
-    console.log(`[churro-memory] Codex MCP entry "${serverName}" already up-to-date`);
+    console.log(`[churro-coder] Codex MCP entry "${serverName}" already up-to-date`);
+    churroCoderMcpStatus = { state: 'ready', serverName, url };
     return;
   }
 
@@ -2469,19 +2503,23 @@ export async function bootstrapChurroMemoryMcp(): Promise<void> {
   try {
     await runCodexCliChecked(['mcp', 'add', serverName, '--url', url, '--bearer-token-env-var', 'CHURRO_MCP_BEARER']);
     clearCodexMcpCache();
-    console.log(`[churro-memory] Registered Codex MCP server "${serverName}" at ${url}`);
+    console.log(`[churro-coder] Registered Codex MCP server "${serverName}" at ${url}`);
+    churroCoderMcpStatus = { state: 'ready', serverName, url };
   } catch (err) {
     // Most likely cause: bundled Codex CLI doesn't accept --bearer-token-env-var.
     // The plan tracks this as a follow-up (fall back to writing ~/.codex/config.toml).
+    const errorMessage = err instanceof Error ? err.message : String(err);
     console.error(
-      '[churro-memory] Failed to register Codex MCP server. ' +
+      '[churro-coder] Failed to register Codex MCP server. ' +
         'Codex agents will not be able to call read_plan until this is resolved. Error:',
       err
     );
+    churroCoderMcpStatus = { state: 'failed', serverName, error: errorMessage };
   }
 }
 
 export const codexRouter = router({
+  getChurroCoderMcpStatus: publicProcedure.query(() => getChurroCoderMcpStatus()),
   getIntegration: publicProcedure.query(async () => {
     const result = await runCodexCli(['login', 'status']);
     const combinedOutput = [result.stdout, result.stderr]
@@ -2936,7 +2974,7 @@ export const codexRouter = router({
                 : '[AGENT MODE] You are in implementation mode. Implement changes directly using your available tools. Do not call PlanWrite and do not create a new plan — the plan has already been approved. Execute each step now.';
             const subChatPlanHint =
               input.mode === 'agent' && (await hasPlan(input.subChatId))
-                ? `[CONTEXT] Sub-chat id: ${input.subChatId}. An approved plan is available — call the \`read_plan\` MCP tool (server: churro-memory) with { subChatId: "${input.subChatId}" } to retrieve it.`
+                ? `[CONTEXT] Sub-chat id: ${input.subChatId}. An approved plan is available — call the \`read_plan\` MCP tool (server: churro-coder) with { subChatId: "${input.subChatId}" } to retrieve it.`
                 : '';
             const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
               .filter((segment): segment is string => Boolean(segment))
@@ -3198,7 +3236,7 @@ export const codexRouter = router({
                   : { messages: messagesWithAssistant, fallbackPart: null };
               planWriteFallbackPart = messagesWithPlanFallback.fallbackPart;
 
-              // Persist plan to disk for cross-provider retrieval via churro-memory MCP
+              // Persist plan to disk for cross-provider retrieval via churro-coder MCP
               if (input.mode === 'plan') {
                 const lastAssistant = [...messagesWithPlanFallback.messages]
                   .reverse()
@@ -3212,7 +3250,7 @@ export const codexRouter = router({
                       content: planContent,
                       source: 'codex:PlanWrite',
                       title: typeof planObj?.title === 'string' ? planObj.title : 'Plan'
-                    }).catch((err: unknown) => console.error('[churro-memory] Failed to persist codex plan:', err));
+                    }).catch((err: unknown) => console.error('[churro-coder] Failed to persist codex plan:', err));
                   }
                 }
               }

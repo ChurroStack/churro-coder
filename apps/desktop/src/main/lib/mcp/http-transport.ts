@@ -1,5 +1,5 @@
 /**
- * HTTP transport for the churro-memory MCP server.
+ * HTTP transport for the churro-coder MCP server.
  *
  * Binds to 127.0.0.1 on an OS-picked port. Persists { port, bearer } to
  * <userData>/churro-mcp.json so the Codex bootstrap can reuse the bearer
@@ -137,7 +137,7 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
       await mcpServer.connect(transport);
       await transport.handleRequest(req, res, body);
     } catch (err) {
-      console.error('[churro-memory] Error handling MCP request:', err);
+      console.error('[churro-coder] Error handling MCP request:', err);
       send500(res, 'Internal server error');
     }
   });
@@ -155,11 +155,19 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
 
   state = { url, bearer, port, server };
 
-  console.log(`[churro-memory] HTTP transport listening on ${url}`);
+  console.log(`[churro-coder] HTTP transport listening on ${url}`);
   return { url, bearer, port };
 }
 
 export function getMcpHttpEndpoint(): { url: string; bearer: string } | null {
   if (!state) return null;
   return { url: state.url, bearer: state.bearer };
+}
+
+/** Stops the HTTP server and clears state. Used by tests; callable on app quit. */
+export async function closeMcpHttpServer(): Promise<void> {
+  if (!state) return;
+  const current = state;
+  state = null;
+  await new Promise<void>((resolve) => current.server.close(() => resolve()));
 }

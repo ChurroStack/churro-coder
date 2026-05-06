@@ -59,7 +59,7 @@ export function buildImplementPlanParts(plan: ApprovedPlanContent | null): unkno
   return [
     {
       type: 'text',
-      text: `${IMPLEMENT_PLAN_BASE_TEXT} Use the attached approved plan as the source of truth. The plan is also retrievable via the \`read_plan\` MCP tool (server: churro-memory) if this conversation is later compacted.`
+      text: `${IMPLEMENT_PLAN_BASE_TEXT} Use the attached approved plan as the source of truth. The plan is also retrievable via the \`read_plan\` MCP tool (server: churro-coder) if this conversation is later compacted.`
     },
     {
       type: 'file-content',

@@ -1,7 +1,7 @@
 import { Provider as JotaiProvider, useAtomValue, useSetAtom } from 'jotai';
 import { ThemeProvider, useTheme } from 'next-themes';
-import { useEffect, useMemo } from 'react';
-import { Toaster } from 'sonner';
+import { useEffect, useMemo, useRef } from 'react';
+import { Toaster, toast } from 'sonner';
 import { AppErrorBoundary } from './components/ui/error-boundary';
 import { TooltipProvider } from './components/ui/tooltip';
 import { TRPCProvider } from './contexts/TRPCProvider';
@@ -83,6 +83,26 @@ function AppContent() {
     // Only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Surface churro-coder MCP bootstrap failures (e.g. Codex CLI rejected
+  // --bearer-token-env-var) — agent's read_plan tool won't work for Codex
+  // until resolved, so we tell the user instead of failing silently.
+  const churroMcpStatusToastShown = useRef(false);
+  const { data: churroMcpStatus } = trpc.codex.getChurroCoderMcpStatus.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    refetchOnMount: true,
+    staleTime: Infinity
+  });
+  useEffect(() => {
+    if (churroMcpStatusToastShown.current) return;
+    if (churroMcpStatus?.state === 'failed') {
+      churroMcpStatusToastShown.current = true;
+      toast.error('Codex MCP setup failed', {
+        description: `The read_plan tool will not be available for Codex agents. ${churroMcpStatus.error}`,
+        duration: 10_000
+      });
+    }
+  }, [churroMcpStatus]);
 
   // Check if user has existing CLI config (API key or proxy)
   // Based on PR #29 by @sa4hnd

@@ -1,5 +1,5 @@
 /**
- * File-backed plan storage for the churro-memory MCP system.
+ * File-backed plan storage for the churro-coder MCP system.
  *
  * Stores the latest approved plan per sub-chat under:
  *   <userData>/Churro Coder/sub-chats/<subChatId>/plans/current.md
