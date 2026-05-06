@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { publicProcedure, router } from '../trpc';
 import { assertRegisteredWorktree, getRegisteredChat, gitSwitchBranch } from './security';
 import { createGit, createGitForNetwork, withGitLock, withLockRetry } from './git-factory';
+import { hasOriginRemote } from './worktree';
 
 /** Regex for valid branch names */
 const BRANCH_NAME_REGEX = /^[a-zA-Z0-9._/-]+$/;
@@ -98,6 +99,16 @@ export const createBranchesRouter = () => {
 
         return withGitLock(input.projectPath, async () => {
           const git = createGit(input.projectPath);
+
+          if (await hasOriginRemote(input.projectPath)) {
+            try {
+              const netGit = createGitForNetwork(input.projectPath);
+              await netGit.fetch('origin', input.baseBranch);
+            } catch (fetchError) {
+              const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+              console.warn(`[branches] Pre-create fetch of origin/${input.baseBranch} failed: ${msg}`);
+            }
+          }
 
           // Check if branch already exists
           const branchSummary = await git.branch(['-a']);
