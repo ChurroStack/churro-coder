@@ -6,7 +6,7 @@ import { join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import simpleGit from 'simple-git';
 import { adjectives, animals, uniqueNamesGenerator } from 'unique-names-generator';
-import { createGitForNetwork, withGitLock } from './git-factory';
+import { createGit, createGitForNetwork, withGitLock } from './git-factory';
 import { checkGitLfsAvailable, getShellEnvironment } from './shell-env';
 import { executeWorktreeSetup } from './worktree-config';
 import type { WorktreeSetupResult } from './worktree-config';
@@ -291,6 +291,29 @@ export async function hasOriginRemote(mainRepoPath: string): Promise<boolean> {
     const git = simpleGit(mainRepoPath);
     const remotes = await git.getRemotes();
     return remotes.some((r) => r.name === 'origin');
+  } catch {
+    return false;
+  }
+}
+
+export async function branchTracksOrigin(mainRepoPath: string, branch: string): Promise<boolean> {
+  try {
+    const git = createGit(mainRepoPath);
+    const upstream = (await git.raw(['rev-parse', '--abbrev-ref', `${branch}@{upstream}`])).trim();
+    return upstream === `origin/${branch}`;
+  } catch {
+    return false;
+  }
+}
+
+// Returns true when the local branch has no commits that origin/<branch>
+// doesn't already have — i.e. basing the worktree on origin/<branch> would
+// not silently drop any unpushed local commits.
+export async function localBranchNotAheadOfOrigin(mainRepoPath: string, branch: string): Promise<boolean> {
+  try {
+    const git = createGit(mainRepoPath);
+    const ahead = (await git.raw(['rev-list', '--count', `origin/${branch}..${branch}`])).trim();
+    return ahead === '0';
   } catch {
     return false;
   }
@@ -872,11 +895,13 @@ export async function createWorktreeForChat(
     // Use provided base branch or auto-detect
     const baseBranch = selectedBaseBranch || (await getDefaultBranch(projectPath));
 
+    const originPresent = await hasOriginRemote(projectPath);
+
     // Best-effort: refresh origin/<baseBranch> so the worktree is based on the
     // latest remote state. Skipped only when there is no origin remote. Never
     // blocks creation — failures (including local-only branches with no matching
     // remote ref) are logged and swallowed.
-    if (await hasOriginRemote(projectPath)) {
+    if (originPresent) {
       try {
         await withGitLock(projectPath, async () => {
           const netGit = createGitForNetwork(projectPath);
@@ -894,10 +919,23 @@ export async function createWorktreeForChat(
     const folderName = generateWorktreeFolderName(projectWorktreeDir);
     const worktreePath = join(projectWorktreeDir, folderName);
 
-    // Determine startPoint based on branch type
-    // For local branches, use the local ref directly
-    // For remote branches or when type is not specified, use origin/{branch}
-    const startPoint = branchType === 'local' ? baseBranch : `origin/${baseBranch}`;
+    // For remote selections we already use origin/<base>. For local selections,
+    // prefer origin/<base> only when (a) the local branch tracks it and (b) the
+    // local branch has no commits that origin/<base> is missing. The second
+    // check matters because a user may have unpushed work on their local base
+    // branch — silently rebasing the worktree onto origin/<base> would drop
+    // those commits. When local is ahead or diverged, we fall back to the
+    // local ref to preserve the user's work.
+    let startPoint: string;
+    if (branchType === 'local') {
+      const safeToUseOrigin =
+        originPresent &&
+        (await branchTracksOrigin(projectPath, baseBranch)) &&
+        (await localBranchNotAheadOfOrigin(projectPath, baseBranch));
+      startPoint = safeToUseOrigin ? `origin/${baseBranch}` : baseBranch;
+    } else {
+      startPoint = `origin/${baseBranch}`;
+    }
 
     await createWorktree(projectPath, branch, worktreePath, startPoint);
 

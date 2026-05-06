@@ -55,7 +55,19 @@ export function computeWorkflowState(i: WorkflowInputs): WorkflowState {
   const review = computeReview(i, code.status);
   const pr = computePr(i, code.status, review.status);
 
-  const order: MilestoneState[] = [plan, code, review, pr];
+  // When PR is amber-stale, it owns the primary action. The single `createPr`
+  // prompt handles commit+push+(maybe-create) end-to-end, so prompting the
+  // user toward "pushBranch" or "reviewLocal" first would just delay the same
+  // work. PR-stale beats Code/Review attention when "PR exists, but local
+  // has new work." Plan-attention always wins regardless — the user is still
+  // mid-planning and shouldn't be redirected to PR work.
+  const prIsStale =
+    plan.status !== 'attention' &&
+    pr.status === 'attention' &&
+    pr.actionKind === 'createPr' &&
+    (i.prState === 'open' || i.prState === 'merged');
+
+  const order: MilestoneState[] = prIsStale ? [pr, plan, code, review] : [plan, code, review, pr];
   const nextSource =
     order.find((m) => m.status === 'attention' && m.actionKind) ??
     order.find((m) => m.status === 'in_progress' && m.actionKind) ??
@@ -178,6 +190,21 @@ function computeReview(i: WorkflowInputs, codeStatus: MilestoneStatus): Mileston
   if (codeStatus !== 'done') {
     return { id: 'review', status: 'idle', label: 'Review', hint: 'Waiting on code' };
   }
+  // Stale-PR mirror: when a PR exists but the tree has new work, the previous
+  // review only covered what's already in the PR. Surface review as attention
+  // so the user re-reviews the delta locally before commit+push.
+  if (
+    (i.prState === 'open' || i.prState === 'merged') &&
+    (i.changedFilesCount > 0 || (i.hasUpstream && i.pushCount > 0))
+  ) {
+    return {
+      id: 'review',
+      status: 'attention',
+      label: 'Review',
+      hint: 'Review delta before pushing',
+      actionKind: 'reviewLocal'
+    };
+  }
   if (i.reviewDecision === 'changes_requested') {
     return {
       id: 'review',
@@ -235,6 +262,34 @@ function computePr(i: WorkflowInputs, codeStatus: MilestoneStatus, reviewStatus:
       label: 'PR',
       hint: 'No remote configured'
     };
+  }
+  // Stale PR: a PR exists (open or merged) but the local tree has new work
+  // that isn't yet in the PR. Surfacing as `done` would falsely imply the
+  // PR contains everything; surface as attention with the same `createPr`
+  // actionKind. The dispatch handler reuses the message pattern to commit+
+  // push instead of opening a duplicate PR (it's a no-op when the PR already
+  // exists).
+  //
+  // Note: pushCount is only meaningful with hasUpstream. Without an upstream
+  // we can't measure unpushed commits, so only consider changedFilesCount in
+  // that case. (hasRemote === false is filtered above.)
+  if (i.prState === 'open' || i.prState === 'merged') {
+    const hasUncommitted = i.changedFilesCount > 0;
+    const hasUnpushed = i.hasUpstream && i.pushCount > 0;
+    if (hasUncommitted || hasUnpushed) {
+      const prLabel = i.prState === 'merged' ? 'PR merged' : 'PR open';
+      let hint: string;
+      if (hasUncommitted && hasUnpushed) {
+        hint = `${prLabel} — commit & push pending`;
+      } else if (hasUncommitted) {
+        const fileWord = i.changedFilesCount === 1 ? 'file' : 'files';
+        hint = `${prLabel} — commit ${i.changedFilesCount} ${fileWord}`;
+      } else {
+        const commitWord = i.pushCount === 1 ? 'commit' : 'commits';
+        hint = `${prLabel} — push ${i.pushCount} ${commitWord}`;
+      }
+      return { id: 'pr', status: 'attention', label: 'PR', hint, actionKind: 'createPr' };
+    }
   }
   if (i.prState === 'merged') {
     return {

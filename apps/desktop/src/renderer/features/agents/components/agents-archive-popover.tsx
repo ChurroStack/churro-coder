@@ -18,6 +18,7 @@ import {
 import { trpc } from '../../../lib/trpc';
 import { archiveSearchQueryAtom } from '../../../lib/atoms';
 import { toast } from 'sonner';
+import { WorktreeDeletionWarning } from './worktree-deletion-warning';
 
 interface AgentsArchivePopoverProps {
   children: React.ReactNode;
@@ -34,7 +35,11 @@ export function AgentsArchivePopover({
 }: AgentsArchivePopoverProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useAtom(archiveSearchQueryAtom);
-  const [confirmDeleteChat, setConfirmDeleteChat] = useState<{ id: string; name: string | null } | null>(null);
+  const [confirmDeleteChat, setConfirmDeleteChat] = useState<{
+    id: string;
+    name: string | null;
+    worktreePath: string | null;
+  } | null>(null);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const open = controlledOpen ?? internalOpen;
@@ -175,6 +180,7 @@ export function AgentsArchivePopover({
               will be deleted forever. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <WorktreeDeletionWarning worktreePath={confirmDeleteChat?.worktreePath ?? null} />
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction

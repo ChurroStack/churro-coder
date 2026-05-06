@@ -142,7 +142,7 @@ describe('computeWorkflowState — code milestone', () => {
 
 describe('computeWorkflowState — review milestone', () => {
   test('prState: open → review done, pr done', () => {
-    const s = computeWorkflowState({ ...base, prState: 'open' });
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 0, pushCount: 0 });
     expect(s.review.status).toBe('done');
     expect(s.review.hint).toBe('PR open');
     expect(s.pr.status).toBe('done');
@@ -153,7 +153,13 @@ describe('computeWorkflowState — review milestone', () => {
   });
 
   test('prState: open + changes_requested → review attention, pr done', () => {
-    const s = computeWorkflowState({ ...base, prState: 'open', reviewDecision: 'changes_requested' });
+    const s = computeWorkflowState({
+      ...base,
+      prState: 'open',
+      reviewDecision: 'changes_requested',
+      changedFilesCount: 0,
+      pushCount: 0
+    });
     expect(s.review.status).toBe('attention');
     expect(s.review.actionKind).toBe('reviewPr');
     expect(s.review.hint).toBe('Changes requested on PR');
@@ -161,7 +167,7 @@ describe('computeWorkflowState — review milestone', () => {
   });
 
   test('prState: draft → review attention, pr info with draft hint', () => {
-    const s = computeWorkflowState({ ...base, prState: 'draft' });
+    const s = computeWorkflowState({ ...base, prState: 'draft', changedFilesCount: 0, pushCount: 0 });
     expect(s.review.status).toBe('attention');
     expect(s.review.actionKind).toBe('reviewPr');
     expect(s.pr.status).toBe('info');
@@ -169,7 +175,7 @@ describe('computeWorkflowState — review milestone', () => {
   });
 
   test('prState: merged → review done, pr done', () => {
-    const s = computeWorkflowState({ ...base, prState: 'merged' });
+    const s = computeWorkflowState({ ...base, prState: 'merged', changedFilesCount: 0, pushCount: 0 });
     expect(s.review.status).toBe('done');
     expect(s.review.hint).toBe('PR merged');
     expect(s.pr.status).toBe('done');
@@ -266,14 +272,101 @@ describe('computeWorkflowState — pr milestone', () => {
   });
 
   test('merged PR → openPr actionKind', () => {
-    const s = computeWorkflowState({ ...base, prState: 'merged' });
+    const s = computeWorkflowState({ ...base, prState: 'merged', changedFilesCount: 0, pushCount: 0 });
     expect(s.pr.actionKind).toBe('openPr');
   });
 
   test('open PR → done with openPr actionKind', () => {
-    const s = computeWorkflowState({ ...base, prState: 'open' });
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 0, pushCount: 0 });
     expect(s.pr.status).toBe('done');
     expect(s.pr.actionKind).toBe('openPr');
+  });
+});
+
+describe('computeWorkflowState — stale PR milestone', () => {
+  test('PR open + 2 uncommitted → attention createPr with plural commit hint', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 2, pushCount: 0 });
+    expect(s.pr.status).toBe('attention');
+    expect(s.pr.actionKind).toBe('createPr');
+    expect(s.pr.hint).toBe('PR open — commit 2 files');
+  });
+
+  test('PR open + 1 uncommitted → singular commit hint', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 1, pushCount: 0 });
+    expect(s.pr.hint).toBe('PR open — commit 1 file');
+  });
+
+  test('PR open + 3 unpushed → attention createPr with plural push hint', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 0, pushCount: 3 });
+    expect(s.pr.status).toBe('attention');
+    expect(s.pr.actionKind).toBe('createPr');
+    expect(s.pr.hint).toBe('PR open — push 3 commits');
+  });
+
+  test('PR open + 1 unpushed → singular push hint', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 0, pushCount: 1 });
+    expect(s.pr.hint).toBe('PR open — push 1 commit');
+  });
+
+  test('PR open + uncommitted + unpushed → combined hint', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 2, pushCount: 1 });
+    expect(s.pr.status).toBe('attention');
+    expect(s.pr.hint).toBe('PR open — commit & push pending');
+  });
+
+  test('PR merged + uncommitted → attention createPr', () => {
+    const s = computeWorkflowState({ ...base, prState: 'merged', changedFilesCount: 1, pushCount: 0 });
+    expect(s.pr.status).toBe('attention');
+    expect(s.pr.actionKind).toBe('createPr');
+    expect(s.pr.hint).toBe('PR merged — commit 1 file');
+  });
+
+  test('PR merged + clean tree → done', () => {
+    const s = computeWorkflowState({ ...base, prState: 'merged', changedFilesCount: 0, pushCount: 0 });
+    expect(s.pr.status).toBe('done');
+    expect(s.pr.hint).toBe('PR merged');
+  });
+
+  test('PR open + clean tree → done', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 0, pushCount: 0 });
+    expect(s.pr.status).toBe('done');
+    expect(s.pr.hint).toBe('PR open');
+  });
+
+  test('PR open + no remote → idle no-remote wins', () => {
+    const s = computeWorkflowState({
+      ...base,
+      prState: 'open',
+      hasRemote: false,
+      changedFilesCount: 2,
+      pushCount: 1
+    });
+    expect(s.pr.status).toBe('idle');
+    expect(s.pr.hint).toBe('No remote configured');
+  });
+
+  test('PR open + no upstream + pushCount only → pushCount ignored', () => {
+    const s = computeWorkflowState({
+      ...base,
+      prState: 'open',
+      hasUpstream: false,
+      changedFilesCount: 0,
+      pushCount: 5
+    });
+    expect(s.pr.status).toBe('done');
+    expect(s.pr.hint).toBe('PR open');
+  });
+
+  test('PR open + no upstream + uncommitted → attention from changed files', () => {
+    const s = computeWorkflowState({
+      ...base,
+      prState: 'open',
+      hasUpstream: false,
+      changedFilesCount: 2,
+      pushCount: 5
+    });
+    expect(s.pr.status).toBe('attention');
+    expect(s.pr.hint).toBe('PR open — commit 2 files');
   });
 });
 
@@ -330,12 +423,18 @@ describe('computeWorkflowState — next cascade', () => {
   });
 
   test('PR open → all done, next is null', () => {
-    const s = computeWorkflowState({ ...base, prState: 'open' });
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 0, pushCount: 0 });
     expect(s.next).toBeNull();
   });
 
   test('PR open + changes_requested → review wins next', () => {
-    const s = computeWorkflowState({ ...base, prState: 'open', reviewDecision: 'changes_requested' });
+    const s = computeWorkflowState({
+      ...base,
+      prState: 'open',
+      reviewDecision: 'changes_requested',
+      changedFilesCount: 0,
+      pushCount: 0
+    });
     expect(s.next?.actionKind).toBe('reviewPr');
     expect(s.next?.milestone).toBe('review');
   });
@@ -347,8 +446,41 @@ describe('computeWorkflowState — next cascade', () => {
       mode: 'plan',
       isStreaming: false,
       hasAiResponded: true,
-      prState: 'open'
+      prState: 'open',
+      changedFilesCount: 0,
+      pushCount: 0
     });
+    expect(s.next?.milestone).toBe('plan');
+    expect(s.next?.actionKind).toBe('expandPlan');
+  });
+
+  test('PR stale with unpushed commits wins next over code pushBranch', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 0, pushCount: 2 });
+    expect(s.next?.milestone).toBe('pr');
+    expect(s.next?.actionKind).toBe('createPr');
+  });
+
+  test('PR stale with uncommitted changes wins next over reviewLocal', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 1, pushCount: 0 });
+    expect(s.next?.milestone).toBe('pr');
+    expect(s.next?.actionKind).toBe('createPr');
+  });
+
+  test('plan attention beats PR-stale (plan mode with stale local edits)', () => {
+    // User is mid-planning AND happens to have uncommitted local edits with a
+    // PR open. Plan-attention must still own `next` — redirecting to PR work
+    // would skip plan approval. The cascade-reorder must NOT preempt plan.
+    const s = computeWorkflowState({
+      ...base,
+      mode: 'plan',
+      isStreaming: false,
+      hasAiResponded: true,
+      prState: 'open',
+      changedFilesCount: 1,
+      pushCount: 0
+    });
+    expect(s.plan.status).toBe('attention');
+    expect(s.pr.status).toBe('attention'); // PR still amber-stale
     expect(s.next?.milestone).toBe('plan');
     expect(s.next?.actionKind).toBe('expandPlan');
   });
@@ -356,5 +488,14 @@ describe('computeWorkflowState — next cascade', () => {
   test('next label comes from hint when hint is set', () => {
     const s = computeWorkflowState({ ...base, mode: 'plan', isStreaming: false, hasAiResponded: true });
     expect(s.next?.label).toBe('Plan ready — review and approve');
+  });
+});
+
+describe('computeWorkflowState — stale PR review mirror', () => {
+  test('PR open + uncommitted → review attention reviewLocal', () => {
+    const s = computeWorkflowState({ ...base, prState: 'open', changedFilesCount: 1, pushCount: 0 });
+    expect(s.review.status).toBe('attention');
+    expect(s.review.hint).toBe('Review delta before pushing');
+    expect(s.review.actionKind).toBe('reviewLocal');
   });
 });
