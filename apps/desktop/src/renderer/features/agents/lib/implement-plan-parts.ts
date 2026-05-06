@@ -20,12 +20,11 @@ export interface ApprovedPlanContent {
 }
 
 // Many models (especially Sonnet) skip TodoWrite for "single deliverable"
-// tasks even when the plan has many distinct steps. This instruction gives
-// the model a nudge to use task tracking, which makes the chat UI more
-// useful — the user can see the plan's structure as the agent executes
-// because the message stream has events to display.
+// tasks even when the plan has many distinct steps. This instruction nudges
+// the model toward native task tracking so the chat UI can show plan-step
+// execution without relying on MCP recovery paths.
 const IMPLEMENT_PLAN_TASK_TRACKING_INSTRUCTION =
-  'Track progress through each plan step using your task-management tool: ' +
+  'Track progress through each plan step using your built-in task-management tool: ' +
   "open a task list at the start and update each item's status " +
   '(pending → in_progress → completed) as you work.';
 
@@ -59,7 +58,10 @@ export function buildImplementPlanParts(plan: ApprovedPlanContent | null): unkno
   return [
     {
       type: 'text',
-      text: `${IMPLEMENT_PLAN_BASE_TEXT} Use the attached approved plan as the source of truth. The plan is also retrievable via the \`read_plan\` MCP tool (server: churro-coder) if this conversation is later compacted.`
+      text:
+        `${IMPLEMENT_PLAN_BASE_TEXT} Use the attached approved plan as the source of truth. ` +
+        'Only use the `read_plan` MCP tool (server: churro-coder) if you need to recover this approved plan ' +
+        'later after compaction, a provider switch, or a fresh session.'
     },
     {
       type: 'file-content',

@@ -53,7 +53,11 @@ describe('http-transport', () => {
     const res = await fetch(url, { method: 'POST', body: '{}' });
     expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body.error).toBe('Unauthorized');
+    expect(body).toMatchObject({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Unauthorized' },
+      id: null
+    });
   });
 
   test('rejects request with wrong bearer (401)', async () => {
@@ -64,6 +68,12 @@ describe('http-transport', () => {
       body: '{}'
     });
     expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Unauthorized' },
+      id: null
+    });
   });
 
   test('rejects body larger than 1 MiB (413)', async () => {
@@ -79,7 +89,11 @@ describe('http-transport', () => {
     });
     expect(res.status).toBe(413);
     const body = await res.json();
-    expect(body.error).toBe('Payload too large');
+    expect(body).toMatchObject({
+      jsonrpc: '2.0',
+      error: { code: -32002, message: 'Payload too large' },
+      id: null
+    });
   });
 
   test('end-to-end: MCP client over HTTP can call read_plan', async () => {

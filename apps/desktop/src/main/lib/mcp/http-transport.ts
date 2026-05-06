@@ -58,14 +58,20 @@ async function persistState(port: number, bearer: string): Promise<void> {
   await writeFile(getMcpStatePath(), JSON.stringify({ port, bearer }), 'utf8');
 }
 
-function send500(res: http.ServerResponse, message: string): void {
+function sendJsonRpcError(
+  res: http.ServerResponse,
+  statusCode: number,
+  code: number,
+  message: string,
+  id: string | number | null = null
+): void {
   if (res.headersSent) return;
-  res.writeHead(500, { 'Content-Type': 'application/json' });
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(
     JSON.stringify({
       jsonrpc: '2.0',
-      error: { code: -32603, message },
-      id: null
+      error: { code, message },
+      id
     })
   );
 }
@@ -82,17 +88,13 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
 
   const server = http.createServer(async (req, res) => {
     req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      if (!res.headersSent) {
-        res.writeHead(408, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Request timeout' }));
-      }
+      sendJsonRpcError(res, 408, -32001, 'Request timeout');
     });
 
     // Simple bearer-token auth check
     const authHeader = req.headers['authorization'] ?? '';
     if (authHeader !== `Bearer ${bearer}`) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      sendJsonRpcError(res, 401, -32001, 'Unauthorized');
       return;
     }
 
@@ -106,14 +108,13 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
           const buf = chunk as Buffer;
           total += buf.length;
           if (total > MAX_BODY_BYTES) {
-            res.writeHead(413, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Payload too large' }));
+            sendJsonRpcError(res, 413, -32002, 'Payload too large');
             return;
           }
           chunks.push(buf);
         }
       } catch (err) {
-        send500(res, `Body read failed: ${(err as Error).message}`);
+        sendJsonRpcError(res, 500, -32603, `Body read failed: ${(err as Error).message}`);
         return;
       }
       try {
@@ -138,7 +139,7 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
       await transport.handleRequest(req, res, body);
     } catch (err) {
       console.error('[churro-coder] Error handling MCP request:', err);
-      send500(res, 'Internal server error');
+      sendJsonRpcError(res, 500, -32603, 'Internal server error');
     }
   });
 

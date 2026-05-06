@@ -29,6 +29,9 @@ import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-codex-plan';
 import { initMcpHttpServer } from '../../mcp/http-transport';
 import { recordChatEvent } from '../../chat-event-buffer';
+import { resolveAppOwnedMcpHeaders, shouldRemoveStaleAppOwnedMcpEntry } from '../codex-mcp-auth';
+import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from '../codex-mode-prompts';
+import { createTaskListPartFromPlan } from '../codex-plan-task-part';
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
@@ -594,7 +597,10 @@ function resolveCodexStdioEnv(transport: CodexMcpListEntry['transport']): Record
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
-function resolveCodexHttpHeaders(transport: CodexMcpListEntry['transport']): Record<string, string> | undefined {
+function resolveCodexHttpHeaders(
+  serverName: string,
+  transport: CodexMcpListEntry['transport']
+): Record<string, string> | undefined {
   const merged: Record<string, string> = {};
 
   if (transport.http_headers) {
@@ -623,7 +629,11 @@ function resolveCodexHttpHeaders(transport: CodexMcpListEntry['transport']): Rec
     }
   }
 
-  return Object.keys(merged).length > 0 ? merged : undefined;
+  return resolveAppOwnedMcpHeaders({
+    serverName,
+    serverUrl: transport.url,
+    headers: Object.keys(merged).length > 0 ? merged : undefined
+  });
 }
 
 function normalizeCodexTools(tools: McpToolInfo[]): McpToolInfo[] {
@@ -715,7 +725,7 @@ async function resolveCodexMcpSnapshot(params: {
       const authState = getCodexMcpAuthState(entry.auth_status);
       const includeInSession = entry.enabled;
       const resolvedStdioEnv = resolveCodexStdioEnv(entry.transport);
-      const resolvedHttpHeaders = resolveCodexHttpHeaders(entry.transport);
+      const resolvedHttpHeaders = resolveCodexHttpHeaders(entry.name, entry.transport);
       let status: CodexMcpServerForSettings['status'] = !entry.enabled
         ? 'failed'
         : authState.needsAuth
@@ -1982,11 +1992,20 @@ function handleItemStarted(accumulator: AppServerTurnAccumulator, item: any) {
 
   if (itemType === 'plan') {
     const text = typeof item.text === 'string' ? item.text : '';
-    const part = createPlanWritePartFromPlan({
-      itemId: getAppServerItemId(item),
-      prompt: accumulator.prompt,
-      text
-    });
+    const itemId = getAppServerItemId(item);
+    const part =
+      accumulator.mode === 'agent'
+        ? createTaskListPartFromPlan({
+            itemId,
+            text,
+            plan: item.plan
+          })
+        : createPlanWritePartFromPlan({
+            itemId,
+            prompt: accumulator.prompt,
+            text,
+            plan: item.plan
+          });
     emitToolStart(accumulator, part, part.input);
     updateToolOutput(accumulator, part.toolCallId, part.output);
   }
@@ -2076,11 +2095,19 @@ function handleItemCompleted(accumulator: AppServerTurnAccumulator, item: any) {
   }
 
   if (itemType === 'plan') {
-    const part = createPlanWritePartFromPlan({
-      itemId,
-      prompt: accumulator.prompt,
-      text: typeof item.text === 'string' ? item.text : ''
-    });
+    const part =
+      accumulator.mode === 'agent'
+        ? createTaskListPartFromPlan({
+            itemId,
+            text: typeof item.text === 'string' ? item.text : '',
+            plan: item.plan
+          })
+        : createPlanWritePartFromPlan({
+            itemId,
+            prompt: accumulator.prompt,
+            text: typeof item.text === 'string' ? item.text : '',
+            plan: item.plan
+          });
     if (!accumulator.toolPartsByItemId.has(itemId)) {
       emitToolStart(accumulator, part, part.input);
     }
@@ -2106,12 +2133,19 @@ function handlePlanUpdated(accumulator: AppServerTurnAccumulator, params: any) {
   const itemId =
     getStringField(params, ['itemId', 'item_id']) || `codex-plan-${getAppServerTurnId(params) || crypto.randomUUID()}`;
   const existing = accumulator.toolPartsByItemId.get(itemId);
-  const part = createPlanWritePartFromPlan({
-    itemId,
-    prompt: accumulator.prompt,
-    text: typeof params?.explanation === 'string' ? params.explanation : '',
-    plan
-  });
+  const part =
+    accumulator.mode === 'agent'
+      ? createTaskListPartFromPlan({
+          itemId,
+          text: typeof params?.explanation === 'string' ? params.explanation : '',
+          plan
+        })
+      : createPlanWritePartFromPlan({
+          itemId,
+          prompt: accumulator.prompt,
+          text: typeof params?.explanation === 'string' ? params.explanation : '',
+          plan
+        });
 
   if (!existing) {
     emitToolStart(accumulator, part, part.input);
@@ -2477,12 +2511,14 @@ export async function bootstrapChurroCoderMcp(): Promise<void> {
     return;
   }
 
-  // Clean up legacy entries from prior versions of this branch (server was renamed
-  // from churro-memory → churro-coder). Safe no-op if absent.
+  // Clean up legacy/stale app-owned entries. Codex app-server reads global MCP
+  // config itself, so a stale churro-coder entry can still be loaded even when
+  // this app registered the current dev/prod entry correctly.
   if (Array.isArray(existing)) {
-    for (const legacyName of ['churro-memory', 'churro-memory-dev']) {
-      if (existing.some((s: any) => s.name === legacyName)) {
-        await runCodexCli(['mcp', 'remove', legacyName]).catch(() => {});
+    for (const server of existing) {
+      const name = typeof server?.name === 'string' ? server.name : '';
+      if (name && shouldRemoveStaleAppOwnedMcpEntry(name, serverName)) {
+        await runCodexCli(['mcp', 'remove', name]).catch(() => {});
       }
     }
   }
@@ -2854,6 +2890,13 @@ export const codexRouter = router({
               return () => {};
             }
 
+            const abortController = new AbortController();
+            activeStreams.set(input.subChatId, {
+              runId: input.runId,
+              controller: abortController,
+              cancelRequested: false
+            });
+
             recordChatEvent({
               ts: Date.now(),
               phase: 'dispatch',
@@ -2865,13 +2908,6 @@ export const codexRouter = router({
 
             void Sentry.withActiveSpan(span, async () => {
               Sentry.logger.info(`stream start sub=${input.subChatId.slice(-8)}`, logAttributes());
-            });
-
-            const abortController = new AbortController();
-            activeStreams.set(input.subChatId, {
-              runId: input.runId,
-              controller: abortController,
-              cancelRequested: false
             });
 
             let isActive = true;
@@ -3008,28 +3044,10 @@ export const codexRouter = router({
 
                 const startedAt = Date.now();
                 const catchup = computeCatchupBlock(messagesForStream, 'codex');
-                const planInstruction =
-                  input.mode === 'plan'
-                    ? [
-                        '[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.',
-                        'Read the codebase as needed using read-only tools.',
-                        'If any high-impact requirement is ambiguous and cannot be resolved from the repository, call AskUserQuestion with concise multiple-choice follow-up questions before planning.',
-                        'A plan-mode turn is incomplete until PlanWrite succeeds. Do not stop after inspection or status text.',
-                        'When no clarification is needed, immediately call PlanWrite in this same turn.',
-                        'Call PlanWrite exactly once with action "create" and plan.status "awaiting_approval".',
-                        'PlanWrite input must include a concrete task-specific plan with title, summary, and pending steps. Include step descriptions and files when useful.',
-                        'Do not write the final plan as plain text only, do not call PlanWrite more than once, and do not restate the plan after PlanWrite.',
-                        "After PlanWrite, stop and wait for the user's approval before implementing anything."
-                      ].join('\n')
-                    : '[AGENT MODE] You are in implementation mode. Implement changes directly using your available tools. Do not call PlanWrite and do not create a new plan — the plan has already been approved. Execute each step now.';
+                const planInstruction = buildCodexModeInstruction(input.mode);
                 const subChatPlanHint =
                   input.mode === 'agent' && (await hasPlan(input.subChatId))
-                    ? [
-                        `[CONTEXT] Sub-chat id: ${input.subChatId}.`,
-                        `An approved plan governs this sub-chat. To retrieve it, call the \`read_plan\` MCP tool`,
-                        `on the \`churro-coder\` server with EXACTLY this argument: { "subChatId": "${input.subChatId}" }.`,
-                        `The subChatId argument is required — do not call read_plan without it.`
-                      ].join(' ')
+                    ? buildCodexApprovedPlanHint(input.subChatId)
                     : '';
                 const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
                   .filter((segment): segment is string => Boolean(segment))
@@ -3150,8 +3168,8 @@ export const codexRouter = router({
                 if (activeStream?.runId === input.runId) {
                   activeStream.threadId = threadId;
                 }
-                span.setAttribute('session_id', threadId);
                 resolvedSessionId = threadId;
+                span.setAttribute('session_id', threadId);
                 recordChatEvent({
                   ts: Date.now(),
                   phase: 'session-resolved',
@@ -3182,7 +3200,22 @@ export const codexRouter = router({
                 const builtInTools =
                   input.mode === 'plan'
                     ? ['Read', 'Glob', 'Grep', 'Thinking', 'PlanWrite', 'AskUserQuestion']
-                    : ['Bash', 'Edit', 'Write', 'Read', 'Glob', 'Grep', 'Thinking', 'WebSearch', 'WebFetch'];
+                    : [
+                        'Bash',
+                        'Edit',
+                        'Write',
+                        'Read',
+                        'Glob',
+                        'Grep',
+                        'Thinking',
+                        'WebSearch',
+                        'WebFetch',
+                        'TaskCreate',
+                        'TaskUpdate',
+                        'TaskGet',
+                        'TaskList',
+                        'AskUserQuestion'
+                      ];
                 safeEmit({
                   type: 'session-init',
                   tools: [...builtInTools, ...mcpTools],
