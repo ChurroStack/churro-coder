@@ -24,7 +24,7 @@ export function SelectRepoPage() {
       if (project) {
         // Optimistically update the projects list cache
         utils.projects.list.setData(undefined, (oldData) => {
-          if (!oldData) return [project];
+          if (!Array.isArray(oldData)) return [project];
           const exists = oldData.some((p) => p.id === project.id);
           if (exists) {
             return oldData.map((p) => (p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p));
@@ -50,7 +50,7 @@ export function SelectRepoPage() {
     onSuccess: (project) => {
       if (project) {
         utils.projects.list.setData(undefined, (oldData) => {
-          if (!oldData) return [project];
+          if (!Array.isArray(oldData)) return [project];
           const exists = oldData.some((p) => p.id === project.id);
           if (exists) {
             return oldData.map((p) => (p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p));
