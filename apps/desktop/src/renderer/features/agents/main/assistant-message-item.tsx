@@ -14,7 +14,7 @@ import {
 import { CollapseIcon, ExpandIcon, PlanIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { cn } from '../../../lib/utils';
-import { selectedProjectAtom, showMessageJsonAtom } from '../atoms';
+import { selectedProjectAtom, showMessageJsonAtom, subChatModeAtomFamily } from '../atoms';
 import { MessageJsonDisplay } from '../ui/message-json-display';
 import { AgentAskUserQuestionTool } from '../ui/agent-ask-user-question-tool';
 import { AgentBashTool } from '../ui/agent-bash-tool';
@@ -457,6 +457,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   const showMessageJson = useAtomValue(showMessageJsonAtom);
   const selectedProject = useAtomValue(selectedProjectAtom);
   const projectPath = selectedProject?.path;
+  const subChatMode = useAtomValue(useMemo(() => subChatModeAtomFamily(subChatId), [subChatId]));
   const onOpenFile = useFileOpen();
   const onFork = useContext(ForkContext);
   const isDev = import.meta.env.DEV;
@@ -760,8 +761,12 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
         return <AgentWebSearchCollapsible key={idx} part={part} chatStatus={status} />;
       if (part.type === 'tool-WebFetch') return <AgentWebFetchTool key={idx} part={part} chatStatus={status} />;
       if (part.type === 'tool-PlanWrite') {
+        // In agent mode, PlanWrite should never be called — but if it is (e.g. a
+        // model ignoring the instruction), render it as a plain tool call rather
+        // than the full plan card so the UI doesn't look like plan mode.
+        const isAgentMode = subChatMode === 'agent';
         const hasRenderablePlan = Boolean(getPlanFromPlanWritePart(part));
-        if (!hasRenderablePlan) {
+        if (!hasRenderablePlan || isAgentMode) {
           const meta = AgentToolRegistry[part.type];
           const { isPending, isError } = getToolStatus(part, status);
           return (
@@ -972,7 +977,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
         {/* Show plan card after finalParts if any plan operation was in collapsed steps */}
         {shouldCollapse &&
           lastCollapsedPlanOp &&
-          (lastCollapsedPlanOp.type === 'planwrite' ? (
+          (lastCollapsedPlanOp.type === 'planwrite' && subChatMode !== 'agent' ? (
             <AgentPlanTool part={lastCollapsedPlanOp.part} chatStatus={status} subChatId={subChatId} />
           ) : (
             <AgentPlanFileTool

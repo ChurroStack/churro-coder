@@ -105,6 +105,8 @@ function getSelectedCodexModel(subChatId: string): string {
 }
 
 export class CodexChatTransport implements ChatTransport<UIMessage> {
+  private currentRunId: string | null = null;
+
   constructor(private config: CodexChatTransportConfig) {}
 
   async sendMessages(options: {
@@ -131,9 +133,11 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
         `selectedModel=${selectedModel}`
     );
 
+    const runId = crypto.randomUUID();
+    this.currentRunId = runId;
+
     return new ReadableStream({
       start: (controller) => {
-        const runId = crypto.randomUUID();
         let sub: { unsubscribe: () => void } | null = null;
         let didUnsubscribe = false;
         let forcedUnsubscribeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -356,9 +360,14 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
   }
 
   cleanup(): void {
-    void trpcClient.codex.cleanup.mutate({ subChatId: this.config.subChatId }).catch(() => {
-      // No-op
-    });
+    void trpcClient.codex.cleanup
+      .mutate({
+        subChatId: this.config.subChatId,
+        ...(this.currentRunId ? { runId: this.currentRunId } : {})
+      })
+      .catch(() => {
+        // No-op
+      });
   }
 
   private extractText(message: UIMessage | undefined): string {
