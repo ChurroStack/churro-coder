@@ -768,11 +768,14 @@ export const claudeRouter = router({
     )
     .subscription(({ input }) => {
       return observable<UIMessageChunk>((emit) => {
-        // Abort any existing session for this subChatId before starting a new one
-        // This prevents race conditions if two messages are sent in quick succession
+        // If a live stream already exists for this subChatId, do NOT abort it —
+        // return an empty observable instead. This makes tab-switching a no-op
+        // at the backend level, so in-flight streams survive workspace switches.
         const existingController = activeSessions.get(input.subChatId);
-        if (existingController) {
-          existingController.abort();
+        if (existingController && !existingController.signal.aborted) {
+          console.log(`[SD] M:SKIP_DUPLICATE_START sub=${input.subChatId.slice(-8)} reason=already_active`);
+          emit.complete();
+          return () => {};
         }
 
         const abortController = new AbortController();
@@ -786,6 +789,7 @@ export const claudeRouter = router({
         let lastChunkType = '';
         // Shared sessionId for cleanup to save on abort
         let currentSessionId: string | null = null;
+        let sessionIdPersisted = false;
         console.log(
           `[SD] M:START sub=${subId} stream=${streamId.slice(-8)} mode=${input.mode} session=${input.sessionId?.slice(-8) ?? 'none'}`
         );
@@ -2251,6 +2255,15 @@ ${prompt}
                   if (msgAny.session_id) {
                     metadata.sessionId = msgAny.session_id;
                     currentSessionId = msgAny.session_id; // Share with cleanup
+                    // Persist on first arrival so an abort before stream completion
+                    // still leaves a resumable sessionId in the DB.
+                    if (!sessionIdPersisted) {
+                      db.update(subChats)
+                        .set({ sessionId: msgAny.session_id })
+                        .where(eq(subChats.id, input.subChatId))
+                        .run();
+                      sessionIdPersisted = true;
+                    }
                   }
 
                   // Track UUID from assistant messages for resumeSessionAt

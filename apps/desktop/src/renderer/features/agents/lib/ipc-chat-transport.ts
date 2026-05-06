@@ -28,6 +28,8 @@ import {
 import { setSubChatModel } from './model-switching';
 import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
 import type { AgentMessageMetadata } from '../ui/agent-message-usage';
+import { useStreamingStatusStore } from '../stores/streaming-status-store';
+import { agentChatStore } from '../stores/agent-chat-store';
 
 // Error categories and their user-friendly messages
 const ERROR_TOAST_CONFIG: Record<
@@ -190,6 +192,14 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
       `[SD] R:START sub=${subId} cwd=${this.config.cwd} projectPath=${this.config.projectPath || '(not set)'} customConfig=${customConfig ? 'set' : 'not set'}`
     );
 
+    // Guard: if a stream is already live for this subChatId, skip the subscribe.
+    // The backend has the same guard (M:SKIP_DUPLICATE_START), but this avoids
+    // the IPC round-trip entirely. isStreaming covers both 'streaming' and 'submitted'.
+    if (useStreamingStatusStore.getState().isStreaming(this.config.subChatId)) {
+      console.log(`[SD] R:SKIP_DUPLICATE_START sub=${subId} reason=already_streaming`);
+      return new ReadableStream({ start: (controller) => controller.close() });
+    }
+
     return new ReadableStream({
       start: (controller) => {
         const sub = trpcClient.claude.chat.subscribe(
@@ -347,6 +357,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 // the SDK Chat properly resets status from "streaming" to "ready"
                 // This allows user to retry sending messages after failed auth
                 console.log(`[SD] R:AUTH_ERR sub=${subId}`);
+                agentChatStore.setStreamId(this.config.subChatId, null);
                 controller.error(new Error('Authentication required'));
                 return;
               }
@@ -464,7 +475,9 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               console.log(`[SD] R:ERROR sub=${subId} n=${chunkCount} last=${lastChunkType} err=${err.message}`);
               // Log transport errors
               console.error('[Transport] Error:', err, {});
-
+              // Clear stale streamId so a re-mounted Chat doesn't misread a
+              // dead streamId as "stream still alive — resume it".
+              agentChatStore.setStreamId(this.config.subChatId, null);
               controller.error(err);
             },
             onComplete: () => {

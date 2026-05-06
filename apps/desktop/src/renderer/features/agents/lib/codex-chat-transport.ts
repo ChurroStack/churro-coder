@@ -21,6 +21,8 @@ import {
 } from '../atoms';
 import { CODEX_MODELS, type CodexThinkingLevel } from './models';
 import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
+import { useStreamingStatusStore } from '../stores/streaming-status-store';
+import { agentChatStore } from '../stores/agent-chat-store';
 
 type UIMessageChunk = any;
 
@@ -132,6 +134,14 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
         `provider=codex mode=${currentMode} ` +
         `selectedModel=${selectedModel}`
     );
+
+    const subId = this.config.subChatId.slice(-8);
+
+    // Guard: if a stream is already live for this subChatId, skip the subscribe.
+    if (useStreamingStatusStore.getState().isStreaming(this.config.subChatId)) {
+      console.log(`[SD] R:SKIP_DUPLICATE_START sub=${subId} reason=already_streaming`);
+      return new ReadableStream({ start: (controller) => controller.close() });
+    }
 
     const runId = crypto.randomUUID();
     this.currentRunId = runId;
@@ -276,6 +286,7 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
                 });
 
                 // Force stream status reset so retry can start once auth succeeds.
+                agentChatStore.setStreamId(this.config.subChatId, null);
                 controller.error(new Error('Codex authentication required'));
                 return;
               }
@@ -304,6 +315,8 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               toast.error('Codex request failed', {
                 description: error.message
               });
+              // Clear stale streamId so a re-mounted Chat doesn't misread it as alive.
+              agentChatStore.setStreamId(this.config.subChatId, null);
               controller.error(error);
               safeUnsubscribe();
             },
