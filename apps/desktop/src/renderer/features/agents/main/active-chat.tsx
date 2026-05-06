@@ -212,6 +212,7 @@ import { AgentToolRegistry } from '../ui/agent-tool-registry';
 import { isPlanFile } from '../ui/agent-tool-utils';
 import { AgentUserMessageBubble } from '../ui/agent-user-message-bubble';
 import { AgentUserQuestion, type AgentUserQuestionHandle } from '../ui/agent-user-question';
+import { WorktreeDeletionWarning } from '../components/worktree-deletion-warning';
 // AgentsHeaderControls (the open-sidebar toggle) lives in the dockview group
 // left actions now — see [dock-header-left-actions.tsx].
 import { ChatTitleEditor } from '../ui/chat-title-editor';
@@ -6586,6 +6587,7 @@ Make sure to preserve all functionality from both branches when resolving confli
               onOpenChange={setConfirmDeleteWorkspaceOpen}
               title="Delete Workspace"
               description="Delete this archived workspace? This removes the workspace and its worktree permanently and cannot be undone."
+              warning={<WorktreeDeletionWarning worktreePath={worktreePath} />}
               onConfirm={handleConfirmDeleteWorkspace}
               isDeleting={deleteWorkspaceMutation.isPending}
             />

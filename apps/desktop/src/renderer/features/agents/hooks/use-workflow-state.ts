@@ -288,14 +288,29 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
           break;
         }
 
-        case 'createPr':
+        case 'createPr': {
           setPrCreating(true);
-          setPendingPrMessage({
-            message:
-              'Create a pull request for the current branch. Push any unpushed commits first, then open a PR with a clear title and a summary of the changes in the description.',
-            subChatId
-          });
+          // Reuse `createPr` even when a PR already exists: the user intent is
+          // still "get my latest work into the PR" and the prompt handles both paths.
+          const message = [
+            'Bring the current branch into a clean state and ensure a PR exists.',
+            '',
+            'Steps:',
+            '1. Run `git status --short` to see uncommitted files.',
+            '2. If there are uncommitted changes:',
+            '   - Run `git diff` (and `git diff --cached`) to understand what changed.',
+            '   - Stage all changes with `git add -A`.',
+            '   - Commit with a clear, concise message (under 80 chars subject; body if needed).',
+            '3. Run `git status -sb` to confirm the tree is clean and check ahead/behind.',
+            '4. If there are unpushed commits, run `git push` (use `git push -u origin HEAD` if there is no upstream).',
+            '5. Check whether a PR already exists for this branch (`gh pr view --json number,state,url 2>/dev/null`, or the `az repos pr list` equivalent for Azure DevOps).',
+            '   - If a PR already exists (open or merged): do NOT create a duplicate. Report the PR URL and stop.',
+            `   - If no PR exists: create one with \`gh pr create --base ${baseBranch}\` (or the Azure DevOps equivalent). Title under 80 chars; description under five sentences.`,
+            '6. If any step fails, stop and ask the user for help — do not proceed with later steps.'
+          ].join('\n');
+          setPendingPrMessage({ message, subChatId });
           break;
+        }
 
         case 'openPr':
           if (prUrl) {

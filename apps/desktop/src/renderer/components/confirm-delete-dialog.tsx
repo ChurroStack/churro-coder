@@ -15,6 +15,7 @@ interface ConfirmDeleteDialogProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   description: React.ReactNode;
+  warning?: React.ReactNode;
   confirmLabel?: string;
   onConfirm: () => void;
   isDeleting?: boolean;
@@ -25,6 +26,7 @@ export function ConfirmDeleteDialog({
   onOpenChange,
   title,
   description,
+  warning,
   confirmLabel = 'Delete',
   onConfirm,
   isDeleting = false
@@ -37,6 +39,7 @@ export function ConfirmDeleteDialog({
         </AlertDialogHeader>
         <AlertDialogBody>
           <AlertDialogDescription>{description}</AlertDialogDescription>
+          {warning}
         </AlertDialogBody>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
