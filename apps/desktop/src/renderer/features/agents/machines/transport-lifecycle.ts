@@ -59,10 +59,12 @@ export interface TransportInput {
  * 2. Existing chat is remote → KEEP (remote sandbox transports are pinned)
  * 3. Stale runtime + idle (no stream, no queue) → RECREATE("stale-runtime")
  * 4. Provider matches → KEEP (cross-provider not needed)
- * 5. Provider mismatch + has messages → KEEP (preserve in-flight events; the
- *    plan-approval flow handles cross-provider recreates explicitly via
- *    `decidePlanApprovalCrossProviderRecreate`, not via `getOrCreateChat`)
- * 6. Provider mismatch + no messages → RECREATE("cross-provider-empty")
+ * 5. Provider mismatch + has messages / live work → KEEP (preserve in-flight
+ *    events and don't tear down active/queued chats during workspace-switch
+ *    races; the plan-approval flow handles cross-provider recreates
+ *    explicitly via `decidePlanApprovalCrossProviderRecreate`, not via
+ *    `getOrCreateChat`)
+ * 6. Provider mismatch + no messages + idle → RECREATE("cross-provider-empty")
  *
  * The order matches the imperative branches in `getOrCreateChat` so behavior
  * is preserved verbatim. Future reordering must be backed by a test that
@@ -94,10 +96,11 @@ export function decideTransportAction(input: TransportInput): TransportAction {
     return { kind: 'keep' };
   }
 
-  // Provider mismatch with existing messages: keep the transport so in-flight
-  // tool events (TodoWrite, Task, etc.) aren't orphaned. Cross-provider
-  // recreate during plan approval goes through a different path.
-  if (input.hasMessages) {
+  // Provider mismatch: keep the transport if we already have messages or if
+  // the chat is mid-stream / has queued work. Workspace switches can
+  // transiently mis-infer the provider before the new parent's sub-chat data
+  // is available; tearing down here would drop the live Codex stream.
+  if (input.hasMessages || input.isStreaming || input.hasQueue) {
     return { kind: 'keep' };
   }
 

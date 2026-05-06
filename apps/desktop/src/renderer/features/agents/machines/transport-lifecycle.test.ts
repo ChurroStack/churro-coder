@@ -119,6 +119,30 @@ describe('decideTransportAction — cross-provider (PR #44 regression)', () => {
       expect(result.provider).toBe('codex');
     }
   });
+
+  test('cross-provider, no messages, streaming → KEEP (workspace-switch race)', () => {
+    const result = decideTransportAction(
+      withInput({
+        existingProvider: 'codex',
+        targetProvider: 'claude-code',
+        hasMessages: false,
+        isStreaming: true
+      })
+    );
+    expect(result).toEqual({ kind: 'keep' });
+  });
+
+  test('cross-provider, no messages, queued → KEEP (do not drop queue)', () => {
+    const result = decideTransportAction(
+      withInput({
+        existingProvider: 'codex',
+        targetProvider: 'claude-code',
+        hasMessages: false,
+        hasQueue: true
+      })
+    );
+    expect(result).toEqual({ kind: 'keep' });
+  });
 });
 
 describe('decideTransportAction — rule precedence', () => {

@@ -1069,10 +1069,20 @@ export const ChatViewInner = memo(function ChatViewInner({
     if (status !== 'ready') return;
     if (persistedMessageCount === 0 || messages.length >= persistedMessageCount) return;
     if (lastPersistedHydrationRef.current === persistedHydrationSignature) return;
-    console.log(`[SD] R:HYDRATE sub=${subChatId.slice(-8)} runtime=${messages.length} persisted=${persistedMessageCount}`);
+    console.log(
+      `[SD] R:HYDRATE sub=${subChatId.slice(-8)} runtime=${messages.length} persisted=${persistedMessageCount}`
+    );
     lastPersistedHydrationRef.current = persistedHydrationSignature;
     setMessages(persistedMessages);
-  }, [messages.length, persistedHydrationSignature, persistedMessageCount, persistedMessages, setMessages, status, subChatId]);
+  }, [
+    messages.length,
+    persistedHydrationSignature,
+    persistedMessageCount,
+    persistedMessages,
+    setMessages,
+    status,
+    subChatId
+  ]);
 
   // Refs for useChat functions to keep callbacks stable across renders
   const sendMessageRef = useRef(sendMessage);
@@ -3630,9 +3640,13 @@ export function ChatView({
   const [selectedTeamId] = useAtom(selectedTeamIdAtom);
 
   useEffect(() => {
-    console.log(`[SD] R:CHATVIEW_MOUNT chat=${chatId.slice(-8)} override=${subChatIdOverride?.slice(-8) ?? 'none'} dockActive=${dockWorkspaceActive} panelVisible=${dockPanelVisible}`);
+    console.log(
+      `[SD] R:CHATVIEW_MOUNT chat=${chatId.slice(-8)} override=${subChatIdOverride?.slice(-8) ?? 'none'} dockActive=${dockWorkspaceActive} panelVisible=${dockPanelVisible}`
+    );
     return () => {
-      console.log(`[SD] R:CHATVIEW_UNMOUNT chat=${chatId.slice(-8)} override=${subChatIdOverride?.slice(-8) ?? 'none'}`);
+      console.log(
+        `[SD] R:CHATVIEW_UNMOUNT chat=${chatId.slice(-8)} override=${subChatIdOverride?.slice(-8) ?? 'none'}`
+      );
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -5345,7 +5359,9 @@ Make sure to preserve all functionality from both branches when resolving confli
     const currentSelectedChatId = appStore.get(selectedAgentChatIdAtom);
     const subId = subChatId.slice(-8);
     if (!currentSelectedChatId || currentSelectedChatId === parentChatId) {
-      console.log(`[SD] R:PRUNE_SKIP sub=${subId} reason=viewing_parent currentSelected=${currentSelectedChatId?.slice(-8) ?? 'null'} parent=${parentChatId.slice(-8)}`);
+      console.log(
+        `[SD] R:PRUNE_SKIP sub=${subId} reason=viewing_parent currentSelected=${currentSelectedChatId?.slice(-8) ?? 'null'} parent=${parentChatId.slice(-8)}`
+      );
       return;
     }
     if (useStreamingStatusStore.getState().isStreaming(subChatId)) {
@@ -5437,7 +5453,9 @@ Make sure to preserve all functionality from both branches when resolving confli
           transportFactoryDeps
         );
         const reason = result.action.kind === 'recreate' ? `:${(result.action as any).reason}` : '';
-        console.log(`[SD] R:GETORCREATE sub=${subChatId.slice(-8)} action=${result.action.kind}${reason} provider=${targetProvider}`);
+        console.log(
+          `[SD] R:GETORCREATE sub=${subChatId.slice(-8)} action=${result.action.kind}${reason} provider=${targetProvider}`
+        );
         if (result.action.kind !== 'keep') {
           forceUpdate({});
         }
