@@ -322,14 +322,14 @@ export function AgentsLayout() {
     // While loading, trust localStorage value to prevent flicker and clearing
     if (isLoadingProjects) return selectedProject;
     // After loading, validate against DB
-    if (!projects) return null;
+    if (!Array.isArray(projects)) return null;
     const exists = projects.some((p) => p.id === selectedProject.id);
     return exists ? selectedProject : null;
   }, [selectedProject, projects, isLoadingProjects]);
 
   // Clear invalid project from storage (only after loading completes)
   useEffect(() => {
-    if (selectedProject && projects && !isLoadingProjects && !validatedProject) {
+    if (selectedProject && Array.isArray(projects) && !isLoadingProjects && !validatedProject) {
       setSelectedProject(null);
     }
   }, [selectedProject, projects, isLoadingProjects, validatedProject, setSelectedProject]);
