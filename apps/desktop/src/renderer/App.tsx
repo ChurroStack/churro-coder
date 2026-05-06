@@ -17,13 +17,14 @@ import {
   CodexOnboardingPage,
   SelectRepoPage
 } from './features/onboarding';
-import { identify, initAnalytics, shutdown } from './lib/analytics';
+import { identify, initAnalytics, shutdown, useSentryWorkspaceTags } from './lib/analytics';
 import {
   anthropicOnboardingCompletedAtom,
   apiKeyOnboardingCompletedAtom,
   billingMethodAtom,
   codexOnboardingCompletedAtom
 } from './lib/atoms';
+import { debugSessionEnabledAtom } from './lib/debug-session';
 import { appStore } from './lib/jotai-store';
 import { VSCodeThemeProvider } from './lib/themes/theme-provider';
 import { trpc, trpcClient } from './lib/trpc';
@@ -35,6 +36,19 @@ function ThemedToaster() {
   const { resolvedTheme } = useTheme();
 
   return <Toaster position="bottom-right" theme={resolvedTheme as 'light' | 'dark' | 'system'} closeButton />;
+}
+
+function AnalyticsBindings() {
+  useSentryWorkspaceTags();
+  const debugSessionEnabled = useAtomValue(debugSessionEnabledAtom);
+
+  useEffect(() => {
+    trpcClient.analytics.setDebugSession.mutate({ enabled: debugSessionEnabled }).catch((error) => {
+      console.warn('[Analytics] Failed to sync debug-session status:', error);
+    });
+  }, [debugSessionEnabled]);
+
+  return null;
 }
 
 /**
@@ -229,6 +243,7 @@ export function App() {
             <VSCodeThemeProvider>
               <TooltipProvider delayDuration={100}>
                 <TRPCProvider>
+                  <AnalyticsBindings />
                   <div data-agents-page className="h-screen w-screen bg-background text-foreground overflow-hidden">
                     <AppContent />
                   </div>

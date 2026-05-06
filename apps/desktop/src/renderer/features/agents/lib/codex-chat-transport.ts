@@ -23,6 +23,7 @@ import { CODEX_MODELS, type CodexThinkingLevel } from './models';
 import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
 import { agentChatStore } from '../stores/agent-chat-store';
+import { recordChatEvent } from '../../../lib/chat-event-buffer';
 
 type UIMessageChunk = any;
 
@@ -129,6 +130,13 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     const selectedModel = getSelectedCodexModel(this.config.subChatId);
     const enableTasks = appStore.get(enableTasksAtom);
 
+    recordChatEvent({
+      ts: Date.now(),
+      phase: 'dispatch',
+      sub: this.config.subChatId.slice(-8),
+      workspace_id: this.config.chatId,
+      mode: currentMode
+    });
     console.log(
       `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
         `provider=codex mode=${currentMode} ` +
@@ -148,6 +156,14 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
 
     return new ReadableStream({
       start: (controller) => {
+        recordChatEvent({
+          ts: Date.now(),
+          phase: 'start',
+          sub: subId,
+          workspace_id: this.config.chatId,
+          mode: currentMode,
+          stream_id: runId.slice(-8)
+        });
         let sub: { unsubscribe: () => void } | null = null;
         let didUnsubscribe = false;
         let forcedUnsubscribeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -256,6 +272,15 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               }
 
               if (chunk.type === 'auth-error') {
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'error',
+                  sub: subId,
+                  workspace_id: this.config.chatId,
+                  mode: currentMode,
+                  stream_id: runId.slice(-8),
+                  note: 'auth-error'
+                });
                 forceFreshSessionSubChats.add(this.config.subChatId);
 
                 void (async () => {
@@ -292,6 +317,15 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               }
 
               if (chunk.type === 'error') {
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'error',
+                  sub: subId,
+                  workspace_id: this.config.chatId,
+                  mode: currentMode,
+                  stream_id: runId.slice(-8),
+                  note: chunk.errorText
+                });
                 toast.error('Codex error', {
                   description: chunk.errorText || 'An unexpected Codex error occurred.'
                 });
@@ -304,6 +338,14 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               }
 
               if (chunk.type === 'finish') {
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'end',
+                  sub: subId,
+                  workspace_id: this.config.chatId,
+                  mode: currentMode,
+                  stream_id: runId.slice(-8)
+                });
                 try {
                   controller.close();
                 } catch {
@@ -312,6 +354,15 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               }
             },
             onError: (error: Error) => {
+              recordChatEvent({
+                ts: Date.now(),
+                phase: 'error',
+                sub: subId,
+                workspace_id: this.config.chatId,
+                mode: currentMode,
+                stream_id: runId.slice(-8),
+                note: error.message
+              });
               toast.error('Codex request failed', {
                 description: error.message
               });
@@ -321,6 +372,15 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               safeUnsubscribe();
             },
             onComplete: () => {
+              recordChatEvent({
+                ts: Date.now(),
+                phase: 'end',
+                sub: subId,
+                workspace_id: this.config.chatId,
+                mode: currentMode,
+                stream_id: runId.slice(-8),
+                note: 'complete'
+              });
               try {
                 controller.close();
               } catch {
@@ -334,6 +394,14 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
         options.abortSignal?.addEventListener(
           'abort',
           () => {
+            recordChatEvent({
+              ts: Date.now(),
+              phase: 'abort',
+              sub: subId,
+              workspace_id: this.config.chatId,
+              mode: currentMode,
+              stream_id: runId.slice(-8)
+            });
             // Start server-side cancellation first so the router still has
             // active run ownership when processing cancel(runId).
             const cancelPromise = trpcClient.codex.cancel

@@ -1,6 +1,7 @@
 import { observable } from '@trpc/server/observable';
 import { eq } from 'drizzle-orm';
 import { app, BrowserWindow, safeStorage } from 'electron';
+import * as Sentry from '@sentry/electron/main';
 import * as fs from 'fs/promises';
 import { existsSync } from 'node:fs';
 import * as os from 'os';
@@ -64,6 +65,7 @@ import { getApprovedPluginMcpServers, getEnabledPlugins } from './claude-setting
 import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { createMcpServerForSubChat } from '../../mcp/server';
+import { recordChatEvent } from '../../chat-event-buffer';
 
 /**
  * Parse @[agent:name], @[skill:name], and @[tool:servername] mentions from prompt text
@@ -767,7 +769,39 @@ export const claudeRouter = router({
       })
     )
     .subscription(({ input }) => {
-      return observable<UIMessageChunk>((emit) => {
+      return Sentry.startSpanManual(
+        {
+          name: 'claude.chat',
+          op: 'chat.stream',
+          attributes: {
+            workspace_id: input.chatId,
+            subchat_id: input.subChatId,
+            session_id: input.sessionId ?? 'new',
+            mode: input.mode
+          }
+        },
+        (span, finishSpan) =>
+          observable<UIMessageChunk>((emit) => {
+            let spanEnded = false;
+            const finishStreamSpan = (reason: string, extra?: Record<string, string>) => {
+              if (spanEnded) return;
+              spanEnded = true;
+              span.setAttribute('stream.result', reason);
+              for (const [key, value] of Object.entries(extra ?? {})) {
+                span.setAttribute(key, value);
+              }
+              finishSpan();
+            };
+
+            const logAttributes = (extra?: Record<string, string>) => ({
+              workspace_id: input.chatId,
+              subchat_id: input.subChatId,
+              session_id: currentSessionId ?? input.sessionId ?? 'new',
+              stream_id: streamId.slice(-8),
+              mode: input.mode,
+              ...extra
+            });
+
         // If a live stream already exists for this subChatId, do NOT abort it —
         // return an empty observable instead. This makes tab-switching a no-op
         // at the backend level, so in-flight streams survive workspace switches.
@@ -775,6 +809,7 @@ export const claudeRouter = router({
         if (existingController && !existingController.signal.aborted) {
           console.log(`[SD] M:SKIP_DUPLICATE_START sub=${input.subChatId.slice(-8)} reason=already_active`);
           emit.complete();
+          finishStreamSpan('duplicate_start');
           return () => {};
         }
 
@@ -790,9 +825,28 @@ export const claudeRouter = router({
         // Shared sessionId for cleanup to save on abort
         let currentSessionId: string | null = null;
         let sessionIdPersisted = false;
+        recordChatEvent({
+          ts: Date.now(),
+          phase: 'dispatch',
+          sub: subId,
+          workspace_id: input.chatId,
+          mode: input.mode,
+          session_id: input.sessionId,
+          stream_id: streamId.slice(-8)
+        });
         console.log(
           `[SD] M:START sub=${subId} stream=${streamId.slice(-8)} mode=${input.mode} session=${input.sessionId?.slice(-8) ?? 'none'}`
         );
+        recordChatEvent({
+          ts: Date.now(),
+          phase: 'start',
+          sub: subId,
+          workspace_id: input.chatId,
+          mode: input.mode,
+          session_id: input.sessionId,
+          stream_id: streamId.slice(-8)
+        });
+        Sentry.logger.info(`stream start sub=${subId}`, logAttributes());
 
         // Track if observable is still active (not unsubscribed)
         let isObservableActive = true;
@@ -897,7 +951,7 @@ export const claudeRouter = router({
           } as UIMessageChunk);
         };
 
-        (async () => {
+        void Sentry.withActiveSpan(span, async () => {
           let sandboxSettingsFilePath: string | null = null;
           try {
             const db = getDatabase();
@@ -1042,8 +1096,20 @@ export const claudeRouter = router({
             } catch (sdkError) {
               emitError(sdkError, 'Failed to load Claude SDK');
               console.log(`[SD] M:END sub=${subId} reason=sdk_load_error n=${chunkCount}`);
+              recordChatEvent({
+                ts: Date.now(),
+                phase: 'error',
+                sub: subId,
+                workspace_id: input.chatId,
+                mode: input.mode,
+                session_id: currentSessionId ?? input.sessionId,
+                stream_id: streamId.slice(-8),
+                note: 'sdk_load_error'
+              });
+              Sentry.logger.info(`stream error sub=${subId}`, logAttributes({ reason: 'sdk_load_error' }));
               safeEmit({ type: 'finish' } as UIMessageChunk);
               safeComplete();
+              finishStreamSpan('sdk_load_error');
               return;
             }
 
@@ -2050,8 +2116,20 @@ ${prompt}
                 console.error('[CLAUDE] ✗ Failed to create SDK query:', queryError);
                 emitError(queryError, 'Failed to start Claude query');
                 console.log(`[SD] M:END sub=${subId} reason=query_error n=${chunkCount}`);
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'error',
+                  sub: subId,
+                  workspace_id: input.chatId,
+                  mode: input.mode,
+                  session_id: currentSessionId ?? input.sessionId,
+                  stream_id: streamId.slice(-8),
+                  note: 'query_error'
+                });
+                Sentry.logger.info(`stream error sub=${subId}`, logAttributes({ reason: 'query_error' }));
                 safeEmit({ type: 'finish' } as UIMessageChunk);
                 safeComplete();
+                finishStreamSpan('query_error');
                 return;
               }
 
@@ -2248,6 +2326,18 @@ ${prompt}
                     });
                     safeEmit({ type: 'finish' } as UIMessageChunk);
                     safeComplete();
+                    recordChatEvent({
+                      ts: Date.now(),
+                      phase: 'error',
+                      sub: subId,
+                      workspace_id: input.chatId,
+                      mode: input.mode,
+                      session_id: msgAny.session_id ?? currentSessionId ?? input.sessionId,
+                      stream_id: streamId.slice(-8),
+                      note: errorCategory
+                    });
+                    Sentry.logger.info(`stream error sub=${subId}`, logAttributes({ reason: errorCategory }));
+                    finishStreamSpan('sdk_error', { session_id: msgAny.session_id ?? currentSessionId ?? input.sessionId ?? 'new' });
                     return;
                   }
 
@@ -2255,6 +2345,17 @@ ${prompt}
                   if (msgAny.session_id) {
                     metadata.sessionId = msgAny.session_id;
                     currentSessionId = msgAny.session_id; // Share with cleanup
+                    span.setAttribute('session_id', msgAny.session_id);
+                    recordChatEvent({
+                      ts: Date.now(),
+                      phase: 'session-resolved',
+                      sub: subId,
+                      workspace_id: input.chatId,
+                      mode: input.mode,
+                      session_id: msgAny.session_id,
+                      stream_id: streamId.slice(-8)
+                    });
+                    Sentry.logger.info(`stream session resolved sub=${subId}`, logAttributes({ session_id: msgAny.session_id }));
                     // Persist on first arrival so an abort before stream completion
                     // still leaves a resumable sessionId in the DB.
                     if (!sessionIdPersisted) {
@@ -2597,8 +2698,20 @@ ${prompt}
                 console.log(
                   `[SD] M:END sub=${subId} reason=stream_error cat=${errorCategory} n=${chunkCount} last=${lastChunkType}`
                 );
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'error',
+                  sub: subId,
+                  workspace_id: input.chatId,
+                  mode: input.mode,
+                  session_id: currentSessionId ?? input.sessionId,
+                  stream_id: streamId.slice(-8),
+                  note: errorCategory
+                });
+                Sentry.logger.info(`stream error sub=${subId}`, logAttributes({ reason: errorCategory }));
                 safeEmit({ type: 'finish' } as UIMessageChunk);
                 safeComplete();
+                finishStreamSpan('stream_error');
                 return;
               }
 
@@ -2619,8 +2732,20 @@ ${prompt}
             if (messageCount === 0 && !abortController.signal.aborted) {
               emitError(new Error('No response received from Claude'), 'Empty response');
               console.log(`[SD] M:END sub=${subId} reason=no_response n=${chunkCount}`);
+              recordChatEvent({
+                ts: Date.now(),
+                phase: 'error',
+                sub: subId,
+                workspace_id: input.chatId,
+                mode: input.mode,
+                session_id: currentSessionId ?? input.sessionId,
+                stream_id: streamId.slice(-8),
+                note: 'no_response'
+              });
+              Sentry.logger.info(`stream error sub=${subId}`, logAttributes({ reason: 'no_response' }));
               safeEmit({ type: 'finish' } as UIMessageChunk);
               safeComplete();
+              finishStreamSpan('no_response');
               return;
             }
 
@@ -2682,6 +2807,17 @@ ${prompt}
 
             const duration = ((Date.now() - streamStart) / 1000).toFixed(1);
             console.log(`[SD] M:END sub=${subId} reason=ok n=${chunkCount} last=${lastChunkType} t=${duration}s`);
+            recordChatEvent({
+              ts: Date.now(),
+              phase: 'end',
+              sub: subId,
+              workspace_id: input.chatId,
+              mode: input.mode,
+              session_id: currentSessionId ?? savedSessionId ?? input.sessionId,
+              stream_id: streamId.slice(-8),
+              note: 'ok'
+            });
+            Sentry.logger.info(`stream end sub=${subId}`, logAttributes({ reason: 'ok' }));
             if (pendingFinishChunk) {
               safeEmit(pendingFinishChunk);
             } else {
@@ -2689,19 +2825,32 @@ ${prompt}
               safeEmit({ type: 'finish' } as UIMessageChunk);
             }
             safeComplete();
+            finishStreamSpan('ok', { session_id: currentSessionId ?? savedSessionId ?? input.sessionId ?? 'new' });
           } catch (error) {
             const duration = ((Date.now() - streamStart) / 1000).toFixed(1);
             console.log(`[SD] M:END sub=${subId} reason=unexpected_error n=${chunkCount} t=${duration}s`);
             emitError(error, 'Unexpected error');
+            recordChatEvent({
+              ts: Date.now(),
+              phase: 'error',
+              sub: subId,
+              workspace_id: input.chatId,
+              mode: input.mode,
+              session_id: currentSessionId ?? input.sessionId,
+              stream_id: streamId.slice(-8),
+              note: 'unexpected_error'
+            });
+            Sentry.logger.info(`stream error sub=${subId}`, logAttributes({ reason: 'unexpected_error' }));
             safeEmit({ type: 'finish' } as UIMessageChunk);
             safeComplete();
+            finishStreamSpan('unexpected_error');
           } finally {
             activeSessions.delete(input.subChatId);
             if (sandboxSettingsFilePath) {
               cleanupSandboxSettingsFile(sandboxSettingsFilePath).catch(() => {});
             }
           }
-        })();
+        });
 
         // Cleanup on unsubscribe
         return () => {
@@ -2721,6 +2870,17 @@ ${prompt}
           }
           pendingTextDelta = null;
           abortController.abort();
+          recordChatEvent({
+            ts: Date.now(),
+            phase: 'abort',
+            sub: subId,
+            workspace_id: input.chatId,
+            mode: input.mode,
+            session_id: currentSessionId ?? input.sessionId,
+            stream_id: streamId.slice(-8)
+          });
+          Sentry.logger.info(`stream abort sub=${subId}`, logAttributes({ reason: 'abort' }));
+          finishStreamSpan('abort', { session_id: currentSessionId ?? input.sessionId ?? 'new' });
           activeSessions.delete(input.subChatId);
           clearPendingApprovals('Session ended.', input.subChatId);
 
@@ -2731,7 +2891,8 @@ ${prompt}
           const db = getDatabase();
           db.update(subChats).set({ streamId: null }).where(eq(subChats.id, input.subChatId)).run();
         };
-      });
+          })
+      );
     }),
 
   /**

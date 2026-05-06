@@ -4,11 +4,20 @@ import {
   captureMessage,
   captureFeedback,
   addBreadcrumb,
-  close,
-  getClient,
-  makeFetchTransport
-} from '@sentry/browser';
-import type { Event } from '@sentry/browser';
+  getCurrentScope,
+  setTag,
+  browserTracingIntegration,
+  consoleLoggingIntegration
+} from '@sentry/electron/renderer';
+import * as Sentry from '@sentry/electron/renderer';
+import type { Event } from '@sentry/electron/renderer';
+import type { Log } from '@sentry/core';
+import { useAtomValue } from 'jotai';
+import { useEffect } from 'react';
+import { selectedAgentChatIdAtom } from '../features/agents/atoms';
+import { useAgentSubChatStore } from '../features/agents/stores/sub-chat-store';
+import { isDebugSession } from './debug-session';
+import { snapshotChatEvents } from './chat-event-buffer';
 
 const OPT_OUT_KEY = 'preferences:analytics-opt-out';
 
@@ -36,11 +45,38 @@ function redact(s: string): string {
 
 function sanitizeEvent(event: Event): Event | null {
   if (isOptedOutLocal()) return null;
+  attachChatEventContext(event);
   try {
     return JSON.parse(redact(JSON.stringify(event)));
   } catch {
     return event;
   }
+}
+
+function attachChatEventContext(event: Event): void {
+  const events = snapshotChatEvents();
+  if (events.length === 0) return;
+  event.contexts = {
+    ...event.contexts,
+    last_chat_events: {
+      events,
+      count: events.length
+    }
+  };
+}
+
+const ALWAYS_ALLOWED_LOG_LEVELS = new Set(['error', 'fatal']);
+
+export function sanitizeRendererLogForSend(log: Log): Log | null {
+  if (import.meta.env.PROD && !isDebugSession() && !ALWAYS_ALLOWED_LOG_LEVELS.has(log.level)) {
+    return null;
+  }
+
+  return {
+    ...log,
+    message: redact(JSON.stringify(log.message)) as Log['message'],
+    attributes: JSON.parse(redact(JSON.stringify(log.attributes ?? {}))) as Log['attributes']
+  };
 }
 
 export async function initAnalytics(): Promise<void> {
@@ -55,15 +91,33 @@ export async function initAnalytics(): Promise<void> {
     enabled: !isOptedOutLocal(),
     environment: import.meta.env.PROD ? 'production' : 'development',
     debug: !import.meta.env.PROD,
+    release: `churro-coder@${import.meta.env.VITE_APP_VERSION}`,
     sendDefaultPii: false,
-    transport: makeFetchTransport,
+    maxBreadcrumbs: 200,
+    tracesSampler: () => (isDebugSession() ? 1.0 : import.meta.env.PROD ? 0.0 : 1.0),
+    _experiments: { enableLogs: true },
     beforeSend: sanitizeEvent,
+    beforeSendLog: sanitizeRendererLogForSend,
     beforeBreadcrumb(breadcrumb) {
       if (isOptedOutLocal()) return null;
       return breadcrumb;
-    }
+    },
+    integrations: [browserTracingIntegration(), consoleLoggingIntegration({ levels: ['warn', 'error'] })]
   });
   console.log('[Sentry] Renderer initialized', { environment: import.meta.env.PROD ? 'production' : 'development' });
+}
+
+export function useSentryWorkspaceTags(): void {
+  const chatId = useAtomValue(selectedAgentChatIdAtom);
+  const subChatId = useAgentSubChatStore((state) => state.activeSubChatId);
+
+  useEffect(() => {
+    const scope = getCurrentScope();
+    scope.setTag('workspace_id', chatId ?? 'none');
+    scope.setTag('subchat_id', subChatId ?? 'none');
+    setTag('workspace_id', chatId ?? 'none');
+    setTag('subchat_id', subChatId ?? 'none');
+  }, [chatId, subChatId]);
 }
 
 export function identify(_userId: string, _traits?: Record<string, any>): void {}
@@ -115,6 +169,6 @@ export function trackMessageSent(message: Record<string, any>): void {
 
 export async function shutdown(): Promise<void> {
   if (sentryInitialized) {
-    await close(2000).catch(() => {});
+    await Sentry.getClient()?.close?.(2000).catch(() => {});
   }
 }

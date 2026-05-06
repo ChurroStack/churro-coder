@@ -1,6 +1,7 @@
 import { observable } from '@trpc/server/observable';
 import { eq } from 'drizzle-orm';
 import { app } from 'electron';
+import * as Sentry from '@sentry/electron/main';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -27,6 +28,7 @@ import { resolveSandboxPolicy } from '../../sandbox/policy';
 import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-codex-plan';
 import { initMcpHttpServer } from '../../mcp/http-transport';
+import { recordChatEvent } from '../../chat-event-buffer';
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
@@ -2807,7 +2809,53 @@ export const codexRouter = router({
       })
     )
     .subscription(({ input }) => {
-      return observable<any>((emit) => {
+      return Sentry.startSpanManual(
+        {
+          name: 'codex.chat',
+          op: 'chat.stream',
+          attributes: {
+            workspace_id: input.chatId,
+            subchat_id: input.subChatId,
+            session_id: 'new',
+            mode: input.mode
+          }
+        },
+        (span, finishSpan) =>
+          observable<any>((emit) => {
+            let spanEnded = false;
+            let resolvedSessionId = 'new';
+            const finishStreamSpan = (reason: string, extra?: Record<string, string>) => {
+              if (spanEnded) return;
+              spanEnded = true;
+              span.setAttribute('stream.result', reason);
+              for (const [key, value] of Object.entries(extra ?? {})) {
+                span.setAttribute(key, value);
+              }
+              finishSpan();
+            };
+
+            const logAttributes = (extra?: Record<string, string>) => ({
+              workspace_id: input.chatId,
+              subchat_id: input.subChatId,
+              session_id: resolvedSessionId,
+              stream_id: input.runId.slice(-8),
+              mode: input.mode,
+              ...extra
+            });
+
+            recordChatEvent({
+              ts: Date.now(),
+              phase: 'dispatch',
+              sub: input.subChatId.slice(-8),
+              workspace_id: input.chatId,
+              mode: input.mode,
+              stream_id: input.runId.slice(-8)
+            });
+
+            void Sentry.withActiveSpan(span, async () => {
+              Sentry.logger.info(`stream start sub=${input.subChatId.slice(-8)}`, logAttributes());
+            });
+
         // If a live stream already exists for this subChatId, do NOT abort it —
         // return an empty observable instead. This makes tab-switching a no-op
         // at the backend level, so in-flight streams survive workspace switches.
@@ -2815,6 +2863,7 @@ export const codexRouter = router({
         if (existingStream && !existingStream.controller.signal.aborted) {
           console.log(`[SD] M:SKIP_DUPLICATE_START sub=${input.subChatId.slice(-8)} reason=already_active`);
           emit.complete();
+          finishStreamSpan('duplicate_start');
           return () => {};
         }
 
@@ -2848,7 +2897,7 @@ export const codexRouter = router({
           }
         };
 
-        (async () => {
+        void Sentry.withActiveSpan(span, async () => {
           try {
             const db = getDatabase();
 
@@ -3101,6 +3150,18 @@ export const codexRouter = router({
             if (activeStream?.runId === input.runId) {
               activeStream.threadId = threadId;
             }
+            span.setAttribute('session_id', threadId);
+            resolvedSessionId = threadId;
+            recordChatEvent({
+              ts: Date.now(),
+              phase: 'session-resolved',
+              sub: input.subChatId.slice(-8),
+              workspace_id: input.chatId,
+              mode: input.mode,
+              session_id: threadId,
+              stream_id: input.runId.slice(-8)
+            });
+            Sentry.logger.info(`stream session resolved sub=${input.subChatId.slice(-8)}`, logAttributes({ session_id: threadId }));
 
             const mcpServersForUi = mcpSnapshot.groups.flatMap((group) =>
               group.mcpServers.map((server) => ({
@@ -3283,10 +3344,32 @@ export const codexRouter = router({
             safeEmit({ type: 'finish', messageMetadata: finalMetadata });
 
             safeComplete();
+            recordChatEvent({
+              ts: Date.now(),
+              phase: 'end',
+              sub: input.subChatId.slice(-8),
+              workspace_id: input.chatId,
+              mode: input.mode,
+              session_id: threadId,
+              stream_id: input.runId.slice(-8),
+              note: 'ok'
+            });
+            Sentry.logger.info(`stream end sub=${input.subChatId.slice(-8)}`, logAttributes({ session_id: threadId, reason: 'ok' }));
+            finishStreamSpan('ok', { session_id: threadId });
           } catch (error) {
             const normalized = extractCodexError(error);
 
             console.error('[codex] chat stream error:', error);
+            recordChatEvent({
+              ts: Date.now(),
+              phase: 'error',
+              sub: input.subChatId.slice(-8),
+              workspace_id: input.chatId,
+              mode: input.mode,
+              stream_id: input.runId.slice(-8),
+              note: normalized.message
+            });
+            Sentry.logger.info(`stream error sub=${input.subChatId.slice(-8)}`, logAttributes({ reason: normalized.message }));
             if (isCodexAuthError(normalized)) {
               safeEmit({ type: 'auth-error', errorText: normalized.message });
             } else {
@@ -3294,6 +3377,7 @@ export const codexRouter = router({
             }
             safeEmit({ type: 'finish' });
             safeComplete();
+            finishStreamSpan('error');
           } finally {
             const activeStream = activeStreams.get(input.subChatId);
             if (activeStream?.runId === input.runId) {
@@ -3307,7 +3391,7 @@ export const codexRouter = router({
               activeStreams.delete(input.subChatId);
             }
           }
-        })();
+        });
 
         return () => {
           // If the stream never emitted a finish chunk (e.g. app-server
@@ -3321,6 +3405,16 @@ export const codexRouter = router({
           }
           isActive = false;
           abortController.abort();
+          recordChatEvent({
+            ts: Date.now(),
+            phase: 'abort',
+            sub: input.subChatId.slice(-8),
+            workspace_id: input.chatId,
+            mode: input.mode,
+            stream_id: input.runId.slice(-8)
+          });
+          Sentry.logger.info(`stream abort sub=${input.subChatId.slice(-8)}`, logAttributes({ reason: 'abort' }));
+          finishStreamSpan('abort');
           clearPendingApprovals('Session ended.', input.subChatId);
 
           const activeStream = activeStreams.get(input.subChatId);
@@ -3328,7 +3422,8 @@ export const codexRouter = router({
             activeStream.cancelRequested = true;
           }
         };
-      });
+          })
+      );
     }),
 
   cancel: publicProcedure

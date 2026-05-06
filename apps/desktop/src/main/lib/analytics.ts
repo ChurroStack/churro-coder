@@ -11,9 +11,13 @@ import {
   electronContextIntegration,
   additionalContextIntegration,
   electronBreadcrumbsIntegration,
-  normalizePathsIntegration
+  normalizePathsIntegration,
+  consoleLoggingIntegration
 } from '@sentry/electron/main';
 import type { ErrorEvent } from '@sentry/electron/main';
+import type { Log } from '@sentry/core';
+import { isDebugSession } from './debug-session';
+import { snapshotChatEvents } from './chat-event-buffer';
 const TELEMETRY_FILE = 'telemetry.json';
 
 // Sentry DSN is a public identifier — safe to embed in shipped binaries.
@@ -66,11 +70,38 @@ export function redactUnknown(value: unknown): unknown {
 
 function sanitizeEvent(event: ErrorEvent): ErrorEvent | null {
   if (readOptOut()) return null;
+  attachChatEventContext(event);
   try {
     return redactUnknown(event) as ErrorEvent;
   } catch {
     return event;
   }
+}
+
+function attachChatEventContext(event: ErrorEvent): void {
+  const events = snapshotChatEvents();
+  if (events.length === 0) return;
+  event.contexts = {
+    ...event.contexts,
+    last_chat_events: {
+      events,
+      count: events.length
+    }
+  };
+}
+
+const ALWAYS_ALLOWED_LOG_LEVELS = new Set(['error', 'fatal']);
+
+export function sanitizeLogForSend(log: Log): Log | null {
+  if (app.isPackaged && !isDebugSession() && !ALWAYS_ALLOWED_LOG_LEVELS.has(log.level)) {
+    return null;
+  }
+
+  return {
+    ...log,
+    message: redactUnknown(log.message) as Log['message'],
+    attributes: redactUnknown(log.attributes) as Log['attributes']
+  };
 }
 
 export function initAnalytics(): void {
@@ -87,7 +118,11 @@ export function initAnalytics(): void {
     debug: !app.isPackaged,
     release: `churro-coder@${app.getVersion()}`,
     sendDefaultPii: false,
+    maxBreadcrumbs: 200,
+    tracesSampler: () => (isDebugSession() ? 1.0 : app.isPackaged ? 0.0 : 1.0),
+    _experiments: { enableLogs: true },
     beforeSend: sanitizeEvent,
+    beforeSendLog: sanitizeLogForSend,
     beforeBreadcrumb(breadcrumb) {
       if (readOptOut()) return null;
       return breadcrumb;
@@ -96,7 +131,8 @@ export function initAnalytics(): void {
       electronContextIntegration(),
       additionalContextIntegration(),
       electronBreadcrumbsIntegration(),
-      normalizePathsIntegration()
+      normalizePathsIntegration(),
+      consoleLoggingIntegration({ levels: ['warn', 'error'] })
     ]
   });
   console.log('[Sentry] Main initialized', { environment: app.isPackaged ? 'production' : 'development' });

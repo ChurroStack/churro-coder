@@ -1,14 +1,27 @@
+import "dotenv/config"
 import { defineConfig, externalizeDepsPlugin } from "electron-vite"
+import { readFileSync } from "fs"
 import { resolve } from "path"
 import react from "@vitejs/plugin-react"
+import { sentryVitePlugin } from "@sentry/vite-plugin"
 import tailwindcss from "tailwindcss"
 import autoprefixer from "autoprefixer"
 
 const isDev = process.env.NODE_ENV !== "production"
+const pkg = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf-8"))
 
 // Sentry DSNs are public identifiers — safe to embed in shipped binaries.
 // One project, two entry points (main = Node, renderer = browser).
 const SENTRY_DSN = "https://14d00a05791c7d015f24c50232a0336a@o4511333711282176.ingest.de.sentry.io/4511333717639248"
+const sentryRelease = `churro-coder@${pkg.version}`
+const sentryPlugin = sentryVitePlugin({
+  org: "churro-coder",
+  project: "churro-coder",
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  release: { name: sentryRelease },
+  disable: !process.env.SENTRY_AUTH_TOKEN,
+  sourcemaps: { filesToDeleteAfterUpload: ["**/*.map"] },
+})
 
 export default defineConfig({
   main: {
@@ -17,9 +30,11 @@ export default defineConfig({
         // Don't externalize these - bundle them instead
         exclude: ["superjson", "trpc-electron", "gray-matter", "async-mutex"],
       }),
+      sentryPlugin,
     ],
     define: {
       "process.env.MAIN_VITE_SENTRY_DSN": JSON.stringify(SENTRY_DSN),
+      "process.env.MAIN_VITE_APP_VERSION": JSON.stringify(pkg.version),
     },
     build: {
       lib: {
@@ -64,9 +79,11 @@ export default defineConfig({
           ? "@welldone-software/why-did-you-render"
           : undefined,
       }),
+      sentryPlugin,
     ],
     define: {
       "import.meta.env.VITE_SENTRY_DSN": JSON.stringify(SENTRY_DSN),
+      "import.meta.env.VITE_APP_VERSION": JSON.stringify(pkg.version),
     },
     resolve: {
       alias: {

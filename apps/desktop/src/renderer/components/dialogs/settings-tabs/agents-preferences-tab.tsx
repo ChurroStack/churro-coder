@@ -142,6 +142,7 @@ import { ChevronDown } from 'lucide-react';
 import { Switch } from '../../ui/switch';
 import { Checkbox } from '../../ui/checkbox';
 import { trpc } from '../../../lib/trpc';
+import { debugSessionEnabledAtom } from '../../../lib/debug-session';
 
 // Hook to detect narrow screen
 function useIsNarrowScreen(): boolean {
@@ -190,6 +191,7 @@ export function AgentsPreferencesTab() {
   const [desktopNotificationsEnabled, setDesktopNotificationsEnabled] = useAtom(desktopNotificationsEnabledAtom);
   const [notifyWhenFocused, setNotifyWhenFocused] = useAtom(notifyWhenFocusedAtom);
   const [analyticsOptOut, setAnalyticsOptOut] = useAtom(analyticsOptOutAtom);
+  const [debugSessionEnabled, setDebugSessionEnabled] = useAtom(debugSessionEnabledAtom);
   const [ctrlTabTarget, setCtrlTabTarget] = useAtom(ctrlTabTargetAtom);
   const [autoAdvanceTarget, setAutoAdvanceTarget] = useAtom(autoAdvanceTargetAtom);
   const [defaultAgentMode, setDefaultAgentMode] = useAtom(defaultAgentModeAtom);
@@ -231,6 +233,12 @@ export function AgentsPreferencesTab() {
       console.error('Failed to sync analytics opt-out to main process:', error);
     }
   };
+
+  useEffect(() => {
+    if (analyticsOptOut && debugSessionEnabled) {
+      setDebugSessionEnabled(false);
+    }
+  }, [analyticsOptOut, debugSessionEnabled, setDebugSessionEnabled]);
 
   return (
     <div className="p-6 space-y-6">
@@ -561,6 +569,28 @@ export function AgentsPreferencesTab() {
             </span>
           </div>
           <Switch checked={!analyticsOptOut} onCheckedChange={(enabled) => handleAnalyticsToggle(!enabled)} />
+        </div>
+      </div>
+
+      <div className="bg-background rounded-lg border border-border overflow-hidden">
+        <div className="flex items-center justify-between gap-6 p-4">
+          <div className="flex flex-col space-y-1">
+            <span className="text-sm font-medium text-foreground">Share full debug logs this session</span>
+            <span className="text-xs text-muted-foreground">
+              By default no traces or logs are sent, only crash reports. Turn this on to send 100% of traces and
+              logs while this app is running. Resets when you quit.
+            </span>
+            {analyticsOptOut && (
+              <span className="text-xs text-muted-foreground">
+                Unavailable while crash reports are disabled. Re-enable crash reports first.
+              </span>
+            )}
+          </div>
+          <Switch
+            checked={debugSessionEnabled}
+            disabled={analyticsOptOut}
+            onCheckedChange={(enabled) => setDebugSessionEnabled(enabled)}
+          />
         </div>
       </div>
 

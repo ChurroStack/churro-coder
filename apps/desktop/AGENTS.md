@@ -39,7 +39,7 @@ This is the **slim hub**. It carries the always-needed context (what the app is,
 
 ## What is this?
 
-**Churro Coder** - A local-first, fully offline Electron desktop app for AI-powered code assistance. Users create chat sessions linked to local project folders, interact with Claude in Plan or Agent mode, and see real-time tool execution (bash, file edits, web search, etc.). All functionality runs on-device — no login, no cloud sync, no analytics.
+**Churro Coder** - A local-first, fully offline Electron desktop app for AI-powered code assistance. Users create chat sessions linked to local project folders, interact with Claude in Plan or Agent mode, and see real-time tool execution (bash, file edits, web search, etc.). All functionality runs on-device — no login, no cloud sync, anonymized crash reports sent via Sentry by default (opt out in Settings -> Privacy); traces and logs are off in prod unless the user flips the session-scoped "Share full debug logs this session" toggle for a bug repro.
 
 ## Commands
 

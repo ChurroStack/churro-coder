@@ -30,6 +30,7 @@ import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
 import type { AgentMessageMetadata } from '../ui/agent-message-usage';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
 import { agentChatStore } from '../stores/agent-chat-store';
+import { recordChatEvent } from '../../../lib/chat-event-buffer';
 
 // Error categories and their user-friendly messages
 const ERROR_TOAST_CONFIG: Record<
@@ -171,11 +172,28 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
 
     const claudeSessionId = sessionLooksLikeCodexThread ? undefined : sessionId;
     if (sessionLooksLikeCodexThread) {
+      recordChatEvent({
+        ts: Date.now(),
+        phase: 'error',
+        sub: this.config.subChatId.slice(-8),
+        workspace_id: this.config.chatId,
+        mode: currentMode,
+        session_id: sessionId,
+        note: 'codex-session-drop'
+      });
       console.warn(
         `[SD] R:CODEX-SESSION-DROP sub=${this.config.subChatId.slice(-8)} ` +
           `lastAssistantModel=${lastAssistantModel} → dropping leaked Codex thread UUID`
       );
     }
+    recordChatEvent({
+      ts: Date.now(),
+      phase: 'dispatch',
+      sub: this.config.subChatId.slice(-8),
+      workspace_id: this.config.chatId,
+      mode: currentMode,
+      session_id: claudeSessionId
+    });
     console.log(
       `[SD] R:DISPATCH sub=${this.config.subChatId.slice(-8)} ` +
         `provider=claude-code mode=${currentMode} ` +
@@ -188,6 +206,14 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const subId = this.config.subChatId.slice(-8);
     let chunkCount = 0;
     let lastChunkType = '';
+    recordChatEvent({
+      ts: Date.now(),
+      phase: 'start',
+      sub: subId,
+      workspace_id: this.config.chatId,
+      mode: currentMode,
+      session_id: claudeSessionId
+    });
     console.log(
       `[SD] R:START sub=${subId} cwd=${this.config.cwd} projectPath=${this.config.projectPath || '(not set)'} customConfig=${customConfig ? 'set' : 'not set'}`
     );
@@ -338,6 +364,15 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
 
               // Handle authentication errors - show Claude login modal
               if (chunk.type === 'auth-error') {
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'error',
+                  sub: subId,
+                  workspace_id: this.config.chatId,
+                  mode: currentMode,
+                  session_id: claudeSessionId,
+                  note: 'auth-error'
+                });
                 // Store the failed message for retry after successful auth
                 // readyToRetry=false prevents immediate retry - modal sets it to true on OAuth success
                 appStore.set(pendingAuthRetryMessageAtom, {
@@ -373,6 +408,15 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
 
               // Handle errors - show toast to user FIRST before anything else
               if (chunk.type === 'error') {
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'error',
+                  sub: subId,
+                  workspace_id: this.config.chatId,
+                  mode: currentMode,
+                  session_id: claudeSessionId,
+                  note: chunk.errorText
+                });
                 const category = chunk.debugInfo?.category || 'UNKNOWN';
 
                 // Detailed SDK error logging for debugging
@@ -458,11 +502,28 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               try {
                 controller.enqueue(chunk);
               } catch (e) {
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'error',
+                  sub: subId,
+                  workspace_id: this.config.chatId,
+                  mode: currentMode,
+                  session_id: claudeSessionId,
+                  note: `enqueue:${chunk.type}`
+                });
                 // CRITICAL: Log when enqueue fails - this could explain missing chunks!
                 console.log(`[SD] R:ENQUEUE_ERR sub=${subId} type=${chunk.type} n=${chunkCount} err=${e}`);
               }
 
               if (chunk.type === 'finish') {
+                recordChatEvent({
+                  ts: Date.now(),
+                  phase: 'end',
+                  sub: subId,
+                  workspace_id: this.config.chatId,
+                  mode: currentMode,
+                  session_id: claudeSessionId
+                });
                 console.log(`[SD] R:FINISH sub=${subId} n=${chunkCount}`);
                 try {
                   controller.close();
@@ -472,6 +533,15 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               }
             },
             onError: (err: Error) => {
+              recordChatEvent({
+                ts: Date.now(),
+                phase: 'error',
+                sub: subId,
+                workspace_id: this.config.chatId,
+                mode: currentMode,
+                session_id: claudeSessionId,
+                note: err.message
+              });
               console.log(`[SD] R:ERROR sub=${subId} n=${chunkCount} last=${lastChunkType} err=${err.message}`);
               // Log transport errors
               console.error('[Transport] Error:', err, {});
@@ -481,6 +551,15 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               controller.error(err);
             },
             onComplete: () => {
+              recordChatEvent({
+                ts: Date.now(),
+                phase: 'end',
+                sub: subId,
+                workspace_id: this.config.chatId,
+                mode: currentMode,
+                session_id: claudeSessionId,
+                note: 'complete'
+              });
               console.log(`[SD] R:COMPLETE sub=${subId} n=${chunkCount} last=${lastChunkType}`);
               // Note: Don't clear pending questions here - let active-chat.tsx handle it
               // via the stream stop detection effect. Clearing here causes race conditions
@@ -498,6 +577,14 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
         options.abortSignal?.addEventListener(
           'abort',
           () => {
+            recordChatEvent({
+              ts: Date.now(),
+              phase: 'abort',
+              sub: subId,
+              workspace_id: this.config.chatId,
+              mode: currentMode,
+              session_id: claudeSessionId
+            });
             console.log(`[SD] R:ABORT sub=${subId} n=${chunkCount} last=${lastChunkType}`);
             sub.unsubscribe();
             // trpcClient.claude.cancel.mutate({ subChatId: this.config.subChatId })
