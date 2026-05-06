@@ -189,6 +189,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
 
   // Current draft ID being edited (generated when user starts typing in empty form)
   const currentDraftIdRef = useRef<string | null>(null);
+  const sendInFlightRef = useRef(false);
   const unseenChanges = useAtomValue(agentsUnseenChangesAtom);
 
   // Check if any chat has unseen changes
@@ -1127,149 +1128,162 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       return;
     }
 
-    // Check if message is a slash command with arguments (e.g. "/hello world")
-    // Note: 's' flag makes '.' match newlines, so multi-line arguments are captured
-    const slashMatch = message.match(/^\/(\S+)\s*(.*)$/s);
-    let reviewModelOverride: string | null = null;
-    let isReviewSend = false;
-    if (slashMatch) {
-      const [, commandName, args] = slashMatch;
-
-      // Check if it's a builtin command - if so, don't process as custom command
-      const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((cmd) => cmd.name));
-      // Review-type commands should create the new chat on the Review-mode
-      // default model instead of the agent/plan default.
-      if (commandName === 'review' || commandName === 'security-review') {
-        isReviewSend = true;
-        const reviewModelId = getDefaultModelForMode('review');
-        const reviewProvider = getProviderForModelId(reviewModelId);
-        const reviewThinking = getDefaultThinkingForMode('review');
-        if (reviewProvider === 'codex') {
-          const codexModel = CODEX_MODELS.find((m) => m.id === reviewModelId);
-          const coerced = coerceCodexThinking(
-            reviewThinking,
-            codexModel?.thinkings ?? ['low', 'medium', 'high', 'xhigh']
-          );
-          reviewModelOverride = `${reviewModelId}/${coerced}`;
-        } else {
-          reviewModelOverride = reviewModelId;
-        }
-      }
-      if (!builtinNames.has(commandName)) {
-        // This is a custom command - load content and replace $ARGUMENTS
-        try {
-          const commands = await trpcUtils.commands.list.fetch({
-            projectPath: validatedProject?.path
-          });
-          const cmd = commands.find((c) => c.name.toLowerCase() === commandName.toLowerCase());
-
-          if (cmd) {
-            const { content } = await trpcUtils.commands.getContent.fetch({
-              path: cmd.path
-            });
-            // Replace $ARGUMENTS with the provided args
-            message = content.replace(/\$ARGUMENTS/g, args.trim());
-          }
-        } catch (error) {
-          console.error('Failed to process custom command:', error);
-          // Fall through with original message
-        }
-      }
+    if (sendInFlightRef.current) {
+      return;
     }
+    sendInFlightRef.current = true;
 
-    // Build message parts array (images first, then text, then hidden file contents)
-    type MessagePart =
-      | { type: 'text'; text: string }
-      | {
-          type: 'data-image';
-          data: {
-            url: string;
-            mediaType?: string;
-            filename?: string;
-            base64Data?: string;
-          };
-        }
-      | {
-          type: 'file-content';
-          filePath: string;
-          content: string;
-        };
+    try {
+      // Check if message is a slash command with arguments (e.g. "/hello world")
+      // Note: 's' flag makes '.' match newlines, so multi-line arguments are captured
+      const slashMatch = message.match(/^\/(\S+)\s*(.*)$/s);
+      let reviewModelOverride: string | null = null;
+      let isReviewSend = false;
+      if (slashMatch) {
+        const [, commandName, args] = slashMatch;
 
-    const parts: MessagePart[] = images
-      .filter((img) => !img.isLoading && img.url)
-      .map((img) => ({
-        type: 'data-image' as const,
-        data: {
-          url: img.url!,
-          mediaType: img.mediaType,
-          filename: img.filename,
-          base64Data: img.base64Data
-        }
-      }));
-
-    // Add pasted text as pasted mentions (format: pasted:size:preview|filepath)
-    // Using | as separator since filepath can contain colons
-    let finalMessage = message.trim();
-    if (pastedTexts.length > 0) {
-      const pastedMentions = pastedTexts
-        .map((pt) => {
-          // Sanitize preview to remove special characters that break mention parsing
-          const sanitizedPreview = pt.preview.replace(/[:\[\]|]/g, '');
-          const prefix = pt.kind === 'chatHistory' ? MENTION_PREFIXES.CHAT_HISTORY : MENTION_PREFIXES.PASTED;
-          return `@[${prefix}${pt.size}:${sanitizedPreview}|${pt.filePath}]`;
-        })
-        .join(' ');
-      finalMessage = pastedMentions + (finalMessage ? ' ' + finalMessage : '');
-    }
-
-    if (finalMessage) {
-      parts.push({ type: 'text' as const, text: finalMessage });
-    }
-
-    // Add cached file contents as hidden parts (sent to agent but not displayed in UI)
-    // These are from dropped text files - content is embedded so agent sees it immediately
-    if (fileContentsRef.current.size > 0) {
-      for (const [mentionId, content] of fileContentsRef.current.entries()) {
-        // Extract file path from mentionId (file:local:path or file:external:path)
-        const filePath = mentionId.replace(/^file:(local|external):/, '');
-        parts.push({
-          type: 'file-content' as const,
-          filePath,
-          content
-        });
-      }
-    }
-
-    // Capture form selection synchronously before any await so the closure
-    // holds the values the user actually saw in the form at submit time.
-    const formSelection = getFormSelection();
-
-    // Create chat with selected project, branch, and initial message
-    createChatMutation.mutate(
-      {
-        projectId: selectedProject.id,
-        name: messageToTitleText(message).slice(0, 50) || 'New chat',
-        model: reviewModelOverride ?? selectedChatModel,
-        initialMessageParts: parts.length > 0 ? parts : undefined,
-        baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
-        branchType: workMode === 'worktree' ? selectedBranchType : undefined,
-        useWorktree: workMode === 'worktree',
-        mode: agentMode,
-        tempPastedSubChatId: pastedTexts.length > 0 ? tempPastedIdRef.current : undefined
-      },
-      {
-        onSuccess: (data) => {
-          const newSubChatId = data.subChats?.[0]?.id;
-          if (!newSubChatId) return;
-          if (isReviewSend) {
-            applyModeDefaultModel(newSubChatId, 'review');
+        // Check if it's a builtin command - if so, don't process as custom command
+        const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((cmd) => cmd.name));
+        // Review-type commands should create the new chat on the Review-mode
+        // default model instead of the agent/plan default.
+        if (commandName === 'review' || commandName === 'security-review') {
+          isReviewSend = true;
+          const reviewModelId = getDefaultModelForMode('review');
+          const reviewProvider = getProviderForModelId(reviewModelId);
+          const reviewThinking = getDefaultThinkingForMode('review');
+          if (reviewProvider === 'codex') {
+            const codexModel = CODEX_MODELS.find((m) => m.id === reviewModelId);
+            const coerced = coerceCodexThinking(
+              reviewThinking,
+              codexModel?.thinkings ?? ['low', 'medium', 'high', 'xhigh']
+            );
+            reviewModelOverride = `${reviewModelId}/${coerced}`;
           } else {
-            applyFormSelectionToSubChat(newSubChatId, formSelection);
+            reviewModelOverride = reviewModelId;
+          }
+        }
+        if (!builtinNames.has(commandName)) {
+          // This is a custom command - load content and replace $ARGUMENTS
+          try {
+            const commands = await trpcUtils.commands.list.fetch({
+              projectPath: validatedProject?.path
+            });
+            const cmd = commands.find((c) => c.name.toLowerCase() === commandName.toLowerCase());
+
+            if (cmd) {
+              const { content } = await trpcUtils.commands.getContent.fetch({
+                path: cmd.path
+              });
+              // Replace $ARGUMENTS with the provided args
+              message = content.replace(/\$ARGUMENTS/g, args.trim());
+            }
+          } catch (error) {
+            console.error('Failed to process custom command:', error);
+            // Fall through with original message
           }
         }
       }
-    );
-    // Editor, images, files, and pasted texts are cleared in onSuccess callback
+
+      // Build message parts array (images first, then text, then hidden file contents)
+      type MessagePart =
+        | { type: 'text'; text: string }
+        | {
+            type: 'data-image';
+            data: {
+              url: string;
+              mediaType?: string;
+              filename?: string;
+              base64Data?: string;
+            };
+          }
+        | {
+            type: 'file-content';
+            filePath: string;
+            content: string;
+          };
+
+      const parts: MessagePart[] = images
+        .filter((img) => !img.isLoading && img.url)
+        .map((img) => ({
+          type: 'data-image' as const,
+          data: {
+            url: img.url!,
+            mediaType: img.mediaType,
+            filename: img.filename,
+            base64Data: img.base64Data
+          }
+        }));
+
+      // Add pasted text as pasted mentions (format: pasted:size:preview|filepath)
+      // Using | as separator since filepath can contain colons
+      let finalMessage = message.trim();
+      if (pastedTexts.length > 0) {
+        const pastedMentions = pastedTexts
+          .map((pt) => {
+            // Sanitize preview to remove special characters that break mention parsing
+            const sanitizedPreview = pt.preview.replace(/[:\[\]|]/g, '');
+            const prefix = pt.kind === 'chatHistory' ? MENTION_PREFIXES.CHAT_HISTORY : MENTION_PREFIXES.PASTED;
+            return `@[${prefix}${pt.size}:${sanitizedPreview}|${pt.filePath}]`;
+          })
+          .join(' ');
+        finalMessage = pastedMentions + (finalMessage ? ' ' + finalMessage : '');
+      }
+
+      if (finalMessage) {
+        parts.push({ type: 'text' as const, text: finalMessage });
+      }
+
+      // Add cached file contents as hidden parts (sent to agent but not displayed in UI)
+      // These are from dropped text files - content is embedded so agent sees it immediately
+      if (fileContentsRef.current.size > 0) {
+        for (const [mentionId, content] of fileContentsRef.current.entries()) {
+          // Extract file path from mentionId (file:local:path or file:external:path)
+          const filePath = mentionId.replace(/^file:(local|external):/, '');
+          parts.push({
+            type: 'file-content' as const,
+            filePath,
+            content
+          });
+        }
+      }
+
+      // Capture form selection synchronously before any await so the closure
+      // holds the values the user actually saw in the form at submit time.
+      const formSelection = getFormSelection();
+
+      // Create chat with selected project, branch, and initial message
+      createChatMutation.mutate(
+        {
+          projectId: selectedProject.id,
+          name: messageToTitleText(message).slice(0, 50) || 'New chat',
+          model: reviewModelOverride ?? selectedChatModel,
+          initialMessageParts: parts.length > 0 ? parts : undefined,
+          baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
+          branchType: workMode === 'worktree' ? selectedBranchType : undefined,
+          useWorktree: workMode === 'worktree',
+          mode: agentMode,
+          tempPastedSubChatId: pastedTexts.length > 0 ? tempPastedIdRef.current : undefined
+        },
+        {
+          onSuccess: (data) => {
+            const newSubChatId = data.subChats?.[0]?.id;
+            if (!newSubChatId) return;
+            if (isReviewSend) {
+              applyModeDefaultModel(newSubChatId, 'review');
+            } else {
+              applyFormSelectionToSubChat(newSubChatId, formSelection);
+            }
+          },
+          onSettled: () => {
+            sendInFlightRef.current = false;
+          }
+        }
+      );
+      // Editor, images, files, and pasted texts are cleared in onSuccess callback
+    } catch (error) {
+      sendInFlightRef.current = false;
+      throw error;
+    }
   }, [
     selectedProject,
     validatedProject?.path,
@@ -2124,7 +2138,13 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                           <AgentSendButton
                             isStreaming={false}
                             isSubmitting={createChatMutation.isPending || isUploading}
-                            disabled={Boolean(!hasContent || !selectedProject || isUploading || existingLocalChat)}
+                            disabled={Boolean(
+                              !hasContent ||
+                              !selectedProject ||
+                              isUploading ||
+                              existingLocalChat ||
+                              createChatMutation.isPending
+                            )}
                             onClick={handleSend}
                             mode={agentMode}
                             hasContent={hasContent}
