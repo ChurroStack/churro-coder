@@ -1685,6 +1685,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                       {/* Context window indicator - click to compact */}
                       <AgentContextIndicator
                         tokenData={messageTokenData}
+                        modelId={provider === 'codex' ? selectedCodexModel?.id : selectedModel?.id}
                         // onCompact={onCompact}
                         isCompacting={isCompacting}
                         disabled={isStreaming}
