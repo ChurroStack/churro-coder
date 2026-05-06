@@ -53,16 +53,14 @@ function getPlanSteps(params: { text?: string; plan?: any }): PlanStepLike[] {
 export function createTaskListPartFromPlan(params: { itemId: string; text?: string; plan?: any; startedAt?: number }) {
   const tasks = getPlanSteps(params).map((step, index) => {
     const title =
-      typeof step?.step === 'string'
-        ? step.step
-        : typeof step?.title === 'string'
-          ? step.title
-          : `Task ${index + 1}`;
+      typeof step?.step === 'string' ? step.step : typeof step?.title === 'string' ? step.title : `Task ${index + 1}`;
 
     return {
       id: typeof step?.id === 'string' && step.id.length > 0 ? step.id : `step-${index + 1}`,
       subject: title,
-      ...(typeof step?.description === 'string' && step.description.length > 0 ? { description: step.description } : {}),
+      ...(typeof step?.description === 'string' && step.description.length > 0
+        ? { description: step.description }
+        : {}),
       status: normalizeTaskStatus(step?.status)
     };
   });

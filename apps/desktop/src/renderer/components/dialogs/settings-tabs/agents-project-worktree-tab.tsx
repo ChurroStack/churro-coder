@@ -713,7 +713,7 @@ export function AgentsProjectsTab() {
 
   // Filter projects by search
   const filteredProjects = useMemo(() => {
-    if (!projects) return [];
+    if (!Array.isArray(projects)) return [];
     if (!searchQuery.trim()) return projects;
     const q = searchQuery.toLowerCase();
     return projects.filter(

@@ -49,7 +49,10 @@ export function AgentsArchivePopover({
 
   const { data: archivedChats = [], isLoading } = trpc.chats.listArchived.useQuery({}, { enabled: open });
   const { data: projects = [] } = trpc.projects.list.useQuery(undefined, { enabled: open });
-  const projectsMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const projectsMap = useMemo(
+    () => (Array.isArray(projects) ? new Map(projects.map((p) => [p.id, p])) : new Map()),
+    [projects]
+  );
 
   const restoreMutation = trpc.chats.restore.useMutation({
     onSuccess: (chat) => {

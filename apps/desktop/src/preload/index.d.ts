@@ -92,6 +92,7 @@ export interface DesktopApi {
   claimChat: (chatId: string) => Promise<{ ok: true } | { ok: false; ownerStableId: string }>;
   releaseChat: (chatId: string) => Promise<void>;
   focusChatOwner: (chatId: string) => Promise<boolean>;
+  getAgentChatSnapshot: (chatId: string) => Promise<any | null>;
 
   // Shortcuts
   onShortcutNewAgent: (callback: () => void) => () => void;

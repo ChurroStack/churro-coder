@@ -157,11 +157,12 @@ export function McpServerForm({
               <SelectValue placeholder="Select a project..." />
             </SelectTrigger>
             <SelectContent>
-              {projectsList?.map((project) => (
-                <SelectItem key={project.id} value={project.path}>
-                  {project.name}
-                </SelectItem>
-              ))}
+              {Array.isArray(projectsList) &&
+                projectsList.map((project) => (
+                  <SelectItem key={project.id} value={project.path}>
+                    {project.name}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>

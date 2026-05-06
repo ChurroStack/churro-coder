@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import type { DockviewApi } from 'dockview-react';
-import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
+import { useAgentSubChatStore, type SubChatMeta } from '../agents/stores/sub-chat-store';
 
 /**
  * ChatPanelSync — keeps a workspace's dockview chat panels (`chat:*`) in
@@ -12,12 +12,14 @@ import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
  * had — preserving terminals, chat streams, scroll positions, etc.
  *
  * Responsibilities while active:
- * 1. When the user picks no chat (`selectedChatId === null`): close any
+ * 1. Hydrate `allSubChats` from the DB so dock tab titles can resolve to
+ *    real names without waiting for `ChatViewInner` to mount.
+ * 2. When the user picks no chat (`selectedChatId === null`): close any
  *    `chat:*` panels and ensure the `main` placeholder is mounted.
- * 2. When a chat is selected and we're its WorkspaceDockShell: open one
+ * 3. When a chat is selected and we're its WorkspaceDockShell: open one
  *    `chat:${subChatId}` panel for every entry in `openSubChatIds`, and
  *    close any `chat:*` panel that's no longer in that list.
- * 3. When `activeSubChatId` changes: make the matching panel the active
+ * 4. When `activeSubChatId` changes: make the matching panel the active
  *    dockview panel.
  *
  * Inactive instances are no-ops — their dockview keeps every panel as it
@@ -33,11 +35,86 @@ export interface ChatPanelSyncProps {
   dockApi: DockviewApi | null;
 }
 
+interface DbSubChat {
+  id: string;
+  name: string | null;
+  mode?: 'plan' | 'agent' | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncProps) {
   const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   const allSubChats = useAgentSubChatStore((s) => s.allSubChats);
   const storeChatId = useAgentSubChatStore((s) => s.chatId);
+
+  // Workspace-level hydration of `allSubChats` from DB.
+  // The populate normally happens inside `ChatViewInner`
+  // (active-chat.tsx ~L5056), which doesn't mount until a `ChatPanel`
+  // becomes `isVisible`. On app boot dockview's restored panels can stay
+  // `isVisible=false` until the user clicks a tab — which is exactly the
+  // "tab titles stuck on 'New Chat' until I click another tab" bug.
+  //
+  // Reuse the direct chat snapshot path used by chat content hydration. This
+  // avoids React Query's corrupted cache without maintaining a second IPC API.
+  useEffect(() => {
+    if (!active || !workspaceId) return;
+    if (storeChatId !== workspaceId) return;
+
+    let cancelled = false;
+    window.desktopApi
+      .getAgentChatSnapshot(workspaceId)
+      .then((snapshot) => {
+        if (cancelled) return;
+
+        const dbSubChats: DbSubChat[] = Array.isArray(snapshot?.subChats) ? snapshot.subChats : [];
+        const store = useAgentSubChatStore.getState();
+        const existingMap = new Map(store.allSubChats.map((sc) => [sc.id, sc]));
+        const hydratedIds = new Set<string>();
+        const now = new Date().toISOString();
+
+        const hydrated: SubChatMeta[] = dbSubChats.map((sc) => {
+          const existing = existingMap.get(sc.id);
+          hydratedIds.add(sc.id);
+          return {
+            id: sc.id,
+            name: sc.name || 'New Chat',
+            created_at: sc.createdAt ?? existing?.created_at ?? now,
+            updated_at: sc.updatedAt ?? existing?.updated_at,
+            mode: (sc.mode as 'plan' | 'agent' | undefined) || existing?.mode || 'agent'
+          };
+        });
+
+        for (const id of store.openSubChatIds) {
+          if (!hydratedIds.has(id)) {
+            const existing = existingMap.get(id);
+            hydrated.push({
+              id,
+              name: existing?.name || 'New Chat',
+              created_at: existing?.created_at ?? now,
+              updated_at: existing?.updated_at,
+              mode: existing?.mode ?? 'agent'
+            });
+          }
+        }
+
+        const identical =
+          hydrated.length === store.allSubChats.length &&
+          hydrated.every((sc) => {
+            const prev = existingMap.get(sc.id);
+            return prev?.name === sc.name && prev?.mode === sc.mode;
+          });
+        if (!identical) store.setAllSubChats(hydrated);
+      })
+      .catch((err) => {
+        console.warn('[ChatPanelSync] chat snapshot hydrate failed:', err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [active, workspaceId, storeChatId]);
 
   // Effect (1) — no chat selected: close chat panels, ensure `main`.
   useEffect(() => {
@@ -61,6 +138,11 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
     // The store loads its slice on `setChatId`; if it lags behind the
     // workspace switch we bail to wait for the next render.
     if (storeChatId !== workspaceId) return;
+    // On startup the dock snapshot can restore chat panels before the
+    // sub-chat store hydrates from the DB. Wait for that hydration pass
+    // before reconciling so we don't recreate or retitle panels from
+    // stale placeholder state.
+    if (openSubChatIds.length > 0 && allSubChats.length === 0) return;
 
     if (openSubChatIds.length > 0) {
       const main = dockApi.getPanel('main');
@@ -69,12 +151,19 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
 
     for (const subChatId of openSubChatIds) {
       const id = `chat:${subChatId}`;
-      if (dockApi.getPanel(id)) continue;
       const sc = allSubChats.find((x) => x.id === subChatId);
+      const nextTitle = sc?.name || 'New Chat';
+      const existing = dockApi.getPanel(id);
+      if (existing) {
+        if (sc && existing.api.title !== nextTitle) {
+          existing.api.setTitle(nextTitle);
+        }
+        continue;
+      }
       dockApi.addPanel({
         id,
         component: 'chat',
-        title: sc?.name || 'Conversation',
+        title: nextTitle,
         params: {
           subChatId,
           chatId: workspaceId,

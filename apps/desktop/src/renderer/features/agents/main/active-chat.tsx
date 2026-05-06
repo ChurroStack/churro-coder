@@ -2792,7 +2792,7 @@ export const ChatViewInner = memo(function ChatViewInner({
       );
       if (chatsListQuery) {
         queryClient.setQueryData(chatsListQuery.queryKey, (old: any[] | undefined) => {
-          if (!old) return old;
+          if (!Array.isArray(old)) return old;
           // Update the timestamp and sort by updatedAt descending
           const updated = old.map((c: any) => (c.id === parentChatId ? { ...c, updatedAt: now } : c));
           return updated.sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -4172,7 +4172,7 @@ export function ChatView({
   const handleOpenLocally = useCallback(() => {
     if (!remoteAgentChat) return;
 
-    const matchingProjects = getMatchingProjects(projects ?? [], remoteAgentChat);
+    const matchingProjects = getMatchingProjects(Array.isArray(projects) ? projects : [], remoteAgentChat);
 
     if (matchingProjects.length === 1) {
       // Auto-import: single match found
@@ -4189,7 +4189,7 @@ export function ChatView({
   // Get matching projects for dialog (only computed when needed)
   const openLocallyMatchingProjects = useMemo(() => {
     if (!remoteAgentChat) return [];
-    return getMatchingProjects(projects ?? [], remoteAgentChat);
+    return getMatchingProjects(Array.isArray(projects) ? projects : [], remoteAgentChat);
   }, [remoteAgentChat, projects, getMatchingProjects]);
 
   const agentSubChats = (agentChat?.subChats ?? []) as Array<{
@@ -6566,7 +6566,7 @@ Make sure to preserve all functionality from both branches when resolving confli
               onClose={() => setOpenLocallyDialogOpen(false)}
               remoteChat={remoteAgentChat ?? null}
               matchingProjects={openLocallyMatchingProjects}
-              allProjects={projects ?? []}
+              allProjects={Array.isArray(projects) ? projects : []}
               remoteSubChatId={activeSubChatId}
             />
 

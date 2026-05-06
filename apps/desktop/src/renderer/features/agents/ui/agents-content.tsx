@@ -203,7 +203,7 @@ export function AgentsContent({
   const { data: teams } = api.teams.getUserTeams.useQuery(undefined, {
     enabled: !!selectedTeamId
   });
-  const selectedTeam = teams?.find((t: any) => t.id === selectedTeamId) as any;
+  const selectedTeam = (Array.isArray(teams) ? teams.find((t: any) => t.id === selectedTeamId) : undefined) as any;
 
   // Auto-activate automations & inbox if user has any automations configured
   // One-shot check on app startup — no refetches, no polling
@@ -234,7 +234,7 @@ export function AgentsContent({
 
   // Create map for quick project lookup by id
   const projectsMap = useMemo(() => {
-    if (!projects) return new Map();
+    if (!Array.isArray(projects)) return new Map();
     return new Map(projects.map((p) => [p.id, p]));
   }, [projects]);
 

@@ -389,7 +389,7 @@ export const FilesTab = memo(
     );
 
     const filteredFiles = useMemo(() => {
-      if (!allFiles) return undefined;
+      if (!Array.isArray(allFiles)) return undefined;
       if (!filterTrimmed) return allFiles;
       return allFiles.filter((f) => f.path.toLowerCase().includes(filterTrimmed));
     }, [allFiles, filterTrimmed]);

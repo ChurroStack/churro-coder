@@ -35,6 +35,7 @@ This is the **slim hub**. It carries the always-needed context (what the app is,
 | [docs/chat-orchestrator.md](docs/chat-orchestrator.md) | Layered architecture (machines/services/components/hooks), refactor playbook for `active-chat.tsx`, bug-cluster regression matrix, Phase 3 wiring contract |
 | [docs/testing.md](docs/testing.md) | 6-layer test battery, when to add a test, conventions, `test-utils/` helpers |
 | [docs/debug.md](docs/debug.md) | Structured debug logging server + workflow |
+| [docs/postmortems/](docs/postmortems/) | Incident writeups with triage heuristics for recurring bug classes |
 | [docs/status.md](docs/status.md) | Current branch's recent work + known limitations / deferred items |
 
 ## What is this?

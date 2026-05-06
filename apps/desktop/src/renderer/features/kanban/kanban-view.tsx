@@ -117,7 +117,7 @@ export function KanbanView() {
   // Create projects map
   type Project = NonNullable<typeof projects>[number];
   const projectsMap = useMemo(() => {
-    if (!projects) return new Map<string, Project>();
+    if (!Array.isArray(projects)) return new Map<string, Project>();
     return new Map(projects.map((p) => [p.id, p]));
   }, [projects]);
 
@@ -135,7 +135,7 @@ export function KanbanView() {
   // Collect all open sub-chat IDs from localStorage for all workspaces
   const allOpenSubChatIds = useMemo(() => {
     void openSubChatsVersion;
-    if (!chats) return prevOpenSubChatIdsRef.current;
+    if (!Array.isArray(chats)) return prevOpenSubChatIdsRef.current;
 
     const windowId = getWindowId();
     const allIds: string[] = [];
@@ -370,7 +370,7 @@ export function KanbanView() {
   // Archive handler with confirmation for active processes
   const handleArchive = useCallback(
     async (chatId: string) => {
-      const chat = chats?.find((c) => c.id === chatId);
+      const chat = Array.isArray(chats) ? chats.find((c) => c.id === chatId) : undefined;
       const isLocalMode = !chat?.branch;
       // Local mode: terminals are shared and won't be killed on archive, so skip count
       const sessionCount = isLocalMode ? 0 : await utils.terminal.getActiveSessionCount.fetch({ workspaceId: chatId });

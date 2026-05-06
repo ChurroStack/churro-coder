@@ -3,7 +3,7 @@
  * Wraps real tRPC calls and provides stubs for web-only features
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { normalizeCodexToolPart } from '../../shared/codex-tool-normalizer';
 import { trpc, trpcClient } from './trpc';
 
@@ -11,6 +11,10 @@ import { trpc, trpcClient } from './trpc';
 type AnyFn = (...args: any[]) => any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>;
+
+function isValidAgentChatPayload(value: unknown): value is AnyObj {
+  return Boolean(value && typeof value === 'object' && Array.isArray((value as AnyObj).subChats));
+}
 
 export const api = {
   agents: {
@@ -36,17 +40,46 @@ export const api = {
             gcTime: opts?.gcTime ?? 30_000
           }
         );
+        const [snapshotData, setSnapshotData] = useState<AnyObj | null>(null);
+        const [snapshotLoading, setSnapshotLoading] = useState(false);
+        const enabled = !!chatId && opts?.enabled !== false;
+
+        useEffect(() => {
+          if (!enabled || !chatId || typeof window === 'undefined' || !window.desktopApi?.getAgentChatSnapshot) {
+            setSnapshotData(null);
+            return;
+          }
+          let cancelled = false;
+          setSnapshotLoading(true);
+          window.desktopApi
+            .getAgentChatSnapshot(chatId)
+            .then((data) => {
+              if (!cancelled) setSnapshotData(data);
+            })
+            .catch((err) => {
+              console.warn('[mock-api] Failed to load direct chat snapshot:', err);
+              if (!cancelled) setSnapshotData(null);
+            })
+            .finally(() => {
+              if (!cancelled) setSnapshotLoading(false);
+            });
+          return () => {
+            cancelled = true;
+          };
+        }, [enabled, chatId]);
+
+        const sourceData = isValidAgentChatPayload(result.data) ? result.data : snapshotData;
 
         // Memoize transformation to prevent infinite re-renders
         const transformedData = useMemo(() => {
-          if (!result.data) return null;
+          if (!sourceData) return null;
           return {
-            ...result.data,
+            ...sourceData,
             // Desktop uses worktrees, not sandboxes
             sandbox_id: null,
             meta: null,
             // Map subChats to expected format
-            subChats: result.data.subChats?.map((sc: AnyObj) => {
+            subChats: sourceData.subChats?.map((sc: AnyObj) => {
               let parsedMessages = [];
               try {
                 parsedMessages = sc.messages ? JSON.parse(sc.messages) : [];
@@ -197,11 +230,11 @@ export const api = {
               };
             })
           };
-        }, [result.data]);
+        }, [sourceData]);
 
         return {
           data: transformedData,
-          isLoading: result.isLoading
+          isLoading: !sourceData && (result.isLoading || snapshotLoading)
         };
       }
     },

@@ -352,7 +352,7 @@ export function InboxView() {
         const remoteChat = chatData as RemoteChat;
         if (!remoteChat) return;
 
-        const matchingProjects = getMatchingProjects(projects ?? [], remoteChat);
+        const matchingProjects = getMatchingProjects(Array.isArray(projects) ? projects : [], remoteChat);
 
         if (matchingProjects.length === 1) {
           autoImport(remoteChat, matchingProjects[0]!);
@@ -374,7 +374,7 @@ export function InboxView() {
 
   const importMatchingProjects = useMemo(() => {
     if (!importingRemoteChat) return [];
-    return getMatchingProjects(projects ?? [], importingRemoteChat);
+    return getMatchingProjects(Array.isArray(projects) ? projects : [], importingRemoteChat);
   }, [importingRemoteChat, projects, getMatchingProjects]);
 
   // Auto-switch mobile view mode when chat is selected/deselected
@@ -865,7 +865,7 @@ export function InboxView() {
         onClose={handleCloseImportDialog}
         remoteChat={importingRemoteChat}
         matchingProjects={importMatchingProjects}
-        allProjects={projects ?? []}
+        allProjects={Array.isArray(projects) ? projects : []}
         remoteSubChatId={null}
       />
     </>

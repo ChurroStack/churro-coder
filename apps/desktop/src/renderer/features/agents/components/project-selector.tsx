@@ -29,7 +29,7 @@ export function ProjectSelector() {
 
   // Filter projects by search query
   const filteredProjects = useMemo(() => {
-    if (!projects) return [];
+    if (!Array.isArray(projects)) return [];
     if (!searchQuery.trim()) return projects;
     const query = searchQuery.toLowerCase();
     return projects.filter((p) => p.name.toLowerCase().includes(query) || p.path.toLowerCase().includes(query));
@@ -44,7 +44,7 @@ export function ProjectSelector() {
       if (project) {
         // Optimistically update the projects list cache to prevent validation failures
         utils.projects.list.setData(undefined, (oldData) => {
-          if (!oldData) return [project];
+          if (!Array.isArray(oldData)) return [project];
           const exists = oldData.some((p) => p.id === project.id);
           if (exists) {
             return oldData.map((p) => (p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p));
@@ -70,7 +70,7 @@ export function ProjectSelector() {
     onSuccess: (project) => {
       if (project) {
         utils.projects.list.setData(undefined, (oldData) => {
-          if (!oldData) return [project];
+          if (!Array.isArray(oldData)) return [project];
           const exists = oldData.some((p) => p.id === project.id);
           if (exists) {
             return oldData.map((p) => (p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p));
@@ -104,7 +104,7 @@ export function ProjectSelector() {
   };
 
   const handleSelectProject = (projectId: string) => {
-    const project = projects?.find((p) => p.id === projectId);
+    const project = Array.isArray(projects) ? projects.find((p) => p.id === projectId) : undefined;
     if (project) {
       setSelectedProject({
         id: project.id,
@@ -126,7 +126,7 @@ export function ProjectSelector() {
     // While loading, trust localStorage value
     if (isLoadingProjects) return selectedProject;
     // After loading, validate against DB and use fresh data
-    if (!projects) return null;
+    if (!Array.isArray(projects)) return null;
     const dbProject = projects.find((p) => p.id === selectedProject.id);
     if (!dbProject) return null;
     return {
@@ -136,7 +136,7 @@ export function ProjectSelector() {
   }, [selectedProject, projects, isLoadingProjects]);
 
   // If no projects exist and none selected - show direct "Add repository" button
-  if (!validSelection && (!projects || projects.length === 0) && !isLoadingProjects) {
+  if (!validSelection && (!Array.isArray(projects) || projects.length === 0) && !isLoadingProjects) {
     return (
       <button
         onClick={handleOpenFolder}

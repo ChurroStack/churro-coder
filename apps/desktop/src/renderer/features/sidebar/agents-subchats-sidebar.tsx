@@ -313,7 +313,8 @@ export function AgentsSubChatsSidebar({
 
       // Navigate to previous chat or new workspace
       if (selectedChatId === variables.id) {
-        const isPreviousAvailable = previousChatId && agentChats?.some((c) => c.id === previousChatId);
+        const isPreviousAvailable =
+          previousChatId && Array.isArray(agentChats) && agentChats.some((c) => c.id === previousChatId);
 
         if (isPreviousAvailable) {
           setSelectedChatId(previousChatId);

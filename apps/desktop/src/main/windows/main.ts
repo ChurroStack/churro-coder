@@ -14,7 +14,9 @@ import { join } from 'path';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { createIPCHandler } from 'trpc-electron/main';
 import { createAppRouter } from '../lib/trpc/routers';
+import { eq } from 'drizzle-orm';
 import { getAuthManager, getBaseUrl } from '../index';
+import { getDatabase, chats, projects, subChats } from '../lib/db';
 import { registerGitWatcherIPC } from '../lib/git/watcher';
 import { hasActiveClaudeSessions, abortAllClaudeSessions } from '../lib/trpc/routers/claude';
 import { hasActiveCodexStreams, abortAllCodexStreams } from '../lib/trpc/routers/codex';
@@ -259,6 +261,39 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('chat:focus-owner', (_event, chatId: string) => {
     return windowManager.focusChatOwner(chatId);
+  });
+
+  ipcMain.handle('chat:get-agent-chat-snapshot', (_event, chatId: string) => {
+    const db = getDatabase();
+    const chat = db.select().from(chats).where(eq(chats.id, chatId)).get();
+    if (!chat) return null;
+
+    const chatSubChats = db
+      .select()
+      .from(subChats)
+      .where(eq(subChats.chatId, chatId))
+      .orderBy(subChats.createdAt)
+      .all();
+    const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
+
+    return {
+      ...chat,
+      createdAt: chat.createdAt ? chat.createdAt.toISOString() : null,
+      updatedAt: chat.updatedAt ? chat.updatedAt.toISOString() : null,
+      archivedAt: chat.archivedAt ? chat.archivedAt.toISOString() : null,
+      subChats: chatSubChats.map((row) => ({
+        ...row,
+        createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+        updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null
+      })),
+      project: project
+        ? {
+            ...project,
+            createdAt: project.createdAt ? project.createdAt.toISOString() : null,
+            updatedAt: project.updatedAt ? project.updatedAt.toISOString() : null
+          }
+        : null
+    };
   });
 
   // Set window title

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
 import { AgentsContent } from '../../agents/ui/agents-content';
@@ -33,26 +33,37 @@ import { useDockWorkspace } from '../workspace-context';
  * The opposite direction (store openSubChatIds → dockview) lives in
  * [chat-panel-sync.tsx].
  */
-export function ChatPanel({ params, api }: IDockviewPanelProps<ChatPanelEntity>) {
+export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<ChatPanelEntity>) {
   const [isVisible, setIsVisible] = useState(api.isVisible);
   const [isActive, setIsActive] = useState(api.isActive);
   const { active: isWorkspaceActive } = useDockWorkspace();
   const setActiveSubChat = useAgentSubChatStore((s) => s.setActiveSubChat);
+  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
+  const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
   const allSubChats = useAgentSubChatStore((s) => s.allSubChats);
 
-  // `isVisible` (per-group) drives whether to mount AgentsContent.
+  // Dockview can restore a panel as the active tab without emitting the
+  // visibility/active events to an already-mounted custom panel component.
+  // Re-read the panel API on layout changes and on the next frame so a
+  // restored workspace does not show a blank active chat until the user
+  // clicks another tab.
   useEffect(() => {
-    setIsVisible(api.isVisible);
-    const sub = api.onDidVisibilityChange((e) => setIsVisible(e.isVisible));
-    return () => sub.dispose();
-  }, [api]);
-
-  // `isActive` (global) drives the activeSubChatId store sync.
-  useEffect(() => {
-    setIsActive(api.isActive);
-    const sub = api.onDidActiveChange((e) => setIsActive(e.isActive));
-    return () => sub.dispose();
-  }, [api]);
+    const syncPanelState = () => {
+      setIsVisible(api.isVisible);
+      setIsActive(api.isActive);
+    };
+    syncPanelState();
+    const frame = requestAnimationFrame(syncPanelState);
+    const subVisibility = api.onDidVisibilityChange((e) => setIsVisible(e.isVisible));
+    const subActive = api.onDidActiveChange((e) => setIsActive(e.isActive));
+    const subLayout = containerApi.onDidLayoutChange(syncPanelState);
+    return () => {
+      cancelAnimationFrame(frame);
+      subVisibility.dispose();
+      subActive.dispose();
+      subLayout.dispose();
+    };
+  }, [api, containerApi]);
 
   // When this panel becomes the active panel in its dockview, sync
   // `activeSubChatId` so the rest of the app (right-rail widgets,
@@ -77,34 +88,38 @@ export function ChatPanel({ params, api }: IDockviewPanelProps<ChatPanelEntity>)
   }, [isWorkspaceActive, isActive, params.chatId, params.subChatId, setActiveSubChat]);
 
   // Keep the dockview tab title in sync with the sub-chat's display name.
-  // The store's allSubChats array is the source of truth for names.
-  const latestName = useMemo(() => {
-    const sc = allSubChats.find((x) => x.id === params.subChatId);
-    return sc?.name ?? params.name ?? 'Conversation';
-  }, [allSubChats, params.subChatId, params.name]);
-
+  // Wait for store hydration before pushing a title so we don't overwrite
+  // the restored dock snapshot title with a stale creation-time placeholder.
   useEffect(() => {
-    if (latestName && latestName !== api.title) {
-      api.setTitle(latestName);
+    const sc = allSubChats.find((x) => x.id === params.subChatId);
+    if (!sc) return;
+    const nextTitle = sc.name || 'New Chat';
+    if (nextTitle !== api.title) {
+      api.setTitle(nextTitle);
     }
-  }, [latestName, api]);
+  }, [allSubChats, params.subChatId, api]);
 
   // Mount AgentsContent for any visible panel (active tab in its group).
   // Hidden tabs (in the same group, not selected) render nothing. Across
   // groups every visible panel mounts independently, so a horizontal split
   // shows two chats side-by-side.
+  const isStoreActivePanel =
+    isWorkspaceActive &&
+    (activeSubChatId === params.subChatId || (!activeSubChatId && openSubChatIds[0] === params.subChatId));
+  const shouldMountContent = isVisible || isStoreActivePanel;
+
   return (
     <div
       className="h-full w-full overflow-hidden bg-background"
       style={{
         contain: 'layout style paint'
       }}>
-      {isVisible ? (
+      {shouldMountContent ? (
         <AgentsContent
           subChatIdOverride={params.subChatId}
           dockWorkspaceActive={isWorkspaceActive}
-          dockPanelVisible={isVisible}
-          dockPanelActive={isActive}
+          dockPanelVisible={shouldMountContent}
+          dockPanelActive={isActive || isStoreActivePanel}
         />
       ) : null}
     </div>

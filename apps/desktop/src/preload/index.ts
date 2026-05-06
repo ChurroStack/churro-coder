@@ -130,6 +130,7 @@ contextBridge.exposeInMainWorld('desktopApi', {
     ipcRenderer.invoke('chat:claim', chatId) as Promise<{ ok: true } | { ok: false; ownerStableId: string }>,
   releaseChat: (chatId: string) => ipcRenderer.invoke('chat:release', chatId) as Promise<void>,
   focusChatOwner: (chatId: string) => ipcRenderer.invoke('chat:focus-owner', chatId) as Promise<boolean>,
+  getAgentChatSnapshot: (chatId: string) => ipcRenderer.invoke('chat:get-agent-chat-snapshot', chatId),
 
   // DevTools
   toggleDevTools: () => ipcRenderer.invoke('window:toggle-devtools'),
@@ -349,6 +350,7 @@ export interface DesktopApi {
   claimChat: (chatId: string) => Promise<{ ok: true } | { ok: false; ownerStableId: string }>;
   releaseChat: (chatId: string) => Promise<void>;
   focusChatOwner: (chatId: string) => Promise<boolean>;
+  getAgentChatSnapshot: (chatId: string) => Promise<any | null>;
   toggleDevTools: () => Promise<void>;
   unlockDevTools: () => Promise<void>;
   setAnalyticsOptOut: (optedOut: boolean) => Promise<void>;

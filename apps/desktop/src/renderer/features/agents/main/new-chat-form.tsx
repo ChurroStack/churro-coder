@@ -207,14 +207,14 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     // While loading, trust localStorage value to prevent flicker
     if (isLoadingProjects) return selectedProject;
     // After loading, validate against DB
-    if (!projectsList) return null;
+    if (!Array.isArray(projectsList)) return null;
     const exists = projectsList.some((p) => p.id === selectedProject.id);
     return exists ? selectedProject : null;
   }, [selectedProject, projectsList, isLoadingProjects]);
 
   // Clear invalid project from storage
   useEffect(() => {
-    if (selectedProject && projectsList && !validatedProject) {
+    if (selectedProject && Array.isArray(projectsList) && !validatedProject) {
       setSelectedProject(null);
     }
   }, [selectedProject, projectsList, validatedProject, setSelectedProject]);
@@ -253,7 +253,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   );
   const existingLocalChat = useMemo(() => {
     if (!validatedProject || workMode !== 'local') return null;
-    return projectChatList?.find((c) => c.worktreePath === validatedProject.path) ?? null;
+    if (!Array.isArray(projectChatList)) return null;
+    return projectChatList.find((c) => c.worktreePath === validatedProject.path) ?? null;
   }, [projectChatList, validatedProject, workMode]);
 
   const debugMode = useAtomValue(agentsDebugModeAtom);
@@ -1070,7 +1071,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         // Optimistically update the projects list cache to prevent "Select repo" flash
         // This ensures validatedProject can find the new project immediately
         utils.projects.list.setData(undefined, (oldData) => {
-          if (!oldData) return [project];
+          if (!Array.isArray(oldData)) return [project];
           // Check if project already exists (reopened existing project)
           const exists = oldData.some((p) => p.id === project.id);
           if (exists) {

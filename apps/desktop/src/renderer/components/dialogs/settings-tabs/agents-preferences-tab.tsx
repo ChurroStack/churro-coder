@@ -577,8 +577,8 @@ export function AgentsPreferencesTab() {
           <div className="flex flex-col space-y-1">
             <span className="text-sm font-medium text-foreground">Share full debug logs this session</span>
             <span className="text-xs text-muted-foreground">
-              By default no traces or logs are sent, only crash reports. Turn this on to send 100% of traces and
-              logs while this app is running. Resets when you quit.
+              By default no traces or logs are sent, only crash reports. Turn this on to send 100% of traces and logs
+              while this app is running. Resets when you quit.
             </span>
             {analyticsOptOut && (
               <span className="text-xs text-muted-foreground">

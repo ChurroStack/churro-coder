@@ -1427,7 +1427,7 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
     }> = [];
 
     // Add local chats
-    if (localChats) {
+    if (Array.isArray(localChats)) {
       for (const chat of localChats) {
         unified.push({
           id: chat.id,
@@ -1447,7 +1447,7 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
     }
 
     // Add remote chats with prefixed IDs to avoid collisions
-    if (remoteChats) {
+    if (Array.isArray(remoteChats)) {
       for (const chat of remoteChats) {
         unified.push({
           id: `remote_${chat.id}`,
@@ -1544,7 +1544,7 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
 
   // Create map for quick project lookup by id
   const projectsMap = useMemo(() => {
-    if (!projects) return new Map();
+    if (!Array.isArray(projects)) return new Map();
     return new Map(projects.map((p) => [p.id, p]));
   }, [projects]);
 
@@ -2395,10 +2395,10 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
   // Handle open locally for sandbox chats
   const handleOpenLocally = useCallback(
     (chatId: string) => {
-      const remoteChat = remoteChats?.find((c) => c.id === chatId);
+      const remoteChat = Array.isArray(remoteChats) ? remoteChats.find((c) => c.id === chatId) : undefined;
       if (!remoteChat) return;
 
-      const matchingProjects = getMatchingProjects(projects ?? [], remoteChat);
+      const matchingProjects = getMatchingProjects(Array.isArray(projects) ? projects : [], remoteChat);
 
       if (matchingProjects.length === 1) {
         // Auto-import: single match found
@@ -2420,14 +2420,14 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
 
   // Get the remote chat for import dialog
   const importingRemoteChat = useMemo(() => {
-    if (!importingChatId || !remoteChats) return null;
+    if (!importingChatId || !Array.isArray(remoteChats)) return null;
     return remoteChats.find((chat) => chat.id === importingChatId) ?? null;
   }, [importingChatId, remoteChats]);
 
   // Get matching projects for import dialog (only computed when dialog is open)
   const importMatchingProjects = useMemo(() => {
     if (!importingRemoteChat) return [];
-    return getMatchingProjects(projects ?? [], importingRemoteChat);
+    return getMatchingProjects(Array.isArray(projects) ? projects : [], importingRemoteChat);
   }, [importingRemoteChat, projects, getMatchingProjects]);
 
   // Copy branch name to clipboard
@@ -3107,7 +3107,7 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
         onClose={handleCloseImportDialog}
         remoteChat={importingRemoteChat}
         matchingProjects={importMatchingProjects}
-        allProjects={projects ?? []}
+        allProjects={Array.isArray(projects) ? projects : []}
         remoteSubChatId={null}
       />
     </>

@@ -219,7 +219,8 @@ function AnthropicAccountsSection() {
       {isAccountsLoading ? (
         <div className="p-4 text-center text-sm text-muted-foreground">Loading accounts...</div>
       ) : (
-        accounts?.map((account) => (
+        Array.isArray(accounts) &&
+        accounts.map((account) => (
           <AccountRow
             key={account.id}
             account={account}

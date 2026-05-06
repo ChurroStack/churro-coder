@@ -43,7 +43,10 @@ export function useWorkspacesSearchProvider(query: string, enabled: boolean): Sp
     staleTime: 30_000
   });
 
-  const projectMap = useMemo(() => new Map((projects ?? []).map((p) => [p.id, p] as const)), [projects]);
+  const projectMap = useMemo(
+    () => new Map((Array.isArray(projects) ? projects : []).map((p) => [p.id, p] as const)),
+    [projects]
+  );
 
   const items = useMemo<SpotlightItem[]>(() => {
     if (!enabled) return [];
@@ -51,7 +54,7 @@ export function useWorkspacesSearchProvider(query: string, enabled: boolean): Sp
       console.warn('[Spotlight] WorkspacesSearchProvider failed');
       return [];
     }
-    if (!chats) return [];
+    if (!Array.isArray(chats)) return [];
 
     const q = trimmed.toLowerCase();
     const filtered = q ? chats.filter((chat) => (chat.name ?? '').toLowerCase().includes(q)) : chats;

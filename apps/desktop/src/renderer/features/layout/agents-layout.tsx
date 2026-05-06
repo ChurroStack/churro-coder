@@ -388,7 +388,9 @@ export function AgentsLayout() {
           action: {
             label: 'Open settings',
             onClick: () => {
-              const projectMatch = projects?.find((project) => project.id === payload.projectId);
+              const projectMatch = Array.isArray(projects)
+                ? projects.find((project) => project.id === payload.projectId)
+                : undefined;
               if (projectMatch) {
                 setSelectedProject(projectMatch as any);
               }

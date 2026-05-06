@@ -40,6 +40,10 @@ import { useSubChatNeedsInput } from '../kanban/lib/use-sub-chat-status';
  */
 export function RenamableTab(props: IDockviewPanelHeaderProps) {
   const { api, containerApi } = props;
+  const chatSubChatId = api.id.startsWith('chat:') ? api.id.slice('chat:'.length) : null;
+  const storeChatTitle = useAgentSubChatStore((s) =>
+    chatSubChatId ? (s.allSubChats.find((sc) => sc.id === chatSubChatId)?.name ?? null) : null
+  );
   const [title, setTitle] = useState(api.title ?? '');
   const [isActive, setIsActive] = useState(api.isActive);
   const [editing, setEditing] = useState(false);
@@ -50,10 +54,25 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
 
   // Keep local title in sync with whatever the panel pushes via setTitle.
   useEffect(() => {
-    setTitle(api.title ?? '');
-    const sub = api.onDidTitleChange((e) => setTitle(e.title ?? ''));
-    return () => sub.dispose();
-  }, [api]);
+    const syncTitle = () => setTitle(api.title ?? '');
+    syncTitle();
+    const subTitle = api.onDidTitleChange((e) => setTitle(e.title ?? ''));
+    // Dockview may update header state during activation/layout without
+    // delivering a title event to an already-mounted custom tab component.
+    const subLayout = containerApi.onDidLayoutChange(syncTitle);
+    return () => {
+      subTitle.dispose();
+      subLayout.dispose();
+    };
+  }, [api, containerApi]);
+
+  const resolvedTitle = resolveChatTabTitle(storeChatTitle, title);
+
+  useEffect(() => {
+    if (!resolvedTitle) return;
+    if (title !== resolvedTitle) setTitle(resolvedTitle);
+    if (api.title !== resolvedTitle) api.setTitle(resolvedTitle);
+  }, [api, resolvedTitle, title]);
 
   useEffect(() => {
     setIsActive(api.isActive);
@@ -80,15 +99,17 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
     };
   }, [containerApi]);
 
+  const displayTitle = resolvedTitle || title;
+
   useEffect(() => {
     if (editing) {
-      setDraft(title);
+      setDraft(displayTitle);
       requestAnimationFrame(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
       });
     }
-  }, [editing, title]);
+  }, [editing, displayTitle]);
 
   const kind = panelKind(api.id);
   // Disable the close X in two cases:
@@ -104,7 +125,7 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
 
   const startEdit = () => {
     if (!kind) return;
-    setDraft(title);
+    setDraft(displayTitle);
     setEditing(true);
   };
   const cancelEdit = () => setEditing(false);
@@ -121,7 +142,7 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
         e.preventDefault();
         startEdit();
       }}>
-      <TabIcon panelId={api.id} title={title} />
+      <TabIcon panelId={api.id} title={displayTitle} />
       {editing ? (
         <RenameInput
           ref={inputRef}
@@ -131,13 +152,13 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
           onSave={async (next) => {
             const trimmed = next.trim();
             setEditing(false);
-            if (!trimmed || trimmed === title) return;
+            if (!trimmed || trimmed === displayTitle) return;
             await dispatchRename(api.id, trimmed);
           }}
         />
       ) : (
-        <span className="truncate max-w-[180px]" title={title}>
-          {title || 'Untitled'}
+        <span className="truncate max-w-[180px]" title={displayTitle}>
+          {displayTitle || 'Untitled'}
         </span>
       )}
       <button
@@ -184,6 +205,18 @@ function countChatPanels(panels: { id: string }[]): number {
   let n = 0;
   for (const p of panels) if (p.id.startsWith('chat:')) n++;
   return n;
+}
+
+function resolveChatTabTitle(storeTitle: string | null, currentTitle: string): string | null {
+  if (!storeTitle) return null;
+  if (storeTitle !== 'New Chat') return storeTitle;
+  // A placeholder from an orphan/open-id fallback should not clobber a real
+  // title restored from dockview. For genuinely unnamed chats, both sides
+  // are already placeholders and displaying "New Chat" is correct.
+  if (!currentTitle || currentTitle === 'Untitled' || currentTitle === 'Conversation' || currentTitle === 'New Chat') {
+    return storeTitle;
+  }
+  return null;
 }
 
 /**

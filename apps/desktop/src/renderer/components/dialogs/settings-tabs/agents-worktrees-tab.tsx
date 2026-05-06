@@ -70,7 +70,7 @@ export function AgentsWorktreesTab() {
 
   // Auto-select first project
   useEffect(() => {
-    if (projects && projects.length > 0 && !selectedProjectId) {
+    if (Array.isArray(projects) && projects.length > 0 && !selectedProjectId) {
       setSelectedProjectId(projects[0].id);
     }
   }, [projects, selectedProjectId]);
@@ -148,7 +148,7 @@ export function AgentsWorktreesTab() {
     setter([...list, '']);
   };
 
-  const selectedProject = projects?.find((p) => p.id === selectedProjectId);
+  const selectedProject = Array.isArray(projects) ? projects.find((p) => p.id === selectedProjectId) : undefined;
   const cursorExists = configData?.available?.cursor?.exists ?? false;
 
   return (
@@ -181,11 +181,12 @@ export function AgentsWorktreesTab() {
                   <span className="text-sm truncate">{selectedProject?.name ?? 'Select...'}</span>
                 </SelectTrigger>
                 <SelectContent>
-                  {projects?.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
+                  {Array.isArray(projects) &&
+                    projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
