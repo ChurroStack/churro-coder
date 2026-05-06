@@ -1699,7 +1699,7 @@ ${prompt}
             // If AGENTS.md exists, append its content to the system prompt
             const hasPlanForSubChat = input.mode === 'agent' && (await hasPlan(input.subChatId));
             const planHint = hasPlanForSubChat
-              ? '\n\nAn approved plan governs this sub-chat. Use the `read_plan` tool (MCP server `churro-coder`) to retrieve it whenever needed — including after compaction.'
+              ? '\n\nAn approved plan governs this sub-chat. Use the `read_plan` tool (MCP server `churro-coder`) only when you need to recover that already-approved plan later, including after compaction, a provider switch, or a fresh session.'
               : '';
             const agentsAppend = agentsMdContent
               ? `\n\n# AGENTS.md\nThe following are the project's AGENTS.md instructions:\n\n${agentsMdContent}`
