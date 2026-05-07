@@ -20,6 +20,11 @@ export interface ClaudeOAuthCredential {
   scopes?: string[];
 }
 
+const redactClaudeAuthLog = (value: string): string =>
+  value
+    .replace(/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '<jwt>')
+    .replace(/sk-ant-[A-Za-z0-9_-]+/g, '<sk-ant>');
+
 /**
  * Read Claude OAuth credentials from system credential store
  * Dispatches to platform-specific implementation
@@ -287,26 +292,44 @@ export function isClaudeCliInstalled(): boolean {
  * Note: Uses pipe for stdio instead of inherit to prevent hanging in non-TTY
  * environments (like Electron apps launched from Finder/Dock)
  */
-export function runClaudeSetupToken(
-  onStatus: (message: string) => void
-): Promise<{ success: boolean; token?: string; error?: string }> {
-  return new Promise((resolve) => {
+export function runClaudeSetupToken(onStatus: (message: string) => void): {
+  cancel: () => void;
+  result: Promise<{ success: boolean; token?: string; error?: string }>;
+} {
+  let settled = false;
+  let childKilled = false;
+  let child: ReturnType<typeof spawn> | null = null;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  const result = new Promise<{ success: boolean; token?: string; error?: string }>((resolve) => {
+    const finish = (value: { success: boolean; token?: string; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      resolve(value);
+    };
+
     onStatus('Starting Claude setup-token...');
 
     const fullPath = getExtendedPath();
     const claudePath = resolveClaudeCliPath();
 
     if (!claudePath) {
-      resolve({
+      finish({
         success: false,
         error: 'Claude CLI not found on PATH. Install it and retry.'
       });
       return;
     }
 
+    console.log('[ClaudeAuth] spawn', claudePath);
+
     // Spawn the resolved absolute binary directly — no `shell: true`, so
     // metacharacters/spaces in PATH or env are treated as literal args.
-    const child = spawn(claudePath, ['setup-token'], {
+    child = spawn(claudePath, ['setup-token'], {
       // Don't use 'inherit' - it causes hang in non-TTY environments
       // Use 'ignore' for stdin and 'pipe' for stdout/stderr
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -319,41 +342,59 @@ export function runClaudeSetupToken(
     child.stdout?.on('data', (data: Buffer) => {
       const text = data.toString();
       stdout += text;
+      console.log('[ClaudeAuth] stdout chunk len=' + text.length, redactClaudeAuthLog(text).slice(0, 200));
       onStatus(text.trim());
     });
 
     child.stderr?.on('data', (data: Buffer) => {
-      stderr += data.toString();
+      const text = data.toString();
+      stderr += text;
+      console.log('[ClaudeAuth] stderr chunk len=' + text.length, redactClaudeAuthLog(text).slice(0, 200));
+      onStatus(text.trim());
     });
 
-    // Timeout after 2 minutes to prevent indefinite hang
-    const timeout = setTimeout(() => {
-      child.kill();
-      resolve({
+    // Timeout after 10 minutes to prevent indefinite hang while still letting
+    // keychain polling detect success independently of CLI output.
+    timeout = setTimeout(() => {
+      console.log('[ClaudeAuth] kill timeout fired');
+      childKilled = true;
+      child?.kill();
+      finish({
         success: false,
-        error: 'Authentication timed out after 2 minutes. Please try again.'
+        error: 'Authentication timed out after 10 minutes. Please try again.'
       });
-    }, 120000);
+    }, 600000);
 
     child.on('error', (err) => {
-      clearTimeout(timeout);
-      resolve({
+      finish({
         success: false,
         error: `Failed to start claude setup-token: ${err.message}`
       });
     });
 
     child.on('close', (code) => {
-      clearTimeout(timeout);
+      console.log('[ClaudeAuth] exit code=' + code);
+
+      if (settled) {
+        return;
+      }
+
+      if (childKilled && code !== 0) {
+        finish({
+          success: false,
+          error: 'Authentication canceled.'
+        });
+        return;
+      }
 
       if (code === 0) {
         // Wait a moment for the token to be written to keychain
         setTimeout(() => {
           const token = getExistingClaudeToken();
           if (token) {
-            resolve({ success: true, token });
+            finish({ success: true, token });
           } else {
-            resolve({
+            finish({
               success: false,
               error: 'Token not found after setup. The authentication may have failed.'
             });
@@ -361,11 +402,21 @@ export function runClaudeSetupToken(
         }, 500);
       } else {
         const errorDetail = stderr.trim() || `Process exited with code ${code}`;
-        resolve({
+        finish({
           success: false,
           error: errorDetail
         });
       }
     });
   });
+
+  return {
+    cancel: () => {
+      if (settled || !child) return;
+      childKilled = true;
+      console.log('[ClaudeAuth] cancel requested');
+      child.kill('SIGTERM');
+    },
+    result
+  };
 }

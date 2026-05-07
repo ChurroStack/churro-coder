@@ -2,7 +2,12 @@ import { eq } from 'drizzle-orm';
 import { safeStorage, shell } from 'electron';
 import { z } from 'zod';
 import { getClaudeShellEnvironment } from '../../claude';
-import { getExistingClaudeToken, isClaudeCliInstalled, runClaudeSetupToken } from '../../claude-token';
+import {
+  getExistingClaudeCredentials,
+  getExistingClaudeToken,
+  isClaudeCliInstalled,
+  runClaudeSetupToken
+} from '../../claude-token';
 import { anthropicAccounts, anthropicSettings, claudeCodeCredentials, getDatabase } from '../../db';
 import { createId } from '../../db/utils';
 import { publicProcedure, router } from '../index';
@@ -84,17 +89,29 @@ function storeOAuthToken(oauthToken: string, setAsActive = true): string {
 
 // In-process sessions for local claude setup-token flow
 interface LocalAuthSession {
-  status: 'waiting' | 'ready' | 'success' | 'error';
+  status: 'waiting' | 'success' | 'error' | 'canceled';
   oauthUrl: string | null;
   error: string | null;
+  cancel: () => void;
   // Resolves when the process completes and the token is stored
   done: Promise<void>;
-  // Resolver that lets submitCode signal the session is finished
   resolve: () => void;
   reject: (err: Error) => void;
 }
 
 const localSessions = new Map<string, LocalAuthSession>();
+
+function logClaudeAuth(message: string, metadata?: Record<string, unknown>): void {
+  if (metadata) {
+    console.log('[ClaudeAuth]', message, metadata);
+    return;
+  }
+  console.log('[ClaudeAuth]', message);
+}
+
+function cleanupSession(sessionId: string): void {
+  setTimeout(() => localSessions.delete(sessionId), 5 * 60 * 1000);
+}
 
 /**
  * Claude Code OAuth router for desktop
@@ -176,34 +193,48 @@ export const claudeCodeRouter = router({
       status: 'waiting',
       oauthUrl: null,
       error: null,
+      cancel: () => {},
       done,
       resolve: resolveSession,
       reject: rejectSession
     };
     localSessions.set(sessionId, session);
+    logClaudeAuth('session started', { sessionId });
 
-    // Spawn claude setup-token in background; parse stdout for the OAuth URL
-    runClaudeSetupToken((message) => {
-      // Look for the OAuth authorization URL in the CLI output
-      const urlMatch = message.match(/https:\/\/claude\.ai\/[^\s"'>]+/);
-      if (urlMatch && session.status === 'waiting') {
-        session.oauthUrl = urlMatch[0];
-        session.status = 'ready';
+    const authRun = runClaudeSetupToken((message) => {
+      if (!message) return;
+      logClaudeAuth('status chunk', { sessionId, length: message.length });
+    });
+
+    session.cancel = () => {
+      if (session.status === 'canceled') return;
+      session.status = 'canceled';
+      logClaudeAuth('session cancel invoked', { sessionId });
+      authRun.cancel();
+      localSessions.delete(sessionId);
+    };
+
+    authRun.result.then((result) => {
+      if (session.status === 'canceled') {
+        logClaudeAuth('session result ignored after cancel', { sessionId });
+        cleanupSession(sessionId);
+        return;
       }
-    }).then((result) => {
+
       if (result.success) {
         if (result.token) {
           storeOAuthToken(result.token);
         }
         session.status = 'success';
+        logClaudeAuth('session success', { sessionId, storedToken: !!result.token });
         session.resolve();
       } else {
         session.status = 'error';
         session.error = result.error ?? 'Unknown error';
+        logClaudeAuth('session error', { sessionId, error: session.error });
         session.reject(new Error(session.error));
       }
-      // Clean up session after 5 minutes
-      setTimeout(() => localSessions.delete(sessionId), 5 * 60 * 1000);
+      cleanupSession(sessionId);
     });
 
     return { sandboxId: 'local', sandboxUrl: 'local', sessionId };
@@ -231,11 +262,29 @@ export const claudeCodeRouter = router({
       };
     }),
 
+  cancelAuth: publicProcedure
+    .input(
+      z.object({
+        sessionId: z.string()
+      })
+    )
+    .mutation(({ input }) => {
+      const session = localSessions.get(input.sessionId);
+      if (!session) {
+        return { success: true };
+      }
+
+      session.cancel();
+      logClaudeAuth('session canceled', { sessionId: input.sessionId });
+      return { success: true };
+    }),
+
   /**
    * Submit OAuth code — re-reads the token from the system keychain after
    * the local claude CLI subprocess has already completed its own token exchange.
    * The code is not forwarded here; the CLI handles stdin itself.
-   * This procedure just waits for the subprocess to finish and imports the token.
+   * This procedure is retained temporarily for compatibility with older clients.
+   * TODO: remove once renderer migration confirmed.
    */
   submitCode: publicProcedure
     .input(
@@ -307,6 +356,14 @@ export const claudeCodeRouter = router({
     return { token };
   }),
 
+  getSystemCredentials: publicProcedure.query(() => {
+    const creds = getExistingClaudeCredentials();
+    return {
+      accessToken: creds?.accessToken ?? null,
+      expiresAt: creds?.expiresAt ?? null
+    };
+  }),
+
   /**
    * Import Claude token from system credentials
    */
@@ -317,6 +374,7 @@ export const claudeCodeRouter = router({
     }
 
     storeOAuthToken(token);
+    logClaudeAuth('system token imported');
     console.log('[ClaudeCode] Token imported from system');
     return { success: true };
   }),
