@@ -21,6 +21,7 @@ import { usageRouter } from './usage';
 import { sandboxRouter } from './sandbox';
 import { sandboxImportRouter } from './sandbox-import';
 import { analyticsRouter } from './analytics';
+import { openspecRouter } from './openspec';
 import { createGitRouter } from '../../git';
 import { BrowserWindow } from 'electron';
 
@@ -52,6 +53,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     analytics: analyticsRouter,
     sandbox: sandboxRouter,
     sandboxImport: sandboxImportRouter,
+    openspec: openspecRouter,
     // Git operations - named "changes" to match Superset API
     changes: createGitRouter()
   });
