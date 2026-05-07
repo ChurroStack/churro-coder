@@ -503,7 +503,9 @@ export function AgentsKeyboardTab() {
           className="flex flex-col h-full bg-background border-r overflow-hidden"
           style={{ borderRightWidth: '0.5px' }}>
           {/* Search */}
-          <div className="px-2 pt-2 flex-shrink-0">
+          <div
+            className="px-2 pt-2 flex-shrink-0"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <input
               ref={searchInputRef}
               type="text"

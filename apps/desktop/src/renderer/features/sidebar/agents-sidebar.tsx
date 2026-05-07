@@ -39,7 +39,7 @@ import {
 } from '../../lib/hooks/use-remote-chats';
 import { usePrefetchLocalChat } from '../../lib/hooks/use-prefetch-local-chat';
 import { AgentsArchivePopover } from '../agents/components/agents-archive-popover';
-import { Columns3, BarChart3 } from 'lucide-react';
+import { BarChart3, Columns3, Plus } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 // Desktop: archive is handled inline, not via hook
 // import { DiscordIcon } from "@/components/icons"
@@ -65,7 +65,6 @@ import {
 import {
   IconDoubleChevronLeft,
   SettingsIcon,
-  PlusIcon,
   SearchIcon,
   GitHubLogo,
   LoadingDot,
@@ -111,6 +110,8 @@ import { Checkbox } from '../../components/ui/checkbox';
 import { useHaptic } from './hooks/use-haptic';
 import { TypewriterText } from '../../components/ui/typewriter-text';
 import { exportChat, copyChat, type ExportFormat } from '../agents/lib/export-chat';
+import { ProjectGroup } from './project-group/project-group';
+import { useGroupedAgentChats } from './grouping/use-grouped-agent-chats';
 
 // Feedback URL: uses env variable for hosted version, falls back to public Discord for open source
 const FEEDBACK_URL = import.meta.env.VITE_FEEDBACK_URL || 'https://discord.gg/8ektTZGnj4';
@@ -791,7 +792,7 @@ function chatListSectionPropsAreEqual(prevProps: ChatListSectionProps, nextProps
 }
 
 interface ChatListSectionProps {
-  title: string;
+  title?: string;
   chats: Array<{
     id: string;
     name: string | null;
@@ -897,9 +898,11 @@ const ChatListSection = React.memo(function ChatListSection({
 
   return (
     <>
-      <div className={cn('flex items-center h-4 mb-1', isMultiSelectMode ? 'pl-3' : 'pl-2')}>
-        <h3 className="text-xs font-medium text-muted-foreground whitespace-nowrap">{title}</h3>
-      </div>
+      {title ? (
+        <div className={cn('flex items-center h-4 mb-1', isMultiSelectMode ? 'pl-3' : 'pl-2')}>
+          <h3 className="text-xs font-medium text-muted-foreground whitespace-nowrap">{title}</h3>
+        </div>
+      ) : null}
       <div className="list-none p-0 m-0 mb-3">
         {chats.map((chat) => {
           const isLoading = loadingChatIds.has(chat.id);
@@ -1883,23 +1886,20 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
     }
   }, [selectedChatIds, clearChatSelection]);
 
-  // Filter and separate pinned/unpinned agents
-  const { pinnedAgents, unpinnedAgents, filteredChats } = useMemo(() => {
-    if (!agentChats) return { pinnedAgents: [], unpinnedAgents: [], filteredChats: [] };
+  const localAgentChats = useMemo(() => agentChats.filter((chat) => !chat.isRemote), [agentChats]);
 
-    const filtered = searchQuery.trim()
-      ? agentChats.filter((chat) => (chat.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
-      : agentChats;
-
+  const { pinnedAgents, filteredChats } = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const filtered = normalizedQuery
+      ? localAgentChats.filter((chat) => (chat.name ?? '').toLowerCase().includes(normalizedQuery))
+      : localAgentChats;
     const pinned = filtered.filter((chat) => pinnedChatIds.has(chat.id));
-    const unpinned = filtered.filter((chat) => !pinnedChatIds.has(chat.id));
 
     return {
       pinnedAgents: pinned,
-      unpinnedAgents: unpinned,
-      filteredChats: [...pinned, ...unpinned]
+      filteredChats: [...pinned, ...filtered.filter((chat) => !pinnedChatIds.has(chat.id))]
     };
-  }, [searchQuery, agentChats, pinnedChatIds]);
+  }, [searchQuery, localAgentChats, pinnedChatIds]);
 
   // Handle bulk archive of selected chats
   const handleBulkArchive = useCallback(() => {
@@ -2153,6 +2153,19 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
     return chatIds;
   }, [pendingQuestions, expiredQuestions]);
 
+  const { visibleGroups, forceExpandAll, isSearching } = useGroupedAgentChats(
+    localAgentChats,
+    projectsMap,
+    pinnedChatIds,
+    searchQuery,
+    {
+      loadingChatIds,
+      workspacePendingQuestions,
+      workspacePendingPlans,
+      unseenChanges
+    }
+  );
+
   const handleNewAgent = () => {
     triggerHaptic('light');
     setSelectedChatId(null);
@@ -2298,7 +2311,6 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
   }, []);
 
   // Archive single chat - wrapped for memoized component
-  // Checks for active terminal processes and worktree, shows confirmation dialog if needed
   const handleArchiveSingle = useCallback(
     async (chatId: string) => {
       // Check if this specific chat is remote
@@ -2353,16 +2365,9 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
       // Only worktree-mode workspaces may have running terminals — skip count for local mode
       const isLocalMode = !chat?.branch;
       const sessionCount = isLocalMode ? 0 : await utils.terminal.getActiveSessionCount.fetch({ workspaceId: chatId });
-
-      if (sessionCount > 0) {
-        // Show confirmation dialog so user is warned about running processes
-        setArchivingChatId(chatId);
-        setActiveProcessCount(sessionCount);
-        setConfirmArchiveDialogOpen(true);
-      } else {
-        // No active processes, archive directly
-        archiveChatMutation.mutate({ id: chatId });
-      }
+      setArchivingChatId(chatId);
+      setActiveProcessCount(sessionCount);
+      setConfirmArchiveDialogOpen(true);
     },
     [
       agentChats,
@@ -2788,6 +2793,7 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
                   'px-2 w-full hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] text-foreground rounded-md gap-1.5',
                   isMobileFullscreen ? 'h-10' : 'h-7'
                 )}>
+                <Plus className="size-3.5" />
                 <span className="text-sm font-medium">New Workspace</span>
               </ButtonCustom>
             </TooltipTrigger>
@@ -2848,96 +2854,94 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
             </div>
           )}
 
-          {/* Chats Section */}
-          {filteredChats.length > 0 ? (
-            <div className={cn('mb-4', isMultiSelectMode ? 'px-0' : '-mx-1')}>
-              {/* Pinned section */}
-              <ChatListSection
-                title="Pinned workspaces"
-                chats={pinnedAgents}
-                selectedChatId={selectedChatId}
-                selectedChatIsRemote={selectedChatIsRemote}
-                focusedChatIndex={focusedChatIndex}
-                loadingChatIds={loadingChatIds}
-                unseenChanges={unseenChanges}
-                workspacePendingPlans={workspacePendingPlans}
-                workspacePendingQuestions={workspacePendingQuestions}
-                isMultiSelectMode={isMultiSelectMode}
-                selectedChatIds={selectedChatIds}
-                isMobileFullscreen={isMobileFullscreen}
-                isDesktop={isDesktop}
-                pinnedChatIds={pinnedChatIds}
-                projectsMap={projectsMap}
-                workspaceFileStats={workspaceFileStats}
-                filteredChats={filteredChats}
-                canShowPinOption={canShowPinOption}
-                areAllSelectedPinned={areAllSelectedPinned}
-                showIcon={showWorkspaceIcon}
-                onChatClick={handleChatClick}
-                onCheckboxClick={handleCheckboxClick}
-                onMouseEnter={handleAgentMouseEnter}
-                onMouseLeave={handleAgentMouseLeave}
-                onArchive={handleArchiveSingle}
-                onTogglePin={handleTogglePin}
-                onRenameClick={handleRenameClick}
-                onCopyBranch={handleCopyBranch}
-                onArchiveAllBelow={handleArchiveAllBelow}
-                onArchiveOthers={handleArchiveOthers}
-                onOpenLocally={handleOpenLocally}
-                onBulkPin={handleBulkPin}
-                onBulkUnpin={handleBulkUnpin}
-                onBulkArchive={handleBulkArchive}
-                archivePending={archiveChatMutation.isPending || archiveRemoteChatMutation.isPending}
-                archiveBatchPending={archiveChatsBatchMutation.isPending || archiveRemoteChatsBatchMutation.isPending}
-                nameRefCallback={nameRefCallback}
-                formatTime={formatTime}
-                justCreatedIds={justCreatedIds}
-              />
+          <div className={cn('mb-4', isMultiSelectMode ? 'px-0' : '-mx-1')}>
+            <ChatListSection
+              title="Pinned workspaces"
+              chats={pinnedAgents}
+              selectedChatId={selectedChatId}
+              selectedChatIsRemote={selectedChatIsRemote}
+              focusedChatIndex={focusedChatIndex}
+              loadingChatIds={loadingChatIds}
+              unseenChanges={unseenChanges}
+              workspacePendingPlans={workspacePendingPlans}
+              workspacePendingQuestions={workspacePendingQuestions}
+              isMultiSelectMode={isMultiSelectMode}
+              selectedChatIds={selectedChatIds}
+              isMobileFullscreen={isMobileFullscreen}
+              isDesktop={isDesktop}
+              pinnedChatIds={pinnedChatIds}
+              projectsMap={projectsMap}
+              workspaceFileStats={workspaceFileStats}
+              filteredChats={filteredChats}
+              canShowPinOption={canShowPinOption}
+              areAllSelectedPinned={areAllSelectedPinned}
+              showIcon={showWorkspaceIcon}
+              onChatClick={handleChatClick}
+              onCheckboxClick={handleCheckboxClick}
+              onMouseEnter={handleAgentMouseEnter}
+              onMouseLeave={handleAgentMouseLeave}
+              onArchive={handleArchiveSingle}
+              onTogglePin={handleTogglePin}
+              onRenameClick={handleRenameClick}
+              onCopyBranch={handleCopyBranch}
+              onArchiveAllBelow={handleArchiveAllBelow}
+              onArchiveOthers={handleArchiveOthers}
+              onOpenLocally={handleOpenLocally}
+              onBulkPin={handleBulkPin}
+              onBulkUnpin={handleBulkUnpin}
+              onBulkArchive={handleBulkArchive}
+              archivePending={archiveChatMutation.isPending || archiveRemoteChatMutation.isPending}
+              archiveBatchPending={archiveChatsBatchMutation.isPending || archiveRemoteChatsBatchMutation.isPending}
+              nameRefCallback={nameRefCallback}
+              formatTime={formatTime}
+              justCreatedIds={justCreatedIds}
+            />
 
-              {/* Unpinned section */}
-              <ChatListSection
-                title={pinnedAgents.length > 0 ? 'Recent workspaces' : 'Workspaces'}
-                chats={unpinnedAgents}
-                selectedChatId={selectedChatId}
-                selectedChatIsRemote={selectedChatIsRemote}
-                focusedChatIndex={focusedChatIndex}
-                loadingChatIds={loadingChatIds}
-                unseenChanges={unseenChanges}
-                workspacePendingPlans={workspacePendingPlans}
-                workspacePendingQuestions={workspacePendingQuestions}
-                isMultiSelectMode={isMultiSelectMode}
-                selectedChatIds={selectedChatIds}
-                isMobileFullscreen={isMobileFullscreen}
-                isDesktop={isDesktop}
-                pinnedChatIds={pinnedChatIds}
-                projectsMap={projectsMap}
-                workspaceFileStats={workspaceFileStats}
-                filteredChats={filteredChats}
-                canShowPinOption={canShowPinOption}
-                areAllSelectedPinned={areAllSelectedPinned}
-                showIcon={showWorkspaceIcon}
-                onChatClick={handleChatClick}
-                onCheckboxClick={handleCheckboxClick}
-                onMouseEnter={handleAgentMouseEnter}
-                onMouseLeave={handleAgentMouseLeave}
-                onArchive={handleArchiveSingle}
-                onTogglePin={handleTogglePin}
-                onRenameClick={handleRenameClick}
-                onCopyBranch={handleCopyBranch}
-                onArchiveAllBelow={handleArchiveAllBelow}
-                onArchiveOthers={handleArchiveOthers}
-                onOpenLocally={handleOpenLocally}
-                onBulkPin={handleBulkPin}
-                onBulkUnpin={handleBulkUnpin}
-                onBulkArchive={handleBulkArchive}
-                archivePending={archiveChatMutation.isPending || archiveRemoteChatMutation.isPending}
-                archiveBatchPending={archiveChatsBatchMutation.isPending || archiveRemoteChatsBatchMutation.isPending}
-                nameRefCallback={nameRefCallback}
-                formatTime={formatTime}
-                justCreatedIds={justCreatedIds}
-              />
-            </div>
-          ) : null}
+            {visibleGroups.map((group) => (
+              <ProjectGroup key={group.id} group={group} forceExpand={forceExpandAll} isSearching={isSearching}>
+                <ChatListSection
+                  chats={group.chats}
+                  selectedChatId={selectedChatId}
+                  selectedChatIsRemote={selectedChatIsRemote}
+                  focusedChatIndex={focusedChatIndex}
+                  loadingChatIds={loadingChatIds}
+                  unseenChanges={unseenChanges}
+                  workspacePendingPlans={workspacePendingPlans}
+                  workspacePendingQuestions={workspacePendingQuestions}
+                  isMultiSelectMode={isMultiSelectMode}
+                  selectedChatIds={selectedChatIds}
+                  isMobileFullscreen={isMobileFullscreen}
+                  isDesktop={isDesktop}
+                  pinnedChatIds={pinnedChatIds}
+                  projectsMap={projectsMap}
+                  workspaceFileStats={workspaceFileStats}
+                  filteredChats={filteredChats}
+                  canShowPinOption={canShowPinOption}
+                  areAllSelectedPinned={areAllSelectedPinned}
+                  showIcon={showWorkspaceIcon}
+                  onChatClick={handleChatClick}
+                  onCheckboxClick={handleCheckboxClick}
+                  onMouseEnter={handleAgentMouseEnter}
+                  onMouseLeave={handleAgentMouseLeave}
+                  onArchive={handleArchiveSingle}
+                  onTogglePin={handleTogglePin}
+                  onRenameClick={handleRenameClick}
+                  onCopyBranch={handleCopyBranch}
+                  onArchiveAllBelow={handleArchiveAllBelow}
+                  onArchiveOthers={handleArchiveOthers}
+                  onOpenLocally={handleOpenLocally}
+                  onBulkPin={handleBulkPin}
+                  onBulkUnpin={handleBulkUnpin}
+                  onBulkArchive={handleBulkArchive}
+                  archivePending={archiveChatMutation.isPending || archiveRemoteChatMutation.isPending}
+                  archiveBatchPending={archiveChatsBatchMutation.isPending || archiveRemoteChatsBatchMutation.isPending}
+                  nameRefCallback={nameRefCallback}
+                  formatTime={formatTime}
+                  justCreatedIds={justCreatedIds}
+                />
+              </ProjectGroup>
+            ))}
+          </div>
         </div>
 
         {/* Top gradient fade (appears when scrolled down) */}

@@ -729,7 +729,9 @@ export function AgentsMcpTab() {
           className="flex flex-col h-full bg-background border-r overflow-hidden"
           style={{ borderRightWidth: '0.5px' }}>
           {/* Search + Add */}
-          <div className="px-2 pt-2 flex-shrink-0 flex items-center">
+          <div
+            className="px-2 pt-2 flex-shrink-0 flex items-center"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <input
               ref={searchInputRef}
               placeholder="Search servers..."

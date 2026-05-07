@@ -1,0 +1,143 @@
+import { useState } from 'react';
+import { useAtom, useSetAtom } from 'jotai';
+import { ChevronRight, Settings } from 'lucide-react';
+import { ConfirmDeleteDialog } from '../../../components/confirm-delete-dialog';
+import { OpenInMenuItems, getAppOption } from '../../../components/open-in-menu-items';
+import { ProjectGroupMenuButton } from './project-group-header';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger
+} from '../../../components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
+import {
+  selectedProjectAtom,
+  agentsSettingsDialogActiveTabAtom,
+  agentsSidebarOpenAtom,
+  preferredEditorAtom,
+  desktopViewAtom
+} from '../../../lib/atoms';
+import { trpc } from '../../../lib/trpc';
+import type { ProjectRecord } from '../grouping/group-chats-by-project';
+
+export function ProjectGroupActionsMenu({ project, chatIds }: { project: ProjectRecord; chatIds: string[] }) {
+  const utils = trpc.useUtils();
+  const [preferredEditor] = useAtom(preferredEditorAtom);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const setSelectedProject = useSetAtom(selectedProjectAtom);
+  const setSettingsTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
+  const setDesktopView = useSetAtom(desktopViewAtom);
+  const setSidebarOpen = useSetAtom(agentsSidebarOpenAtom);
+  const openInAppMutation = trpc.external.openInApp.useMutation();
+  const openInFinderMutation = trpc.external.openInFinder.useMutation();
+  const archiveBatchMutation = trpc.chats.archiveBatch.useMutation({
+    onSuccess: () => {
+      utils.chats.list.invalidate();
+      setArchiveDialogOpen(false);
+    }
+  });
+  const deleteProjectMutation = trpc.projects.delete.useMutation({
+    onSuccess: () => {
+      utils.projects.list.invalidate();
+      utils.chats.list.invalidate();
+      setRemoveDialogOpen(false);
+    }
+  });
+  const preferredApp = getAppOption(preferredEditor);
+  const removeDisabled = chatIds.length > 0;
+  const archiveDisabled = chatIds.length === 0;
+
+  function openProjectSettings() {
+    setSelectedProject({
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      gitRemoteUrl: project.gitRemoteUrl ?? null,
+      gitProvider: project.gitProvider ?? null,
+      gitOwner: project.gitOwner ?? null,
+      gitRepo: project.gitRepo ?? null
+    });
+    setSettingsTab('projects');
+    setDesktopView('settings');
+    setSidebarOpen(true);
+  }
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <ProjectGroupMenuButton onClick={(e) => e.stopPropagation()} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuItem onClick={() => openInAppMutation.mutate({ path: project.path, app: preferredApp.id })}>
+            Open in {preferredApp.displayLabel ?? preferredApp.label}
+          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="flex items-center justify-between">
+              <span>Open in…</span>
+              <ChevronRight className="size-3.5" />
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-48">
+              <OpenInMenuItems path={project.path} />
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuItem onClick={() => openInFinderMutation.mutate(project.path)}>
+            Reveal in Finder
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={openProjectSettings} className="flex items-center gap-2">
+            <Settings className="size-4" />
+            <span>Settings</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={archiveDisabled} onClick={() => setArchiveDialogOpen(true)}>
+            Archive workspaces
+          </DropdownMenuItem>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <DropdownMenuItem
+                  disabled={removeDisabled}
+                  onClick={() => setRemoveDialogOpen(true)}
+                  className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
+                  Remove repository
+                </DropdownMenuItem>
+              </div>
+            </TooltipTrigger>
+            {removeDisabled && <TooltipContent>Archive all workspaces first</TooltipContent>}
+          </Tooltip>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <ConfirmDeleteDialog
+        open={archiveDialogOpen}
+        onOpenChange={setArchiveDialogOpen}
+        title={`Archive ${chatIds.length} workspace${chatIds.length === 1 ? '' : 's'} in ${project.name ?? 'project'}?`}
+        description="The workspaces will be hidden from the sidebar and any running terminals will be stopped. The worktree directories on disk are preserved."
+        confirmLabel={chatIds.length === 1 ? 'Archive workspace' : `Archive ${chatIds.length} workspaces`}
+        onConfirm={() => archiveBatchMutation.mutate({ chatIds })}
+        isDeleting={archiveBatchMutation.isPending}
+      />
+      <ConfirmDeleteDialog
+        open={removeDialogOpen}
+        onOpenChange={setRemoveDialogOpen}
+        title={`Remove ${project.name ?? 'repository'} from list?`}
+        description={
+          <>
+            The project entry will be removed from Churro Coder. The folder on disk at <code>{project.path}</code> stays
+            intact.
+          </>
+        }
+        confirmLabel="Remove repository"
+        onConfirm={() => deleteProjectMutation.mutate({ id: project.id })}
+        isDeleting={deleteProjectMutation.isPending}
+      />
+    </>
+  );
+}

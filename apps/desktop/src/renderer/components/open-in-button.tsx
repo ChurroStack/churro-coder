@@ -1,95 +1,18 @@
 import type { ExternalApp } from '../../shared/external-apps';
 import { useAtom } from 'jotai';
 import { useCallback, useEffect } from 'react';
+import { ChevronDown, Copy } from 'lucide-react';
 import { preferredEditorAtom } from '../lib/atoms';
 import { trpc } from '../lib/trpc';
+import { getAppOption, OpenInMenuItems } from './open-in-menu-items';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from './ui/dropdown-menu';
-import { ChevronDown, Copy } from 'lucide-react';
-
-// ─── Icon imports ───────────────────────────────────────────────────────────
-import cursorIcon from '../assets/app-icons/cursor.svg';
-import finderIcon from '../assets/app-icons/finder.png';
-import zedIcon from '../assets/app-icons/zed.png';
-import sublimeIcon from '../assets/app-icons/sublime.svg';
-import xcodeIcon from '../assets/app-icons/xcode.svg';
-import itermIcon from '../assets/app-icons/iterm.png';
-import warpIcon from '../assets/app-icons/warp.png';
-import terminalIcon from '../assets/app-icons/terminal.png';
-import ghosttyIcon from '../assets/app-icons/ghostty.svg';
-import vscodeIcon from '../assets/app-icons/vscode.svg';
-import vscodeInsidersIcon from '../assets/app-icons/vscode-insiders.svg';
-import jetbrainsIcon from '../assets/app-icons/jetbrains.svg';
-import intellijIcon from '../assets/app-icons/intellij.svg';
-import webstormIcon from '../assets/app-icons/webstorm.svg';
-import pycharmIcon from '../assets/app-icons/pycharm.svg';
-import phpstormIcon from '../assets/app-icons/phpstorm.svg';
-import rubymineIcon from '../assets/app-icons/rubymine.svg';
-import golandIcon from '../assets/app-icons/goland.svg';
-import clionIcon from '../assets/app-icons/clion.svg';
-import riderIcon from '../assets/app-icons/rider.svg';
-import datagripIcon from '../assets/app-icons/datagrip.svg';
-import appcodeIcon from '../assets/app-icons/appcode.svg';
-import fleetIcon from '../assets/app-icons/fleet.svg';
-import rustroverIcon from '../assets/app-icons/rustrover.svg';
-
-// ─── App option structure ───────────────────────────────────────────────────
-
-interface AppOption {
-  id: ExternalApp;
-  label: string;
-  icon: string;
-  displayLabel?: string;
-}
-
-const APP_OPTIONS: AppOption[] = [
-  { id: 'finder', label: 'Finder', icon: finderIcon },
-  { id: 'cursor', label: 'Cursor', icon: cursorIcon },
-  { id: 'zed', label: 'Zed', icon: zedIcon },
-  { id: 'sublime', label: 'Sublime Text', icon: sublimeIcon },
-  { id: 'xcode', label: 'Xcode', icon: xcodeIcon },
-  { id: 'iterm', label: 'iTerm', icon: itermIcon },
-  { id: 'warp', label: 'Warp', icon: warpIcon },
-  { id: 'terminal', label: 'Terminal', icon: terminalIcon },
-  { id: 'ghostty', label: 'Ghostty', icon: ghosttyIcon }
-];
-
-const VSCODE_OPTIONS: AppOption[] = [
-  { id: 'vscode', label: 'Standard', icon: vscodeIcon, displayLabel: 'VS Code' },
-  { id: 'vscode-insiders', label: 'Insiders', icon: vscodeInsidersIcon, displayLabel: 'VS Code Insiders' }
-];
-
-const JETBRAINS_OPTIONS: AppOption[] = [
-  { id: 'intellij', label: 'IntelliJ IDEA', icon: intellijIcon },
-  { id: 'webstorm', label: 'WebStorm', icon: webstormIcon },
-  { id: 'pycharm', label: 'PyCharm', icon: pycharmIcon },
-  { id: 'phpstorm', label: 'PhpStorm', icon: phpstormIcon },
-  { id: 'rubymine', label: 'RubyMine', icon: rubymineIcon },
-  { id: 'goland', label: 'GoLand', icon: golandIcon },
-  { id: 'clion', label: 'CLion', icon: clionIcon },
-  { id: 'rider', label: 'Rider', icon: riderIcon },
-  { id: 'datagrip', label: 'DataGrip', icon: datagripIcon },
-  { id: 'appcode', label: 'AppCode', icon: appcodeIcon },
-  { id: 'fleet', label: 'Fleet', icon: fleetIcon },
-  { id: 'rustrover', label: 'RustRover', icon: rustroverIcon }
-];
-
-const ALL_APP_OPTIONS = [...APP_OPTIONS, ...VSCODE_OPTIONS, ...JETBRAINS_OPTIONS];
-
-export function getAppOption(id: ExternalApp): AppOption {
-  return ALL_APP_OPTIONS.find((app) => app.id === id) ?? APP_OPTIONS[1];
-}
-
-// ─── Component ──────────────────────────────────────────────────────────────
 
 export interface OpenInButtonProps {
   path: string | undefined;
@@ -97,20 +20,11 @@ export interface OpenInButtonProps {
 }
 
 export function OpenInButton({ path, label }: OpenInButtonProps) {
-  const [lastUsedApp, setLastUsedApp] = useAtom(preferredEditorAtom);
+  const [lastUsedApp] = useAtom(preferredEditorAtom);
   const openInAppMutation = trpc.external.openInApp.useMutation();
   const copyPathMutation = trpc.external.copyPath.useMutation();
 
   const currentApp = getAppOption(lastUsedApp);
-
-  const handleOpenIn = useCallback(
-    (app: ExternalApp) => {
-      if (!path) return;
-      setLastUsedApp(app);
-      openInAppMutation.mutate({ path, app });
-    },
-    [path, setLastUsedApp, openInAppMutation]
-  );
 
   const handleCopyPath = useCallback(() => {
     if (!path) return;
@@ -119,10 +33,9 @@ export function OpenInButton({ path, label }: OpenInButtonProps) {
 
   const handleOpenLastUsed = useCallback(() => {
     if (!path) return;
-    openInAppMutation.mutate({ path, app: lastUsedApp });
+    openInAppMutation.mutate({ path, app: lastUsedApp as ExternalApp });
   }, [path, lastUsedApp, openInAppMutation]);
 
-  // Keyboard shortcut: Cmd+Shift+C — copy path
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!path) return;
@@ -131,6 +44,7 @@ export function OpenInButton({ path, label }: OpenInButtonProps) {
         copyPathMutation.mutate(path);
       }
     }
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [path, copyPathMutation]);
@@ -160,40 +74,7 @@ export function OpenInButton({ path, label }: OpenInButtonProps) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          {APP_OPTIONS.map((app) => (
-            <DropdownMenuItem key={app.id} onClick={() => handleOpenIn(app.id)} className="flex items-center gap-2">
-              <img src={app.icon} alt="" className="size-4 object-contain" />
-              <span>{app.label}</span>
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="flex items-center gap-2">
-              <img src={vscodeIcon} alt="" className="size-4 object-contain" />
-              <span>VS Code</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-48" sideOffset={6} alignOffset={-4}>
-              {VSCODE_OPTIONS.map((app) => (
-                <DropdownMenuItem key={app.id} onClick={() => handleOpenIn(app.id)} className="flex items-center gap-2">
-                  <img src={app.icon} alt="" className="size-4 object-contain" />
-                  <span>{app.label}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="flex items-center gap-2">
-              <img src={jetbrainsIcon} alt="" className="size-4 object-contain" />
-              <span>JetBrains</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-48" sideOffset={6} alignOffset={-4}>
-              {JETBRAINS_OPTIONS.map((app) => (
-                <DropdownMenuItem key={app.id} onClick={() => handleOpenIn(app.id)} className="flex items-center gap-2">
-                  <img src={app.icon} alt="" className="size-4 object-contain" />
-                  <span>{app.label}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <OpenInMenuItems path={path} />
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleCopyPath} className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -207,3 +88,5 @@ export function OpenInButton({ path, label }: OpenInButtonProps) {
     </div>
   );
 }
+
+export { getAppOption } from './open-in-menu-items';
