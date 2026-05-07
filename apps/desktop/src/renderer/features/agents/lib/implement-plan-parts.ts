@@ -20,8 +20,7 @@ export const IMPLEMENT_PLAN_BASE_TEXT = `Implement plan. ${IMPLEMENT_PLAN_TASK_T
 export function buildImplementPlanParts(subChatId: string): unknown[] {
   const readPlanInstruction =
     'First, call the `read_plan` tool from the `churro-coder` MCP server to retrieve the approved plan. ' +
-    `If the tool schema has a \`subChatId\` field, pass exactly { "subChatId": "${subChatId}" }; ` +
-    'if the tool schema is bound and has no `subChatId` field, call it without `subChatId`. Then implement it.';
+    `If the tool requires a \`subChatId\` argument, pass { "subChatId": "${subChatId}" }. Then implement it.`;
 
   return [{ type: 'text', text: `Implement plan. ${readPlanInstruction} ${IMPLEMENT_PLAN_TASK_TRACKING_INSTRUCTION}` }];
 }

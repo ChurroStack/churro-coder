@@ -46,9 +46,9 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
     },
     async (input: { subChatId?: string; revision?: 'current' }) => {
       const id = opts.boundSubChatId ?? input.subChatId;
-      console.log(`[churro-coder] read_plan called sub=${id ?? 'missing'} bound=${Boolean(opts.boundSubChatId)}`);
+      const inputKeys = Object.keys(input).join(',') || 'none';
       console.log(
-        `[churro-coder] read_plan input bound=${Boolean(opts.boundSubChatId)} inputKeys=${Object.keys(input || {}).join(',') || 'none'} revision=${input?.revision ?? 'current'}`
+        `[churro-coder] read_plan called sub=${id ?? 'missing'} bound=${Boolean(opts.boundSubChatId)} inputKeys=${inputKeys} revision=${input.revision ?? 'current'}`
       );
       if (!id) {
         return {

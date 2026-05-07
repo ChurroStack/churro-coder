@@ -119,3 +119,9 @@ export async function ensurePlanWritten(opts: {
   await writeCurrentPlan(opts);
   return { written: true };
 }
+
+/** Pull the first markdown `# heading` out of a plan body, falling back to "Plan". */
+export function extractPlanTitleFromContent(content: string): string {
+  const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  return heading || 'Plan';
+}

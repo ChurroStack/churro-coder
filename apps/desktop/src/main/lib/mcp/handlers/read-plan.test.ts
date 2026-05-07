@@ -54,7 +54,7 @@ describe('read_plan tool', () => {
     expect(content[0].text).toContain('# Plan body');
     expect(content[0].text).toContain('step 1');
     expect(content[0].text).toContain('Source: claude:ExitPlanMode');
-    expect(console.log).toHaveBeenCalledWith('[churro-coder] read_plan called sub=bound-1 bound=true');
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('read_plan called sub=bound-1 bound=true'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('read_plan result sub=bound-1 found=true'));
   });
 
@@ -91,7 +91,7 @@ describe('read_plan tool', () => {
     expect(result.isError).toBe(true);
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content[0].text).toMatch(/No plan has been recorded/);
-    expect(console.log).toHaveBeenCalledWith('[churro-coder] read_plan called sub=missing bound=true');
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('read_plan called sub=missing bound=true'));
     expect(console.log).toHaveBeenCalledWith('[churro-coder] read_plan result sub=missing found=false bytes=0');
   });
 

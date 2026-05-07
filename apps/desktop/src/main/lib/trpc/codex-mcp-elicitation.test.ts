@@ -32,7 +32,26 @@ describe('decideCodexMcpElicitation', () => {
     expect(decideCodexMcpElicitation({ server: 'external-mcp', tool: 'dangerous_tool' })).toMatchObject({
       action: 'decline',
       content: null,
-      reason: 'unknown-mcp-elicitation'
+      reason: 'unknown-mcp-elicitation:server=external-mcp'
+    });
+  });
+
+  test('foreign server declines even when prompt text mentions read_plan', () => {
+    expect(
+      decideCodexMcpElicitation({
+        server: 'external-mcp',
+        prompt: 'Allow MCP tool call read_plan on churro-coder?'
+      })
+    ).toMatchObject({
+      action: 'decline',
+      reason: 'unknown-mcp-elicitation:server=external-mcp'
+    });
+  });
+
+  test('non-read_plan tool declines when no server is named', () => {
+    expect(decideCodexMcpElicitation({ tool: 'dangerous_tool' })).toMatchObject({
+      action: 'decline',
+      reason: 'unknown-mcp-elicitation:tool=dangerous_tool'
     });
   });
 });

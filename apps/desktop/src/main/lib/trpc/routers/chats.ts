@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
-import { ensurePlanWritten, markApproved } from '../../plans/plan-store';
+import { ensurePlanWritten, extractPlanTitleFromContent, markApproved } from '../../plans/plan-store';
 import { app, BrowserWindow, safeStorage } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -104,11 +104,6 @@ function getPlanFromPlanWritePart(part: any): any | null {
   ];
 
   return candidates.find((plan) => plan && typeof plan === 'object') || null;
-}
-
-function extractPlanTitle(content: string): string {
-  const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
-  return heading || 'Plan';
 }
 
 /**
@@ -1255,7 +1250,7 @@ export const chatsRouter = router({
         subChatId: input.subChatId,
         content: input.content,
         source: input.source ?? 'fallback:approve',
-        title: input.title?.trim() || extractPlanTitle(input.content)
+        title: input.title?.trim() || extractPlanTitleFromContent(input.content)
       });
     }),
 

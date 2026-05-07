@@ -10,7 +10,7 @@ describe('buildImplementPlanParts', () => {
     expect(parts[0].text).toContain('read_plan');
     expect(parts[0].text).toContain('churro-coder');
     expect(parts[0].text).toContain('{ "subChatId": "sub-123" }');
-    expect(parts[0].text).toContain('if the tool schema is bound');
+    expect(parts[0].text).toContain('If the tool requires a `subChatId` argument');
     expect(IMPLEMENT_PLAN_BASE_TEXT).toContain('built-in task-management tool');
     expect(parts.some((part) => part.type === 'file-content')).toBe(false);
   });

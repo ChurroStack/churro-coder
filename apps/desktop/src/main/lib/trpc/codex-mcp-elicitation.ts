@@ -32,14 +32,22 @@ export function decideCodexMcpElicitation(params: Record<string, unknown>): Code
   const serverName = getStringParam(params, ['server', 'serverName', 'mcpServer', 'mcpServerName']);
   const toolName = getStringParam(params, ['tool', 'toolName']);
 
-  if (serverName && isAppOwnedChurroCoderMcpServerName(serverName)) {
-    return { action: 'accept', content: null, reason: `app-owned-server:${serverName}` };
+  // When Codex names the server, that's authoritative — text-match must not override it.
+  if (serverName) {
+    return isAppOwnedChurroCoderMcpServerName(serverName)
+      ? { action: 'accept', content: null, reason: `app-owned-server:${serverName}` }
+      : { action: 'decline', content: null, reason: `unknown-mcp-elicitation:server=${serverName}` };
   }
 
-  if (toolName === 'read_plan') {
-    return { action: 'accept', content: null, reason: 'app-owned-tool:read_plan' };
+  // No server, but tool is named — accept only our own tool.
+  if (toolName) {
+    return toolName === 'read_plan'
+      ? { action: 'accept', content: null, reason: 'app-owned-tool:read_plan' }
+      : { action: 'decline', content: null, reason: `unknown-mcp-elicitation:tool=${toolName}` };
   }
 
+  // Last resort: no structured server/tool fields. Fall back to text-match so we don't
+  // miss prompt-only elicitation shapes that mention our server/tool by name.
   if (textMentionsReadPlan(params)) {
     return { action: 'accept', content: null, reason: 'app-owned-text-match:read_plan' };
   }

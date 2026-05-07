@@ -63,7 +63,7 @@ import {
 } from '../../sandbox/policy';
 import { getApprovedPluginMcpServers, getEnabledPlugins } from './claude-settings';
 import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
-import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
+import { writeCurrentPlan, hasPlan, extractPlanTitleFromContent } from '../../plans/plan-store';
 import { createMcpServerForSubChat } from '../../mcp/server';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
@@ -2481,12 +2481,11 @@ ${prompt}
                               // Persist plan to disk for cross-provider retrieval via churro-coder MCP
                               const planContent = typeof chunk.input?.plan === 'string' ? chunk.input.plan : '';
                               if (planContent) {
-                                const title = planContent.match(/^#\s+(.+)/m)?.[1]?.trim() || 'Plan';
                                 void writeCurrentPlan({
                                   subChatId: input.subChatId,
                                   content: planContent,
                                   source: 'claude:ExitPlanMode',
-                                  title
+                                  title: extractPlanTitleFromContent(planContent)
                                 }).catch((err) => console.error('[churro-coder] Failed to persist plan:', err));
                               }
                             }
