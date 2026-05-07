@@ -16,27 +16,9 @@ import { trpc } from '../../lib/trpc';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent } from '../ui/alert-dialog';
 import { Button } from '../ui/button';
 import { ClaudeCodeIcon, IconSpinner } from '../ui/icons';
-import { Input } from '../ui/input';
 import { Logo } from '../ui/logo';
 
-type AuthFlowState =
-  | { step: 'idle' }
-  | { step: 'starting' }
-  | {
-      step: 'waiting_url';
-      sandboxId: string;
-      sandboxUrl: string;
-      sessionId: string;
-    }
-  | {
-      step: 'has_url';
-      sandboxId: string;
-      oauthUrl: string;
-      sandboxUrl: string;
-      sessionId: string;
-    }
-  | { step: 'submitting' }
-  | { step: 'error'; message: string };
+type AuthFlowState = { step: 'idle' } | { step: 'connecting'; sessionId: string } | { step: 'error'; message: string };
 
 type ClaudeLoginModalProps = {
   hideCustomModelSettingsLink?: boolean;
@@ -52,152 +34,131 @@ export function ClaudeLoginModal({
   const setSettingsOpen = useSetAtom(agentsSettingsDialogOpenAtom);
   const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
   const [flowState, setFlowState] = useState<AuthFlowState>({ step: 'idle' });
-  const [authCode, setAuthCode] = useState('');
-  const [userClickedConnect, setUserClickedConnect] = useState(false);
-  const [urlOpened, setUrlOpened] = useState(false);
-  const [savedOauthUrl, setSavedOauthUrl] = useState<string | null>(null);
   const [ignoredExistingToken, setIgnoredExistingToken] = useState(false);
   const [isUsingExistingToken, setIsUsingExistingToken] = useState(false);
   const [existingTokenError, setExistingTokenError] = useState<string | null>(null);
-  const urlOpenedRef = useRef(false);
-  const didAutoStartForOpenRef = useRef(false);
   const autoCompletedRef = useRef(false);
-  const initialConnectedRef = useRef<boolean | null>(null);
+  const didAutoStartForOpenRef = useRef(false);
+  // Baseline snapshot taken on the first keychain poll while the modal is open.
+  // Success is detected when a subsequent poll returns a different accessToken
+  // or expiresAt — meaning the CLI's loopback callback wrote new creds.
+  const baselineCredsRef = useRef<{ accessToken: string | null; expiresAt: number | null } | null>(null);
 
-  // tRPC mutations
   const startAuthMutation = trpc.claudeCode.startAuth.useMutation();
-  const submitCodeMutation = trpc.claudeCode.submitCode.useMutation();
-  const openOAuthUrlMutation = trpc.claudeCode.openOAuthUrl.useMutation();
+  const cancelAuthMutation = trpc.claudeCode.cancelAuth.useMutation();
   const importSystemTokenMutation = trpc.claudeCode.importSystemToken.useMutation();
   const trpcUtils = trpc.useUtils();
+  const activeSessionId = flowState.step === 'connecting' ? flowState.sessionId : '';
 
-  // Detect an existing Claude Code keychain token so we can offer a
-  // one-click import instead of running `claude setup-token` again. When
-  // valid creds already exist, the setup-token subprocess can hang in
-  // closed-stdin and leave the user stuck on the Connect spinner. Only
-  // query while the modal is open to avoid keychain access at app boot.
+  // Existing keychain creds - offered as a one-click import when present,
+  // so users with a valid CLI session don't need to re-authenticate.
   const existingTokenQuery = trpc.claudeCode.getSystemToken.useQuery(undefined, { enabled: open });
   const existingToken = existingTokenQuery.data?.token ?? null;
   const hasExistingToken = !!existingToken;
   const checkedExistingToken = !open || (!existingTokenQuery.isLoading && existingTokenQuery.isFetched);
   const shouldOfferExistingToken = open && checkedExistingToken && hasExistingToken && !ignoredExistingToken;
 
-  // Poll for OAuth URL and — once the browser is open — for subprocess completion
-  const pollStatusQuery = trpc.claudeCode.pollStatus.useQuery(
-    {
-      sandboxUrl: flowState.step === 'waiting_url' || flowState.step === 'has_url' ? flowState.sandboxUrl : '',
-      sessionId: flowState.step === 'waiting_url' || flowState.step === 'has_url' ? flowState.sessionId : ''
-    },
-    {
-      enabled: flowState.step === 'waiting_url' || (flowState.step === 'has_url' && urlOpened),
-      refetchInterval: 1500
-    }
-  );
-
-  // Safety-net: poll the DB every 5s for token presence, in case the
-  // `pollStatus` flow never reaches `has_url` (e.g. the CLI completes
-  // silently using existing keychain creds and never prints a URL).
-  const pollIntegrationQuery = trpc.claudeCode.getIntegration.useQuery(undefined, {
+  // Keychain poll: fallback success-detection mechanism. Runs every 5 s
+  // while the modal is open. We compare against a baseline snapshot taken
+  // the first time this query resolves; a diff means the CLI's OAuth
+  // callback wrote fresh credentials to the keychain.
+  const credsQuery = trpc.claudeCode.getSystemCredentials.useQuery(undefined, {
     enabled: open,
-    refetchInterval: 5000
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true
   });
 
-  // Update flow state when we get the OAuth URL
+  // Session poll: primary completion signal. The main process already knows
+  // when `claude setup-token` exits successfully, so the renderer should not
+  // wait indefinitely for a later keychain diff if the session already ended.
+  const authStatusInput = { sandboxUrl: 'local', sessionId: activeSessionId };
+  const authStatusOptions = {
+    enabled: open && flowState.step === 'connecting',
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true
+  };
+  const authStatusQuery = trpc.claudeCode.pollStatus.useQuery(authStatusInput, authStatusOptions);
+
+  // Seed baseline on first successful poll.
   useEffect(() => {
-    if (flowState.step === 'waiting_url' && pollStatusQuery.data?.oauthUrl) {
-      setSavedOauthUrl(pollStatusQuery.data.oauthUrl);
-      setFlowState({
-        step: 'has_url',
-        sandboxId: flowState.sandboxId,
-        oauthUrl: pollStatusQuery.data.oauthUrl,
-        sandboxUrl: flowState.sandboxUrl,
+    if (!open || !credsQuery.isFetched || baselineCredsRef.current !== null) return;
+    baselineCredsRef.current = {
+      accessToken: credsQuery.data?.accessToken ?? null,
+      expiresAt: credsQuery.data?.expiresAt ?? null
+    };
+    if (import.meta.env.DEV) {
+      console.log('[ClaudeAuth] modal: baseline seeded, has=', !!baselineCredsRef.current.accessToken);
+    }
+  }, [open, credsQuery.isFetched, credsQuery.data]);
+
+  useEffect(() => {
+    if (!open || flowState.step !== 'connecting' || autoCompletedRef.current || !authStatusQuery.data) return;
+
+    if (authStatusQuery.data.state === 'success') {
+      autoCompletedRef.current = true;
+      console.log('[ClaudeAuth] modal: session reported success, completing auth', {
         sessionId: flowState.sessionId
       });
-    } else if (flowState.step === 'waiting_url' && pollStatusQuery.data?.state === 'error') {
-      setFlowState({
-        step: 'error',
-        message: pollStatusQuery.data.error || 'Failed to get OAuth URL'
-      });
-    }
-  }, [pollStatusQuery.data, flowState]);
-
-  // Auto-close when the CLI subprocess completes the OAuth flow autonomously.
-  // This fires when the subprocess's local HTTP server receives the browser
-  // redirect and session.status flips to "success" — no code paste required.
-  useEffect(() => {
-    if (
-      flowState.step === 'has_url' &&
-      urlOpened &&
-      !autoCompletedRef.current &&
-      pollStatusQuery.data?.state === 'success'
-    ) {
-      autoCompletedRef.current = true;
       handleAuthSuccess();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollStatusQuery.data?.state, flowState.step, urlOpened]);
-
-  // Seed the baseline synchronously when the modal opens, from the React
-  // Query cache. Without this, a poll that resolves AFTER auth has already
-  // completed would seed the ref to `true` on its first response and the
-  // false→true transition would never be observed (modal stays stuck).
-  useEffect(() => {
-    if (!open) return;
-    if (initialConnectedRef.current !== null) return;
-    const cached = trpcUtils.claudeCode.getIntegration.getData();
-    initialConnectedRef.current = cached?.isConnected ?? false;
-  }, [open, trpcUtils]);
-
-  // Close the modal once the token shows up in the DB. Only fires on a
-  // transition from `isConnected: false` to `true` so reopening the modal
-  // for an already-connected user (e.g. to switch accounts) is preserved.
-  useEffect(() => {
-    if (!open || !pollIntegrationQuery.isSuccess) return;
-    const isConnected = pollIntegrationQuery.data?.isConnected ?? false;
-    // Auto-correct the baseline whenever a fresh poll reports disconnected.
-    // This covers the rare case where the cache was stale-true but the user
-    // is actually disconnected — the next true-poll then trips the transition.
-    if (!isConnected) {
-      initialConnectedRef.current = false;
       return;
     }
-    if (initialConnectedRef.current === false && !autoCompletedRef.current) {
-      autoCompletedRef.current = true;
-      handleAuthSuccess();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollIntegrationQuery.data?.isConnected, pollIntegrationQuery.isSuccess, open]);
 
-  // Open URL in browser when ready (after user clicked Connect)
+    if (authStatusQuery.data.state === 'error') {
+      console.log('[ClaudeAuth] modal: session reported error', {
+        sessionId: flowState.sessionId,
+        error: authStatusQuery.data.error
+      });
+      setFlowState({
+        step: 'error',
+        message: authStatusQuery.data.error ?? 'Authentication failed'
+      });
+    }
+  }, [open, flowState, authStatusQuery.data]);
+
+  // Detect new credentials: only fire when connecting, baseline is set,
+  // and creds differ from baseline (fresh write from CLI callback).
   useEffect(() => {
-    if (flowState.step === 'has_url' && userClickedConnect && !urlOpenedRef.current) {
-      urlOpenedRef.current = true;
-      setUrlOpened(true);
-      openOAuthUrlMutation.mutate(flowState.oauthUrl);
+    if (
+      !open ||
+      flowState.step !== 'connecting' ||
+      autoCompletedRef.current ||
+      !credsQuery.data ||
+      !baselineCredsRef.current
+    ) {
+      return;
     }
-  }, [flowState, userClickedConnect, openOAuthUrlMutation]);
+    const baseline = baselineCredsRef.current;
+    const curr = credsQuery.data;
+    const fresh =
+      !!curr.accessToken && (curr.accessToken !== baseline.accessToken || curr.expiresAt !== baseline.expiresAt);
+    if (!fresh) return;
 
-  // Reset state when modal closes
+    autoCompletedRef.current = true;
+    if (import.meta.env.DEV) console.log('[ClaudeAuth] modal: fresh keychain token detected, importing');
+    importSystemTokenMutation
+      .mutateAsync()
+      .then(() => handleAuthSuccess())
+      .catch((e) => {
+        autoCompletedRef.current = false;
+        console.error('[ClaudeAuth] modal: import failed', e);
+        setFlowState({ step: 'error', message: e instanceof Error ? e.message : 'Import failed' });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, flowState.step, flowState.step === 'connecting' ? flowState.sessionId : null, credsQuery.data]);
+
+  // Reset all state when modal closes.
   useEffect(() => {
     if (!open) {
       setFlowState({ step: 'idle' });
-      setAuthCode('');
-      setUserClickedConnect(false);
-      setUrlOpened(false);
-      setSavedOauthUrl(null);
       setIgnoredExistingToken(false);
       setIsUsingExistingToken(false);
       setExistingTokenError(null);
-      urlOpenedRef.current = false;
       didAutoStartForOpenRef.current = false;
       autoCompletedRef.current = false;
-      initialConnectedRef.current = null;
-      // Clear pending retry if modal closed without success (user cancelled)
-      // Note: We don't clear here because success handler sets readyToRetry=true first
+      baselineCredsRef.current = null;
     }
   }, [open]);
 
-  // Helper to trigger retry after successful OAuth
   const triggerAuthRetry = () => {
     const pending = appStore.get(pendingAuthRetryMessageAtom);
     if (pending && pending.provider === 'claude-code') {
@@ -206,7 +167,6 @@ export function ClaudeLoginModal({
     }
   };
 
-  // Helper to clear pending retry (on cancel/close without success)
   const clearPendingRetry = () => {
     const pending = appStore.get(pendingAuthRetryMessageAtom);
     if (pending && pending.provider === 'claude-code' && !pending.readyToRetry) {
@@ -226,83 +186,46 @@ export function ClaudeLoginModal({
     ]);
   };
 
-  // Check if the code looks like a valid Claude auth code (format: XXX#YYY)
-  const isValidCodeFormat = (code: string) => {
-    const trimmed = code.trim();
-    return trimmed.length > 50 && trimmed.includes('#');
-  };
+  const startConnect = useCallback(async () => {
+    if (import.meta.env.DEV) console.log('[ClaudeAuth] modal: flow state connecting');
+    try {
+      const result = await startAuthMutation.mutateAsync();
+      if (import.meta.env.DEV) console.log('[ClaudeAuth] modal: flow state connecting, sessionId=', result.sessionId);
+      setFlowState({ step: 'connecting', sessionId: result.sessionId });
+    } catch (err) {
+      if (import.meta.env.DEV) console.log('[ClaudeAuth] modal: flow state error');
+      setFlowState({
+        step: 'error',
+        message: err instanceof Error ? err.message : 'Failed to start authentication'
+      });
+    }
+  }, [startAuthMutation]);
 
   const handleConnectClick = useCallback(async () => {
-    setUserClickedConnect(true);
+    if (flowState.step === 'connecting') return;
+    await startConnect();
+  }, [flowState.step, startConnect]);
 
-    if (flowState.step === 'has_url') {
-      // URL is ready, open it immediately
-      urlOpenedRef.current = true;
-      setUrlOpened(true);
-      openOAuthUrlMutation.mutate(flowState.oauthUrl);
-    } else if (flowState.step === 'error') {
-      // Retry on error
-      urlOpenedRef.current = false;
-      setUrlOpened(false);
-      setFlowState({ step: 'starting' });
-      try {
-        const result = await startAuthMutation.mutateAsync();
-        setFlowState({
-          step: 'waiting_url',
-          sandboxId: result.sandboxId,
-          sandboxUrl: result.sandboxUrl,
-          sessionId: result.sessionId
-        });
-      } catch (err) {
-        setFlowState({
-          step: 'error',
-          message: err instanceof Error ? err.message : 'Failed to start authentication'
-        });
-      }
-    } else if (flowState.step === 'idle') {
-      // Start auth
-      setFlowState({ step: 'starting' });
-      try {
-        const result = await startAuthMutation.mutateAsync();
-        setFlowState({
-          step: 'waiting_url',
-          sandboxId: result.sandboxId,
-          sandboxUrl: result.sandboxUrl,
-          sessionId: result.sessionId
-        });
-      } catch (err) {
-        setFlowState({
-          step: 'error',
-          message: err instanceof Error ? err.message : 'Failed to start authentication'
-        });
-      }
-    }
-  }, [flowState, openOAuthUrlMutation, startAuthMutation]);
-
+  // Auto-start when prop is set and we've resolved the keychain check.
   useEffect(() => {
     if (
       !open ||
       !autoStartAuth ||
       flowState.step !== 'idle' ||
       didAutoStartForOpenRef.current ||
-      // Wait until the keychain check resolves; if we're going to surface
-      // the existing-token prompt, don't kick off the OAuth subprocess.
       !checkedExistingToken ||
       shouldOfferExistingToken
     ) {
       return;
     }
-
     didAutoStartForOpenRef.current = true;
     void handleConnectClick();
   }, [autoStartAuth, flowState.step, handleConnectClick, open, checkedExistingToken, shouldOfferExistingToken]);
 
   const handleUseExistingToken = async () => {
     if (!hasExistingToken || isUsingExistingToken) return;
-
     setIsUsingExistingToken(true);
     setExistingTokenError(null);
-
     try {
       await importSystemTokenMutation.mutateAsync();
       handleAuthSuccess();
@@ -313,68 +236,25 @@ export function ClaudeLoginModal({
   };
 
   const handleRejectExistingToken = () => {
+    // Pre-flag the auto-start guard. Without this, the auto-start effect
+    // re-fires on the next render (when `shouldOfferExistingToken` flips
+    // to false) and races with our manual call here while the
+    // `startAuth` mutation is still in flight - spawning two CLI children.
+    didAutoStartForOpenRef.current = true;
     setIgnoredExistingToken(true);
     setExistingTokenError(null);
     void handleConnectClick();
   };
 
-  const handleSubmitCode = async () => {
-    if (!authCode.trim() || flowState.step !== 'has_url') return;
-
-    const { sandboxUrl, sessionId } = flowState;
-    setFlowState({ step: 'submitting' });
-
-    try {
-      await submitCodeMutation.mutateAsync({
-        sandboxUrl,
-        sessionId,
-        code: authCode.trim()
-      });
-      handleAuthSuccess();
-    } catch (err) {
-      setFlowState({
-        step: 'error',
-        message: err instanceof Error ? err.message : 'Failed to submit code'
-      });
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      // Kill the spawned CLI subprocess if one is running.
+      if (flowState.step === 'connecting') {
+        cancelAuthMutation.mutate({ sessionId: flowState.sessionId });
+      }
+      clearPendingRetry();
     }
-  };
-
-  const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setAuthCode(value);
-
-    // Auto-submit if the pasted value looks like a valid auth code
-    if (isValidCodeFormat(value) && flowState.step === 'has_url') {
-      const { sandboxUrl, sessionId } = flowState;
-      setTimeout(async () => {
-        setFlowState({ step: 'submitting' });
-        try {
-          await submitCodeMutation.mutateAsync({
-            sandboxUrl,
-            sessionId,
-            code: value.trim()
-          });
-          handleAuthSuccess();
-        } catch (err) {
-          setFlowState({
-            step: 'error',
-            message: err instanceof Error ? err.message : 'Failed to submit code'
-          });
-        }
-      }, 100);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && authCode.trim()) {
-      handleSubmitCode();
-    }
-  };
-
-  const handleOpenFallbackUrl = () => {
-    if (savedOauthUrl) {
-      openOAuthUrlMutation.mutate(savedOauthUrl);
-    }
+    setOpen(newOpen);
   };
 
   const handleOpenModelsSettings = () => {
@@ -384,28 +264,16 @@ export function ClaudeLoginModal({
     setOpen(false);
   };
 
-  const isLoadingAuth = flowState.step === 'starting' || flowState.step === 'waiting_url';
-  const isSubmitting = flowState.step === 'submitting';
-
-  // Handle modal open/close - clear pending retry if closing without success
-  const handleOpenChange = (newOpen: boolean) => {
-    if (!newOpen) {
-      clearPendingRetry();
-    }
-    setOpen(newOpen);
-  };
-
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogContent className="w-[380px] p-6">
-        {/* Close button */}
         <AlertDialogCancel className="absolute right-4 top-4 h-6 w-6 p-0 border-0 bg-transparent hover:bg-muted rounded-sm opacity-70 hover:opacity-100">
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </AlertDialogCancel>
 
         <div className="space-y-8">
-          {/* Header with dual icons */}
+          {/* Header */}
           <div className="text-center space-y-4">
             <div className="flex items-center justify-center gap-2 p-2 mx-auto w-max rounded-full border border-border">
               <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
@@ -423,9 +291,7 @@ export function ClaudeLoginModal({
 
           {/* Content */}
           <div className="space-y-6">
-            {/* Existing token prompt — shown when the Claude Code CLI
-                already has valid creds in the keychain, so the user can
-                skip the OAuth subprocess. */}
+            {/* Existing-token prompt */}
             {shouldOfferExistingToken && flowState.step === 'idle' && (
               <div className="space-y-3">
                 <div className="p-3 bg-muted/50 border border-border rounded-md">
@@ -454,56 +320,28 @@ export function ClaudeLoginModal({
               </div>
             )}
 
-            {/* Connect Button - shows loader only if user clicked AND loading.
-                Hidden until the keychain check resolves and only when not
-                offering the existing-token prompt. */}
-            {checkedExistingToken &&
-              !shouldOfferExistingToken &&
-              !urlOpened &&
-              flowState.step !== 'has_url' &&
-              flowState.step !== 'error' && (
-                <Button onClick={handleConnectClick} className="w-full" disabled={userClickedConnect && isLoadingAuth}>
-                  {userClickedConnect && isLoadingAuth ? <IconSpinner className="h-4 w-4" /> : 'Connect'}
-                </Button>
-              )}
+            {/* Idle: Connect button */}
+            {checkedExistingToken && !shouldOfferExistingToken && flowState.step === 'idle' && (
+              <Button onClick={handleConnectClick} className="w-full">
+                Connect
+              </Button>
+            )}
 
-            {/* Code Input - Show after URL is opened or if has_url */}
-            {(urlOpened || flowState.step === 'has_url' || flowState.step === 'submitting') && (
-              <div className="space-y-4">
-                {/* Polling indicator while waiting for the browser redirect */}
-                {urlOpened && !authCode && !isSubmitting && (
-                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <IconSpinner className="h-4 w-4 shrink-0" />
-                    <span>Waiting for browser authorization…</span>
-                  </div>
-                )}
-                <Input
-                  value={authCode}
-                  onChange={handleCodeChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Or paste your authentication code here..."
-                  className="font-mono text-center"
-                  autoFocus
-                  disabled={isSubmitting}
-                />
-                <Button onClick={handleSubmitCode} className="w-full" disabled={!authCode.trim() || isSubmitting}>
-                  {isSubmitting ? <IconSpinner className="h-4 w-4" /> : 'Continue'}
-                </Button>
+            {/* Connecting: spinner + manual-terminal hint */}
+            {flowState.step === 'connecting' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <IconSpinner className="h-4 w-4 shrink-0" />
+                  <span>Connecting to Claude Code…</span>
+                </div>
                 <p className="text-xs text-muted-foreground text-center">
-                  A new tab has opened for authentication.
-                  {savedOauthUrl && (
-                    <>
-                      {' '}
-                      <button onClick={handleOpenFallbackUrl} className="text-primary hover:underline">
-                        Didn't open? Click here
-                      </button>
-                    </>
-                  )}
+                  Your browser will open for authorization. If it doesn't, open a terminal and run:{' '}
+                  <code className="font-mono">claude setup-token</code>
                 </p>
               </div>
             )}
 
-            {/* Error State */}
+            {/* Error */}
             {flowState.step === 'error' && (
               <div className="space-y-4">
                 <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">

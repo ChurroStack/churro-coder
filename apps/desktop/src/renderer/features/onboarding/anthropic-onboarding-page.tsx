@@ -2,43 +2,24 @@
 
 import { useSetAtom } from 'jotai';
 import { ChevronLeft } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ClaudeCodeIcon, IconSpinner } from '../../components/ui/icons';
-import { Input } from '../../components/ui/input';
 import { Logo } from '../../components/ui/logo';
 import { anthropicOnboardingCompletedAtom, billingMethodAtom } from '../../lib/atoms';
 import { trpc } from '../../lib/trpc';
 
-type AuthFlowState =
-  | { step: 'idle' }
-  | { step: 'starting' }
-  | {
-      step: 'waiting_url';
-      sandboxId: string;
-      sandboxUrl: string;
-      sessionId: string;
-    }
-  | {
-      step: 'has_url';
-      sandboxId: string;
-      oauthUrl: string;
-      sandboxUrl: string;
-      sessionId: string;
-    }
-  | { step: 'submitting' }
-  | { step: 'error'; message: string };
+type AuthFlowState = { step: 'idle' } | { step: 'connecting'; sessionId: string } | { step: 'error'; message: string };
 
 export function AnthropicOnboardingPage() {
   const [flowState, setFlowState] = useState<AuthFlowState>({ step: 'idle' });
-  const [authCode, setAuthCode] = useState('');
-  const [userClickedConnect, setUserClickedConnect] = useState(false);
-  const [urlOpened, setUrlOpened] = useState(false);
-  const [savedOauthUrl, setSavedOauthUrl] = useState<string | null>(null);
   const [ignoredExistingToken, setIgnoredExistingToken] = useState(false);
   const [isUsingExistingToken, setIsUsingExistingToken] = useState(false);
   const [existingTokenError, setExistingTokenError] = useState<string | null>(null);
-  const urlOpenedRef = useRef(false);
+  const autoCompletedRef = useRef(false);
+  const didAutoStartRef = useRef(false);
+  // Baseline snapshot taken on first keychain poll. Success = diff from baseline.
+  const baselineCredsRef = useRef<{ accessToken: string | null; expiresAt: number | null } | null>(null);
   const setAnthropicOnboardingCompleted = useSetAtom(anthropicOnboardingCompletedAtom);
   const setBillingMethod = useSetAtom(billingMethodAtom);
 
@@ -52,144 +33,132 @@ export function AnthropicOnboardingPage() {
     return `${trimmed.slice(0, 19)}...${trimmed.slice(-6)}`;
   };
 
-  // tRPC mutations
   const startAuthMutation = trpc.claudeCode.startAuth.useMutation();
-  const submitCodeMutation = trpc.claudeCode.submitCode.useMutation();
-  const openOAuthUrlMutation = trpc.claudeCode.openOAuthUrl.useMutation();
+  const cancelAuthMutation = trpc.claudeCode.cancelAuth.useMutation();
   const importSystemTokenMutation = trpc.claudeCode.importSystemToken.useMutation();
-  // If the user has already authenticated the Claude Code CLI on this
-  // machine, surface the existing keychain token as a one-click import
-  // instead of running `claude setup-token` again. The fallback flow
-  // (running setup-token in a closed-stdin subprocess) sometimes hangs
-  // when valid creds already exist, leaving users stuck on a spinner.
-  // Token freshness is not worse than the fallback path — `setup-token`
-  // produces the same ~8h access token via the same keychain entry.
+  const activeSessionId = flowState.step === 'connecting' ? flowState.sessionId : '';
+
   const existingTokenQuery = trpc.claudeCode.getSystemToken.useQuery();
   const existingToken = existingTokenQuery.data?.token ?? null;
   const hasExistingToken = !!existingToken;
   const checkedExistingToken = !existingTokenQuery.isLoading;
   const shouldOfferExistingToken = checkedExistingToken && hasExistingToken && !ignoredExistingToken;
 
-  // Poll for OAuth URL
-  const pollStatusQuery = trpc.claudeCode.pollStatus.useQuery(
-    {
-      sandboxUrl: flowState.step === 'waiting_url' ? flowState.sandboxUrl : '',
-      sessionId: flowState.step === 'waiting_url' ? flowState.sessionId : ''
-    },
-    {
-      enabled: flowState.step === 'waiting_url',
-      refetchInterval: 1500
-    }
-  );
+  // Keychain poll: sole success-detection fallback. Every 5 s while on this page.
+  const credsQuery = trpc.claudeCode.getSystemCredentials.useQuery(undefined, {
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true
+  });
 
-  // Auto-start auth on mount
+  // Session poll: primary completion signal. This closes the loop when the
+  // main process already saw the CLI exit successfully but the keychain diff
+  // arrives late or is missed while the window is unfocused.
+  const authStatusInput = { sandboxUrl: 'local', sessionId: activeSessionId };
+  const authStatusOptions = {
+    enabled: flowState.step === 'connecting',
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true
+  };
+  const authStatusQuery = trpc.claudeCode.pollStatus.useQuery(authStatusInput, authStatusOptions);
+
+  // Seed baseline on first successful poll.
   useEffect(() => {
-    if (!checkedExistingToken || shouldOfferExistingToken) return;
+    if (!credsQuery.isFetched || baselineCredsRef.current !== null) return;
+    baselineCredsRef.current = {
+      accessToken: credsQuery.data?.accessToken ?? null,
+      expiresAt: credsQuery.data?.expiresAt ?? null
+    };
+    if (import.meta.env.DEV) {
+      console.log('[ClaudeAuth] onboarding: baseline seeded, has=', !!baselineCredsRef.current.accessToken);
+    }
+  }, [credsQuery.isFetched, credsQuery.data]);
 
-    if (flowState.step === 'idle') {
-      setFlowState({ step: 'starting' });
-      startAuthMutation.mutate(undefined, {
-        onSuccess: (result) => {
-          setFlowState({
-            step: 'waiting_url',
-            sandboxId: result.sandboxId,
-            sandboxUrl: result.sandboxUrl,
-            sessionId: result.sessionId
-          });
-        },
-        onError: (err) => {
-          setFlowState({
-            step: 'error',
-            message: err.message || 'Failed to start authentication'
-          });
-        }
+  useEffect(() => {
+    if (flowState.step !== 'connecting' || autoCompletedRef.current || !authStatusQuery.data) return;
+
+    if (authStatusQuery.data.state === 'success') {
+      autoCompletedRef.current = true;
+      console.log('[ClaudeAuth] onboarding: session reported success, completing auth', {
+        sessionId: flowState.sessionId
       });
-    }
-  }, [flowState.step, startAuthMutation, checkedExistingToken, shouldOfferExistingToken]);
-
-  // Update flow state when we get the OAuth URL or when auth completes
-  useEffect(() => {
-    const data = pollStatusQuery.data;
-    if (!data) return;
-
-    if ((flowState.step === 'waiting_url' || flowState.step === 'has_url') && data.state === 'success') {
-      // Subprocess handled the full OAuth flow itself (browser + local callback).
-      // No code paste needed — just mark onboarding done.
       setAnthropicOnboardingCompleted(true);
       return;
     }
 
-    if (flowState.step === 'waiting_url' && data.oauthUrl) {
-      setSavedOauthUrl(data.oauthUrl);
-      setFlowState({
-        step: 'has_url',
-        sandboxId: flowState.sandboxId,
-        oauthUrl: data.oauthUrl,
-        sandboxUrl: flowState.sandboxUrl,
-        sessionId: flowState.sessionId
+    if (authStatusQuery.data.state === 'error') {
+      console.log('[ClaudeAuth] onboarding: session reported error', {
+        sessionId: flowState.sessionId,
+        error: authStatusQuery.data.error
       });
-    } else if (flowState.step === 'waiting_url' && data.state === 'error') {
       setFlowState({
         step: 'error',
-        message: data.error || 'Failed to get OAuth URL'
+        message: authStatusQuery.data.error ?? 'Authentication failed'
       });
     }
-  }, [pollStatusQuery.data, flowState, setAnthropicOnboardingCompleted]);
+  }, [flowState, authStatusQuery.data, setAnthropicOnboardingCompleted]);
 
-  // Open URL in browser when ready (after user clicked Connect)
+  // Detect fresh keychain write from the CLI's OAuth callback.
   useEffect(() => {
-    if (flowState.step === 'has_url' && userClickedConnect && !urlOpenedRef.current) {
-      urlOpenedRef.current = true;
-      setUrlOpened(true);
-      // Use Electron's shell.openExternal via tRPC
-      openOAuthUrlMutation.mutate(flowState.oauthUrl);
+    if (flowState.step !== 'connecting' || autoCompletedRef.current || !credsQuery.data || !baselineCredsRef.current) {
+      return;
     }
-  }, [flowState, userClickedConnect, openOAuthUrlMutation]);
+    const baseline = baselineCredsRef.current;
+    const curr = credsQuery.data;
+    const fresh =
+      !!curr.accessToken && (curr.accessToken !== baseline.accessToken || curr.expiresAt !== baseline.expiresAt);
+    if (!fresh) return;
 
-  // Check if the code looks like a valid Claude auth code (format: XXX#YYY)
-  const isValidCodeFormat = (code: string) => {
-    const trimmed = code.trim();
-    return trimmed.length > 50 && trimmed.includes('#');
-  };
+    autoCompletedRef.current = true;
+    if (import.meta.env.DEV) console.log('[ClaudeAuth] onboarding: fresh keychain token detected, importing');
+    importSystemTokenMutation
+      .mutateAsync()
+      .then(() => setAnthropicOnboardingCompleted(true))
+      .catch((e) => {
+        autoCompletedRef.current = false;
+        console.error('[ClaudeAuth] onboarding: import failed', e);
+        setFlowState({ step: 'error', message: e instanceof Error ? e.message : 'Import failed' });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowState.step, flowState.step === 'connecting' ? flowState.sessionId : null, credsQuery.data]);
+
+  const startConnect = useCallback(async () => {
+    if (import.meta.env.DEV) console.log('[ClaudeAuth] onboarding: flow state connecting');
+    try {
+      const result = await startAuthMutation.mutateAsync();
+      setFlowState({ step: 'connecting', sessionId: result.sessionId });
+    } catch (err) {
+      setFlowState({
+        step: 'error',
+        message: err instanceof Error ? err.message : 'Failed to start authentication'
+      });
+    }
+  }, [startAuthMutation]);
+
+  // Auto-start once we know whether to offer existing token. The
+  // `didAutoStartRef` guard prevents this effect from re-firing when
+  // `shouldOfferExistingToken` flips to false during a reject - the
+  // reject handler does its own manual `startConnect`.
+  useEffect(() => {
+    if (didAutoStartRef.current) return;
+    if (!checkedExistingToken || shouldOfferExistingToken || flowState.step !== 'idle') return;
+    didAutoStartRef.current = true;
+    void startConnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkedExistingToken, shouldOfferExistingToken]);
 
   const handleConnectClick = async () => {
-    setUserClickedConnect(true);
-
-    if (flowState.step === 'has_url') {
-      // URL is ready, open it immediately
-      urlOpenedRef.current = true;
-      setUrlOpened(true);
-      openOAuthUrlMutation.mutate(flowState.oauthUrl);
-    } else if (flowState.step === 'error') {
-      // Retry on error
-      urlOpenedRef.current = false;
-      setUrlOpened(false);
-      setFlowState({ step: 'starting' });
-      try {
-        const result = await startAuthMutation.mutateAsync();
-        setFlowState({
-          step: 'waiting_url',
-          sandboxId: result.sandboxId,
-          sandboxUrl: result.sandboxUrl,
-          sessionId: result.sessionId
-        });
-      } catch (err) {
-        setFlowState({
-          step: 'error',
-          message: err instanceof Error ? err.message : 'Failed to start authentication'
-        });
-      }
+    if (flowState.step === 'connecting') return;
+    // Kill the running subprocess before retrying.
+    if (flowState.step === 'error') {
+      autoCompletedRef.current = false;
     }
-    // For idle, starting, waiting_url states - the useEffect will handle opening the URL
-    // when it becomes ready (userClickedConnect is now true)
+    await startConnect();
   };
 
   const handleUseExistingToken = async () => {
     if (!hasExistingToken || isUsingExistingToken) return;
-
     setIsUsingExistingToken(true);
     setExistingTokenError(null);
-
     try {
       await importSystemTokenMutation.mutateAsync();
       setAnthropicOnboardingCompleted(true);
@@ -200,74 +169,34 @@ export function AnthropicOnboardingPage() {
   };
 
   const handleRejectExistingToken = () => {
+    // Suppress the auto-start effect from re-firing once
+    // `shouldOfferExistingToken` flips to false on the next render -
+    // we're starting auth manually right here.
+    didAutoStartRef.current = true;
     setIgnoredExistingToken(true);
     setExistingTokenError(null);
-    handleConnectClick();
+    void startConnect();
   };
-
-  // Submit code - reusable for both auto-submit and manual Enter
-  const submitCode = async (code: string) => {
-    if (!code.trim() || flowState.step !== 'has_url') return;
-
-    const { sandboxUrl, sessionId } = flowState;
-    setFlowState({ step: 'submitting' });
-
-    try {
-      await submitCodeMutation.mutateAsync({
-        sandboxUrl,
-        sessionId,
-        code: code.trim()
-      });
-      // Success - mark onboarding as completed
-      setAnthropicOnboardingCompleted(true);
-    } catch (err) {
-      setFlowState({
-        step: 'error',
-        message: err instanceof Error ? err.message : 'Failed to submit code'
-      });
-    }
-  };
-
-  const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setAuthCode(value);
-
-    // Auto-submit if the pasted value looks like a valid auth code
-    if (isValidCodeFormat(value) && flowState.step === 'has_url') {
-      // Small delay to let the UI update before submitting
-      setTimeout(() => submitCode(value), 100);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && authCode.trim()) {
-      submitCode(authCode);
-    }
-  };
-
-  const handleOpenFallbackUrl = () => {
-    if (savedOauthUrl) {
-      openOAuthUrlMutation.mutate(savedOauthUrl);
-    }
-  };
-
-  const isLoadingAuth = flowState.step === 'starting' || flowState.step === 'waiting_url';
-  const isSubmitting = flowState.step === 'submitting';
 
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-background select-none">
       {/* Draggable title bar area */}
       <div className="fixed top-0 left-0 right-0 h-10" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
 
-      {/* Back button - fixed in top left corner below traffic lights */}
+      {/* Back button */}
       <button
-        onClick={handleBack}
+        onClick={() => {
+          if (flowState.step === 'connecting') {
+            cancelAuthMutation.mutate({ sessionId: flowState.sessionId });
+          }
+          handleBack();
+        }}
         className="fixed top-12 left-4 flex items-center justify-center h-8 w-8 rounded-full hover:bg-foreground/5 transition-colors">
         <ChevronLeft className="h-5 w-5" />
       </button>
 
       <div className="w-full max-w-[440px] space-y-8 px-4">
-        {/* Header with dual icons */}
+        {/* Header */}
         <div className="text-center space-y-4">
           <div className="flex items-center justify-center gap-2 p-2 mx-auto w-max rounded-full border border-border">
             <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
@@ -285,7 +214,7 @@ export function AnthropicOnboardingPage() {
 
         {/* Content */}
         <div className="space-y-6 flex flex-col items-center">
-          {/* Existing token prompt */}
+          {/* Existing-token prompt */}
           {shouldOfferExistingToken && flowState.step === 'idle' && (
             <div className="space-y-4 w-full">
               <div className="p-4 bg-muted/50 border border-border rounded-lg">
@@ -318,57 +247,23 @@ export function AnthropicOnboardingPage() {
             </div>
           )}
 
-          {/* Connect Button - shows loader only if user clicked AND loading */}
-          {checkedExistingToken &&
-            !shouldOfferExistingToken &&
-            !urlOpened &&
-            flowState.step !== 'has_url' &&
-            flowState.step !== 'error' && (
-              <button
-                onClick={handleConnectClick}
-                disabled={userClickedConnect && isLoadingAuth}
-                className="h-8 px-4 min-w-[85px] bg-primary text-primary-foreground rounded-lg text-sm font-medium transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.97] shadow-[0_0_0_0.5px_rgb(23,23,23),inset_0_0_0_1px_rgba(255,255,255,0.14)] dark:shadow-[0_0_0_0.5px_rgb(23,23,23),inset_0_0_0_1px_rgba(255,255,255,0.14)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center">
-                {userClickedConnect && isLoadingAuth ? <IconSpinner className="h-4 w-4" /> : 'Connect'}
-              </button>
-            )}
-
-          {/* Code Input - Show after URL is opened, if has_url (after redirect), or if submitting */}
-          {/* No Continue button - auto-submit on valid code paste */}
-          {(urlOpened || flowState.step === 'has_url' || flowState.step === 'submitting') && (
-            <div className="space-y-4">
-              <div className="relative">
-                <Input
-                  value={authCode}
-                  onChange={handleCodeChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Paste your authentication code here..."
-                  className="font-mono text-center pr-10"
-                  autoFocus
-                  disabled={isSubmitting}
-                />
-                {isSubmitting && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <IconSpinner className="h-4 w-4" />
-                  </div>
-                )}
+          {/* Connecting: spinner + manual-terminal hint */}
+          {flowState.step === 'connecting' && (
+            <div className="space-y-3 text-center">
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <IconSpinner className="h-4 w-4 shrink-0" />
+                <span>Connecting to Claude Code…</span>
               </div>
-              <p className="text-xs text-muted-foreground text-center">
-                A new tab has opened for authentication.
-                {savedOauthUrl && (
-                  <>
-                    {' '}
-                    <button onClick={handleOpenFallbackUrl} className="text-primary hover:underline">
-                      Didn't open? Click here
-                    </button>
-                  </>
-                )}
+              <p className="text-xs text-muted-foreground">
+                Your browser will open for authorization. If it doesn't, open a terminal and run:{' '}
+                <code className="font-mono">claude setup-token</code>
               </p>
             </div>
           )}
 
-          {/* Error State */}
+          {/* Error */}
           {flowState.step === 'error' && (
-            <div className="space-y-4">
+            <div className="space-y-4 w-full">
               <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
                 <p className="text-sm text-destructive">{flowState.message}</p>
               </div>
