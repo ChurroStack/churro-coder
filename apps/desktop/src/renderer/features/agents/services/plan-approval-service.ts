@@ -75,7 +75,7 @@ export interface PlanApprovalDeps {
    * Must NOT await internally; the contract is "all visible UI flips by the
    * time this returns".
    */
-  setMode: (subChatId: string, mode: 'agent' | 'plan') => void;
+  setMode: (subChatId: string, mode: 'execute' | 'plan') => void;
 
   /**
    * Async DB persist. Wraps `api.agents.updateSubChatMode.useMutation` with
@@ -86,14 +86,14 @@ export interface PlanApprovalDeps {
    * to mirror the renderer's optimistic-create flow; that decision lives in
    * the caller, not the service.
    */
-  persistMode: (input: { subChatId: string; mode: 'agent'; exitPlan: true }) => Promise<void>;
+  persistMode: (input: { subChatId: string; mode: 'execute'; exitPlan: true }) => Promise<void>;
 
   /**
-   * Synchronous wrapper around `applyModeDefaultModel(subChatId, "agent")`.
+   * Synchronous wrapper around `applyModeDefaultModel(subChatId, "execute")`.
    * Returns the resolved provider so the FSM can decide same/cross-provider
    * branching. **MUST run before any await** — invariant from PR #36.
    */
-  applyDefaultModel: (subChatId: string, mode: 'agent') => { provider: ProviderId; isRemote: boolean };
+  applyDefaultModel: (subChatId: string, mode: 'execute') => { provider: ProviderId; isRemote: boolean };
 
   /**
    * Cross-provider only: notifies the renderer that the transport should be
@@ -199,7 +199,7 @@ export async function approvePlan(subChatId: string, deps: PlanApprovalDeps): Pr
     //    setMode writes `subChatModesStorageAtom`, which the dbSubChats
     //    hydration loop in active-chat.tsx checks before letting a stale
     //    refetch overwrite the mode atom back to "plan".
-    deps.setMode(subChatId, 'agent');
+    deps.setMode(subChatId, 'execute');
 
     state = step(state, { type: 'MODE_SWITCHED' });
 
@@ -207,7 +207,7 @@ export async function approvePlan(subChatId: string, deps: PlanApprovalDeps): Pr
     //    The transport reads `subChatModelIdAtomFamily(subChatId)` at send-time;
     //    yielding the event loop before this write means the next message goes
     //    out with the previous mode's model.
-    const { provider: newProvider, isRemote: newIsRemote } = deps.applyDefaultModel(subChatId, 'agent');
+    const { provider: newProvider, isRemote: newIsRemote } = deps.applyDefaultModel(subChatId, 'execute');
     log(
       `[PLAN] approve:model-applied sub=${subChatId.slice(-8)} ` +
         `newProvider=${newProvider} crossProvider=${previousProvider !== newProvider}`
@@ -224,7 +224,7 @@ export async function approvePlan(subChatId: string, deps: PlanApprovalDeps): Pr
     //    server might resume the plan-mode session for the implement-plan turn.
     //    The caller decides whether to skip for temp- IDs; we just await.
     try {
-      await deps.persistMode({ subChatId, mode: 'agent', exitPlan: true });
+      await deps.persistMode({ subChatId, mode: 'execute', exitPlan: true });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       log(`[PLAN] approve:persist-failed sub=${subChatId.slice(-8)} ${reason}`);

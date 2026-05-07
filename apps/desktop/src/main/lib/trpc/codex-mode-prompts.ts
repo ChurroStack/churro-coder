@@ -1,4 +1,4 @@
-export function buildCodexModeInstruction(mode: 'plan' | 'agent'): string {
+export function buildCodexModeInstruction(mode: 'plan' | 'execute' | 'explore'): string {
   if (mode === 'plan') {
     return [
       '[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.',
@@ -14,8 +14,18 @@ export function buildCodexModeInstruction(mode: 'plan' | 'agent'): string {
     ].join('\n');
   }
 
+  if (mode === 'explore') {
+    return [
+      '[EXPLORE MODE] You are in read-only exploration mode.',
+      'Inspect the codebase, answer questions, and gather evidence using read-only tools only.',
+      'Do not modify, create, or delete files, and do not run commands that change state.',
+      'Do not call PlanWrite and do not implement changes.',
+      'If you need clarification, ask; otherwise continue exploring and report findings.'
+    ].join(' ');
+  }
+
   return [
-    '[AGENT MODE] You are in implementation mode. Implement changes directly using your available tools.',
+    '[EXECUTE MODE] You are in implementation mode. Implement changes directly using your available tools.',
     'Use Codex-native task-management tools to track progress through the approved plan as you work.',
     'Do not call PlanWrite and do not create a new plan.',
     'Use the read_plan MCP tool only when you need to recover the already-approved plan after compaction, a provider switch, or a fresh session.',

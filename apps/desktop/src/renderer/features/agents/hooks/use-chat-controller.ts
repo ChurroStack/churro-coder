@@ -49,7 +49,7 @@ export interface UseChatControllerConfig {
   subChatId: string;
   /** tRPC mutation handle — `mutateAsync` is awaited inside `persistMode`. */
   updateSubChatModeMutation: ModeSwitchMutationLike & {
-    mutateAsync: (input: { subChatId: string; mode: 'agent' | 'plan'; exitPlan?: true }) => Promise<unknown>;
+    mutateAsync: (input: { subChatId: string; mode: 'execute' | 'plan'; exitPlan?: true }) => Promise<unknown>;
   };
   /** Transport-factory config — see `UseTransportFactoryDepsConfig`. */
   transportFactoryConfig: UseTransportFactoryDepsConfig;

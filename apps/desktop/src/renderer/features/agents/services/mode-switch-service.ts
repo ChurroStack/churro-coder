@@ -32,7 +32,7 @@
  *      isn't idle, and the caller is expected to gate the UI control.
  *
  * `ModeContext` aliases the same union used by `applyModeDefaultModel`
- * ("plan" | "agent" | "review") so the wiring in `active-chat.tsx` is a
+ * ("plan" | "execute" | "review") so the wiring in `active-chat.tsx` is a
  * 1:1 mapping with no translation layer.
  */
 
@@ -252,7 +252,7 @@ export async function forceMode(
  *
  * Hydration is the *source* of truth for an initial mount. It must also sync
  * the external mode atom/store even when the FSM mode is unchanged: the FSM
- * starts at "agent", while `subChatModeAtomFamily` may still contain a stale
+ * starts at "execute", while `subChatModeAtomFamily` may still contain a stale
  * persisted "plan" value from localStorage after an app restart.
  */
 export function hydrateMode(
@@ -339,7 +339,7 @@ function advance(
 }
 
 /** Initial state factory mirrored from the FSM. */
-export function initialState(initialMode: ChatMode = 'agent'): ChatModeState {
+export function initialState(initialMode: ChatMode = 'execute'): ChatModeState {
   return initialChatModeState(initialMode);
 }
 

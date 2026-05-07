@@ -32,7 +32,7 @@ export interface WorkflowState {
 }
 
 export interface WorkflowInputs {
-  mode: 'plan' | 'agent';
+  mode: 'plan' | 'execute';
   isStreaming: boolean;
   isCompacting: boolean;
   planEverGenerated: boolean;
@@ -91,7 +91,7 @@ function computePlan(i: WorkflowInputs): MilestoneState {
   if (i.mode !== 'plan') {
     return i.planEverGenerated
       ? { id: 'plan', status: 'done', label: 'Plan', hint: 'Plan approved' }
-      : { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (agent mode)' };
+      : { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (execute mode)' };
   }
 
   // Streaming in plan mode → AI is still drafting
@@ -129,7 +129,7 @@ function computeCode(i: WorkflowInputs, planStatus: MilestoneStatus): MilestoneS
       id: 'code',
       status: 'in_progress',
       label: 'Code',
-      hint: 'Agent is editing…'
+      hint: 'Execute mode is editing…'
     };
   }
   if (i.baseBranchBehind > 0) {

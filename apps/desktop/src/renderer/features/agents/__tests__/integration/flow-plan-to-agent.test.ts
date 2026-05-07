@@ -4,7 +4,7 @@
  * Verifies the **workflow**, not the LLM output. The orchestrator must:
  *   1. Capture the planner's provider BEFORE applyDefaultModel writes the
  *      provider override atom (PR #40).
- *   2. Flip `subChatModeAtomFamily` to "agent" synchronously (PR #36, #38).
+ *   2. Flip `subChatModeAtomFamily` to "execute" synchronously (PR #36, #38).
  *   3. Apply the configured agent-mode default model (PR #38, #32).
  *   4. Persist with `exitPlan: true` so the server clears sessionId (PR #45).
  *   5. Keep the same transport for same-provider approvals (PR #44).
@@ -26,8 +26,8 @@ vi.mock('../../../../lib/window-storage', async () => {
 
 import { appStore } from '../../../../lib/jotai-store';
 import {
-  defaultAgentModeModelAtom,
-  defaultAgentModeThinkingAtom,
+  defaultExecuteModeModelAtom,
+  defaultExecuteModeThinkingAtom,
   defaultPlanModeModelAtom,
   defaultPlanModeThinkingAtom,
   subChatClaudeThinkingAtomFamily,
@@ -46,9 +46,9 @@ const newSubChatId = () => `int-plan-${++testCounter}`;
 
 beforeEach(() => {
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
-  appStore.set(defaultAgentModeModelAtom, 'sonnet');
+  appStore.set(defaultExecuteModeModelAtom, 'sonnet');
   appStore.set(defaultPlanModeThinkingAtom, 'high');
-  appStore.set(defaultAgentModeThinkingAtom, 'high');
+  appStore.set(defaultExecuteModeThinkingAtom, 'high');
 });
 
 interface OrchestrationResult {
@@ -129,7 +129,7 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
     expect(result.transportAction).toEqual({ kind: 'keep' });
 
     // Mode atom flipped.
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
     // Model atom now holds the configured agent-mode default (sonnet).
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('sonnet');
     // Thinking propagated.
@@ -137,7 +137,7 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
     // Provider override stays claude-code.
     expect(appStore.get(subChatProviderOverrideAtomFamily(subChatId))).toBe('claude-code');
     // Persist called with exitPlan: true (PR #45).
-    expect(orchestration.persistCalls).toEqual([{ subChatId, mode: 'agent', exitPlan: true }]);
+    expect(orchestration.persistCalls).toEqual([{ subChatId, mode: 'execute', exitPlan: true }]);
     // Same-provider: no notifyProviderChange.
     expect(orchestration.notifyCalls).toEqual([]);
     // Exactly one deferred send scheduled.
@@ -147,8 +147,8 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
 
   test('approve flips mode atom to agent and applies the configured Codex agent default — Codex→Codex', async () => {
     const subChatId = newSubChatId();
-    appStore.set(defaultAgentModeModelAtom, 'gpt-5.4');
-    appStore.set(defaultAgentModeThinkingAtom, 'medium');
+    appStore.set(defaultExecuteModeModelAtom, 'gpt-5.4');
+    appStore.set(defaultExecuteModeThinkingAtom, 'medium');
     appStore.set(subChatModeAtomFamily(subChatId), 'plan');
     appStore.set(subChatCodexModelIdAtomFamily(subChatId), 'gpt-5.3-codex');
 
@@ -161,7 +161,7 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
     expect(result.ok).toBe(true);
     expect(result.transportAction).toEqual({ kind: 'keep' });
 
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
     expect(appStore.get(subChatCodexModelIdAtomFamily(subChatId))).toBe('gpt-5.4');
     expect(appStore.get(subChatCodexThinkingAtomFamily(subChatId))).toBe('medium');
     expect(appStore.get(subChatProviderOverrideAtomFamily(subChatId))).toBe('codex');

@@ -24,8 +24,10 @@ import {
 } from '../../../lib/atoms';
 import { defaultWidgetVisibilityAtom, WIDGET_REGISTRY, type WidgetId } from '../../../features/details-sidebar/atoms';
 import {
-  defaultAgentModeModelAtom,
-  defaultAgentModeThinkingAtom,
+  defaultExecuteModeModelAtom,
+  defaultExecuteModeThinkingAtom,
+  defaultExploreModeModelAtom,
+  defaultExploreModeThinkingAtom,
   defaultPlanModeModelAtom,
   defaultPlanModeThinkingAtom,
   defaultReviewModeModelAtom,
@@ -200,10 +202,12 @@ export function AgentsPreferencesTab() {
   const [visibleSidebarToggles, setVisibleSidebarToggles] = useAtom(visibleSidebarToggleButtonsAtom);
   const [defaultWidgets, setDefaultWidgets] = useAtom(defaultWidgetVisibilityAtom);
   const [defaultPlanModel, setDefaultPlanModel] = useAtom(defaultPlanModeModelAtom);
-  const [defaultAgentModel, setDefaultAgentModel] = useAtom(defaultAgentModeModelAtom);
+  const [defaultExecuteModel, setDefaultExecuteModel] = useAtom(defaultExecuteModeModelAtom);
+  const [defaultExploreModel, setDefaultExploreModel] = useAtom(defaultExploreModeModelAtom);
   const [defaultReviewModel, setDefaultReviewModel] = useAtom(defaultReviewModeModelAtom);
   const [defaultPlanThinking, setDefaultPlanThinking] = useAtom(defaultPlanModeThinkingAtom);
-  const [defaultAgentThinking, setDefaultAgentThinking] = useAtom(defaultAgentModeThinkingAtom);
+  const [defaultExecuteThinking, setDefaultExecuteThinking] = useAtom(defaultExecuteModeThinkingAtom);
+  const [defaultExploreThinking, setDefaultExploreThinking] = useAtom(defaultExploreModeThinkingAtom);
   const [defaultReviewThinking, setDefaultReviewThinking] = useAtom(defaultReviewModeThinkingAtom);
   const hiddenModels = useAtomValue(hiddenModelsAtom);
   const modelOptions = useMemo(() => buildModelOptions(hiddenModels), [hiddenModels]);
@@ -256,16 +260,17 @@ export function AgentsPreferencesTab() {
           <div className="flex flex-col space-y-1">
             <span className="text-sm font-medium text-foreground">Default Mode</span>
             <span className="text-xs text-muted-foreground">
-              Mode for new agents (Plan = read-only, Agent = can edit)
+              Mode for new agents (Plan = planning, Execute = can edit, Explore = read-only investigation)
             </span>
           </div>
           <Select value={defaultAgentMode} onValueChange={(value: AgentMode) => setDefaultAgentMode(value)}>
             <SelectTrigger className="w-auto px-2">
-              <span className="text-xs">{defaultAgentMode === 'agent' ? 'Agent' : 'Plan'}</span>
+              <span className="text-xs capitalize">{defaultAgentMode}</span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="agent">Agent</SelectItem>
               <SelectItem value="plan">Plan</SelectItem>
+              <SelectItem value="execute">Execute</SelectItem>
+              <SelectItem value="explore">Explore</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -307,16 +312,15 @@ export function AgentsPreferencesTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border gap-4">
           <div className="flex flex-col space-y-1 min-w-0">
-            <span className="text-sm font-medium text-foreground">Default Agent</span>
+            <span className="text-sm font-medium text-foreground">Default Explore</span>
             <span className="text-xs text-muted-foreground">
-              Model and thinking effort applied when a chat starts or switches to Agent mode (e.g. after approving a
-              plan)
+              Model and thinking effort applied when a chat starts or switches to Explore mode
             </span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <Select value={defaultAgentModel} onValueChange={(value: string) => setDefaultAgentModel(value)}>
+            <Select value={defaultExploreModel} onValueChange={(value: string) => setDefaultExploreModel(value)}>
               <SelectTrigger className="w-auto px-2">
-                <span className="text-xs">{formatModelLabel(defaultAgentModel, modelOptions)}</span>
+                <span className="text-xs">{formatModelLabel(defaultExploreModel, modelOptions)}</span>
               </SelectTrigger>
               <SelectContent>
                 {modelOptions.map((model) => (
@@ -327,10 +331,46 @@ export function AgentsPreferencesTab() {
               </SelectContent>
             </Select>
             <Select
-              value={defaultAgentThinking}
-              onValueChange={(value: ClaudeThinkingLevel) => setDefaultAgentThinking(value)}>
+              value={defaultExploreThinking}
+              onValueChange={(value: ClaudeThinkingLevel) => setDefaultExploreThinking(value)}>
               <SelectTrigger className="w-auto px-2">
-                <span className="text-xs">{formatClaudeThinkingLabel(defaultAgentThinking)}</span>
+                <span className="text-xs">{formatClaudeThinkingLabel(defaultExploreThinking)}</span>
+              </SelectTrigger>
+              <SelectContent>
+                {(['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map((level) => (
+                  <SelectItem key={level} value={level}>
+                    {formatClaudeThinkingLabel(level)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="flex items-center justify-between p-4 border-t border-border gap-4">
+          <div className="flex flex-col space-y-1 min-w-0">
+            <span className="text-sm font-medium text-foreground">Default Execute</span>
+            <span className="text-xs text-muted-foreground">
+              Model and thinking effort applied when a chat starts or switches to Execute mode
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Select value={defaultExecuteModel} onValueChange={(value: string) => setDefaultExecuteModel(value)}>
+              <SelectTrigger className="w-auto px-2">
+                <span className="text-xs">{formatModelLabel(defaultExecuteModel, modelOptions)}</span>
+              </SelectTrigger>
+              <SelectContent>
+                {modelOptions.map((model) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={defaultExecuteThinking}
+              onValueChange={(value: ClaudeThinkingLevel) => setDefaultExecuteThinking(value)}>
+              <SelectTrigger className="w-auto px-2">
+                <span className="text-xs">{formatClaudeThinkingLabel(defaultExecuteThinking)}</span>
               </SelectTrigger>
               <SelectContent>
                 {(['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map((level) => (

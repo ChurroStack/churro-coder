@@ -468,20 +468,20 @@ import { type AgentMode as AgentModeType } from '../../features/agents/atoms';
 // This runs once when the module loads
 if (typeof window !== 'undefined') {
   const oldKey = 'agents:isPlanMode';
-  const newKey = 'preferences:default-agent-mode';
+  const newKey = 'preferences:default-execute-mode';
   const oldValue = localStorage.getItem(oldKey);
   if (oldValue !== null && localStorage.getItem(newKey) === null) {
     // Old value was JSON boolean, new value is JSON string
     const wasInPlanMode = oldValue === 'true';
-    localStorage.setItem(newKey, JSON.stringify(wasInPlanMode ? 'plan' : 'agent'));
+    localStorage.setItem(newKey, JSON.stringify(wasInPlanMode ? 'plan' : 'execute'));
     localStorage.removeItem(oldKey);
-    console.log('[atoms] Migrated isPlanMode to defaultAgentMode:', wasInPlanMode ? 'plan' : 'agent');
+    console.log('[atoms] Migrated isPlanMode to defaultAgentMode:', wasInPlanMode ? 'plan' : 'execute');
   }
 }
 
 export const defaultAgentModeAtom = atomWithStorage<AgentModeType>(
-  'preferences:default-agent-mode',
-  'agent', // Default to agent mode
+  'preferences:default-execute-mode',
+  'plan',
   undefined,
   { getOnInit: true }
 );

@@ -32,6 +32,7 @@ import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
 import { resolveAppOwnedMcpHeaders, shouldRemoveStaleAppOwnedMcpEntry } from '../codex-mcp-auth';
 import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from '../codex-mode-prompts';
+import { buildCodexSandboxPolicy } from '../codex-sandbox-policy';
 import { createTaskListPartFromPlan } from '../codex-plan-task-part';
 
 const imageAttachmentSchema = z.object({
@@ -148,7 +149,7 @@ type AppServerTurnAccumulator = {
   subChatId: string;
   prompt: string;
   model: string;
-  mode: 'plan' | 'agent';
+  mode: 'plan' | 'execute' | 'explore';
   startedAt: number;
   safeEmit: (chunk: any) => void;
   parts: any[];
@@ -1525,22 +1526,6 @@ function buildAppServerInput(
   return input;
 }
 
-function buildCodexSandboxPolicy(mode: 'plan' | 'agent', sandboxEnabled: boolean, writableRoots: string[]): any {
-  if (mode === 'plan') {
-    return { type: 'readOnly' };
-  }
-  if (!sandboxEnabled) {
-    return { type: 'dangerFullAccess' };
-  }
-  return {
-    type: 'workspaceWrite',
-    writableRoots,
-    networkAccess: true,
-    excludeTmpdirEnvVar: false,
-    excludeSlashTmp: false
-  };
-}
-
 function buildCodexBaseConfig(params: { cwd: string; selectedModelId: string }) {
   const { model, effort } = splitCodexModelAndEffort(params.selectedModelId);
   return {
@@ -1562,7 +1547,7 @@ function buildCodexThreadConfig(params: { cwd: string; selectedModelId: string }
 
 function buildCodexTurnConfig(params: {
   cwd: string;
-  mode: 'plan' | 'agent';
+  mode: 'plan' | 'execute' | 'explore';
   selectedModelId: string;
   sandboxEnabled?: boolean;
   writableRoots?: string[];
@@ -1995,7 +1980,7 @@ function handleItemStarted(accumulator: AppServerTurnAccumulator, item: any) {
     const text = typeof item.text === 'string' ? item.text : '';
     const itemId = getAppServerItemId(item);
     const part =
-      accumulator.mode === 'agent'
+      accumulator.mode === 'execute'
         ? createTaskListPartFromPlan({
             itemId,
             text,
@@ -2097,7 +2082,7 @@ function handleItemCompleted(accumulator: AppServerTurnAccumulator, item: any) {
 
   if (itemType === 'plan') {
     const part =
-      accumulator.mode === 'agent'
+      accumulator.mode === 'execute'
         ? createTaskListPartFromPlan({
             itemId,
             text: typeof item.text === 'string' ? item.text : '',
@@ -2135,7 +2120,7 @@ function handlePlanUpdated(accumulator: AppServerTurnAccumulator, params: any) {
     getStringField(params, ['itemId', 'item_id']) || `codex-plan-${getAppServerTurnId(params) || crypto.randomUUID()}`;
   const existing = accumulator.toolPartsByItemId.get(itemId);
   const part =
-    accumulator.mode === 'agent'
+    accumulator.mode === 'execute'
       ? createTaskListPartFromPlan({
           itemId,
           text: typeof params?.explanation === 'string' ? params.explanation : '',
@@ -2834,7 +2819,7 @@ export const codexRouter = router({
         model: z.string().optional(),
         cwd: z.string(),
         projectPath: z.string().optional(),
-        mode: z.enum(['plan', 'agent']).default('agent'),
+        mode: z.enum(['plan', 'execute', 'explore']).default('execute'),
         forceNewSession: z.boolean().optional(),
         images: z.array(imageAttachmentSchema).optional(),
         enableTasks: z.boolean().optional(),
@@ -3054,7 +3039,7 @@ export const codexRouter = router({
                 const catchup = computeCatchupBlock(messagesForStream, 'codex');
                 const planInstruction = buildCodexModeInstruction(input.mode);
                 const subChatPlanHint =
-                  input.mode === 'agent' && (await hasPlan(input.subChatId))
+                  input.mode === 'execute' && (await hasPlan(input.subChatId))
                     ? buildCodexApprovedPlanHint(input.subChatId)
                     : '';
                 const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
@@ -3208,22 +3193,24 @@ export const codexRouter = router({
                 const builtInTools =
                   input.mode === 'plan'
                     ? ['Read', 'Glob', 'Grep', 'Thinking', 'PlanWrite', 'AskUserQuestion']
-                    : [
-                        'Bash',
-                        'Edit',
-                        'Write',
-                        'Read',
-                        'Glob',
-                        'Grep',
-                        'Thinking',
-                        'WebSearch',
-                        'WebFetch',
-                        'TaskCreate',
-                        'TaskUpdate',
-                        'TaskGet',
-                        'TaskList',
-                        'AskUserQuestion'
-                      ];
+                    : input.mode === 'explore'
+                      ? ['Read', 'Glob', 'Grep', 'Thinking', 'WebSearch', 'WebFetch', 'AskUserQuestion']
+                      : [
+                          'Bash',
+                          'Edit',
+                          'Write',
+                          'Read',
+                          'Glob',
+                          'Grep',
+                          'Thinking',
+                          'WebSearch',
+                          'WebFetch',
+                          'TaskCreate',
+                          'TaskUpdate',
+                          'TaskGet',
+                          'TaskList',
+                          'AskUserQuestion'
+                        ];
                 safeEmit({
                   type: 'session-init',
                   tools: [...builtInTools, ...mcpTools],

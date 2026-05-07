@@ -57,7 +57,7 @@ export const planApproveInFlight = new Set<string>();
 export interface UseApprovePlanDepsConfig {
   /** Mutation handle — `mutateAsync` is awaited inside `persistMode`. */
   updateSubChatModeMutation: {
-    mutateAsync: (input: { subChatId: string; mode: 'agent' | 'plan'; exitPlan?: true }) => Promise<unknown>;
+    mutateAsync: (input: { subChatId: string; mode: 'execute' | 'plan'; exitPlan?: true }) => Promise<unknown>;
   };
   /**
    * Parent-prop callback for cross-provider approvals — writes

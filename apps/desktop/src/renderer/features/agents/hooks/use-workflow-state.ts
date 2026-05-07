@@ -34,7 +34,7 @@ import {
 } from '@/features/agents/utils/workflow-state';
 
 const IDLE_WORKFLOW_STATE: WorkflowState = {
-  plan: { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (agent mode)' },
+  plan: { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (execute mode)' },
   code: { id: 'code', status: 'idle', label: 'Code', hint: 'No changes' },
   review: { id: 'review', status: 'idle', label: 'Review', hint: 'Waiting on code' },
   pr: { id: 'pr', status: 'idle', label: 'PR', hint: 'Waiting on code/review' },
@@ -66,13 +66,13 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
   const isStreaming = !!subChatId && loading.has(subChatId);
   const isCompacting = !!subChatId && compacting.has(subChatId);
 
-  // When mode transitions plan→agent the plan was approved.
+  // When mode transitions plan→execute the plan was approved.
   // Persist planEverGenerated so Plan shows as "done" in future sessions.
   const prevModeRef = useRef(mode);
   useEffect(() => {
     const prev = prevModeRef.current;
     prevModeRef.current = mode;
-    if (prev === 'plan' && mode === 'agent' && !planEverGenerated) {
+    if (prev === 'plan' && mode === 'execute' && !planEverGenerated) {
       setPlanEverGenerated(true);
     }
   }, [mode, planEverGenerated, setPlanEverGenerated]);
@@ -141,7 +141,7 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
     const reviewDecision: WorkflowInputs['reviewDecision'] = pr?.reviewDecision ?? 'none';
 
     return {
-      mode: mode === 'plan' ? 'plan' : 'agent',
+      mode: mode === 'execute' ? 'execute' : 'plan',
       isStreaming,
       isCompacting,
       planEverGenerated,

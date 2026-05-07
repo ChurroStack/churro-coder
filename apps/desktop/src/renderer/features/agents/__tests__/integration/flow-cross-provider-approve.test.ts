@@ -29,8 +29,8 @@ vi.mock('../../../../lib/window-storage', async () => {
 
 import { appStore } from '../../../../lib/jotai-store';
 import {
-  defaultAgentModeModelAtom,
-  defaultAgentModeThinkingAtom,
+  defaultExecuteModeModelAtom,
+  defaultExecuteModeThinkingAtom,
   defaultPlanModeModelAtom,
   defaultPlanModeThinkingAtom,
   subChatClaudeThinkingAtomFamily,
@@ -50,8 +50,8 @@ const newSubChatId = () => `int-cross-${++testCounter}`;
 beforeEach(() => {
   appStore.set(defaultPlanModeModelAtom, 'gpt-5.5');
   appStore.set(defaultPlanModeThinkingAtom, 'high');
-  appStore.set(defaultAgentModeModelAtom, 'sonnet');
-  appStore.set(defaultAgentModeThinkingAtom, 'high');
+  appStore.set(defaultExecuteModeModelAtom, 'sonnet');
+  appStore.set(defaultExecuteModeThinkingAtom, 'high');
 });
 
 describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)', () => {
@@ -155,8 +155,8 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
     await approvePlan(subChatId, deps);
 
     expect(events).toEqual([
-      'setMode:agent',
-      'applyDefaultModel:agent',
+      'setMode:execute',
+      'applyDefaultModel:execute',
       'persistMode',
       'notifyProviderChange:claude-code',
       'resolvePlanContent',

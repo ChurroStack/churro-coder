@@ -8,7 +8,7 @@ describe('shouldForceFreshSessionOnModeChange', () => {
         resumeSessionId: 'sess-1',
         existingSessionId: 'sess-1',
         existingSessionMode: 'plan',
-        inputMode: 'agent'
+        inputMode: 'execute'
       })
     ).toBe(true);
   });
@@ -18,7 +18,7 @@ describe('shouldForceFreshSessionOnModeChange', () => {
       shouldForceFreshSessionOnModeChange({
         resumeSessionId: 'sess-1',
         existingSessionId: 'sess-1',
-        existingSessionMode: 'agent',
+        existingSessionMode: 'execute',
         inputMode: 'plan'
       })
     ).toBe(true);
@@ -29,8 +29,8 @@ describe('shouldForceFreshSessionOnModeChange', () => {
       shouldForceFreshSessionOnModeChange({
         resumeSessionId: 'sess-1',
         existingSessionId: 'sess-1',
-        existingSessionMode: 'agent',
-        inputMode: 'agent'
+        existingSessionMode: 'execute',
+        inputMode: 'execute'
       })
     ).toBe(false);
   });
@@ -52,7 +52,7 @@ describe('shouldForceFreshSessionOnModeChange', () => {
         resumeSessionId: undefined,
         existingSessionId: null,
         existingSessionMode: 'plan',
-        inputMode: 'agent'
+        inputMode: 'execute'
       })
     ).toBe(false);
   });
@@ -63,7 +63,7 @@ describe('shouldForceFreshSessionOnModeChange', () => {
         resumeSessionId: 'sess-1',
         existingSessionId: 'sess-1',
         existingSessionMode: null,
-        inputMode: 'agent'
+        inputMode: 'execute'
       })
     ).toBe(false);
   });
@@ -74,7 +74,7 @@ describe('shouldForceFreshSessionOnModeChange', () => {
         resumeSessionId: 'plan-sess',
         existingSessionId: null,
         existingSessionMode: null,
-        inputMode: 'agent'
+        inputMode: 'execute'
       })
     ).toBe(true);
   });

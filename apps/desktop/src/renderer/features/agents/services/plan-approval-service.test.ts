@@ -43,13 +43,13 @@ function makeDeps(overrides: Partial<PlanApprovalDeps> = {}): {
       record('readPreviousProvider', { subChatId });
       return 'claude-code' as ProviderId;
     }),
-    setMode: vi.fn((subChatId: string, mode: 'agent' | 'plan') => {
+    setMode: vi.fn((subChatId: string, mode: 'execute' | 'plan') => {
       record('setMode', { subChatId, mode });
     }),
     persistMode: vi.fn(async (input) => {
       record('persistMode', input);
     }),
-    applyDefaultModel: vi.fn((subChatId: string, mode: 'agent') => {
+    applyDefaultModel: vi.fn((subChatId: string, mode: 'execute') => {
       record('applyDefaultModel', { subChatId, mode });
       return { provider: 'claude-code' as ProviderId, isRemote: false };
     }),
@@ -110,7 +110,10 @@ describe('approvePlan — happy path call ordering', () => {
   test("same-provider Codex→Codex: ditto, KEEP transport (PR #44 — don't orphan TodoWrite/Task)", async () => {
     const { deps } = makeDeps({
       readPreviousProvider: vi.fn((_id: string): ProviderId => 'codex'),
-      applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({ provider: 'codex' as ProviderId, isRemote: false }))
+      applyDefaultModel: vi.fn((_id: string, _mode: 'execute') => ({
+        provider: 'codex' as ProviderId,
+        isRemote: false
+      }))
     });
     const result = await approvePlan('sub-1', deps);
     expect(result.ok).toBe(true);
@@ -132,7 +135,10 @@ describe('approvePlan — cross-provider (PR #52)', () => {
   test('Claude→Codex: notifyProviderChange fires, plan content resolved, RECREATE returned', async () => {
     const { deps } = makeDeps({
       readPreviousProvider: vi.fn((_id: string): ProviderId => 'claude-code'),
-      applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({ provider: 'codex' as ProviderId, isRemote: false })),
+      applyDefaultModel: vi.fn((_id: string, _mode: 'execute') => ({
+        provider: 'codex' as ProviderId,
+        isRemote: false
+      })),
       resolvePlanContent: vi.fn(async () => '## Plan\n1. Step')
     });
     const result = await approvePlan('sub-1', deps);
@@ -157,7 +163,7 @@ describe('approvePlan — cross-provider (PR #52)', () => {
   test('Codex GPT-5.5 → Claude Sonnet — PR #52 specific scenario', async () => {
     const { deps } = makeDeps({
       readPreviousProvider: vi.fn((_id: string): ProviderId => 'codex'),
-      applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({
+      applyDefaultModel: vi.fn((_id: string, _mode: 'execute') => ({
         provider: 'claude-code' as ProviderId,
         isRemote: false
       })),
@@ -173,7 +179,10 @@ describe('approvePlan — cross-provider (PR #52)', () => {
 
   test('buildImplementPlanParts called with attachment payload for cross-provider', async () => {
     const { deps } = makeDeps({
-      applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({ provider: 'codex' as ProviderId, isRemote: false })),
+      applyDefaultModel: vi.fn((_id: string, _mode: 'execute') => ({
+        provider: 'codex' as ProviderId,
+        isRemote: false
+      })),
       resolvePlanContent: vi.fn(async () => 'plan body')
     });
     await approvePlan('sub-1', deps);
@@ -186,7 +195,10 @@ describe('approvePlan — cross-provider (PR #52)', () => {
 
   test('cross-provider proceeds even when plan content fails to resolve', async () => {
     const { deps } = makeDeps({
-      applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({ provider: 'codex' as ProviderId, isRemote: false })),
+      applyDefaultModel: vi.fn((_id: string, _mode: 'execute') => ({
+        provider: 'codex' as ProviderId,
+        isRemote: false
+      })),
       resolvePlanContent: vi.fn(async () => {
         throw new Error('plan file gone');
       })
@@ -202,7 +214,7 @@ describe('approvePlan — cross-provider (PR #52)', () => {
 
   test('cross-provider preserves isRemote flag through to transportAction', async () => {
     const { deps } = makeDeps({
-      applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({ provider: 'codex' as ProviderId, isRemote: true }))
+      applyDefaultModel: vi.fn((_id: string, _mode: 'execute') => ({ provider: 'codex' as ProviderId, isRemote: true }))
     });
     const result = await approvePlan('sub-1', deps);
     expect(result.transportAction).toMatchObject({ kind: 'recreate', isRemote: true });
@@ -314,12 +326,12 @@ describe('approvePlan — single-flight (PR #51)', () => {
 });
 
 describe('approvePlan — DB persist with exitPlan: true (PR #45)', () => {
-  test("persistMode is called with mode: 'agent' and exitPlan: true", async () => {
+  test("persistMode is called with mode: 'execute' and exitPlan: true", async () => {
     const { deps } = makeDeps();
     await approvePlan('sub-1', deps);
     expect(deps.persistMode).toHaveBeenCalledWith({
       subChatId: 'sub-1',
-      mode: 'agent',
+      mode: 'execute',
       exitPlan: true
     });
   });
@@ -378,7 +390,10 @@ describe('approvePlan — same-provider transport KEEP (PR #44)', () => {
   test('notifyProviderChange is NOT called for Codex→Codex', async () => {
     const { deps } = makeDeps({
       readPreviousProvider: vi.fn((_id: string): ProviderId => 'codex'),
-      applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({ provider: 'codex' as ProviderId, isRemote: false }))
+      applyDefaultModel: vi.fn((_id: string, _mode: 'execute') => ({
+        provider: 'codex' as ProviderId,
+        isRemote: false
+      }))
     });
     await approvePlan('sub-1', deps);
     expect(deps.notifyProviderChange).not.toHaveBeenCalled();
@@ -392,17 +407,17 @@ describe('approvePlan — same-provider transport KEEP (PR #44)', () => {
 });
 
 describe('approvePlan — invariant: setMode before applyDefaultModel (PR #38)', () => {
-  test("setMode called with 'agent' BEFORE applyDefaultModel('agent')", async () => {
+  test("setMode called with 'execute' BEFORE applyDefaultModel('execute')", async () => {
     const { deps, calls } = makeDeps();
     await approvePlan('sub-1', deps);
     const order = calls.map((c) => c.fn);
     expect(order.indexOf('setMode')).toBeLessThan(order.indexOf('applyDefaultModel'));
   });
 
-  test("setMode receives mode='agent' (not 'plan' or anything else)", async () => {
+  test("setMode receives mode='execute' (not 'plan' or anything else)", async () => {
     const { deps } = makeDeps();
     await approvePlan('sub-1', deps);
-    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'agent');
+    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'execute');
   });
 });
 

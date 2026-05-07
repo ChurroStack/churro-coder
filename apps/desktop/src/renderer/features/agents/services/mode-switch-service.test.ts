@@ -26,7 +26,7 @@ interface CallRecord {
 }
 
 function makeDeps(
-  initialMode: 'plan' | 'agent' | 'review' = 'plan',
+  initialMode: 'plan' | 'execute' | 'review' = 'plan',
   overrides: Partial<ModeSwitchDeps> = {}
 ): {
   deps: ModeSwitchDeps;
@@ -47,7 +47,7 @@ function makeDeps(
       record('writeState', { subChatId, mode: state.mode, activity: state.activity });
       states.set(subChatId, state);
     }),
-    setMode: vi.fn((subChatId: string, mode: 'plan' | 'agent' | 'review') => {
+    setMode: vi.fn((subChatId: string, mode: 'plan' | 'execute' | 'review') => {
       record('setMode', { subChatId, mode });
     }),
     applyDefaultModel: vi.fn((subChatId: string, mode) => {
@@ -70,12 +70,12 @@ beforeEach(() => {
 describe('toggleMode — happy path call ordering (PR #36)', () => {
   test('plan → agent: setMode → applyDefaultModel → persistMode (sync writes BEFORE await)', async () => {
     const { deps, calls } = makeDeps('plan');
-    const result = await toggleMode('sub-1', 'agent', deps);
+    const result = await toggleMode('sub-1', 'execute', deps);
 
     const order = calls.filter((c) => c.fn !== 'readState' && c.fn !== 'writeState').map((c) => c.fn);
     expect(order).toEqual(['setMode', 'applyDefaultModel', 'persistMode']);
     expect(result.ok).toBe(true);
-    expect(result.finalState.mode).toBe('agent');
+    expect(result.finalState.mode).toBe('execute');
   });
 
   test('setMode and applyDefaultModel resolve before persistMode is awaited', async () => {
@@ -94,7 +94,7 @@ describe('toggleMode — happy path call ordering (PR #36)', () => {
       })
     });
 
-    const flow = toggleMode('sub-1', 'agent', deps);
+    const flow = toggleMode('sub-1', 'execute', deps);
     await new Promise((r) => setTimeout(r, 0));
 
     const fns = calls.map((c) => c.fn);
@@ -117,7 +117,7 @@ describe('toggleMode — rejected mid-stream (FSM rule)', () => {
 
     vi.clearAllMocks(); // reset call counters; only count what happens during toggle
 
-    const result = await toggleMode('sub-1', 'agent', deps);
+    const result = await toggleMode('sub-1', 'execute', deps);
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('busy');
     expect(deps.setMode).not.toHaveBeenCalled();
@@ -130,10 +130,10 @@ describe('toggleMode — rejected mid-stream (FSM rule)', () => {
     noteSendRequested('sub-1', deps);
     noteStreamStarted('sub-1', deps);
     // First toggle rejected
-    expect((await toggleMode('sub-1', 'agent', deps)).ok).toBe(false);
+    expect((await toggleMode('sub-1', 'execute', deps)).ok).toBe(false);
 
     noteStreamCompleted('sub-1', deps);
-    const result = await toggleMode('sub-1', 'agent', deps);
+    const result = await toggleMode('sub-1', 'execute', deps);
     expect(result.ok).toBe(true);
   });
 });
@@ -150,20 +150,20 @@ describe('toggleMode — no-op when already in target mode', () => {
 });
 
 describe('toggleMode — applyDefaultModel always called (PR #38)', () => {
-  test("plan → agent triggers applyDefaultModel('agent')", async () => {
+  test("plan → agent triggers applyDefaultModel('execute')", async () => {
     const { deps } = makeDeps('plan');
-    await toggleMode('sub-1', 'agent', deps);
-    expect(deps.applyDefaultModel).toHaveBeenCalledWith('sub-1', 'agent');
+    await toggleMode('sub-1', 'execute', deps);
+    expect(deps.applyDefaultModel).toHaveBeenCalledWith('sub-1', 'execute');
   });
 
   test("agent → plan triggers applyDefaultModel('plan')", async () => {
-    const { deps } = makeDeps('agent');
+    const { deps } = makeDeps('execute');
     await toggleMode('sub-1', 'plan', deps);
     expect(deps.applyDefaultModel).toHaveBeenCalledWith('sub-1', 'plan');
   });
 
   test("toggle to review triggers applyDefaultModel('review')", async () => {
-    const { deps } = makeDeps('agent');
+    const { deps } = makeDeps('execute');
     await toggleMode('sub-1', 'review', deps);
     expect(deps.applyDefaultModel).toHaveBeenCalledWith('sub-1', 'review');
   });
@@ -174,19 +174,19 @@ describe('toggleMode — provider change notification', () => {
     const notifyProviderChange = vi.fn();
     const { deps } = makeDeps('plan', {
       notifyProviderChange,
-      applyDefaultModel: vi.fn((_id: string, _mode: 'plan' | 'agent' | 'review') => ({
+      applyDefaultModel: vi.fn((_id: string, _mode: 'plan' | 'execute' | 'review') => ({
         modelId: 'gpt-5.4',
         provider: 'codex' as ProviderId
       }))
     });
-    const result = await toggleMode('sub-1', 'agent', deps);
+    const result = await toggleMode('sub-1', 'execute', deps);
     expect(notifyProviderChange).toHaveBeenCalledWith('sub-1', 'codex');
     expect(result.crossProvider).toBe(true);
   });
 
   test("crossProvider is false when notifyProviderChange isn't wired", async () => {
     const { deps } = makeDeps('plan', { notifyProviderChange: undefined });
-    const result = await toggleMode('sub-1', 'agent', deps);
+    const result = await toggleMode('sub-1', 'execute', deps);
     expect(result.crossProvider).toBe(false);
   });
 });
@@ -197,31 +197,31 @@ describe('forceMode — bypasses activity gate', () => {
     noteSendRequested('sub-1', deps);
     noteStreamStarted('sub-1', deps);
 
-    const result = await forceMode('sub-1', 'agent', 'plan-approved', deps);
+    const result = await forceMode('sub-1', 'execute', 'plan-approved', deps);
     expect(result.ok).toBe(true);
-    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'agent');
-    expect(deps.applyDefaultModel).toHaveBeenCalledWith('sub-1', 'agent');
+    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'execute');
+    expect(deps.applyDefaultModel).toHaveBeenCalledWith('sub-1', 'execute');
   });
 
   test('force to same mode still bumps hydrationVersion (defensive against stale HYDRATE)', async () => {
-    const { deps, states } = makeDeps('agent');
-    const before = states.get('sub-1') ?? initialState('agent');
-    await forceMode('sub-1', 'agent', 'session-resumed', deps);
+    const { deps, states } = makeDeps('execute');
+    const before = states.get('sub-1') ?? initialState('execute');
+    await forceMode('sub-1', 'execute', 'session-resumed', deps);
     const after = states.get('sub-1');
     expect(after?.hydrationVersion).toBeGreaterThan(before.hydrationVersion);
   });
 
   test('force to same mode does NOT call applyDefaultModel (no-op semantics)', async () => {
-    const { deps } = makeDeps('agent');
-    await forceMode('sub-1', 'agent', 'session-resumed', deps);
+    const { deps } = makeDeps('execute');
+    await forceMode('sub-1', 'execute', 'session-resumed', deps);
     expect(deps.applyDefaultModel).not.toHaveBeenCalled();
   });
 });
 
 describe('hydrateMode — stale refetch race (PR #51)', () => {
   test('hydrate with current version applies', () => {
-    const { deps, states } = makeDeps('agent');
-    const before = states.get('sub-1') ?? initialState('agent');
+    const { deps, states } = makeDeps('execute');
+    const before = states.get('sub-1') ?? initialState('execute');
     const result = hydrateMode('sub-1', 'plan', before.hydrationVersion + 1, deps);
     expect(result.applied).toBe(true);
     expect(result.finalState.mode).toBe('plan');
@@ -231,7 +231,7 @@ describe('hydrateMode — stale refetch race (PR #51)', () => {
     const { deps, states } = makeDeps('plan');
     // First, simulate a forced flip plan → agent (e.g., handleApprovePlan).
     states.set('sub-1', {
-      mode: 'agent',
+      mode: 'execute',
       activity: 'idle',
       hydrationVersion: 5,
       mustApplyDefaults: false
@@ -243,7 +243,7 @@ describe('hydrateMode — stale refetch race (PR #51)', () => {
     const result = hydrateMode('sub-1', 'plan', 4, deps);
     expect(result.applied).toBe(false);
     expect(deps.setMode).not.toHaveBeenCalled();
-    expect(states.get('sub-1')?.mode).toBe('agent');
+    expect(states.get('sub-1')?.mode).toBe('execute');
   });
 
   test('hydrate with same mode + newer version still syncs the external mode atom', () => {
@@ -264,14 +264,14 @@ describe('hydrateMode — stale refetch race (PR #51)', () => {
   });
 
   test('hydrate agent over initial agent still syncs stale persisted localStorage', () => {
-    const { deps, states } = makeDeps('agent');
-    const before = states.get('sub-1') ?? initialState('agent');
+    const { deps, states } = makeDeps('execute');
+    const before = states.get('sub-1') ?? initialState('execute');
 
-    const result = hydrateMode('sub-1', 'agent', before.hydrationVersion + 1, deps);
+    const result = hydrateMode('sub-1', 'execute', before.hydrationVersion + 1, deps);
 
     expect(result.applied).toBe(true);
-    expect(result.finalState.mode).toBe('agent');
-    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'agent');
+    expect(result.finalState.mode).toBe('execute');
+    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'execute');
     expect(deps.applyDefaultModel).not.toHaveBeenCalled();
   });
 });
@@ -283,24 +283,24 @@ describe('toggleMode — failure: persistMode rejects', () => {
         throw new Error('offline');
       })
     });
-    const result = await toggleMode('sub-1', 'agent', deps);
+    const result = await toggleMode('sub-1', 'execute', deps);
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('persist-failed');
-    expect(result.finalState.mode).toBe('agent'); // setMode already ran
-    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'agent');
+    expect(result.finalState.mode).toBe('execute'); // setMode already ran
+    expect(deps.setMode).toHaveBeenCalledWith('sub-1', 'execute');
   });
 });
 
 describe('event-stream passthroughs', () => {
   test('noteStreamStarted advances activity to streaming', () => {
-    const { deps } = makeDeps('agent');
+    const { deps } = makeDeps('execute');
     noteSendRequested('sub-1', deps);
     const after = noteStreamStarted('sub-1', deps);
     expect(after.activity).toBe('streaming');
   });
 
   test('noteStreamCompleted returns activity to idle', () => {
-    const { deps } = makeDeps('agent');
+    const { deps } = makeDeps('execute');
     noteSendRequested('sub-1', deps);
     noteStreamStarted('sub-1', deps);
     const after = noteStreamCompleted('sub-1', deps);

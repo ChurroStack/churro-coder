@@ -28,7 +28,7 @@ vi.mock('../../../../lib/window-storage', async () => {
 
 import { appStore } from '../../../../lib/jotai-store';
 import {
-  defaultAgentModeModelAtom,
+  defaultExecuteModeModelAtom,
   defaultPlanModeModelAtom,
   subChatModeAtomFamily,
   subChatProviderOverrideAtomFamily
@@ -41,7 +41,7 @@ const newSubChatId = () => `int-session-${++testCounter}`;
 
 beforeEach(() => {
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
-  appStore.set(defaultAgentModeModelAtom, 'sonnet');
+  appStore.set(defaultExecuteModeModelAtom, 'sonnet');
 });
 
 describe('L4 integration — session clear via persistMode exitPlan flag (PR #45)', () => {
@@ -73,7 +73,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
     const result = await approvePlan(subChatId, deps);
     expect(result.ok).toBe(true);
-    expect(persistCalls).toEqual([{ subChatId, mode: 'agent', exitPlan: true }]);
+    expect(persistCalls).toEqual([{ subChatId, mode: 'execute', exitPlan: true }]);
   });
 
   test('persistMode is awaited before scheduleDeferredSend (no stale session resume)', async () => {

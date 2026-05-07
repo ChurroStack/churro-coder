@@ -2,10 +2,10 @@ import { describe, test, expect } from 'vitest';
 import { computeWorkflowState } from './workflow-state';
 import type { WorkflowInputs } from './workflow-state';
 
-// Base represents an active agent session: plan approved, AI has responded,
+// Base represents an active execute session: plan approved, AI has responded,
 // files changed (but not yet committed+pushed), upstream configured.
 const base: WorkflowInputs = {
-  mode: 'agent',
+  mode: 'execute',
   isStreaming: false,
   isCompacting: false,
   planEverGenerated: true,
@@ -116,10 +116,10 @@ describe('computeWorkflowState — code milestone', () => {
     expect(s.code.hint).toBe('Push 1 commit to origin');
   });
 
-  test('streaming in agent mode (not compacting) → code in_progress', () => {
+  test('streaming in execute mode (not compacting) → code in_progress', () => {
     const s = computeWorkflowState({ ...base, isStreaming: true, isCompacting: false });
     expect(s.code.status).toBe('in_progress');
-    expect(s.code.hint).toBe('Agent is editing…');
+    expect(s.code.hint).toBe('Execute mode is editing…');
   });
 
   test('streaming while compacting → code not in_progress (compacting is excluded)', () => {

@@ -38,7 +38,7 @@ export interface ChatPanelSyncProps {
 interface DbSubChat {
   id: string;
   name: string | null;
-  mode?: 'plan' | 'agent' | null;
+  mode?: 'plan' | 'execute' | 'explore' | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -82,7 +82,7 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
             name: sc.name || 'New Chat',
             created_at: sc.createdAt ?? existing?.created_at ?? now,
             updated_at: sc.updatedAt ?? existing?.updated_at,
-            mode: (sc.mode as 'plan' | 'agent' | undefined) || existing?.mode || 'agent'
+            mode: (sc.mode as 'plan' | 'execute' | 'explore' | undefined) || existing?.mode || 'plan'
           };
         });
 
@@ -94,7 +94,7 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
               name: existing?.name || 'New Chat',
               created_at: existing?.created_at ?? now,
               updated_at: existing?.updated_at,
-              mode: existing?.mode ?? 'agent'
+              mode: existing?.mode ?? 'plan'
             });
           }
         }

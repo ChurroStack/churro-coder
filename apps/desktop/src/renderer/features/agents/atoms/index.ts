@@ -3,11 +3,73 @@ import { atomFamily, atomWithStorage } from 'jotai/utils';
 import { atomWithWindowStorage } from '../../../lib/window-storage';
 import type { FileMentionOption } from '../mentions/agents-mentions-editor';
 
-// Agent mode type - extensible for future modes like "debug"
-export type AgentMode = 'agent' | 'plan';
+export type AgentMode = 'plan' | 'execute' | 'explore';
+type LegacyAgentMode = AgentMode | 'agent';
+
+const MODE_STORAGE_MIGRATION_KEY = 'migration:agent-to-execute-v1';
+const LEGACY_DEFAULT_MODE_KEY = 'preferences:default-agent-mode';
+const EXECUTE_DEFAULT_MODE_KEY = 'preferences:default-execute-mode';
+const LEGACY_DEFAULT_AGENT_MODEL_KEY = 'preferences:default-agent-mode-model';
+const EXECUTE_DEFAULT_MODEL_KEY = 'preferences:default-execute-mode-model';
+const LEGACY_DEFAULT_AGENT_THINKING_KEY = 'preferences:default-agent-mode-thinking';
+const EXECUTE_DEFAULT_THINKING_KEY = 'preferences:default-execute-mode-thinking';
+const SUBCHAT_MODES_STORAGE_KEY = 'agents:subChatModes';
+
+export function normalizeAgentMode(mode: string | null | undefined): AgentMode {
+  if (mode === 'plan' || mode === 'execute' || mode === 'explore') return mode;
+  if (mode === 'agent') return 'execute';
+  return 'plan';
+}
+
+function migrateAgentModeStorage() {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  if (localStorage.getItem(MODE_STORAGE_MIGRATION_KEY) === 'done') return;
+
+  try {
+    const legacyDefaultMode = localStorage.getItem(LEGACY_DEFAULT_MODE_KEY);
+    if (legacyDefaultMode !== null && localStorage.getItem(EXECUTE_DEFAULT_MODE_KEY) === null) {
+      localStorage.setItem(EXECUTE_DEFAULT_MODE_KEY, JSON.stringify(normalizeAgentMode(JSON.parse(legacyDefaultMode))));
+    }
+
+    const legacyDefaultModel = localStorage.getItem(LEGACY_DEFAULT_AGENT_MODEL_KEY);
+    if (legacyDefaultModel !== null && localStorage.getItem(EXECUTE_DEFAULT_MODEL_KEY) === null) {
+      localStorage.setItem(EXECUTE_DEFAULT_MODEL_KEY, legacyDefaultModel);
+    }
+
+    const legacyDefaultThinking = localStorage.getItem(LEGACY_DEFAULT_AGENT_THINKING_KEY);
+    if (legacyDefaultThinking !== null && localStorage.getItem(EXECUTE_DEFAULT_THINKING_KEY) === null) {
+      localStorage.setItem(EXECUTE_DEFAULT_THINKING_KEY, legacyDefaultThinking);
+    }
+
+    const rawModes = localStorage.getItem(SUBCHAT_MODES_STORAGE_KEY);
+    if (rawModes) {
+      const parsed = JSON.parse(rawModes) as Record<string, LegacyAgentMode>;
+      const migrated = Object.fromEntries(
+        Object.entries(parsed).map(([subChatId, mode]) => [subChatId, normalizeAgentMode(mode)])
+      );
+      localStorage.setItem(SUBCHAT_MODES_STORAGE_KEY, JSON.stringify(migrated));
+    }
+
+    for (const key of [LEGACY_DEFAULT_MODE_KEY, EXECUTE_DEFAULT_MODE_KEY]) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      localStorage.setItem(key, JSON.stringify(normalizeAgentMode(JSON.parse(raw))));
+    }
+
+    localStorage.removeItem(LEGACY_DEFAULT_MODE_KEY);
+    localStorage.removeItem(LEGACY_DEFAULT_AGENT_MODEL_KEY);
+    localStorage.removeItem(LEGACY_DEFAULT_AGENT_THINKING_KEY);
+  } catch (error) {
+    console.warn('[agents] Failed to migrate mode storage', error);
+  } finally {
+    localStorage.setItem(MODE_STORAGE_MIGRATION_KEY, 'done');
+  }
+}
+
+migrateAgentModeStorage();
 
 // Ordered list of modes - Shift+Tab cycles through these
-export const AGENT_MODES: AgentMode[] = ['agent', 'plan'];
+export const AGENT_MODES: AgentMode[] = ['plan', 'execute', 'explore'];
 
 // Get next mode in cycle (for Shift+Tab toggle)
 export function getNextMode(current: AgentMode): AgentMode {
@@ -221,9 +283,16 @@ export const defaultPlanModeModelAtom = atomWithStorage<string>(
   { getOnInit: true }
 );
 
-export const defaultAgentModeModelAtom = atomWithStorage<string>(
-  'preferences:default-agent-mode-model',
+export const defaultExecuteModeModelAtom = atomWithStorage<string>(
+  EXECUTE_DEFAULT_MODEL_KEY,
   sanitizeModelId('sonnet', 'opus'),
+  undefined,
+  { getOnInit: true }
+);
+
+export const defaultExploreModeModelAtom = atomWithStorage<string>(
+  'preferences:default-explore-mode-model',
+  sanitizeModelId('haiku', 'opus'),
   undefined,
   { getOnInit: true }
 );
@@ -280,8 +349,15 @@ export const defaultPlanModeThinkingAtom = atomWithStorage<ClaudeThinkingPrefere
   { getOnInit: true }
 );
 
-export const defaultAgentModeThinkingAtom = atomWithStorage<ClaudeThinkingPreference>(
-  'preferences:default-agent-mode-thinking',
+export const defaultExecuteModeThinkingAtom = atomWithStorage<ClaudeThinkingPreference>(
+  EXECUTE_DEFAULT_THINKING_KEY,
+  'high',
+  undefined,
+  { getOnInit: true }
+);
+
+export const defaultExploreModeThinkingAtom = atomWithStorage<ClaudeThinkingPreference>(
+  'preferences:default-explore-mode-thinking',
   'high',
   undefined,
   { getOnInit: true }
@@ -401,7 +477,7 @@ export const subChatClaudeThinkingAtomFamily = atomFamily((subChatId: string) =>
 
 // Storage for all sub-chat modes (persisted per subChatId)
 export const subChatModesStorageAtom = atomWithStorage<Record<string, AgentMode>>(
-  'agents:subChatModes',
+  SUBCHAT_MODES_STORAGE_KEY,
   {},
   undefined,
   { getOnInit: true }
@@ -410,7 +486,7 @@ export const subChatModesStorageAtom = atomWithStorage<Record<string, AgentMode>
 // atomFamily to get/set mode per subChatId
 export const subChatModeAtomFamily = atomFamily((subChatId: string) =>
   atom(
-    (get) => get(subChatModesStorageAtom)[subChatId] ?? 'agent',
+    (get) => normalizeAgentMode(get(subChatModesStorageAtom)[subChatId]),
     (get, set, newMode: AgentMode) => {
       const current = get(subChatModesStorageAtom);
       set(subChatModesStorageAtom, { ...current, [subChatId]: newMode });
@@ -672,9 +748,9 @@ export const archiveSearchQueryAtom = atom<string>('');
 // Repository filter for archive (null = all repositories)
 export const archiveRepositoryFilterAtom = atom<string | null>(null);
 
-// Track last used mode (plan/agent) per chat
-// Map<chatId, "plan" | "agent">
-export const lastChatModesAtom = atom<Map<string, 'plan' | 'agent'>>(new Map<string, 'plan' | 'agent'>());
+// Track last used mode per chat.
+// Map<chatId, AgentMode>
+export const lastChatModesAtom = atom<Map<string, AgentMode>>(new Map<string, AgentMode>());
 
 // Mobile view mode - chat (default, shows NewChatForm), chats list, preview, diff, or terminal
 export type AgentsMobileViewMode = 'chats' | 'chat' | 'preview' | 'diff' | 'terminal';
@@ -1099,7 +1175,7 @@ export const workspaceDiffCacheAtomFamily = atomFamily((chatId: string) =>
 // should derive it from other signals (`useChat.status`); the FSM atom is
 // just a container the services read/write through their deps interface.
 //
-// Initial state defaults to `mode: "agent"` (matches `subChatModeAtomFamily`'s
+// Initial state defaults to `mode: "execute"` (matches execute-mode runtime
 // fallback). The hydration loop will overwrite this from the DB the first time
 // it sees a sub-chat with a persisted mode.
 //
@@ -1108,7 +1184,7 @@ export const workspaceDiffCacheAtomFamily = atomFamily((chatId: string) =>
 import { initialChatModeState, type ChatModeState } from '../machines/chat-mode-machine';
 
 export const chatModeFsmStateAtomFamily = atomFamily((_subChatId: string) =>
-  atom<ChatModeState>(initialChatModeState('agent'))
+  atom<ChatModeState>(initialChatModeState('execute'))
 );
 
 /**

@@ -39,7 +39,7 @@ export const PlanWidget = memo(function PlanWidget({
   activeSubChatId,
   planPath,
   refetchTrigger,
-  mode = 'agent',
+  mode = 'execute',
   onApprovePlan
 }: PlanWidgetProps) {
   // Use activeSubChatId for fetching if available

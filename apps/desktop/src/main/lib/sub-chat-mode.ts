@@ -1,7 +1,13 @@
 import { eq } from 'drizzle-orm';
 import { subChats } from './db/schema';
 
-export type PersistedRunMode = 'plan' | 'agent';
+export type PersistedRunMode = 'plan' | 'execute' | 'explore';
+
+export function normalizePersistedRunMode(mode: string | null | undefined): PersistedRunMode {
+  if (mode === 'plan' || mode === 'execute' || mode === 'explore') return mode;
+  if (mode === 'agent') return 'execute';
+  return 'plan';
+}
 
 // Treat only the canonical plan-store paths as plan files. Project files like
 // `release-plan.md` or `migration-plan.md` belong to the user, not the
@@ -45,14 +51,14 @@ export function inferSubChatModeForHydration(row: {
   sessionMode?: string | null;
   messages?: string | null;
 }): PersistedRunMode {
-  if (row.mode === 'plan' && (row.sessionMode === 'agent' || hasNonPlanFileEdit(row.messages))) {
-    return 'agent';
+  const mode = normalizePersistedRunMode(row.mode);
+  const sessionMode = normalizePersistedRunMode(row.sessionMode);
+
+  if (mode === 'plan' && (sessionMode === 'execute' || hasNonPlanFileEdit(row.messages))) {
+    return 'execute';
   }
 
-  // Binary collapse: anything that isn't 'plan' (including null/undefined and any
-  // unknown future mode value) becomes 'agent'. If the schema gains a third mode
-  // (e.g. 'review'), update this branch and the PersistedRunMode union together.
-  return row.mode === 'plan' ? 'plan' : 'agent';
+  return mode;
 }
 
 /**
@@ -67,7 +73,7 @@ export function persistSubChatRunMode(params: {
   existingMode: string | null | undefined;
   inputMode: PersistedRunMode;
 }): boolean {
-  if (params.existingMode == null || params.existingMode === params.inputMode) {
+  if (params.existingMode == null || normalizePersistedRunMode(params.existingMode) === params.inputMode) {
     return false;
   }
 
@@ -79,7 +85,7 @@ export function repairSubChatModeForHydration<
   T extends { id: string; mode: string | null; sessionMode?: string | null; messages?: string | null }
 >(db: { update: (table: typeof subChats) => any }, row: T): T & { mode: PersistedRunMode } {
   const effectiveMode = inferSubChatModeForHydration(row);
-  if (effectiveMode === row.mode) {
+  if (effectiveMode === normalizePersistedRunMode(row.mode)) {
     return row as T & { mode: PersistedRunMode };
   }
 

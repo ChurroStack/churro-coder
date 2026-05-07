@@ -34,8 +34,8 @@ describe('persistSubChatRunMode', () => {
     const changed = persistSubChatRunMode({
       db,
       subChatId: 'sub-1',
-      existingMode: 'agent',
-      inputMode: 'agent'
+      existingMode: 'execute',
+      inputMode: 'execute'
     });
 
     expect(changed).toBe(false);
@@ -49,11 +49,11 @@ describe('persistSubChatRunMode', () => {
       db,
       subChatId: 'sub-1',
       existingMode: 'plan',
-      inputMode: 'agent'
+      inputMode: 'execute'
     });
 
     expect(changed).toBe(true);
-    expect(calls).toEqual([{ patch: { mode: 'agent' }, ran: true }]);
+    expect(calls).toEqual([{ patch: { mode: 'execute' }, ran: true }]);
   });
 
   test('skips the write when the row was not found (existingMode is nullish)', () => {
@@ -63,7 +63,7 @@ describe('persistSubChatRunMode', () => {
       db,
       subChatId: 'sub-1',
       existingMode: null,
-      inputMode: 'agent'
+      inputMode: 'execute'
     });
     const changedUndef = persistSubChatRunMode({
       db,
@@ -80,7 +80,7 @@ describe('persistSubChatRunMode', () => {
 
 describe('inferSubChatModeForHydration', () => {
   test('repairs stale plan mode when the run session was agent mode', () => {
-    expect(inferSubChatModeForHydration({ mode: 'plan', sessionMode: 'agent' })).toBe('agent');
+    expect(inferSubChatModeForHydration({ mode: 'plan', sessionMode: 'execute' })).toBe('execute');
   });
 
   test('repairs stale plan mode when assistant edited a non-plan file', () => {
@@ -89,7 +89,7 @@ describe('inferSubChatModeForHydration', () => {
         mode: 'plan',
         messages: messagesWithTool('tool-Edit', '/repo/styles.css')
       })
-    ).toBe('agent');
+    ).toBe('execute');
   });
 
   test('keeps plan mode when the only file edit is a plan-store file', () => {
@@ -119,7 +119,20 @@ describe('inferSubChatModeForHydration', () => {
         mode: 'plan',
         messages: messagesWithTool('tool-Edit', '/repo/docs/release-plan.md')
       })
-    ).toBe('agent');
+    ).toBe('execute');
+  });
+
+  test('normalizes legacy "agent" mode to "execute"', () => {
+    expect(inferSubChatModeForHydration({ mode: 'agent' })).toBe('execute');
+  });
+
+  test('preserves explore mode through hydration', () => {
+    expect(inferSubChatModeForHydration({ mode: 'explore' })).toBe('explore');
+  });
+
+  test('falls back to "plan" when mode is null/undefined', () => {
+    expect(inferSubChatModeForHydration({ mode: null })).toBe('plan');
+    expect(inferSubChatModeForHydration({ mode: undefined })).toBe('plan');
   });
 });
 
@@ -134,7 +147,7 @@ describe('repairSubChatModeForHydration', () => {
       messages: messagesWithTool('tool-Write', '/repo/index.html')
     });
 
-    expect(row.mode).toBe('agent');
-    expect(calls).toEqual([{ patch: { mode: 'agent' }, ran: true }]);
+    expect(row.mode).toBe('execute');
+    expect(calls).toEqual([{ patch: { mode: 'execute' }, ran: true }]);
   });
 });

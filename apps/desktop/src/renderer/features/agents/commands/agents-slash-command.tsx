@@ -115,11 +115,12 @@ export const AgentsSlashCommand = memo(function AgentsSlashCommand({
   const options: SlashCommandOption[] = useMemo(() => {
     let builtinFiltered = filterBuiltinCommands(debouncedSearchText);
 
-    // Hide /plan when already in Plan mode, hide /agent when already in Agent mode
+    // Hide the command for the currently active mode.
     if (mode !== undefined) {
       builtinFiltered = builtinFiltered.filter((cmd) => {
         if (mode === 'plan' && cmd.name === 'plan') return false;
-        if (mode === 'agent' && cmd.name === 'agent') return false;
+        if (mode === 'execute' && cmd.name === 'execute') return false;
+        if (mode === 'explore' && cmd.name === 'explore') return false;
         return true;
       });
     }

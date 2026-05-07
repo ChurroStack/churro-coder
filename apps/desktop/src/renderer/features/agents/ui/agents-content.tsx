@@ -81,7 +81,7 @@ const useIsAdmin = () => false;
 function DraggedSubChatPreview({ id }: { id: string }) {
   const subChat = useAgentSubChatStore((s) => s.allSubChats.find((sc) => sc.id === id));
   const name = subChat?.name || 'New Chat';
-  const mode = subChat?.mode || 'agent';
+  const mode = subChat?.mode || 'plan';
   const Icon = mode === 'plan' ? PlanIcon : AgentIcon;
   return (
     <div className="pointer-events-none inline-flex items-center gap-2 rounded-md border border-border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-lg cursor-grabbing">

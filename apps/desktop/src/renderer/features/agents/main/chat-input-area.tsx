@@ -419,7 +419,7 @@ export const ChatInputArea = memo(function ChatInputArea({
   const [modeTooltip, setModeTooltip] = useState<{
     visible: boolean;
     position: { top: number; left: number };
-    mode: 'agent' | 'plan';
+    mode: 'execute' | 'explore' | 'plan';
   } | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasShownTooltipRef = useRef(false);
@@ -1046,9 +1046,14 @@ export const ChatInputArea = memo(function ChatInputArea({
               updateMode('plan');
             }
             return;
-          case 'agent':
-            if (subChatMode === 'plan') {
-              updateMode('agent');
+          case 'execute':
+            if (subChatMode !== 'execute') {
+              updateMode('execute');
+            }
+            return;
+          case 'explore':
+            if (subChatMode !== 'explore') {
+              updateMode('explore');
             }
             return;
           case 'compact':
@@ -1460,7 +1465,9 @@ export const ChatInputArea = memo(function ChatInputArea({
                         ) : (
                           <AgentIcon className="h-3.5 w-3.5 shrink-0" />
                         )}
-                        <span className="truncate">{subChatMode === 'plan' ? 'Plan' : 'Agent'}</span>
+                        <span className="truncate">
+                          {subChatMode === 'plan' ? 'Plan' : subChatMode === 'explore' ? 'Explore' : 'Execute'}
+                        </span>
                         <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
                       </button>
                     </DropdownMenuTrigger>
@@ -1477,7 +1484,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                             tooltipTimeoutRef.current = null;
                           }
                           setModeTooltip(null);
-                          updateMode('agent');
+                          updateMode('execute');
                           setModeDropdownOpen(false);
                         }}
                         className="justify-between gap-2"
@@ -1494,7 +1501,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                                 top: rect.top,
                                 left: rect.right + 8
                               },
-                              mode: 'agent'
+                              mode: 'execute'
                             });
                             hasShownTooltipRef.current = true;
                             tooltipTimeoutRef.current = null;
@@ -1514,9 +1521,57 @@ export const ChatInputArea = memo(function ChatInputArea({
                         }}>
                         <div className="flex items-center gap-2">
                           <AgentIcon className="w-4 h-4 text-muted-foreground" />
-                          <span>Agent</span>
+                          <span>Execute</span>
                         </div>
-                        {subChatMode !== 'plan' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                        {subChatMode === 'execute' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          if (tooltipTimeoutRef.current) {
+                            clearTimeout(tooltipTimeoutRef.current);
+                            tooltipTimeoutRef.current = null;
+                          }
+                          setModeTooltip(null);
+                          updateMode('explore');
+                          setModeDropdownOpen(false);
+                        }}
+                        className="justify-between gap-2"
+                        onMouseEnter={(e) => {
+                          if (tooltipTimeoutRef.current) {
+                            clearTimeout(tooltipTimeoutRef.current);
+                            tooltipTimeoutRef.current = null;
+                          }
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const showTooltip = () => {
+                            setModeTooltip({
+                              visible: true,
+                              position: {
+                                top: rect.top,
+                                left: rect.right + 8
+                              },
+                              mode: 'explore'
+                            });
+                            hasShownTooltipRef.current = true;
+                            tooltipTimeoutRef.current = null;
+                          };
+                          if (hasShownTooltipRef.current) {
+                            showTooltip();
+                          } else {
+                            tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          if (tooltipTimeoutRef.current) {
+                            clearTimeout(tooltipTimeoutRef.current);
+                            tooltipTimeoutRef.current = null;
+                          }
+                          setModeTooltip(null);
+                        }}>
+                        <div className="flex items-center gap-2">
+                          <AgentIcon className="w-4 h-4 text-muted-foreground" />
+                          <span>Explore</span>
+                        </div>
+                        {subChatMode === 'explore' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => {
@@ -1581,9 +1636,11 @@ export const ChatInputArea = memo(function ChatInputArea({
                             data-tooltip="true"
                             className="relative rounded-[12px] bg-popover px-2.5 py-1.5 text-xs text-popover-foreground dark max-w-[150px]">
                             <span>
-                              {modeTooltip.mode === 'agent'
+                              {modeTooltip.mode === 'execute'
                                 ? 'Apply changes directly without a plan'
-                                : 'Create a plan before making changes'}
+                                : modeTooltip.mode === 'explore'
+                                  ? 'Explore the codebase in read-only mode'
+                                  : 'Create a plan before making changes'}
                             </span>
                           </div>
                         </div>,

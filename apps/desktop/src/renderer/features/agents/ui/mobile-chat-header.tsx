@@ -74,7 +74,7 @@ export function MobileChatHeader({
   }, [allSubChats, activeSubChatId]);
 
   const isLoading = activeSubChatId ? loadingSubChatsAtomValue.has(activeSubChatId) : false;
-  const mode = activeSubChat?.mode || 'agent';
+  const mode = activeSubChat?.mode || 'plan';
 
   // Sort sub-chats by most recent first for history
   const sortedSubChats = useMemo(

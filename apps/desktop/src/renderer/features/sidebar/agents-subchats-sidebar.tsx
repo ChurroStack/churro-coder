@@ -122,7 +122,7 @@ const SidebarSearchHistoryPopover = memo(function SidebarSearchHistoryPopover({
       const timeAgo = formatTimeAgo(subChat.updated_at || subChat.created_at);
       const isLoading = loadingSubChats.has(subChat.id);
       const hasUnseen = subChatUnseenChanges.has(subChat.id);
-      const mode = subChat.mode || 'agent';
+      const mode = subChat.mode || 'execute';
       const hasPendingQuestion = pendingQuestionsMap.has(subChat.id);
 
       return (
@@ -1240,7 +1240,7 @@ export function AgentsSubChatsSidebar({
                             const isFocused = focusedChatIndex === globalIndex && focusedChatIndex >= 0;
                             const hasUnseen = subChatUnseenChanges.has(subChat.id);
                             const timeAgo = formatTimeAgo(subChat.updated_at || subChat.created_at);
-                            const mode = subChat.mode || 'agent';
+                            const mode = subChat.mode || 'execute';
                             const isChecked = selectedSubChatIds.has(subChat.id);
                             const draftText = getDraftText(subChat.id);
                             const hasPendingQuestion = pendingQuestionsMap.has(subChat.id);
@@ -1521,7 +1521,7 @@ export function AgentsSubChatsSidebar({
                             const isFocused = focusedChatIndex === globalIndex && focusedChatIndex >= 0;
                             const hasUnseen = subChatUnseenChanges.has(subChat.id);
                             const timeAgo = formatTimeAgo(subChat.updated_at || subChat.created_at);
-                            const mode = subChat.mode || 'agent';
+                            const mode = subChat.mode || 'execute';
                             const isChecked = selectedSubChatIds.has(subChat.id);
                             const draftText = getDraftText(subChat.id);
                             const hasPendingQuestion = pendingQuestionsMap.has(subChat.id);

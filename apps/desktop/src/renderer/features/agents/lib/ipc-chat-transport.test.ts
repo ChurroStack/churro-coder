@@ -82,7 +82,7 @@ vi.mock('./model-switching', () => ({
 }));
 
 vi.mock('./get-current-sub-chat-mode', () => ({
-  getCurrentSubChatMode: vi.fn(() => 'agent')
+  getCurrentSubChatMode: vi.fn(() => 'execute')
 }));
 
 // ── Streaming status store — controlled via module-level state ────────────────

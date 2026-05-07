@@ -752,7 +752,7 @@ export const claudeRouter = router({
         prompt: z.string(),
         cwd: z.string(),
         projectPath: z.string().optional(), // Original project path for MCP config lookup
-        mode: z.enum(['plan', 'agent']).default('agent'),
+        mode: z.enum(['plan', 'execute', 'explore']).default('execute'),
         sessionId: z.string().optional(),
         model: z.string().optional(),
         customConfig: z
@@ -1488,7 +1488,7 @@ export const claudeRouter = router({
                   shouldForceFreshSessionOnModeChange({
                     resumeSessionId,
                     existingSessionId,
-                    existingSessionMode: existingSessionMode as 'agent' | 'plan' | null,
+                    existingSessionMode: existingSessionMode as 'plan' | 'execute' | 'explore' | null,
                     inputMode: input.mode
                   })
                 ) {
@@ -1600,7 +1600,7 @@ export const claudeRouter = router({
                   }
 
                   // Inject churro-coder MCP server only in agent mode — plan mode has no plan yet to read.
-                  if (input.mode === 'agent') {
+                  if (input.mode === 'execute') {
                     mcpServersFiltered = {
                       ...(mcpServersFiltered ?? {}),
                       'churro-coder': {
@@ -1776,7 +1776,7 @@ ${prompt}
 
                 // System prompt config - use preset for both Claude and Ollama
                 // If AGENTS.md exists, append its content to the system prompt
-                const hasPlanForSubChat = input.mode === 'agent' && (await hasPlan(input.subChatId));
+                const hasPlanForSubChat = input.mode === 'execute' && (await hasPlan(input.subChatId));
                 const planHint = hasPlanForSubChat
                   ? '\n\nAn approved plan governs this sub-chat. Use the `read_plan` tool (MCP server `churro-coder`) only when you need to recover that already-approved plan later, including after compaction, a provider switch, or a fresh session.'
                   : '';
@@ -1801,7 +1801,7 @@ ${prompt}
                   input.cwd,
                   input.projectPath ?? input.cwd
                 );
-                const sandboxOn = sandboxPolicy.enabled && input.mode === 'agent';
+                const sandboxOn = sandboxPolicy.enabled && input.mode === 'execute';
                 if (sandboxOn) {
                   sandboxSettingsFilePath = await writeSandboxSettingsFile(input.cwd, sandboxPolicy);
                 }
@@ -1826,10 +1826,12 @@ ${prompt}
                     permissionMode:
                       input.mode === 'plan'
                         ? ('plan' as const)
-                        : sandboxOn
+                        : input.mode === 'explore'
                           ? ('default' as const)
-                          : ('bypassPermissions' as const),
-                    ...(input.mode !== 'plan' &&
+                          : sandboxOn
+                            ? ('default' as const)
+                            : ('bypassPermissions' as const),
+                    ...(input.mode === 'execute' &&
                       !sandboxOn && {
                         allowDangerouslySkipPermissions: true
                       }),
@@ -1939,6 +1941,22 @@ ${prompt}
                               };
                             }
                           }
+                        }
+                      }
+
+                      if (input.mode === 'explore') {
+                        if (
+                          toolName === 'Edit' ||
+                          toolName === 'Write' ||
+                          toolName === 'NotebookEdit' ||
+                          toolName === 'MultiEdit' ||
+                          toolName === 'Bash' ||
+                          toolName === 'ExitPlanMode'
+                        ) {
+                          return {
+                            behavior: 'deny',
+                            message: `Tool "${toolName}" blocked in explore mode.`
+                          };
                         }
                       }
 
