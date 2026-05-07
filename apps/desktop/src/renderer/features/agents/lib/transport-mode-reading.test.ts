@@ -4,7 +4,7 @@
 // getCurrentSubChatMode. The bug we fixed was: IPCChatTransport and CodexChatTransport
 // fell back to a stale this.config.mode when the Zustand store lookup missed, and
 // RemoteChatTransport never read dynamically at all. These tests reproduce the
-// post-approval scenario (atom flipped to "agent" *after* transport construction)
+// post-approval scenario (atom flipped to "execute" *after* transport construction)
 // and assert the new mode reaches the boundary (trpcClient.subscribe input or
 // fetch headers).
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -68,8 +68,8 @@ describe('Transport mode propagation — regression guards', () => {
       cwd: '/tmp'
     });
 
-    // handleApprovePlan flips atom to "agent" AFTER construction
-    appStore.set(subChatModeAtomFamily(id), 'agent');
+    // handleApprovePlan flips atom to "execute" AFTER construction
+    appStore.set(subChatModeAtomFamily(id), 'execute');
 
     await transport.sendMessages({
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] } as any]
@@ -77,7 +77,7 @@ describe('Transport mode propagation — regression guards', () => {
 
     expect(claudeSubscribe).toHaveBeenCalledTimes(1);
     const [input] = claudeSubscribe.mock.calls[0] as [{ mode: string }, unknown];
-    expect(input.mode).toBe('agent');
+    expect(input.mode).toBe('execute');
   });
 
   test("IPCChatTransport sends 'plan' when atom holds 'plan' — sanity check the read isn't hard-coded", async () => {
@@ -108,7 +108,7 @@ describe('Transport mode propagation — regression guards', () => {
       provider: 'codex'
     });
 
-    appStore.set(subChatModeAtomFamily(id), 'agent');
+    appStore.set(subChatModeAtomFamily(id), 'execute');
 
     await transport.sendMessages({
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] } as any]
@@ -116,7 +116,7 @@ describe('Transport mode propagation — regression guards', () => {
 
     expect(codexSubscribe).toHaveBeenCalledTimes(1);
     const [input] = codexSubscribe.mock.calls[0] as [{ mode: string }, unknown];
-    expect(input.mode).toBe('agent');
+    expect(input.mode).toBe('execute');
   });
 
   test("CodexChatTransport sends 'plan' when atom holds 'plan' — sanity check the read isn't hard-coded", async () => {
@@ -175,7 +175,7 @@ describe('RemoteChatTransport mode propagation — regression guard for the neve
       sandboxUrl: 'http://localhost:3000'
     });
 
-    appStore.set(subChatModeAtomFamily(id), 'agent');
+    appStore.set(subChatModeAtomFamily(id), 'execute');
 
     await transport.sendMessages({
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] } as any]
@@ -183,7 +183,7 @@ describe('RemoteChatTransport mode propagation — regression guard for the neve
 
     expect(streamFetch).toHaveBeenCalledTimes(1);
     const [, , options] = streamFetch.mock.calls[0] as unknown as [string, string, { headers: Record<string, string> }];
-    expect(options.headers['sub-chat-mode']).toBe('agent');
+    expect(options.headers['sub-chat-mode']).toBe('execute');
   });
 
   test("RemoteChatTransport sends 'plan' when atom holds 'plan' — sanity check the header isn't hard-coded", async () => {

@@ -17,7 +17,7 @@ import { useChatViewState } from './use-chat-view-state';
 //      would clobber state across sub-chats — same class as PR #51).
 //   2. Setters that don't trigger a re-render (would mean the
 //      `useAtom` writer slot was wired wrong).
-//   3. Default-fallback behavior (e.g. `mode` defaulting to `"agent"`
+//   3. Default-fallback behavior (e.g. `mode` defaulting to `"plan"`
 //      when the storage atom has no entry — the renderer relies on
 //      this for first-paint).
 
@@ -35,7 +35,7 @@ describe('useChatViewState', () => {
     const wrapper = makeWrapper(store);
     const { result } = renderHook(() => useChatViewState('sub-1'), { wrapper });
 
-    expect(result.current.mode).toBe('agent');
+    expect(result.current.mode).toBe('plan');
     expect(result.current.providerOverride).toBeUndefined();
     // The model + thinking atoms fall back to "lastSelected*" globals; we
     // just assert non-null/non-empty rather than a specific default since
@@ -51,7 +51,7 @@ describe('useChatViewState', () => {
     const wrapper = makeWrapper(store);
     const { result } = renderHook(() => useChatViewState('sub-1'), { wrapper });
 
-    expect(result.current.mode).toBe('agent');
+    expect(result.current.mode).toBe('plan');
 
     act(() => {
       result.current.setMode('plan');
@@ -130,7 +130,7 @@ describe('useChatViewState', () => {
 
     // sub-B is untouched: mode default, no override, modelId unchanged
     // (still falling back to whatever the global was at hook-mount time).
-    expect(b.current.mode).toBe('agent');
+    expect(b.current.mode).toBe('plan');
     expect(b.current.providerOverride).toBeUndefined();
     expect(b.current.modelId).toBe(beforeBModel);
     // Sanity: sub-A's "sonnet" write did not bleed into sub-B.
@@ -149,16 +149,16 @@ describe('useChatViewState', () => {
 
     act(() => {
       a.current.setMode('plan');
-      b.current.setMode('agent');
+      b.current.setMode('execute');
     });
     expect(a.current.mode).toBe('plan');
-    expect(b.current.mode).toBe('agent');
+    expect(b.current.mode).toBe('execute');
 
     act(() => {
-      a.current.setMode('agent');
+      a.current.setMode('execute');
       b.current.setMode('plan');
     });
-    expect(a.current.mode).toBe('agent');
+    expect(a.current.mode).toBe('execute');
     expect(b.current.mode).toBe('plan');
   });
 });

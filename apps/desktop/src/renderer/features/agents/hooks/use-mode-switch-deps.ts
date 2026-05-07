@@ -41,7 +41,7 @@ import type { ModeSwitchDeps } from '../services/mode-switch-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
 
 export interface ModeSwitchMutationLike {
-  mutateAsync: (input: { subChatId: string; mode: 'agent' | 'plan'; exitPlan?: boolean }) => Promise<unknown>;
+  mutateAsync: (input: { subChatId: string; mode: 'execute' | 'plan'; exitPlan?: boolean }) => Promise<unknown>;
 }
 
 /**
@@ -59,7 +59,7 @@ export function useModeSwitchDeps(updateSubChatModeMutation: ModeSwitchMutationL
       writeState: (id, state) => appStore.set(chatModeFsmStateAtomFamily(id), state),
       setMode: (id, mode) => {
         // The chat-mode FSM allows "review", but the renderer's surface
-        // only persists "plan" / "agent". Drop "review" writes here —
+        // only persists "plan" / "execute". Drop "review" writes here —
         // applyDefaultModel still applies the right model + thinking.
         if (mode === 'review') return;
         appStore.set(subChatModeAtomFamily(id), mode);

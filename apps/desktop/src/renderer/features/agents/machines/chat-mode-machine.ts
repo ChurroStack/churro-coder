@@ -2,7 +2,7 @@
  * Pure state machine for the chat-mode lifecycle in active-chat.tsx.
  *
  * Models the interaction between:
- *   - the persisted mode (plan / agent / review)
+ *   - the persisted mode (plan / execute / explore / review)
  *   - the streaming activity (idle / sending / streaming / errored)
  *   - "forced" mode flips that originate from outside the user (e.g., plan
  *     approval auto-flipping to agent, session resume restoring stored mode)
@@ -21,11 +21,11 @@
  *     caller knows to invoke `applyModeDefaultModel` synchronously.
  */
 
-export type ChatMode = 'plan' | 'agent' | 'review';
+export type ChatMode = 'plan' | 'execute' | 'explore' | 'review';
 export type ChatActivity = 'idle' | 'sending' | 'streaming' | 'errored';
 
 export type ForcedModeReason =
-  /** Plan approval flipped the mode to "agent". */
+  /** Plan approval flipped the mode to "execute". */
   | 'plan-approved'
   /** Session resume hydrated a mode from the DB / atom store. */
   | 'session-resumed';
@@ -53,7 +53,7 @@ export type ChatModeEvent =
   | { type: 'ERROR_CLEARED' }
   | { type: 'CANCEL_REQUESTED' };
 
-export function initialChatModeState(initial: ChatMode = 'agent'): ChatModeState {
+export function initialChatModeState(initial: ChatMode = 'plan'): ChatModeState {
   return {
     mode: initial,
     activity: 'idle',

@@ -66,7 +66,7 @@ import { ResizableSidebar } from '../../../components/ui/resizable-sidebar';
 // import { useCombinedAuth } from "@/lib/hooks/use-combined-auth"
 const useCombinedAuth = () => ({ userId: null }); // Desktop mock
 import { Button } from '../../../components/ui/button';
-import { AlignJustify } from 'lucide-react';
+import { AlignJustify, Telescope } from 'lucide-react';
 import { AgentsQuickSwitchDialog } from '../components/agents-quick-switch-dialog';
 import { SubChatsQuickSwitchDialog } from '../components/subchats-quick-switch-dialog';
 import { isDesktopApp } from '../../../lib/utils/platform';
@@ -81,8 +81,8 @@ const useIsAdmin = () => false;
 function DraggedSubChatPreview({ id }: { id: string }) {
   const subChat = useAgentSubChatStore((s) => s.allSubChats.find((sc) => sc.id === id));
   const name = subChat?.name || 'New Chat';
-  const mode = subChat?.mode || 'agent';
-  const Icon = mode === 'plan' ? PlanIcon : AgentIcon;
+  const mode = subChat?.mode || 'plan';
+  const Icon = mode === 'plan' ? PlanIcon : mode === 'explore' ? Telescope : AgentIcon;
   return (
     <div className="pointer-events-none inline-flex items-center gap-2 rounded-md border border-border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-lg cursor-grabbing">
       <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />

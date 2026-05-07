@@ -11,13 +11,22 @@ describe('buildCodexModeInstruction', () => {
     expect(prompt).toContain('Call PlanWrite exactly once');
   });
 
-  test('agent mode requires read_plan for implement-plan turns and scopes it for follow-ups', () => {
-    const prompt = buildCodexModeInstruction('agent');
+  test('execute mode scopes MCP to approved-plan recovery only', () => {
+    const prompt = buildCodexModeInstruction('execute');
 
     expect(prompt).toContain('Use Codex-native task-management tools');
     expect(prompt).toContain('Do not call PlanWrite');
     expect(prompt).toContain('call the read_plan MCP tool before editing');
     expect(prompt).toContain('For ordinary follow-up requests, use read_plan only');
+  });
+
+  test('explore mode forbids edits and tells the model to stop after reporting findings', () => {
+    const prompt = buildCodexModeInstruction('explore');
+
+    expect(prompt).toContain('[EXPLORE MODE]');
+    expect(prompt).toContain('read-only');
+    expect(prompt).toContain('Do not call PlanWrite');
+    expect(prompt).not.toContain('Implement changes');
   });
 });
 

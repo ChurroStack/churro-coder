@@ -97,13 +97,13 @@ describe('useChatController — composer', () => {
     expect(result.current.planDeps).toBeDefined();
   });
 
-  it("viewState.mode defaults to 'agent' for a fresh sub-chat", () => {
+  it("viewState.mode defaults to 'plan' for a fresh sub-chat (factory default)", () => {
     const store = createTestStore();
     const wrapper = makeWrapper(store);
     const config = makeMinimalConfig('sub-fresh');
     const { result } = renderHook(() => useChatController(config), { wrapper });
 
-    expect(result.current.viewState.mode).toBe('agent');
+    expect(result.current.viewState.mode).toBe('plan');
   });
 
   it('viewState.setMode flips the mode and propagates', () => {
@@ -160,12 +160,12 @@ describe('useChatController — composer', () => {
     const { result: b } = renderHook(() => useChatController(cfgB), { wrapper });
 
     act(() => {
-      a.current.viewState.setMode('plan');
+      a.current.viewState.setMode('execute');
     });
 
-    expect(a.current.viewState.mode).toBe('plan');
-    // sub-B is untouched
-    expect(b.current.viewState.mode).toBe('agent');
+    expect(a.current.viewState.mode).toBe('execute');
+    // sub-B is untouched (factory default)
+    expect(b.current.viewState.mode).toBe('plan');
   });
 
   it('modeDeps.persistMode skips temp- IDs', async () => {
@@ -177,7 +177,7 @@ describe('useChatController — composer', () => {
     await act(async () => {
       await result.current.modeDeps.persistMode!({
         subChatId: 'temp-abc123',
-        mode: 'agent'
+        mode: 'execute'
       });
     });
 
@@ -193,13 +193,13 @@ describe('useChatController — composer', () => {
     await act(async () => {
       await result.current.modeDeps.persistMode!({
         subChatId: 'abc-real',
-        mode: 'agent'
+        mode: 'execute'
       });
     });
 
     expect(config.updateSubChatModeMutation.mutateAsync).toHaveBeenCalledWith({
       subChatId: 'abc-real',
-      mode: 'agent'
+      mode: 'execute'
     });
   });
 });

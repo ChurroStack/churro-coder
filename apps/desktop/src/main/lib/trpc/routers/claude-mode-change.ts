@@ -12,8 +12,8 @@
 export function shouldForceFreshSessionOnModeChange(args: {
   resumeSessionId: string | undefined;
   existingSessionId: string | null;
-  existingSessionMode: 'plan' | 'agent' | null;
-  inputMode: 'plan' | 'agent';
+  existingSessionMode: 'plan' | 'execute' | 'explore' | null;
+  inputMode: 'plan' | 'execute' | 'explore';
 }): boolean {
   // Mode mismatch: session was started in a different mode
   if (args.resumeSessionId && args.existingSessionMode && args.existingSessionMode !== args.inputMode) {

@@ -30,10 +30,12 @@ vi.mock('../../../lib/trpc', () => ({
 import { appStore } from '../../../lib/jotai-store';
 import {
   defaultPlanModeModelAtom,
-  defaultAgentModeModelAtom,
+  defaultExecuteModeModelAtom,
+  defaultExploreModeModelAtom,
   defaultReviewModeModelAtom,
   defaultPlanModeThinkingAtom,
-  defaultAgentModeThinkingAtom,
+  defaultExecuteModeThinkingAtom,
+  defaultExploreModeThinkingAtom,
   defaultReviewModeThinkingAtom,
   subChatModelIdAtomFamily,
   subChatCodexModelIdAtomFamily,
@@ -65,10 +67,10 @@ beforeEach(() => {
   agentChatStore.clear();
   reviewInFlight.clear();
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
-  appStore.set(defaultAgentModeModelAtom, 'sonnet');
+  appStore.set(defaultExecuteModeModelAtom, 'sonnet');
   appStore.set(defaultReviewModeModelAtom, 'opus');
   appStore.set(defaultPlanModeThinkingAtom, 'high');
-  appStore.set(defaultAgentModeThinkingAtom, 'high');
+  appStore.set(defaultExecuteModeThinkingAtom, 'high');
   appStore.set(defaultReviewModeThinkingAtom, 'high');
 });
 
@@ -87,9 +89,14 @@ describe('getDefaultModelForMode', () => {
     expect(getDefaultModelForMode('plan')).toBe('opus[1m]');
   });
 
-  test('agent → reads defaultAgentModeModelAtom', () => {
-    appStore.set(defaultAgentModeModelAtom, 'haiku');
-    expect(getDefaultModelForMode('agent')).toBe('haiku');
+  test('execute → reads defaultExecuteModeModelAtom', () => {
+    appStore.set(defaultExecuteModeModelAtom, 'haiku');
+    expect(getDefaultModelForMode('execute')).toBe('haiku');
+  });
+
+  test('explore → reads defaultExploreModeModelAtom', () => {
+    appStore.set(defaultExploreModeModelAtom, 'haiku');
+    expect(getDefaultModelForMode('explore')).toBe('haiku');
   });
 
   test('review → reads defaultReviewModeModelAtom', () => {
@@ -104,9 +111,14 @@ describe('getDefaultThinkingForMode', () => {
     expect(getDefaultThinkingForMode('plan')).toBe('xhigh');
   });
 
-  test('agent → reads defaultAgentModeThinkingAtom', () => {
-    appStore.set(defaultAgentModeThinkingAtom, 'off');
-    expect(getDefaultThinkingForMode('agent')).toBe('off');
+  test('execute → reads defaultExecuteModeThinkingAtom', () => {
+    appStore.set(defaultExecuteModeThinkingAtom, 'off');
+    expect(getDefaultThinkingForMode('execute')).toBe('off');
+  });
+
+  test('explore → reads defaultExploreModeThinkingAtom', () => {
+    appStore.set(defaultExploreModeThinkingAtom, 'low');
+    expect(getDefaultThinkingForMode('explore')).toBe('low');
   });
 
   test('review → reads defaultReviewModeThinkingAtom', () => {
@@ -234,10 +246,10 @@ describe('applyModeDefaultModel — Codex path (#32 regression)', () => {
 describe('applyModeDefaultModel — agent mode', () => {
   test('agent with Claude model → sets Claude atoms, provider = claude-code', () => {
     const id = nextSubChatId();
-    appStore.set(defaultAgentModeModelAtom, 'haiku');
-    appStore.set(defaultAgentModeThinkingAtom, 'off');
+    appStore.set(defaultExecuteModeModelAtom, 'haiku');
+    appStore.set(defaultExecuteModeThinkingAtom, 'off');
 
-    const result = applyModeDefaultModel(id, 'agent');
+    const result = applyModeDefaultModel(id, 'execute');
 
     expect(result.modelId).toBe('haiku');
     expect(result.provider).toBe('claude-code');
@@ -248,10 +260,10 @@ describe('applyModeDefaultModel — agent mode', () => {
 
   test('agent with Codex model → sets Codex atoms, provider = codex', () => {
     const id = nextSubChatId();
-    appStore.set(defaultAgentModeModelAtom, 'gpt-5.4');
-    appStore.set(defaultAgentModeThinkingAtom, 'medium');
+    appStore.set(defaultExecuteModeModelAtom, 'gpt-5.4');
+    appStore.set(defaultExecuteModeThinkingAtom, 'medium');
 
-    const result = applyModeDefaultModel(id, 'agent');
+    const result = applyModeDefaultModel(id, 'execute');
 
     expect(result.modelId).toBe('gpt-5.4');
     expect(result.provider).toBe('codex');
@@ -262,9 +274,9 @@ describe('applyModeDefaultModel — agent mode', () => {
 
   test('agent with Codex model → Claude model atom NOT set to the Codex model ID', () => {
     const id = nextSubChatId();
-    appStore.set(defaultAgentModeModelAtom, 'gpt-5.4');
+    appStore.set(defaultExecuteModeModelAtom, 'gpt-5.4');
 
-    applyModeDefaultModel(id, 'agent');
+    applyModeDefaultModel(id, 'execute');
 
     expect(appStore.get(subChatModelIdAtomFamily(id))).not.toBe('gpt-5.4');
   });
@@ -272,12 +284,12 @@ describe('applyModeDefaultModel — agent mode', () => {
   test('plan=Claude then agent=Codex → provider override switches to codex', () => {
     const id = nextSubChatId();
     appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
-    appStore.set(defaultAgentModeModelAtom, 'gpt-5.4');
+    appStore.set(defaultExecuteModeModelAtom, 'gpt-5.4');
 
     applyModeDefaultModel(id, 'plan');
     expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe('claude-code');
 
-    applyModeDefaultModel(id, 'agent');
+    applyModeDefaultModel(id, 'execute');
     expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe('codex');
     expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe('gpt-5.4');
     // Claude model atom retains the plan-phase value, not the Codex ID
@@ -288,19 +300,19 @@ describe('applyModeDefaultModel — agent mode', () => {
 describe('applyModeDefaultModel — return value', () => {
   test('returns { modelId, provider } synchronously', () => {
     const id = nextSubChatId();
-    appStore.set(defaultAgentModeModelAtom, 'sonnet');
-    appStore.set(defaultAgentModeThinkingAtom, 'high');
+    appStore.set(defaultExecuteModeModelAtom, 'sonnet');
+    appStore.set(defaultExecuteModeThinkingAtom, 'high');
 
-    const result = applyModeDefaultModel(id, 'agent');
+    const result = applyModeDefaultModel(id, 'execute');
 
     expect(result).toEqual({ modelId: 'sonnet', provider: 'claude-code' });
   });
 
   test('returns codex provider when model is a Codex model', () => {
     const id = nextSubChatId();
-    appStore.set(defaultAgentModeModelAtom, 'gpt-5.4');
+    appStore.set(defaultExecuteModeModelAtom, 'gpt-5.4');
 
-    const result = applyModeDefaultModel(id, 'agent');
+    const result = applyModeDefaultModel(id, 'execute');
 
     expect(result).toEqual({ modelId: 'gpt-5.4', provider: 'codex' });
   });
@@ -475,19 +487,19 @@ describe('applyFormSelectionToSubChat — Codex path', () => {
 describe('Approve Plan → next message uses agent mode', () => {
   test('getCurrentSubChatMode returns current atom value immediately', () => {
     const id = nextSubChatId();
-    // Unknown subChatId defaults to "agent" — no stale-fallback failure mode
-    expect(getCurrentSubChatMode(id)).toBe('agent');
+    // Unknown subChatId defaults to the factory default mode ("plan").
+    expect(getCurrentSubChatMode(id)).toBe('plan');
     // Simulate pre-approval state
     appStore.set(subChatModeAtomFamily(id), 'plan');
     expect(getCurrentSubChatMode(id)).toBe('plan');
     // Simulate handleApprovePlan writing the atom
-    appStore.set(subChatModeAtomFamily(id), 'agent');
-    expect(getCurrentSubChatMode(id)).toBe('agent');
+    appStore.set(subChatModeAtomFamily(id), 'execute');
+    expect(getCurrentSubChatMode(id)).toBe('execute');
   });
 
-  test("getCurrentSubChatMode defaults to 'agent' for unknown subChatIds — transports built before subChat entry read 'agent' not a stale constructor value", () => {
+  test("getCurrentSubChatMode defaults to 'plan' for unknown subChatIds", () => {
     const id = nextSubChatId();
-    expect(getCurrentSubChatMode(id)).toBe('agent');
+    expect(getCurrentSubChatMode(id)).toBe('plan');
   });
 });
 

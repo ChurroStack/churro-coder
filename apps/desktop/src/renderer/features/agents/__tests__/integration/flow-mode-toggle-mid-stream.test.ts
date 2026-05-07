@@ -27,7 +27,7 @@ vi.mock('../../../../lib/window-storage', async () => {
 
 import { appStore } from '../../../../lib/jotai-store';
 import {
-  defaultAgentModeModelAtom,
+  defaultExecuteModeModelAtom,
   defaultPlanModeModelAtom,
   subChatModeAtomFamily,
   subChatModelIdAtomFamily
@@ -48,23 +48,23 @@ const newSubChatId = () => `int-toggle-${++testCounter}`;
 
 beforeEach(() => {
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
-  appStore.set(defaultAgentModeModelAtom, 'sonnet');
+  appStore.set(defaultExecuteModeModelAtom, 'sonnet');
 });
 
 function makeDeps(subChatId: string): {
   deps: ModeSwitchDeps;
   states: Map<string, ChatModeState>;
 } {
-  const states = new Map<string, ChatModeState>([[subChatId, initialState('agent')]]);
+  const states = new Map<string, ChatModeState>([[subChatId, initialState('execute')]]);
 
   const deps: ModeSwitchDeps = {
-    readState: (id) => states.get(id) ?? initialState('agent'),
+    readState: (id) => states.get(id) ?? initialState('execute'),
     writeState: (id, state) => {
       states.set(id, state);
     },
     setMode: (id, mode) => {
-      // ChatMode is "plan" | "agent" | "review"; the persisted atom only
-      // accepts AgentMode ("plan" | "agent"). Review is transient and
+      // ChatMode is "plan" | "execute" | "review"; the persisted atom only
+      // accepts AgentMode ("plan" | "execute"). Review is transient and
       // never reaches setMode in toggleMode flows.
       if (mode === 'review') return;
       appStore.set(subChatModeAtomFamily(id), mode);
@@ -82,7 +82,7 @@ function makeDeps(subChatId: string): {
 describe('L4 integration — mode toggle mid-stream is rejected', () => {
   test('agent → plan toggle during streaming: no atom writes', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
     const { deps } = makeDeps(subChatId);
@@ -96,14 +96,14 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('busy');
     // Atom did not flip.
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
     // Model atom did not change to opus[1m].
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('sonnet');
   });
 
   test('agent → plan toggle after STREAM_COMPLETED: atoms flip', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
     const { deps } = makeDeps(subChatId);
@@ -123,23 +123,23 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
 
   test('rapid toggle: 5 toggles during streaming all rejected, atoms unchanged', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
 
     const { deps } = makeDeps(subChatId);
     noteSendRequested(subChatId, deps);
     noteStreamStarted(subChatId, deps);
 
     for (let i = 0; i < 5; i++) {
-      const target = i % 2 === 0 ? 'plan' : 'agent';
+      const target = i % 2 === 0 ? 'plan' : 'execute';
       const result = await toggleMode(subChatId, target, deps);
       expect(result.ok).toBe(false);
     }
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
   });
 
   test('toggle accepted between consecutive turns (complete → toggle → send → complete)', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
 
     const { deps } = makeDeps(subChatId);
 
@@ -158,7 +158,7 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     noteStreamStarted(subChatId, deps);
 
     // Toggle attempted mid-stream — rejected.
-    const r2 = await toggleMode(subChatId, 'agent', deps);
+    const r2 = await toggleMode(subChatId, 'execute', deps);
     expect(r2.ok).toBe(false);
     expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('plan');
 
@@ -166,8 +166,8 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     noteStreamCompleted(subChatId, deps);
 
     // Now accepted.
-    const r3 = await toggleMode(subChatId, 'agent', deps);
+    const r3 = await toggleMode(subChatId, 'execute', deps);
     expect(r3.ok).toBe(true);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
   });
 });

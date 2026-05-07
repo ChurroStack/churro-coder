@@ -784,7 +784,7 @@ export const ChatViewInner = memo(function ChatViewInner({
       }
 
       // Revert local state on error to maintain sync with database
-      const revertedMode: AgentMode = variables.mode === 'plan' ? 'agent' : 'plan';
+      const revertedMode: AgentMode = variables.mode === 'plan' ? 'execute' : 'plan';
       setSubChatMode(revertedMode);
       // Also update store for consistency
       useAgentSubChatStore.getState().updateSubChatMode(variables.subChatId, revertedMode);
@@ -2253,7 +2253,7 @@ export const ChatViewInner = memo(function ChatViewInner({
         });
 
         const newSubChat = result.subChat;
-        const newMode = (newSubChat.mode as 'plan' | 'agent') || 'agent';
+        const newMode = (newSubChat.mode as 'plan' | 'execute') || 'execute';
 
         // Invalidate + await ensures agentSubChats has the fork before we switch tabs
         await utils.agents.getAgentChat.invalidate({ chatId: parentChatId });
@@ -3689,7 +3689,7 @@ export function ChatView({
   // visible panel shows its own conversation regardless of global focus.
   const activeSubChatIdFromStoreForMode = useAgentSubChatStore((state) => state.activeSubChatId);
   const activeSubChatIdForMode = subChatIdOverride ?? activeSubChatIdFromStoreForMode;
-  // Use per-subChat mode atom - falls back to "agent" if no active sub-chat
+  // Use per-subChat mode atom - falls back to "execute" if no active sub-chat
   const subChatModeAtom = useMemo(() => subChatModeAtomFamily(activeSubChatIdForMode || ''), [activeSubChatIdForMode]);
   const [subChatMode] = useAtom(subChatModeAtom);
   // Default mode for new sub-chats (used as fallback when no active sub-chat)
@@ -4194,7 +4194,7 @@ export function ChatView({
   const agentSubChats = (agentChat?.subChats ?? []) as Array<{
     id: string;
     name?: string | null;
-    mode?: 'plan' | 'agent' | null;
+    mode?: 'plan' | 'execute' | null;
     created_at?: Date | string | null;
     updated_at?: Date | string | null;
     messages?: any;
@@ -5081,7 +5081,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         // Prefer DB timestamp, fall back to local timestamp, then current time
         created_at: createdAt ?? existingLocal?.created_at ?? new Date().toISOString(),
         updated_at: updatedAt ?? existingLocal?.updated_at,
-        mode: (sc.mode as 'plan' | 'agent' | undefined) || existingLocal?.mode || 'agent'
+        mode: (sc.mode as 'plan' | 'execute' | undefined) || existingLocal?.mode || 'execute'
       };
     });
     const dbSubChatIds = new Set(dbSubChats.map((sc) => sc.id));
@@ -6043,7 +6043,7 @@ Make sure to preserve all functionality from both branches when resolving confli
                     created_at: new Date(),
                     updated_at: new Date(),
                     messages: '[]',
-                    mode: 'agent',
+                    mode: 'execute',
                     stream_id: null,
                     chat_id: chatId
                   }

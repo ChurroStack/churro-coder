@@ -764,7 +764,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
         // In agent mode, PlanWrite should never be called — but if it is (e.g. a
         // model ignoring the instruction), render it as a plain tool call rather
         // than the full plan card so the UI doesn't look like plan mode.
-        const isAgentMode = subChatMode === 'agent';
+        const isAgentMode = subChatMode === 'execute';
         const hasRenderablePlan = Boolean(getPlanFromPlanWritePart(part));
         if (!hasRenderablePlan || isAgentMode) {
           const meta = AgentToolRegistry[part.type];
@@ -977,7 +977,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
         {/* Show plan card after finalParts if any plan operation was in collapsed steps */}
         {shouldCollapse &&
           lastCollapsedPlanOp &&
-          (lastCollapsedPlanOp.type === 'planwrite' && subChatMode !== 'agent' ? (
+          (lastCollapsedPlanOp.type === 'planwrite' && subChatMode !== 'execute' ? (
             <AgentPlanTool part={lastCollapsedPlanOp.part} chatStatus={status} subChatId={subChatId} />
           ) : (
             <AgentPlanFileTool

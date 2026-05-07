@@ -9,6 +9,14 @@ import * as schema from './schema';
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 let sqlite: Database.Database | null = null;
 
+function repairLegacyAgentModes(conn: Database.Database) {
+  conn.exec(`
+    UPDATE sub_chats SET mode = 'execute' WHERE mode = 'agent';
+    UPDATE sub_chats SET session_mode = 'execute' WHERE session_mode = 'agent';
+    UPDATE sub_chats SET mode = 'plan' WHERE mode IS NULL;
+  `);
+}
+
 /**
  * Get the database path in the app's user data directory
  */
@@ -70,6 +78,7 @@ export function initDatabase() {
 
   try {
     migrate(db, { migrationsFolder: migrationsPath });
+    repairLegacyAgentModes(sqlite);
     console.log('[DB] Migrations completed');
   } catch (error) {
     console.error('[DB] Migration error:', error);
@@ -93,6 +102,7 @@ export function initDatabase() {
     sqlite = openConnection(dbPath);
     db = drizzle(sqlite, { schema });
     migrate(db, { migrationsFolder: migrationsPath });
+    repairLegacyAgentModes(sqlite);
     console.log('[DB] Recovery complete: fresh DB initialized');
   }
 

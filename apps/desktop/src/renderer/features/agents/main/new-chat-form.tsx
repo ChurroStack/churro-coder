@@ -2,7 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { AlignJustify, FolderOpen, Plus } from 'lucide-react';
+import { AlignJustify, FolderOpen, Plus, Telescope } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '../../../components/ui/button';
@@ -41,8 +41,8 @@ import {
   getNextMode,
   type AgentMode,
   type ClaudeThinkingPreference,
-  defaultAgentModeModelAtom,
-  defaultAgentModeThinkingAtom,
+  defaultExecuteModeModelAtom,
+  defaultExecuteModeThinkingAtom,
   defaultPlanModeModelAtom,
   defaultPlanModeThinkingAtom
 } from '../atoms';
@@ -234,9 +234,9 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const defaultAgentMode = useAtomValue(defaultAgentModeAtom);
   const [agentMode, setAgentMode] = useState<AgentMode>(() => defaultAgentMode);
   const defaultPlanModel = useAtomValue(defaultPlanModeModelAtom);
-  const defaultAgentModel = useAtomValue(defaultAgentModeModelAtom);
+  const defaultAgentModel = useAtomValue(defaultExecuteModeModelAtom);
   const defaultPlanThinking = useAtomValue(defaultPlanModeThinkingAtom);
-  const defaultAgentThinking = useAtomValue(defaultAgentModeThinkingAtom);
+  const defaultAgentThinking = useAtomValue(defaultExecuteModeThinkingAtom);
   const modeDefaultModelId = agentMode === 'plan' ? defaultPlanModel : defaultAgentModel;
   const modeDefaultThinking = agentMode === 'plan' ? defaultPlanThinking : defaultAgentThinking;
   // Toggle mode helper
@@ -545,7 +545,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const [modeTooltip, setModeTooltip] = useState<{
     visible: boolean;
     position: { top: number; left: number };
-    mode: 'agent' | 'plan';
+    mode: 'execute' | 'explore' | 'plan';
   } | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasShownTooltipRef = useRef(false);
@@ -1497,9 +1497,14 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
               setAgentMode('plan');
             }
             return;
-          case 'agent':
-            if (agentMode === 'plan') {
-              setAgentMode('agent');
+          case 'execute':
+            if (agentMode !== 'execute') {
+              setAgentMode('execute');
+            }
+            return;
+          case 'explore':
+            if (agentMode !== 'explore') {
+              setAgentMode('explore');
             }
             return;
           case 'help': {
@@ -1913,10 +1918,14 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                           <DropdownMenuTrigger className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
                             {agentMode === 'plan' ? (
                               <PlanIcon className="h-3.5 w-3.5" />
+                            ) : agentMode === 'explore' ? (
+                              <Telescope className="h-3.5 w-3.5" />
                             ) : (
                               <AgentIcon className="h-3.5 w-3.5" />
                             )}
-                            <span>{agentMode === 'plan' ? 'Plan' : 'Agent'}</span>
+                            <span>
+                              {agentMode === 'plan' ? 'Plan' : agentMode === 'explore' ? 'Explore' : 'Execute'}
+                            </span>
                             <IconChevronDown className="h-3 w-3 shrink-0 opacity-50" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent
@@ -1932,7 +1941,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                                   tooltipTimeoutRef.current = null;
                                 }
                                 setModeTooltip(null);
-                                setAgentMode('agent');
+                                setAgentMode('execute');
                                 setModeDropdownOpen(false);
                               }}
                               className="justify-between gap-2"
@@ -1949,7 +1958,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                                       top: rect.top,
                                       left: rect.right + 8
                                     },
-                                    mode: 'agent'
+                                    mode: 'execute'
                                   });
                                   hasShownTooltipRef.current = true;
                                   tooltipTimeoutRef.current = null;
@@ -1969,9 +1978,57 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                               }}>
                               <div className="flex items-center gap-2">
                                 <AgentIcon className="w-4 h-4 text-muted-foreground" />
-                                <span>Agent</span>
+                                <span>Execute</span>
                               </div>
-                              {agentMode !== 'plan' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                              {agentMode === 'execute' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                setModeTooltip(null);
+                                setAgentMode('explore');
+                                setModeDropdownOpen(false);
+                              }}
+                              className="justify-between gap-2"
+                              onMouseEnter={(e) => {
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const showTooltip = () => {
+                                  setModeTooltip({
+                                    visible: true,
+                                    position: {
+                                      top: rect.top,
+                                      left: rect.right + 8
+                                    },
+                                    mode: 'explore'
+                                  });
+                                  hasShownTooltipRef.current = true;
+                                  tooltipTimeoutRef.current = null;
+                                };
+                                if (hasShownTooltipRef.current) {
+                                  showTooltip();
+                                } else {
+                                  tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                if (tooltipTimeoutRef.current) {
+                                  clearTimeout(tooltipTimeoutRef.current);
+                                  tooltipTimeoutRef.current = null;
+                                }
+                                setModeTooltip(null);
+                              }}>
+                              <div className="flex items-center gap-2">
+                                <Telescope className="w-4 h-4 text-muted-foreground" />
+                                <span>Explore</span>
+                              </div>
+                              {agentMode === 'explore' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => {
@@ -2036,9 +2093,11 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                                   data-tooltip="true"
                                   className="relative rounded-[12px] bg-popover px-2.5 py-1.5 text-xs text-popover-foreground dark max-w-[150px]">
                                   <span>
-                                    {modeTooltip.mode === 'agent'
+                                    {modeTooltip.mode === 'execute'
                                       ? 'Apply changes directly without a plan'
-                                      : 'Create a plan before making changes'}
+                                      : modeTooltip.mode === 'explore'
+                                        ? 'Explore the codebase in read-only mode'
+                                        : 'Create a plan before making changes'}
                                   </span>
                                 </div>
                               </div>,
@@ -2408,7 +2467,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                     model: selectedChatModel,
                     initialMessageParts: [{ type: 'text', text: prompt }],
                     useWorktree: false,
-                    mode: 'agent'
+                    mode: 'execute'
                   });
                 }
               }}>

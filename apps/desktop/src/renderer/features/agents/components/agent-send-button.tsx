@@ -26,7 +26,7 @@ interface AgentSendButtonProps {
   size?: 'sm' | 'default' | 'lg';
   /** Custom aria-label */
   ariaLabel?: string;
-  /** Current mode (plan=orange styling, agent=default) */
+  /** Current mode (plan=orange styling, execute/explore=default) */
   mode?: AgentMode;
   /** Whether input has content (used during streaming to show send-to-queue arrow) */
   hasContent?: boolean;
@@ -53,7 +53,7 @@ export function AgentSendButton({
   className = '',
   size = 'sm',
   ariaLabel,
-  mode = 'agent',
+  mode = 'execute',
   hasContent = false,
   showVoiceInput = false,
   isRecording = false,

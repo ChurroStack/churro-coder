@@ -1,8 +1,10 @@
 import { appStore } from '../../../lib/jotai-store';
 import type { AgentMode, ClaudeThinkingPreference } from '../atoms';
 import {
-  defaultAgentModeModelAtom,
-  defaultAgentModeThinkingAtom,
+  defaultExecuteModeModelAtom,
+  defaultExecuteModeThinkingAtom,
+  defaultExploreModeModelAtom,
+  defaultExploreModeThinkingAtom,
   defaultPlanModeModelAtom,
   defaultPlanModeThinkingAtom,
   defaultReviewModeModelAtom,
@@ -42,8 +44,10 @@ export function getDefaultModelForMode(mode: ModeContext): string {
   switch (mode) {
     case 'plan':
       return appStore.get(defaultPlanModeModelAtom);
-    case 'agent':
-      return appStore.get(defaultAgentModeModelAtom);
+    case 'execute':
+      return appStore.get(defaultExecuteModeModelAtom);
+    case 'explore':
+      return appStore.get(defaultExploreModeModelAtom);
     case 'review':
       return appStore.get(defaultReviewModeModelAtom);
   }
@@ -53,8 +57,10 @@ export function getDefaultThinkingForMode(mode: ModeContext): ClaudeThinkingPref
   switch (mode) {
     case 'plan':
       return appStore.get(defaultPlanModeThinkingAtom);
-    case 'agent':
-      return appStore.get(defaultAgentModeThinkingAtom);
+    case 'execute':
+      return appStore.get(defaultExecuteModeThinkingAtom);
+    case 'explore':
+      return appStore.get(defaultExploreModeThinkingAtom);
     case 'review':
       return appStore.get(defaultReviewModeThinkingAtom);
   }

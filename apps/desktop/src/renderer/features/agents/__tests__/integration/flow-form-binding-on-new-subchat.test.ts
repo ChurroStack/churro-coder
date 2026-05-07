@@ -12,7 +12,7 @@
  * What we're guarding against (regression scenarios from the PR thread):
  *
  *   1. Toggling plan → agent on a fresh sub-chat must flip the chat-input
- *      model to `defaultAgentModeModelAtom`. Same for thinking.
+ *      model to `defaultExecuteModeModelAtom`. Same for thinking.
  *   2. Toggling agent → plan must flip to `defaultPlanModeModelAtom`.
  *   3. The mode flip and model write must both land **synchronously**
  *      before any `await` (PR #36) so the chat-input UI shows the new
@@ -44,8 +44,8 @@ vi.mock('../../../../lib/window-storage', async () => {
 
 import { appStore } from '../../../../lib/jotai-store';
 import {
-  defaultAgentModeModelAtom,
-  defaultAgentModeThinkingAtom,
+  defaultExecuteModeModelAtom,
+  defaultExecuteModeThinkingAtom,
   defaultPlanModeModelAtom,
   defaultPlanModeThinkingAtom,
   subChatClaudeThinkingAtomFamily,
@@ -67,9 +67,9 @@ beforeEach(() => {
   // Reset per-mode defaults to a known baseline. Each test that needs
   // different defaults overrides these.
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
-  appStore.set(defaultAgentModeModelAtom, 'sonnet');
+  appStore.set(defaultExecuteModeModelAtom, 'sonnet');
   appStore.set(defaultPlanModeThinkingAtom, 'high');
-  appStore.set(defaultAgentModeThinkingAtom, 'high');
+  appStore.set(defaultExecuteModeThinkingAtom, 'high');
 });
 
 interface OrchestrationResult {
@@ -79,7 +79,7 @@ interface OrchestrationResult {
   applyOrder: string[];
 }
 
-function makeDeps(initialMode: 'plan' | 'agent' = 'plan'): {
+function makeDeps(initialMode: 'plan' | 'execute' = 'plan'): {
   deps: ModeSwitchDeps;
   orchestration: OrchestrationResult;
   states: Map<string, ChatModeState>;
@@ -138,29 +138,29 @@ describe('L4 form-binding — toggle plan → agent applies agent-mode default m
     appStore.set(subChatClaudeThinkingAtomFamily(subChatId), 'high');
 
     const { deps, orchestration } = makeDeps('plan');
-    const result = await toggleMode(subChatId, 'agent', deps);
+    const result = await toggleMode(subChatId, 'execute', deps);
 
     expect(result.ok).toBe(true);
     // Mode atom flipped.
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
     // Model atom now reflects the configured AGENT-mode default.
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('sonnet');
     // Thinking propagated.
     expect(appStore.get(subChatClaudeThinkingAtomFamily(subChatId))).toBe('high');
     // Persist was called once with the new mode.
-    expect(orchestration.persistCalls).toEqual([{ subChatId, mode: 'agent' }]);
+    expect(orchestration.persistCalls).toEqual([{ subChatId, mode: 'execute' }]);
   });
 
   test('PR #38: agent default = haiku propagates correctly when user reconfigured', async () => {
-    appStore.set(defaultAgentModeModelAtom, 'haiku');
-    appStore.set(defaultAgentModeThinkingAtom, 'none');
+    appStore.set(defaultExecuteModeModelAtom, 'haiku');
+    appStore.set(defaultExecuteModeThinkingAtom, 'none');
 
     const subChatId = newSubChatId();
     appStore.set(subChatModeAtomFamily(subChatId), 'plan');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'opus[1m]');
 
     const { deps } = makeDeps('plan');
-    await toggleMode(subChatId, 'agent', deps);
+    await toggleMode(subChatId, 'execute', deps);
 
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('haiku');
     expect(appStore.get(subChatClaudeThinkingAtomFamily(subChatId))).toBe('none');
@@ -170,10 +170,10 @@ describe('L4 form-binding — toggle plan → agent applies agent-mode default m
 describe('L4 form-binding — toggle agent → plan applies plan-mode default model', () => {
   test('PR #38: plan default = opus[1m] propagates to subChatModelIdAtomFamily on toggle', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
-    const { deps } = makeDeps('agent');
+    const { deps } = makeDeps('execute');
     const result = await toggleMode(subChatId, 'plan', deps);
 
     expect(result.ok).toBe(true);
@@ -198,14 +198,14 @@ describe('L4 form-binding — sync ordering (PR #36)', () => {
       });
     };
 
-    const promise = toggleMode(subChatId, 'agent', deps);
+    const promise = toggleMode(subChatId, 'execute', deps);
     // Yield once so persistMode starts.
     await new Promise((r) => setTimeout(r, 0));
 
     // BEFORE persist resolves, both the mode atom and the model atom
     // must already reflect the new mode. This is the guarantee the
     // chat-input form binding relies on (PR #36).
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('sonnet');
     // setMode + applyDefaultModel ran before persistMode.
     expect(orchestration.applyOrder.slice(0, 2)).toEqual(['setMode', 'applyDefaultModel']);
@@ -221,10 +221,10 @@ describe('L4 form-binding — cross-provider defaults', () => {
     appStore.set(defaultPlanModeThinkingAtom, 'medium');
 
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
-    const { deps } = makeDeps('agent');
+    const { deps } = makeDeps('execute');
     const result = await toggleMode(subChatId, 'plan', deps);
 
     expect(result.ok).toBe(true);
@@ -240,7 +240,7 @@ describe('L4 form-binding — cross-provider defaults', () => {
 
 describe('L4 form-binding — per-subChatId isolation (PR #51 class)', () => {
   test("toggling mode on sub-A does not bleed into sub-B's model atom", async () => {
-    appStore.set(defaultAgentModeModelAtom, 'sonnet');
+    appStore.set(defaultExecuteModeModelAtom, 'sonnet');
     appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
 
     const subA = newSubChatId();
@@ -250,20 +250,20 @@ describe('L4 form-binding — per-subChatId isolation (PR #51 class)', () => {
     // value to detect bleed).
     appStore.set(subChatModeAtomFamily(subA), 'plan');
     appStore.set(subChatModelIdAtomFamily(subA), 'opus[1m]');
-    appStore.set(subChatModeAtomFamily(subB), 'agent');
+    appStore.set(subChatModeAtomFamily(subB), 'execute');
     appStore.set(subChatModelIdAtomFamily(subB), 'haiku');
 
     const { deps } = makeDeps('plan');
-    const result = await toggleMode(subA, 'agent', deps);
+    const result = await toggleMode(subA, 'execute', deps);
 
     expect(result.ok).toBe(true);
     // sub-A flipped.
-    expect(appStore.get(subChatModeAtomFamily(subA))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subA))).toBe('execute');
     expect(appStore.get(subChatModelIdAtomFamily(subA))).toBe('sonnet');
     // sub-B is untouched — the toggle on sub-A must NOT have rewritten
     // sub-B's model. (Pre-PR #51 a shared module-level state could
     // bleed; per-subChatId atom families guard against this.)
-    expect(appStore.get(subChatModeAtomFamily(subB))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subB))).toBe('execute');
     expect(appStore.get(subChatModelIdAtomFamily(subB))).toBe('haiku');
   });
 });
@@ -275,11 +275,11 @@ describe('L4 form-binding — fresh-mount hydration applies defaults consistentl
     // re-loaded on a fresh mount. Pre-hydration the renderer atom is at
     // its default (agent); the FSM hydration must flip both the mode
     // atom AND propagate the per-mode default model.
-    appStore.set(subChatModeAtomFamily(subChatId), 'agent');
+    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
     const { hydrateMode } = await import('../../services/mode-switch-service');
-    const { deps, orchestration } = makeDeps('agent');
+    const { deps, orchestration } = makeDeps('execute');
 
     const result = hydrateMode(subChatId, 'plan', 1, deps);
 

@@ -107,10 +107,17 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandOption[] = [
     category: 'builtin'
   },
   {
-    id: 'builtin:agent',
-    name: 'agent',
-    command: '/agent',
-    description: 'Switch to Agent mode (applies changes directly)',
+    id: 'builtin:execute',
+    name: 'execute',
+    command: '/execute',
+    description: 'Switch to Execute mode (applies changes directly)',
+    category: 'builtin'
+  },
+  {
+    id: 'builtin:explore',
+    name: 'explore',
+    command: '/explore',
+    description: 'Switch to Explore mode (read-only investigation)',
     category: 'builtin'
   },
   {

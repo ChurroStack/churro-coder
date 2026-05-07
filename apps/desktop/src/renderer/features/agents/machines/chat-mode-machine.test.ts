@@ -2,9 +2,9 @@ import { describe, test, expect } from 'vitest';
 import { initialChatModeState, reduceChatMode, runChatMode, type ChatModeState } from './chat-mode-machine';
 
 describe('initialChatModeState', () => {
-  test('defaults to agent mode + idle', () => {
+  test('defaults to plan mode + idle', () => {
     expect(initialChatModeState()).toEqual({
-      mode: 'agent',
+      mode: 'plan',
       activity: 'idle',
       hydrationVersion: 0,
       mustApplyDefaults: false
@@ -18,7 +18,7 @@ describe('initialChatModeState', () => {
 
 describe('USER_TOGGLED_MODE — happy path (PR #38: chip reflects atom immediately)', () => {
   test('idle → toggle to plan flips mode + sets mustApplyDefaults', () => {
-    const next = reduceChatMode(initialChatModeState('agent'), {
+    const next = reduceChatMode(initialChatModeState('execute'), {
       type: 'USER_TOGGLED_MODE',
       to: 'plan'
     });
@@ -28,30 +28,30 @@ describe('USER_TOGGLED_MODE — happy path (PR #38: chip reflects atom immediate
   });
 
   test('toggling to the same mode is a no-op (no spurious mustApplyDefaults)', () => {
-    const next = reduceChatMode(initialChatModeState('agent'), {
+    const next = reduceChatMode(initialChatModeState('execute'), {
       type: 'USER_TOGGLED_MODE',
-      to: 'agent'
+      to: 'execute'
     });
-    expect(next.mode).toBe('agent');
+    expect(next.mode).toBe('execute');
     expect(next.mustApplyDefaults).toBe(false);
     expect(next.hydrationVersion).toBe(0);
   });
 
   test('toggle is rejected while sending (prevents PR #36 race)', () => {
-    const sending = reduceChatMode(initialChatModeState('agent'), { type: 'SEND_REQUESTED' });
+    const sending = reduceChatMode(initialChatModeState('execute'), { type: 'SEND_REQUESTED' });
     expect(sending.activity).toBe('sending');
     const attempted = reduceChatMode(sending, { type: 'USER_TOGGLED_MODE', to: 'plan' });
-    expect(attempted.mode).toBe('agent');
+    expect(attempted.mode).toBe('execute');
     expect(attempted.activity).toBe('sending');
   });
 
   test('toggle is rejected while streaming', () => {
-    const streaming = runChatMode(initialChatModeState('agent'), [
+    const streaming = runChatMode(initialChatModeState('execute'), [
       { type: 'SEND_REQUESTED' },
       { type: 'STREAM_STARTED' }
     ]);
     const attempted = reduceChatMode(streaming, { type: 'USER_TOGGLED_MODE', to: 'plan' });
-    expect(attempted.mode).toBe('agent');
+    expect(attempted.mode).toBe('execute');
   });
 });
 
@@ -61,8 +61,8 @@ describe('FORCE_MODE — plan approval auto-flip', () => {
       { type: 'SEND_REQUESTED' },
       { type: 'STREAM_STARTED' }
     ]);
-    const next = reduceChatMode(streaming, { type: 'FORCE_MODE', to: 'agent', reason: 'plan-approved' });
-    expect(next.mode).toBe('agent');
+    const next = reduceChatMode(streaming, { type: 'FORCE_MODE', to: 'execute', reason: 'plan-approved' });
+    expect(next.mode).toBe('execute');
     expect(next.activity).toBe('streaming');
     expect(next.mustApplyDefaults).toBe(true);
     expect(next.hydrationVersion).toBe(streaming.hydrationVersion + 1);
@@ -82,7 +82,7 @@ describe('FORCE_MODE — plan approval auto-flip', () => {
 
 describe('HYDRATE — stale refetch race (PR #51 regression)', () => {
   test('HYDRATE with newer version sets mode', () => {
-    const next = reduceChatMode(initialChatModeState('agent'), {
+    const next = reduceChatMode(initialChatModeState('execute'), {
       type: 'HYDRATE',
       from: 'plan',
       hydrationVersion: 5
@@ -99,10 +99,10 @@ describe('HYDRATE — stale refetch race (PR #51 regression)', () => {
     //   3. stale getAgentChat refetch arrives carrying mode=plan with hydrationVersion=0
     const afterApproval = reduceChatMode(initialChatModeState('plan'), {
       type: 'FORCE_MODE',
-      to: 'agent',
+      to: 'execute',
       reason: 'plan-approved'
     });
-    expect(afterApproval.mode).toBe('agent');
+    expect(afterApproval.mode).toBe('execute');
     expect(afterApproval.hydrationVersion).toBe(1);
 
     const afterStaleHydrate = reduceChatMode(afterApproval, {
@@ -110,17 +110,17 @@ describe('HYDRATE — stale refetch race (PR #51 regression)', () => {
       from: 'plan',
       hydrationVersion: 0
     });
-    expect(afterStaleHydrate.mode).toBe('agent');
+    expect(afterStaleHydrate.mode).toBe('execute');
     expect(afterStaleHydrate.hydrationVersion).toBe(1);
   });
 
   test('HYDRATE matching current mode just records the version', () => {
-    const next = reduceChatMode(initialChatModeState('agent'), {
+    const next = reduceChatMode(initialChatModeState('execute'), {
       type: 'HYDRATE',
-      from: 'agent',
+      from: 'execute',
       hydrationVersion: 3
     });
-    expect(next.mode).toBe('agent');
+    expect(next.mode).toBe('execute');
     expect(next.hydrationVersion).toBe(3);
     expect(next.mustApplyDefaults).toBe(false);
   });
@@ -177,7 +177,7 @@ describe('mustApplyDefaults — one-shot semantics', () => {
   test('set on toggle, cleared by next non-mode event', () => {
     const after1 = reduceChatMode(initialChatModeState(), {
       type: 'USER_TOGGLED_MODE',
-      to: 'plan'
+      to: 'execute'
     });
     expect(after1.mustApplyDefaults).toBe(true);
     const after2 = reduceChatMode(after1, { type: 'SEND_REQUESTED' });
@@ -187,7 +187,7 @@ describe('mustApplyDefaults — one-shot semantics', () => {
   test('set on FORCE_MODE that changes the mode, cleared on next event', () => {
     const after1 = reduceChatMode(initialChatModeState('plan'), {
       type: 'FORCE_MODE',
-      to: 'agent',
+      to: 'execute',
       reason: 'plan-approved'
     });
     expect(after1.mustApplyDefaults).toBe(true);
@@ -202,9 +202,9 @@ describe('runChatMode — full flow', () => {
       { type: 'SEND_REQUESTED' },
       { type: 'STREAM_STARTED' },
       { type: 'STREAM_COMPLETED' },
-      { type: 'USER_TOGGLED_MODE', to: 'agent' }
+      { type: 'USER_TOGGLED_MODE', to: 'execute' }
     ]);
-    expect(state.mode).toBe('agent');
+    expect(state.mode).toBe('execute');
     expect(state.activity).toBe('idle');
     expect(state.mustApplyDefaults).toBe(true);
     expect(state.hydrationVersion).toBe(1);
@@ -215,11 +215,11 @@ describe('runChatMode — full flow', () => {
       { type: 'SEND_REQUESTED' },
       { type: 'STREAM_STARTED' },
       { type: 'STREAM_COMPLETED' },
-      { type: 'FORCE_MODE', to: 'agent', reason: 'plan-approved' },
+      { type: 'FORCE_MODE', to: 'execute', reason: 'plan-approved' },
       { type: 'SEND_REQUESTED' },
       { type: 'STREAM_STARTED' }
     ]);
-    expect(state.mode).toBe('agent');
+    expect(state.mode).toBe('execute');
     expect(state.activity).toBe('streaming');
     expect(state.hydrationVersion).toBe(1);
   });

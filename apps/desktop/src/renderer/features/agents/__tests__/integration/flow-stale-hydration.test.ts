@@ -8,7 +8,7 @@
  *      reset the mode atom back to "plan" — the visible bug from PR #51.
  *
  * The integration test simulates this race: a sequence of FORCE_MODE then
- * a stale HYDRATE with an older version. The mode atom must end on "agent",
+ * a stale HYDRATE with an older version. The mode atom must end on "execute",
  * stale hydrations must not call setMode, and the FSM's hydrationVersion must
  * reflect the forced flip. Current hydrations always call setMode so DB state
  * can overwrite stale localStorage after an app restart.
@@ -29,7 +29,7 @@ vi.mock('../../../../lib/window-storage', async () => {
 
 import { appStore } from '../../../../lib/jotai-store';
 import {
-  defaultAgentModeModelAtom,
+  defaultExecuteModeModelAtom,
   defaultPlanModeModelAtom,
   subChatModeAtomFamily,
   subChatModelIdAtomFamily
@@ -43,12 +43,12 @@ const newSubChatId = () => `int-stale-${++testCounter}`;
 
 beforeEach(() => {
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
-  appStore.set(defaultAgentModeModelAtom, 'sonnet');
+  appStore.set(defaultExecuteModeModelAtom, 'sonnet');
 });
 
 function makeDeps(
   subChatId: string,
-  initialMode: 'plan' | 'agent' = 'plan'
+  initialMode: 'plan' | 'execute' = 'plan'
 ): {
   deps: ModeSwitchDeps;
   states: Map<string, ChatModeState>;
@@ -84,10 +84,10 @@ describe('L4 integration — stale DB hydration race (PR #51)', () => {
     appStore.set(subChatModeAtomFamily(subChatId), 'plan');
     const { deps, states, setModeCalls } = makeDeps(subChatId, 'plan');
 
-    // 1. handleApprovePlan calls forceMode("agent", "plan-approved").
-    await forceMode(subChatId, 'agent', 'plan-approved', deps);
+    // 1. handleApprovePlan calls forceMode("execute", "plan-approved").
+    await forceMode(subChatId, 'execute', 'plan-approved', deps);
 
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
     const versionAfterFlip = states.get(subChatId)!.hydrationVersion;
 
     // 2. A stale DB refetch arrives reporting mode="plan" with a hydrationVersion
@@ -100,46 +100,46 @@ describe('L4 integration — stale DB hydration race (PR #51)', () => {
     expect(result.applied).toBe(false);
     // setMode was NOT called for the hydrate.
     expect(setModeCalls.length).toBe(setModeCallsBefore);
-    // Mode atom still "agent".
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    // Mode atom still "execute".
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
   });
 
   test('forced flip then NEWER hydrate with same mode: syncs external atom', async () => {
     const subChatId = newSubChatId();
     const { deps, states, setModeCalls } = makeDeps(subChatId, 'plan');
 
-    await forceMode(subChatId, 'agent', 'plan-approved', deps);
+    await forceMode(subChatId, 'execute', 'plan-approved', deps);
     const versionAfterFlip = states.get(subChatId)!.hydrationVersion;
 
     setModeCalls.length = 0; // reset
 
     // DB refetch reports the same mode (agent) with a newer version (e.g. server
     // already saw the exitPlan write from PR #45 and bumped its own version).
-    const result = hydrateMode(subChatId, 'agent', versionAfterFlip + 5, deps);
+    const result = hydrateMode(subChatId, 'execute', versionAfterFlip + 5, deps);
 
     expect(result.applied).toBe(true);
     expect(states.get(subChatId)!.hydrationVersion).toBe(versionAfterFlip + 5);
-    expect(setModeCalls).toEqual([{ subChatId, mode: 'agent' }]);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(setModeCalls).toEqual([{ subChatId, mode: 'execute' }]);
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
   });
 
   test('restart hydrate with initial agent FSM still overwrites stale plan localStorage', () => {
     const subChatId = newSubChatId();
     appStore.set(subChatModeAtomFamily(subChatId), 'plan');
-    const { deps, setModeCalls } = makeDeps(subChatId, 'agent');
+    const { deps, setModeCalls } = makeDeps(subChatId, 'execute');
 
-    const result = hydrateMode(subChatId, 'agent', 1, deps);
+    const result = hydrateMode(subChatId, 'execute', 1, deps);
 
     expect(result.applied).toBe(true);
-    expect(setModeCalls).toEqual([{ subChatId, mode: 'agent' }]);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(setModeCalls).toEqual([{ subChatId, mode: 'execute' }]);
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
   });
 
   test('forced flip then NEWER hydrate with DIFFERENT mode: applies + setMode + applyDefaultModel', async () => {
     const subChatId = newSubChatId();
     const { deps, states, setModeCalls } = makeDeps(subChatId, 'plan');
 
-    await forceMode(subChatId, 'agent', 'plan-approved', deps);
+    await forceMode(subChatId, 'execute', 'plan-approved', deps);
     const versionAfterFlip = states.get(subChatId)!.hydrationVersion;
 
     setModeCalls.length = 0;
@@ -160,7 +160,7 @@ describe('L4 integration — stale DB hydration race (PR #51)', () => {
     const subChatId = newSubChatId();
     const { deps, states, setModeCalls } = makeDeps(subChatId, 'plan');
 
-    await forceMode(subChatId, 'agent', 'plan-approved', deps);
+    await forceMode(subChatId, 'execute', 'plan-approved', deps);
     const versionAfterFlip = states.get(subChatId)!.hydrationVersion;
 
     setModeCalls.length = 0;
@@ -169,13 +169,13 @@ describe('L4 integration — stale DB hydration race (PR #51)', () => {
     expect(hydrateMode(subChatId, 'plan', versionAfterFlip - 1, deps).applied).toBe(false);
 
     expect(setModeCalls).toEqual([]);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
 
     // Now a current-version hydrate that agrees with the FSM: it still syncs
     // the external atom/store in case localStorage drifted from DB state.
-    const result = hydrateMode(subChatId, 'agent', versionAfterFlip + 1, deps);
+    const result = hydrateMode(subChatId, 'execute', versionAfterFlip + 1, deps);
     expect(result.applied).toBe(true);
-    expect(setModeCalls).toEqual([{ subChatId, mode: 'agent' }]);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('agent');
+    expect(setModeCalls).toEqual([{ subChatId, mode: 'execute' }]);
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
   });
 });
