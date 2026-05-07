@@ -1891,15 +1891,15 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
   const { pinnedAgents, filteredChats } = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     const filtered = normalizedQuery
-      ? localAgentChats.filter((chat) => (chat.name ?? '').toLowerCase().includes(normalizedQuery))
-      : localAgentChats;
+      ? agentChats.filter((chat) => (chat.name ?? '').toLowerCase().includes(normalizedQuery))
+      : agentChats;
     const pinned = filtered.filter((chat) => pinnedChatIds.has(chat.id));
 
     return {
       pinnedAgents: pinned,
       filteredChats: [...pinned, ...filtered.filter((chat) => !pinnedChatIds.has(chat.id))]
     };
-  }, [searchQuery, localAgentChats, pinnedChatIds]);
+  }, [searchQuery, agentChats, pinnedChatIds]);
 
   // Handle bulk archive of selected chats
   const handleBulkArchive = useCallback(() => {
@@ -2153,17 +2153,22 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
     return chatIds;
   }, [pendingQuestions, expiredQuestions]);
 
+  const groupingStatusMaps = useMemo(
+    () => ({
+      loadingChatIds,
+      workspacePendingQuestions,
+      workspacePendingPlans,
+      unseenChanges
+    }),
+    [loadingChatIds, workspacePendingQuestions, workspacePendingPlans, unseenChanges]
+  );
+
   const { visibleGroups, forceExpandAll, isSearching } = useGroupedAgentChats(
     localAgentChats,
     projectsMap,
     pinnedChatIds,
     searchQuery,
-    {
-      loadingChatIds,
-      workspacePendingQuestions,
-      workspacePendingPlans,
-      unseenChanges
-    }
+    groupingStatusMaps
   );
 
   const handleNewAgent = () => {
@@ -2372,7 +2377,6 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
     [
       agentChats,
       archiveRemoteChatMutation,
-      archiveChatMutation,
       utils.terminal.getActiveSessionCount,
       selectedChatId,
       autoAdvanceTarget,

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
-import { ChevronRight, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../../../components/confirm-delete-dialog';
 import { OpenInMenuItems, getAppOption } from '../../../components/open-in-menu-items';
 import { ProjectGroupMenuButton } from './project-group-header';
@@ -14,7 +14,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '../../../components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import {
   selectedProjectAtom,
   agentsSettingsDialogActiveTabAtom,
@@ -56,10 +55,10 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
   function openProjectSettings() {
     setSelectedProject({
       id: project.id,
-      name: project.name,
+      name: project.name ?? project.gitRepo ?? 'Untitled project',
       path: project.path,
       gitRemoteUrl: project.gitRemoteUrl ?? null,
-      gitProvider: project.gitProvider ?? null,
+      gitProvider: (project.gitProvider as 'github' | 'gitlab' | 'bitbucket' | null | undefined) ?? null,
       gitOwner: project.gitOwner ?? null,
       gitRepo: project.gitRepo ?? null
     });
@@ -79,10 +78,7 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
             Open in {preferredApp.displayLabel ?? preferredApp.label}
           </DropdownMenuItem>
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="flex items-center justify-between">
-              <span>Open in…</span>
-              <ChevronRight className="size-3.5" />
-            </DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>Open in…</DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-48">
               <OpenInMenuItems path={project.path} />
             </DropdownMenuSubContent>
@@ -99,19 +95,13 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
           <DropdownMenuItem disabled={archiveDisabled} onClick={() => setArchiveDialogOpen(true)}>
             Archive workspaces
           </DropdownMenuItem>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <DropdownMenuItem
-                  disabled={removeDisabled}
-                  onClick={() => setRemoveDialogOpen(true)}
-                  className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
-                  Remove repository
-                </DropdownMenuItem>
-              </div>
-            </TooltipTrigger>
-            {removeDisabled && <TooltipContent>Archive all workspaces first</TooltipContent>}
-          </Tooltip>
+          <DropdownMenuItem
+            disabled={removeDisabled}
+            onClick={() => setRemoveDialogOpen(true)}
+            className="flex items-center justify-between gap-2 text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
+            Remove repository
+            {removeDisabled && <span className="text-xs text-muted-foreground">Archive workspaces first</span>}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

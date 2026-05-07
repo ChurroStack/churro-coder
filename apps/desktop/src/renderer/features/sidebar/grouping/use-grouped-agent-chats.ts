@@ -48,8 +48,9 @@ export function useGroupedAgentChats(
     }));
 
     if (!isSearching) {
+      const seenGroupIds = new Set(groups.map((group) => group.id));
       for (const project of projectsMap.values()) {
-        if (groups.some((group) => group.id === project.id)) continue;
+        if (seenGroupIds.has(project.id)) continue;
         groups.push({
           id: project.id,
           kind: 'local',

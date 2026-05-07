@@ -1,4 +1,3 @@
-import type { ExternalApp } from '../../shared/external-apps';
 import { useAtom } from 'jotai';
 import { useCallback, useEffect } from 'react';
 import { ChevronDown, Copy } from 'lucide-react';
@@ -33,7 +32,7 @@ export function OpenInButton({ path, label }: OpenInButtonProps) {
 
   const handleOpenLastUsed = useCallback(() => {
     if (!path) return;
-    openInAppMutation.mutate({ path, app: lastUsedApp as ExternalApp });
+    openInAppMutation.mutate({ path, app: lastUsedApp });
   }, [path, lastUsedApp, openInAppMutation]);
 
   useEffect(() => {

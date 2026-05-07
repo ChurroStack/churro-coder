@@ -94,7 +94,7 @@ describe('ProjectGroup', () => {
     expect(screen.queryByText('Chat body')).toBeNull();
 
     expect(screen.getByText('Archive workspaces')).toBeTruthy();
-    expect(screen.getByText('Remove repository').getAttribute('data-disabled')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /remove repository/i }).hasAttribute('disabled')).toBe(true);
 
     fireEvent.click(screen.getByText('Settings'));
     expect(store.get(selectedProjectAtom)?.id).toBe('p1');

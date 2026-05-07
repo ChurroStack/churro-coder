@@ -6,6 +6,7 @@ import { trpc } from '../lib/trpc';
 import { DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from './ui/dropdown-menu';
 
 import cursorIcon from '../assets/app-icons/cursor.svg';
+import finderIcon from '../assets/app-icons/finder.png';
 import zedIcon from '../assets/app-icons/zed.png';
 import sublimeIcon from '../assets/app-icons/sublime.svg';
 import xcodeIcon from '../assets/app-icons/xcode.svg';
@@ -37,6 +38,7 @@ export interface AppOption {
 }
 
 export const APP_OPTIONS: AppOption[] = [
+  { id: 'finder', label: 'Finder', icon: finderIcon },
   { id: 'cursor', label: 'Cursor', icon: cursorIcon },
   { id: 'zed', label: 'Zed', icon: zedIcon },
   { id: 'sublime', label: 'Sublime Text', icon: sublimeIcon },
@@ -70,7 +72,7 @@ export const JETBRAINS_OPTIONS: AppOption[] = [
 const ALL_APP_OPTIONS = [...APP_OPTIONS, ...VSCODE_OPTIONS, ...JETBRAINS_OPTIONS];
 
 export function getAppOption(id: ExternalApp): AppOption {
-  return ALL_APP_OPTIONS.find((app) => app.id === id) ?? APP_OPTIONS[0]!;
+  return ALL_APP_OPTIONS.find((app) => app.id === id) ?? APP_OPTIONS[1]!;
 }
 
 export function OpenInMenuItems({ path, onOpened }: { path: string | undefined; onOpened?: () => void }) {
