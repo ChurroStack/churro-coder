@@ -31,6 +31,7 @@ interface McpHttpState {
 }
 
 let state: McpHttpState | null = null;
+let nextRequestId = 1;
 
 function getMcpStatePath(): string {
   return join(app.getPath('userData'), 'churro-mcp.json');
@@ -76,6 +77,38 @@ function sendJsonRpcError(
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function summarizeJsonRpcBody(body: unknown): string {
+  const envelope = Array.isArray(body) ? body[0] : body;
+  if (!isRecord(envelope)) return 'rpc=unparseable';
+
+  const method = typeof envelope.method === 'string' ? envelope.method : '(no-method)';
+  const id = typeof envelope.id === 'string' || typeof envelope.id === 'number' ? envelope.id : 'none';
+  const params = isRecord(envelope.params) ? envelope.params : {};
+  const name = typeof params.name === 'string' ? params.name : undefined;
+  const args = isRecord(params.arguments) ? params.arguments : {};
+  const subChatId = typeof args.subChatId === 'string' ? args.subChatId : undefined;
+  const argKeys = Object.keys(args);
+
+  return [
+    `rpc=${method}`,
+    `id=${id}`,
+    name ? `tool=${name}` : '',
+    subChatId ? `sub=${subChatId}` : '',
+    argKeys.length > 0 ? `argKeys=${argKeys.join(',')}` : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function isToolCallBody(body: unknown): boolean {
+  const envelope = Array.isArray(body) ? body[0] : body;
+  return isRecord(envelope) && envelope.method === 'tools/call';
+}
+
 export async function initMcpHttpServer(): Promise<{ url: string; bearer: string; port: number }> {
   if (state) {
     return { url: state.url, bearer: state.bearer, port: state.port };
@@ -87,13 +120,18 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
   const REQUEST_TIMEOUT_MS = 30_000;
 
   const server = http.createServer(async (req, res) => {
+    const requestId = nextRequestId++;
     req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      console.warn(`[churro-coder] MCP HTTP request id=${requestId} timed out`);
       sendJsonRpcError(res, 408, -32001, 'Request timeout');
     });
 
     // Simple bearer-token auth check
     const authHeader = req.headers['authorization'] ?? '';
     if (authHeader !== `Bearer ${bearer}`) {
+      console.warn(
+        `[churro-coder] MCP HTTP request id=${requestId} rejected auth method=${req.method} hasAuth=${Boolean(authHeader)}`
+      );
       sendJsonRpcError(res, 401, -32001, 'Unauthorized');
       return;
     }
@@ -108,12 +146,14 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
           const buf = chunk as Buffer;
           total += buf.length;
           if (total > MAX_BODY_BYTES) {
+            console.warn(`[churro-coder] MCP HTTP request id=${requestId} rejected size bytes=${total}`);
             sendJsonRpcError(res, 413, -32002, 'Payload too large');
             return;
           }
           chunks.push(buf);
         }
       } catch (err) {
+        console.error(`[churro-coder] MCP HTTP request id=${requestId} body read failed:`, err);
         sendJsonRpcError(res, 500, -32603, `Body read failed: ${(err as Error).message}`);
         return;
       }
@@ -122,6 +162,11 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
       } catch {
         body = undefined;
       }
+    }
+
+    const shouldTraceRequest = isToolCallBody(body);
+    if (shouldTraceRequest) {
+      console.log(`[churro-coder] MCP HTTP request id=${requestId} method=${req.method} ${summarizeJsonRpcBody(body)}`);
     }
 
     // Per-request McpServer + transport (stateless mode requires this — the
@@ -137,8 +182,11 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
     try {
       await mcpServer.connect(transport);
       await transport.handleRequest(req, res, body);
+      if (shouldTraceRequest) {
+        console.log(`[churro-coder] MCP HTTP request id=${requestId} handled`);
+      }
     } catch (err) {
-      console.error('[churro-coder] Error handling MCP request:', err);
+      console.error(`[churro-coder] Error handling MCP request id=${requestId}:`, err);
       sendJsonRpcError(res, 500, -32603, 'Internal server error');
     }
   });

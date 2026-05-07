@@ -43,6 +43,10 @@ type ImageAttachment = {
 
 // When a sub-chat hits auth-error, force one fresh Codex app-server thread on next send.
 const forceFreshSessionSubChats = new Set<string>();
+
+export function markCodexFreshNextTurn(subChatId: string): void {
+  forceFreshSessionSubChats.add(subChatId);
+}
 const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex/high';
 function getStoredCodexCredentials(): {
   hasApiKey: boolean;

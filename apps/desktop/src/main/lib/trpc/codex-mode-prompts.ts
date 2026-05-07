@@ -18,7 +18,8 @@ export function buildCodexModeInstruction(mode: 'plan' | 'agent'): string {
     '[AGENT MODE] You are in implementation mode. Implement changes directly using your available tools.',
     'Use Codex-native task-management tools to track progress through the approved plan as you work.',
     'Do not call PlanWrite and do not create a new plan.',
-    'Use the read_plan MCP tool only when you need to recover the already-approved plan after compaction, a provider switch, or a fresh session.',
+    'When the current request asks you to implement an approved plan, call the read_plan MCP tool before editing.',
+    'For ordinary follow-up requests, use read_plan only when you need to recover the already-approved plan after compaction, a provider switch, or a fresh session.',
     'Execute each step now.'
   ].join(' ');
 }
@@ -27,9 +28,8 @@ export function buildCodexApprovedPlanHint(subChatId: string): string {
   return [
     `[CONTEXT] Sub-chat id: ${subChatId}.`,
     'An approved plan governs this sub-chat.',
-    'If the plan is already present in conversation context, implement it directly and use Codex-native task tools to track progress.',
-    'Only call the `read_plan` MCP tool when you need to recover the approved plan after compaction, a provider switch, or a fresh session.',
-    `When you do need it, call \`read_plan\` on the \`churro-coder\` server with EXACTLY this argument: { "subChatId": "${subChatId}" }.`,
+    'For an implement-plan turn, call `read_plan` before editing and use Codex-native task tools to track progress.',
+    `Call \`read_plan\` on the app-owned churro-coder MCP server with EXACTLY this argument object: { "subChatId": "${subChatId}" }.`,
     'The subChatId argument is required — do not call read_plan without it.'
   ].join(' ');
 }

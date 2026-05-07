@@ -15,7 +15,7 @@ export function resolveAppOwnedMcpHeaders(params: {
     return Object.keys(headers).length > 0 ? headers : undefined;
   }
 
-  if (!params.serverName.startsWith('churro-coder')) {
+  if (!isAppOwnedChurroCoderMcpServerName(params.serverName)) {
     return Object.keys(headers).length > 0 ? headers : undefined;
   }
 
@@ -31,6 +31,10 @@ export function resolveAppOwnedMcpHeaders(params: {
 
   headers.Authorization = `Bearer ${endpoint.bearer}`;
   return headers;
+}
+
+export function isAppOwnedChurroCoderMcpServerName(name: string): boolean {
+  return name === 'churro-coder' || name === 'churro-coder-dev';
 }
 
 export function shouldRemoveStaleAppOwnedMcpEntry(name: string, currentServerName: string): boolean {

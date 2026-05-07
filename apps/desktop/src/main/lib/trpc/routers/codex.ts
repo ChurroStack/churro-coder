@@ -31,6 +31,7 @@ import { initMcpHttpServer } from '../../mcp/http-transport';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
 import { resolveAppOwnedMcpHeaders, shouldRemoveStaleAppOwnedMcpEntry } from '../codex-mcp-auth';
+import { decideCodexMcpElicitation } from '../codex-mcp-elicitation';
 import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from '../codex-mode-prompts';
 import { createTaskListPartFromPlan } from '../codex-plan-task-part';
 
@@ -671,7 +672,7 @@ async function fetchCodexMcpTools(entry: CodexMcpListEntry): Promise<McpToolInfo
     if (transportType === 'streamable_http' || transportType === 'http' || transportType === 'sse') {
       const url = entry.transport.url?.trim();
       if (!url) return [];
-      return await fetchMcpTools(url, resolveCodexHttpHeaders(entry.transport));
+      return await fetchMcpTools(url, resolveCodexHttpHeaders(entry.name, entry.transport));
     }
 
     return [];
@@ -679,8 +680,13 @@ async function fetchCodexMcpTools(entry: CodexMcpListEntry): Promise<McpToolInfo
 
   try {
     const tools = await Promise.race([fetchPromise, timeoutPromise]);
+    console.log(
+      `[churro-coder] Codex MCP probe server=${entry.name} transport=${transportType} toolCount=${tools.length}`
+    );
     return normalizeCodexTools(tools);
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[churro-coder] Codex MCP probe failed server=${entry.name} transport=${transportType}: ${message}`);
     return [];
   }
 }
@@ -1465,7 +1471,7 @@ async function getOrCreateAppServerClient(params: { authConfig?: { apiKey: strin
   return client;
 }
 
-function cleanupCodexAppServerSubChat(subChatId: string): void {
+export function cleanupCodexAppServerSubChat(subChatId: string): void {
   const threadId = subChatThreadIds.get(subChatId);
   if (threadId) {
     activeStreamsByThreadId.delete(threadId);
@@ -1882,6 +1888,24 @@ function createMcpToolPart(item: any): any {
     input: item?.arguments || {},
     startedAt: Date.now()
   };
+}
+
+function summarizeCodexServerRequestParams(params: Record<string, unknown>): string {
+  const tool = typeof params.tool === 'string' ? params.tool : undefined;
+  const server = typeof params.server === 'string' ? params.server : undefined;
+  const permissions = isAppServerRecord(params.permissions) ? Object.keys(params.permissions) : [];
+  const content = typeof params.content === 'string' ? params.content : undefined;
+  const prompt = typeof params.prompt === 'string' ? params.prompt : undefined;
+
+  return [
+    server ? `server=${server}` : '',
+    tool ? `tool=${tool}` : '',
+    permissions.length > 0 ? `permissions=${permissions.join(',')}` : '',
+    content ? `content=${JSON.stringify(content.slice(0, 120))}` : '',
+    prompt ? `prompt=${JSON.stringify(prompt.slice(0, 120))}` : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function createWebSearchPart(item: any): any {
@@ -2404,6 +2428,7 @@ async function handleAppServerServerRequest(request: CodexAppServerServerRequest
   }
 
   if (method === 'item/permissions/requestApproval') {
+    console.log(`[codex app-server] server-request decision=session-permissions method=${method}`);
     return {
       scope: 'session',
       permissions: params.permissions || {}
@@ -2411,9 +2436,19 @@ async function handleAppServerServerRequest(request: CodexAppServerServerRequest
   }
 
   if (method === 'mcpServer/elicitation/request') {
+    const summary = summarizeCodexServerRequestParams(params);
+    const decision = decideCodexMcpElicitation(params);
+    const log =
+      `[codex app-server] server-request decision=${decision.action} reason=${decision.reason} method=${method}` +
+      (summary ? ` ${summary}` : '');
+    if (decision.action === 'accept') {
+      console.log(log);
+    } else {
+      console.warn(log);
+    }
     return {
-      action: 'decline',
-      content: null
+      action: decision.action,
+      content: decision.content
     };
   }
 

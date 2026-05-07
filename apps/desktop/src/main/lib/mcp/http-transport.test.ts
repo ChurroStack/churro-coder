@@ -124,6 +124,37 @@ describe('http-transport', () => {
     }
   });
 
+  test('logs HTTP MCP tool-call trace with tool name and subChatId', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await writeCurrentPlan({ subChatId: 'trace-sub', content: 'trace body', source: 's', title: 't' });
+
+    const { url, bearer } = await initMcpHttpServer();
+    const transport = new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: { Authorization: `Bearer ${bearer}` } }
+    });
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    await client.connect(transport);
+
+    try {
+      await client.callTool({ name: 'read_plan', arguments: { subChatId: 'trace-sub' } });
+    } finally {
+      await client.close();
+    }
+
+    const lines = logSpy.mock.calls.map((call) => String(call[0]));
+    logSpy.mockRestore();
+    expect(
+      lines.some(
+        (line) =>
+          line.includes('[churro-coder] MCP HTTP request') &&
+          line.includes('rpc=tools/call') &&
+          line.includes('tool=read_plan') &&
+          line.includes('sub=trace-sub') &&
+          line.includes('argKeys=subChatId')
+      )
+    ).toBe(true);
+  });
+
   test('end-to-end: stateless mode handles two sequential requests (regression)', async () => {
     // Per-request server+transport bug: a shared transport returned 500 on the
     // second request. This test guards against regressing that fix.

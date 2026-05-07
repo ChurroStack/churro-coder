@@ -38,12 +38,13 @@
 import { useMemo } from 'react';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { agentChatStore } from '../stores/agent-chat-store';
-import { CodexChatTransport } from '../lib/codex-chat-transport';
+import { CodexChatTransport, markCodexFreshNextTurn } from '../lib/codex-chat-transport';
 import { applyModeDefaultModel } from '../lib/model-switching';
 import { appStore } from '../../../lib/jotai-store';
+import { trpcClient } from '../../../lib/trpc';
 import { subChatModeAtomFamily, subChatProviderOverridesAtom } from '../atoms';
-import { buildImplementPlanParts, type ApprovedPlanContent } from '../lib/implement-plan-parts';
-import type { PlanApprovalDeps } from '../services/plan-approval-service';
+import { buildImplementPlanParts } from '../lib/implement-plan-parts';
+import type { ApprovedPlanContent, PlanApprovalDeps } from '../services/plan-approval-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
 
 /**
@@ -114,6 +115,7 @@ export function useApprovePlanDeps(config: UseApprovePlanDepsConfig): PlanApprov
           mode,
           exitPlan
         });
+        markCodexFreshNextTurn(id);
       },
       applyDefaultModel: (id, mode) => {
         const result = applyModeDefaultModel(id, mode);
@@ -129,22 +131,24 @@ export function useApprovePlanDeps(config: UseApprovePlanDepsConfig): PlanApprov
       },
       resolvePlanContent: async () => {
         try {
-          const plan = await resolveApprovedPlanContent();
-          return plan?.content ?? null;
+          return await resolveApprovedPlanContent();
         } catch (err) {
           console.warn('[plan-approval] resolveApprovedPlanContent failed:', err);
           return null;
         }
       },
+      ensurePlanPersisted: async ({ subChatId: id, plan }) => {
+        const content = plan.content.trim();
+        if (!content) return;
+        await trpcClient.chats.persistPlan.mutate({
+          subChatId: id,
+          content,
+          ...(plan.source ? { source: plan.source } : {}),
+          ...(plan.title ? { title: plan.title } : {})
+        });
+      },
       buildImplementPlanParts: (payload) => {
-        if (payload.kind === 'text-only') {
-          return [{ type: 'text', text: payload.text }];
-        }
-        // Cross-provider with-plan-attachment — feed back into the
-        // shared helper so the file-content layout stays sourced from
-        // one place.
-        const plan: ApprovedPlanContent | null = payload.planContent ? { content: payload.planContent } : null;
-        return buildImplementPlanParts(plan);
+        return buildImplementPlanParts(payload.subChatId);
       },
       isInFlight: (id) => planApproveInFlight.has(id),
       markInFlight: (id) => {

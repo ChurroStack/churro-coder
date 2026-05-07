@@ -11,7 +11,7 @@ vi.mock('electron', () => ({
   }
 }));
 
-import { hasPlan, markApproved, readCurrentPlan, writeCurrentPlan } from './plan-store';
+import { ensurePlanWritten, hasPlan, markApproved, readCurrentPlan, writeCurrentPlan } from './plan-store';
 
 beforeEach(async () => {
   tmpRoot = await mkdtemp(join(tmpdir(), 'plan-store-test-'));
@@ -98,5 +98,31 @@ describe('plan-store', () => {
     // Sanity: meta file is valid JSON
     const meta = JSON.parse(await readFile(join(planDir, 'current.meta.json'), 'utf8'));
     expect(meta.title).toBe('t');
+  });
+
+  test('ensurePlanWritten writes when absent', async () => {
+    const result = await ensurePlanWritten({
+      subChatId: 'sub-7',
+      content: '# Plan\n\nbody',
+      source: 'fallback:approve',
+      title: 'Plan'
+    });
+
+    expect(result).toEqual({ written: true });
+    expect((await readCurrentPlan('sub-7'))?.content).toBe('# Plan\n\nbody');
+  });
+
+  test('ensurePlanWritten no-ops when a plan already exists', async () => {
+    await writeCurrentPlan({ subChatId: 'sub-8', content: 'first', source: 's1', title: 't1' });
+
+    const result = await ensurePlanWritten({
+      subChatId: 'sub-8',
+      content: 'second',
+      source: 'fallback:approve',
+      title: 'Plan'
+    });
+
+    expect(result).toEqual({ written: false });
+    expect((await readCurrentPlan('sub-8'))?.content).toBe('first');
   });
 });

@@ -8,7 +8,11 @@ vi.mock('../mcp/http-transport', () => ({
   getMcpHttpEndpoint
 }));
 
-import { resolveAppOwnedMcpHeaders, shouldRemoveStaleAppOwnedMcpEntry } from './codex-mcp-auth';
+import {
+  isAppOwnedChurroCoderMcpServerName,
+  resolveAppOwnedMcpHeaders,
+  shouldRemoveStaleAppOwnedMcpEntry
+} from './codex-mcp-auth';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -86,5 +90,14 @@ describe('shouldRemoveStaleAppOwnedMcpEntry', () => {
     expect(shouldRemoveStaleAppOwnedMcpEntry('churro-coder-debug', 'churro-coder-dev')).toBe(false);
     expect(shouldRemoveStaleAppOwnedMcpEntry('churro-coder-coworker', 'churro-coder-dev')).toBe(false);
     expect(shouldRemoveStaleAppOwnedMcpEntry('other-server', 'churro-coder-dev')).toBe(false);
+  });
+});
+
+describe('isAppOwnedChurroCoderMcpServerName', () => {
+  test('matches only the built-in prod/dev server names', () => {
+    expect(isAppOwnedChurroCoderMcpServerName('churro-coder')).toBe(true);
+    expect(isAppOwnedChurroCoderMcpServerName('churro-coder-dev')).toBe(true);
+    expect(isAppOwnedChurroCoderMcpServerName('churro-coder-debug')).toBe(false);
+    expect(isAppOwnedChurroCoderMcpServerName('other-server')).toBe(false);
   });
 });

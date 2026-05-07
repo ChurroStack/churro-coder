@@ -61,6 +61,12 @@ import type { ProviderId, TransportAction } from '../machines/transport-lifecycl
 /** Optional logger; defaults to no-op so tests can assert on stdout cleanliness. */
 export type LogFn = (msg: string) => void;
 
+export interface ApprovedPlanContent {
+  content: string;
+  source?: string;
+  title?: string;
+}
+
 export interface PlanApprovalDeps {
   /**
    * Read the planner's provider BEFORE any state writes. The renderer
@@ -108,13 +114,12 @@ export interface PlanApprovalDeps {
    * atom. Returns `null` if the plan can't be recovered (best-effort; the
    * cross-provider branch still proceeds with `planContent: null`).
    */
-  resolvePlanContent: () => Promise<string | null>;
+  resolvePlanContent: () => Promise<ApprovedPlanContent | null>;
+
+  ensurePlanPersisted: (input: { subChatId: string; plan: ApprovedPlanContent }) => Promise<void>;
 
   /**
-   * Build the AI SDK message parts array for the implement-plan send. The
-   * renderer's `buildImplementPlanParts` returns either
-   * `[{ type: "text", text }]` (same-provider) or
-   * `[{ type: "text", text }, { type: "file", ...planAttachment }]` (cross-provider).
+   * Build the AI SDK message parts array for the implement-plan send.
    */
   buildImplementPlanParts: (payload: ImplementPlanPayload) => unknown[];
 
@@ -236,6 +241,21 @@ export async function approvePlan(subChatId: string, deps: PlanApprovalDeps): Pr
     //    to ready-to-send during MODEL_APPLIED for same-provider; we don't
     //    need to await plan content. Schedule the deferred send and return.
     if (state.kind === 'ready-to-send') {
+      let plan: ApprovedPlanContent | null = null;
+      try {
+        plan = await deps.resolvePlanContent();
+      } catch (err) {
+        log(
+          `[PLAN] approve:plan-resolve-warn sub=${subChatId.slice(-8)} ` +
+            `${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      if (plan) {
+        await deps.ensurePlanPersisted({ subChatId, plan });
+      } else {
+        log(`[PLAN] approve:plan-persist-skip sub=${subChatId.slice(-8)} reason=no-plan-content`);
+      }
+
       const parts = deps.buildImplementPlanParts(state.payload);
       deps.scheduleDeferredSend(subChatId, parts);
       state = step(state, { type: 'MESSAGE_SENT' });
@@ -256,18 +276,23 @@ export async function approvePlan(subChatId: string, deps: PlanApprovalDeps): Pr
       // is already in the atom) but BEFORE the deferred send schedules.
       deps.notifyProviderChange(subChatId, newProvider);
 
-      let planContent: string | null = null;
+      let plan: ApprovedPlanContent | null = null;
       try {
-        planContent = await deps.resolvePlanContent();
+        plan = await deps.resolvePlanContent();
       } catch (err) {
         log(
           `[PLAN] approve:plan-resolve-warn sub=${subChatId.slice(-8)} ` +
             `${err instanceof Error ? err.message : String(err)}`
         );
-        // Fall through with planContent: null — the FSM accepts this.
       }
 
-      state = step(state, { type: 'PLAN_CONTENT_RESOLVED', planContent });
+      if (plan) {
+        await deps.ensurePlanPersisted({ subChatId, plan });
+      } else {
+        log(`[PLAN] approve:plan-persist-skip sub=${subChatId.slice(-8)} reason=no-plan-content`);
+      }
+
+      state = step(state, { type: 'PLAN_CONTENT_RESOLVED', planContent: plan?.content ?? null });
 
       if (state.kind !== 'ready-to-send') {
         // Defensive: PLAN_CONTENT_RESOLVED from model-applied always reaches

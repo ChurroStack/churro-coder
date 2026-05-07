@@ -112,6 +112,11 @@ GitHub Actions runs tests on every PR via the existing `.github/workflows/ci.yml
 - Run builds synchronously (foreground) and report results directly; do not background long-running build/test commands and poll.
 - After multi-file edits, run typecheck/build before declaring done.
 
+## Traceability
+- Add useful trace information for new implementation paths, especially at process boundaries, external tool/API calls, persistence reads/writes, approval/permission decisions, and error/fallback branches.
+- Trace logs should include stable correlation identifiers where available (request id, sub-chat id, session/thread id, workspace/project id) plus the outcome and compact reason/error. Avoid logging secrets, tokens, full prompts, large payloads, or noisy per-frame/per-keystroke data.
+- Prefer existing logging conventions and prefixes in the touched area. If no convention exists, use a concise component prefix that makes the source searchable.
+
 ## Change Scope
 - Prefer the simplest fix that solves the reported problem; do not introduce new config fields, abstractions, or specificity hacks before reading the relevant library/theming docs.
 - When a user says 'one-line fix', apply only that—do not refactor surrounding code.

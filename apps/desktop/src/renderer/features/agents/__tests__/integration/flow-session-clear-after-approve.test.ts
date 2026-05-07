@@ -34,7 +34,18 @@ import {
   subChatProviderOverrideAtomFamily
 } from '../../atoms';
 import { applyModeDefaultModel } from '../../lib/model-switching';
+import { markCodexFreshNextTurn } from '../../lib/codex-chat-transport';
 import { approvePlan, type PlanApprovalDeps } from '../../services/plan-approval-service';
+
+vi.mock('../../lib/codex-chat-transport', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/codex-chat-transport')>(
+    '../../lib/codex-chat-transport'
+  );
+  return {
+    ...actual,
+    markCodexFreshNextTurn: vi.fn()
+  };
+});
 
 let testCounter = 0;
 const newSubChatId = () => `int-session-${++testCounter}`;
@@ -64,6 +75,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
       },
       notifyProviderChange: () => {},
       resolvePlanContent: async () => null,
+      ensurePlanPersisted: async () => {},
       buildImplementPlanParts: () => [{ type: 'text', text: 'x' }],
       isInFlight: () => false,
       markInFlight: () => {},
@@ -100,6 +112,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
       },
       notifyProviderChange: () => {},
       resolvePlanContent: async () => null,
+      ensurePlanPersisted: async () => {},
       buildImplementPlanParts: () => [{ type: 'text', text: 'x' }],
       isInFlight: () => false,
       markInFlight: () => {},
@@ -139,6 +152,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
       },
       notifyProviderChange: () => {},
       resolvePlanContent: async () => null,
+      ensurePlanPersisted: async () => {},
       buildImplementPlanParts: () => [{ type: 'text', text: 'x' }],
       isInFlight: () => false,
       markInFlight: () => {},
@@ -175,6 +189,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
       },
       notifyProviderChange: () => {},
       resolvePlanContent: async () => null,
+      ensurePlanPersisted: async () => {},
       buildImplementPlanParts: () => [{ type: 'text', text: 'x' }],
       isInFlight: (id) => inFlight.has(id),
       markInFlight: (id) => inFlight.add(id),
@@ -188,5 +203,35 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
     const r2 = await approvePlan(subChatId, deps);
     expect(r2.ok).toBe(true);
+  });
+
+  test('Codex approve path marks the next turn as a fresh session after persist succeeds', async () => {
+    const subChatId = newSubChatId();
+    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'codex');
+
+    const deps: PlanApprovalDeps = {
+      readPreviousProvider: () => 'codex',
+      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      persistMode: async () => {
+        markCodexFreshNextTurn(subChatId);
+      },
+      applyDefaultModel: (id, mode) => {
+        const result = applyModeDefaultModel(id, mode);
+        return { provider: result.provider, isRemote: false };
+      },
+      notifyProviderChange: () => {},
+      resolvePlanContent: async () => null,
+      ensurePlanPersisted: async () => {},
+      buildImplementPlanParts: () => [{ type: 'text', text: 'x' }],
+      isInFlight: () => false,
+      markInFlight: () => {},
+      releaseInFlight: () => {},
+      scheduleDeferredSend: () => {}
+    };
+
+    const result = await approvePlan(subChatId, deps);
+    expect(result.ok).toBe(true);
+    expect(markCodexFreshNextTurn).toHaveBeenCalledWith(subChatId);
   });
 });

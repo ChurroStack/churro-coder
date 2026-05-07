@@ -46,11 +46,7 @@
 import type { ProviderId, TransportAction } from './transport-lifecycle';
 import { decidePlanApprovalCrossProviderRecreate } from './transport-lifecycle';
 
-export type ImplementPlanPayload =
-  /** Same provider — text-only "Implement plan" message; SDK already has plan in session history. */
-  | { kind: 'text-only'; text: string }
-  /** Cross provider — must re-attach plan content as a hidden file part. */
-  | { kind: 'with-plan-attachment'; text: string; planContent: string | null };
+export type ImplementPlanPayload = { kind: 'implement-plan'; text: string; subChatId: string };
 
 export type PlanApprovalState =
   | { kind: 'idle' }
@@ -171,9 +167,12 @@ function toReadyToSend(
     newIsRemote
   });
 
-  const payload: ImplementPlanPayload = state.crossProvider
-    ? { kind: 'with-plan-attachment', text: IMPLEMENT_PLAN_BASE_TEXT, planContent }
-    : { kind: 'text-only', text: IMPLEMENT_PLAN_BASE_TEXT };
+  void planContent;
+  const payload: ImplementPlanPayload = {
+    kind: 'implement-plan',
+    text: IMPLEMENT_PLAN_BASE_TEXT,
+    subChatId: state.subChatId
+  };
 
   return {
     kind: 'ready-to-send',

@@ -58,18 +58,28 @@ export async function writeCurrentPlan(opts: {
 
   await rename(tmpMd, join(dir, 'current.md'));
   await rename(tmpJson, join(dir, 'current.meta.json'));
+  console.log(
+    `[churro-coder] plan persisted sub=${opts.subChatId} source=${opts.source} bytes=${Buffer.byteLength(opts.content, 'utf8')}`
+  );
 }
 
 export async function readCurrentPlan(subChatId: string): Promise<PlanData | null> {
   const dir = getPlanDir(subChatId);
+  console.log(`[churro-coder] plan read start sub=${subChatId} dir=${dir}`);
   try {
     const [content, metaRaw] = await Promise.all([
       readFile(join(dir, 'current.md'), 'utf8'),
       readFile(join(dir, 'current.meta.json'), 'utf8')
     ]);
     const meta = JSON.parse(metaRaw) as PlanMeta;
+    console.log(
+      `[churro-coder] plan read success sub=${subChatId} bytes=${Buffer.byteLength(content, 'utf8')} metaBytes=${Buffer.byteLength(metaRaw, 'utf8')}`
+    );
     return { content, meta };
-  } catch {
+  } catch (err) {
+    const code = typeof (err as NodeJS.ErrnoException).code === 'string' ? (err as NodeJS.ErrnoException).code : 'ERR';
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[churro-coder] plan read miss sub=${subChatId} code=${code} message=${message}`);
     return null;
   }
 }
@@ -94,4 +104,18 @@ export async function hasPlan(subChatId: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function ensurePlanWritten(opts: {
+  subChatId: string;
+  content: string;
+  source: string;
+  title: string;
+}): Promise<{ written: boolean }> {
+  if (await hasPlan(opts.subChatId)) {
+    return { written: false };
+  }
+
+  await writeCurrentPlan(opts);
+  return { written: true };
 }

@@ -11,20 +11,21 @@ describe('buildCodexModeInstruction', () => {
     expect(prompt).toContain('Call PlanWrite exactly once');
   });
 
-  test('agent mode scopes MCP to approved-plan recovery only', () => {
+  test('agent mode requires read_plan for implement-plan turns and scopes it for follow-ups', () => {
     const prompt = buildCodexModeInstruction('agent');
 
     expect(prompt).toContain('Use Codex-native task-management tools');
     expect(prompt).toContain('Do not call PlanWrite');
-    expect(prompt).toContain('Use the read_plan MCP tool only when you need to recover the already-approved plan');
+    expect(prompt).toContain('call the read_plan MCP tool before editing');
+    expect(prompt).toContain('For ordinary follow-up requests, use read_plan only');
   });
 });
 
 describe('buildCodexApprovedPlanHint', () => {
-  test('keeps exact read_plan call shape while clarifying MCP is recovery-only', () => {
+  test('keeps exact read_plan call shape for implement-plan turns', () => {
     const hint = buildCodexApprovedPlanHint('sub-123');
 
-    expect(hint).toContain('Only call the `read_plan` MCP tool when you need to recover the approved plan');
+    expect(hint).toContain('For an implement-plan turn, call `read_plan` before editing');
     expect(hint).toContain('{ "subChatId": "sub-123" }');
     expect(hint).toContain('do not call read_plan without it');
   });

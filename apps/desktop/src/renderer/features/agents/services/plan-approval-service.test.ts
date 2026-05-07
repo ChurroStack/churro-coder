@@ -60,6 +60,9 @@ function makeDeps(overrides: Partial<PlanApprovalDeps> = {}): {
       record('resolvePlanContent');
       return null;
     }),
+    ensurePlanPersisted: vi.fn(async ({ subChatId, plan }) => {
+      record('ensurePlanPersisted', { subChatId, plan });
+    }),
     buildImplementPlanParts: vi.fn((payload) => {
       record('buildImplementPlanParts', { payloadKind: payload.kind });
       return [{ type: 'text', text: payload.text }];
@@ -98,6 +101,7 @@ describe('approvePlan — happy path call ordering', () => {
       'setMode',
       'applyDefaultModel',
       'persistMode',
+      'resolvePlanContent',
       'buildImplementPlanParts',
       'scheduleDeferredSend',
       'releaseInFlight'
@@ -118,12 +122,13 @@ describe('approvePlan — happy path call ordering', () => {
     expect(deps.notifyProviderChange).not.toHaveBeenCalled();
   });
 
-  test('buildImplementPlanParts is called with text-only payload for same-provider', async () => {
+  test('buildImplementPlanParts is called with unified payload for same-provider', async () => {
     const { deps } = makeDeps();
     await approvePlan('sub-1', deps);
     expect(deps.buildImplementPlanParts).toHaveBeenCalledWith({
-      kind: 'text-only',
-      text: IMPLEMENT_PLAN_BASE_TEXT
+      kind: 'implement-plan',
+      text: IMPLEMENT_PLAN_BASE_TEXT,
+      subChatId: 'sub-1'
     });
   });
 });
@@ -133,7 +138,7 @@ describe('approvePlan — cross-provider (PR #52)', () => {
     const { deps } = makeDeps({
       readPreviousProvider: vi.fn((_id: string): ProviderId => 'claude-code'),
       applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({ provider: 'codex' as ProviderId, isRemote: false })),
-      resolvePlanContent: vi.fn(async () => '## Plan\n1. Step')
+      resolvePlanContent: vi.fn(async () => ({ content: '## Plan\n1. Step', source: 'claude:ExitPlanMode' }))
     });
     const result = await approvePlan('sub-1', deps);
 
@@ -161,7 +166,7 @@ describe('approvePlan — cross-provider (PR #52)', () => {
         provider: 'claude-code' as ProviderId,
         isRemote: false
       })),
-      resolvePlanContent: vi.fn(async () => '## Plan from Codex')
+      resolvePlanContent: vi.fn(async () => ({ content: '## Plan from Codex', source: 'codex:PlanWrite' }))
     });
     const result = await approvePlan('sub-1', deps);
     expect(result.ok).toBe(true);
@@ -171,16 +176,16 @@ describe('approvePlan — cross-provider (PR #52)', () => {
     }
   });
 
-  test('buildImplementPlanParts called with attachment payload for cross-provider', async () => {
+  test('buildImplementPlanParts called with unified payload for cross-provider', async () => {
     const { deps } = makeDeps({
       applyDefaultModel: vi.fn((_id: string, _mode: 'agent') => ({ provider: 'codex' as ProviderId, isRemote: false })),
-      resolvePlanContent: vi.fn(async () => 'plan body')
+      resolvePlanContent: vi.fn(async () => ({ content: 'plan body', source: 'codex:PlanWrite' }))
     });
     await approvePlan('sub-1', deps);
     expect(deps.buildImplementPlanParts).toHaveBeenCalledWith({
-      kind: 'with-plan-attachment',
+      kind: 'implement-plan',
       text: IMPLEMENT_PLAN_BASE_TEXT,
-      planContent: 'plan body'
+      subChatId: 'sub-1'
     });
   });
 
@@ -194,9 +199,9 @@ describe('approvePlan — cross-provider (PR #52)', () => {
     const result = await approvePlan('sub-1', deps);
     expect(result.ok).toBe(true);
     expect(deps.buildImplementPlanParts).toHaveBeenCalledWith({
-      kind: 'with-plan-attachment',
+      kind: 'implement-plan',
       text: IMPLEMENT_PLAN_BASE_TEXT,
-      planContent: null
+      subChatId: 'sub-1'
     });
   });
 
@@ -324,6 +329,25 @@ describe('approvePlan — DB persist with exitPlan: true (PR #45)', () => {
     });
   });
 
+  test('ensurePlanPersisted is awaited after persistMode and before scheduleDeferredSend', async () => {
+    const events: string[] = [];
+    const { deps } = makeDeps({
+      resolvePlanContent: vi.fn(async () => {
+        events.push('resolvePlanContent');
+        return { content: '## Plan\n1. Step' };
+      }),
+      ensurePlanPersisted: vi.fn(async () => {
+        events.push('ensurePlanPersisted');
+      }),
+      scheduleDeferredSend: vi.fn(() => {
+        events.push('scheduleDeferredSend');
+      })
+    });
+
+    await approvePlan('sub-1', deps);
+    expect(events).toEqual(['resolvePlanContent', 'ensurePlanPersisted', 'scheduleDeferredSend']);
+  });
+
   test('persistMode is awaited BEFORE scheduleDeferredSend (PR #45 — no stale session resume)', async () => {
     const resolver: { fn: (() => void) | null } = { fn: null };
     let persistResolved = false;
@@ -384,10 +408,10 @@ describe('approvePlan — same-provider transport KEEP (PR #44)', () => {
     expect(deps.notifyProviderChange).not.toHaveBeenCalled();
   });
 
-  test('resolvePlanContent is NOT called for same-provider (no attachment needed)', async () => {
+  test('resolvePlanContent is called for same-provider so fallback persistence can run', async () => {
     const { deps } = makeDeps();
     await approvePlan('sub-1', deps);
-    expect(deps.resolvePlanContent).not.toHaveBeenCalled();
+    expect(deps.resolvePlanContent).toHaveBeenCalledTimes(1);
   });
 });
 

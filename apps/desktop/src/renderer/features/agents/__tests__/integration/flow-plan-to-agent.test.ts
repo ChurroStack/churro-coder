@@ -94,13 +94,8 @@ function makeRealisticDeps(opts: { subChatId: string; initialProvider: ProviderI
       orchestration.notifyCalls.push({ subChatId, provider });
     },
     resolvePlanContent: async () => null,
-    buildImplementPlanParts: (payload) =>
-      payload.kind === 'text-only'
-        ? [{ type: 'text', text: payload.text }]
-        : [
-            { type: 'text', text: payload.text },
-            { type: 'file', planContent: payload.planContent }
-          ],
+    ensurePlanPersisted: async () => {},
+    buildImplementPlanParts: (payload) => [{ type: 'text', text: payload.text }],
     isInFlight: (subChatId) => orchestration.inFlight.has(subChatId),
     markInFlight: (subChatId) => orchestration.inFlight.add(subChatId),
     releaseInFlight: (subChatId) => orchestration.inFlight.delete(subChatId),

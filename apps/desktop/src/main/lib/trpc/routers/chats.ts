@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
-import { markApproved } from '../../plans/plan-store';
+import { ensurePlanWritten, markApproved } from '../../plans/plan-store';
 import { app, BrowserWindow, safeStorage } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -28,6 +28,7 @@ import { checkOllamaStatus } from '../../ollama';
 import { terminalManager } from '../../terminal/manager';
 import { publicProcedure, router } from '../index';
 import { abortClaudeSessionsForSubChats } from './claude';
+import { cleanupCodexAppServerSubChat } from './codex';
 import {
   parseClaudeCommitResponse,
   parseOllamaCommitResponse,
@@ -103,6 +104,11 @@ function getPlanFromPlanWritePart(part: any): any | null {
   ];
 
   return candidates.find((plan) => plan && typeof plan === 'object') || null;
+}
+
+function extractPlanTitle(content: string): string {
+  const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  return heading || 'Plan';
 }
 
 /**
@@ -1230,8 +1236,27 @@ export const chatsRouter = router({
         .get();
       if (input.exitPlan) {
         await markApproved(input.id);
+        cleanupCodexAppServerSubChat(input.id);
       }
       return result;
+    }),
+
+  persistPlan: publicProcedure
+    .input(
+      z.object({
+        subChatId: z.string(),
+        content: z.string().min(1),
+        source: z.string().optional(),
+        title: z.string().optional()
+      })
+    )
+    .mutation(async ({ input }) => {
+      return ensurePlanWritten({
+        subChatId: input.subChatId,
+        content: input.content,
+        source: input.source ?? 'fallback:approve',
+        title: input.title?.trim() || extractPlanTitle(input.content)
+      });
     }),
 
   /**

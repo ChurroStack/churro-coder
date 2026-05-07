@@ -46,6 +46,10 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
     },
     async (input: { subChatId?: string; revision?: 'current' }) => {
       const id = opts.boundSubChatId ?? input.subChatId;
+      console.log(`[churro-coder] read_plan called sub=${id ?? 'missing'} bound=${Boolean(opts.boundSubChatId)}`);
+      console.log(
+        `[churro-coder] read_plan input bound=${Boolean(opts.boundSubChatId)} inputKeys=${Object.keys(input || {}).join(',') || 'none'} revision=${input?.revision ?? 'current'}`
+      );
       if (!id) {
         return {
           content: [
@@ -60,6 +64,7 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
 
       const plan = await readCurrentPlan(id);
       if (!plan) {
+        console.log('[churro-coder] read_plan result sub=' + id + ' found=false bytes=0');
         return {
           content: [
             {
@@ -76,6 +81,10 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
         `Source: ${plan.meta.source} | Created: ${plan.meta.createdAt}${plan.meta.approvedAt ? ` | Approved: ${plan.meta.approvedAt}` : ''}`,
         ''
       ].join('\n');
+
+      console.log(
+        `[churro-coder] read_plan result sub=${id} found=true bytes=${Buffer.byteLength(plan.content, 'utf8')}`
+      );
 
       return {
         content: [

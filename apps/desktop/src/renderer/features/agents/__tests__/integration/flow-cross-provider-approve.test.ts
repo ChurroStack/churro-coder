@@ -85,14 +85,9 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
         return { provider: result.provider, isRemote: false };
       },
       notifyProviderChange: () => {},
-      resolvePlanContent: async () => '## Plan body',
-      buildImplementPlanParts: (payload) =>
-        payload.kind === 'with-plan-attachment'
-          ? [
-              { type: 'text', text: payload.text },
-              { type: 'file', planContent: payload.planContent }
-            ]
-          : [{ type: 'text', text: payload.text }],
+      resolvePlanContent: async () => ({ content: '## Plan body', source: 'codex:PlanWrite' }),
+      ensurePlanPersisted: async () => {},
+      buildImplementPlanParts: (payload) => [{ type: 'text', text: payload.text }],
       isInFlight: () => false,
       markInFlight: () => {},
       releaseInFlight: () => {},
@@ -141,7 +136,10 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
       },
       resolvePlanContent: async () => {
         events.push('resolvePlanContent');
-        return '## Plan body';
+        return { content: '## Plan body', source: 'codex:PlanWrite' };
+      },
+      ensurePlanPersisted: async () => {
+        events.push('ensurePlanPersisted');
       },
       buildImplementPlanParts: () => [{ type: 'text', text: 'x' }],
       isInFlight: () => false,
@@ -160,11 +158,12 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
       'persistMode',
       'notifyProviderChange:claude-code',
       'resolvePlanContent',
+      'ensurePlanPersisted',
       'scheduleDeferredSend'
     ]);
   });
 
-  test('plan content attached as part when resolved, deferred send carries it', async () => {
+  test('deferred send stays text-only when resolved, with no file attachment', async () => {
     const subChatId = newSubChatId();
     appStore.set(subChatModeAtomFamily(subChatId), 'plan');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'codex');
@@ -180,16 +179,9 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
         return { provider: result.provider, isRemote: false };
       },
       notifyProviderChange: () => {},
-      resolvePlanContent: async () => '## Plan from Codex GPT-5.5\n1. Step one\n2. Step two',
-      buildImplementPlanParts: (payload) => {
-        if (payload.kind === 'with-plan-attachment') {
-          return [
-            { type: 'text', text: payload.text },
-            { type: 'file', mediaType: 'text/markdown', content: payload.planContent ?? '' }
-          ];
-        }
-        return [{ type: 'text', text: payload.text }];
-      },
+      resolvePlanContent: async () => ({ content: '## Plan from Codex GPT-5.5\n1. Step one\n2. Step two' }),
+      ensurePlanPersisted: async () => {},
+      buildImplementPlanParts: (payload) => [{ type: 'text', text: payload.text }],
       isInFlight: () => false,
       markInFlight: () => {},
       releaseInFlight: () => {},
@@ -201,10 +193,7 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
     await approvePlan(subChatId, deps);
 
     expect(scheduledSends).toHaveLength(1);
-    expect(scheduledSends[0].parts).toHaveLength(2);
-    const filePart = scheduledSends[0].parts[1] as any;
-    expect(filePart.type).toBe('file');
-    expect(filePart.content).toContain('## Plan from Codex GPT-5.5');
+    expect(scheduledSends[0].parts).toEqual([{ type: 'text', text: expect.any(String) }]);
   });
 
   test('model atom flipped from gpt-5.5 to sonnet by approval', async () => {
@@ -223,6 +212,7 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
       },
       notifyProviderChange: () => {},
       resolvePlanContent: async () => null,
+      ensurePlanPersisted: async () => {},
       buildImplementPlanParts: () => [{ type: 'text', text: 'x' }],
       isInFlight: () => false,
       markInFlight: () => {},

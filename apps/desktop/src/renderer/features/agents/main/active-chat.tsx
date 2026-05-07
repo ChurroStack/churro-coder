@@ -121,7 +121,6 @@ import {
   parseStoredMessages,
   shouldRecreateStaleRuntimeChat
 } from '../lib/chat-instance-helpers';
-import type { ApprovedPlanContent } from '../lib/implement-plan-parts';
 import { sendPendingMessage, type PendingMessage } from '../services/chat-send-service';
 import {
   hydrateMode,
@@ -132,7 +131,7 @@ import {
   noteStreamErrored,
   type ModeSwitchDeps
 } from '../services/mode-switch-service';
-import { approvePlan as approvePlanService, type ApprovePlanDeps } from '../services/plan-approval-service';
+import { approvePlan as approvePlanService, type ApprovedPlanContent } from '../services/plan-approval-service';
 import {
   getOrCreateChat as getOrCreateChatService,
   type TransportFactoryDeps,
@@ -297,7 +296,7 @@ function waitForStreamingReady(subChatId: string): Promise<void> {
   });
 }
 
-// `ApprovedPlanContent` and friends moved to `lib/implement-plan-parts.ts`.
+// `ApprovedPlanContent` now lives with the plan-approval service contract.
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null;

@@ -80,7 +80,7 @@ describe('MODE_SWITCHED — happens before any await (PR #51)', () => {
 });
 
 describe('MODEL_APPLIED — same provider branch (PR #44 — keep transport)', () => {
-  test('Claude→Claude jumps directly to ready-to-send with text-only payload + KEEP', () => {
+  test('Claude→Claude jumps directly to ready-to-send with unified payload + KEEP', () => {
     const after = runPlanApproval(initialPlanApprovalState(), [
       { type: 'APPROVE_REQUESTED', subChatId: 's1', previousProvider: 'claude-code' },
       { type: 'MODE_SWITCHED' },
@@ -89,10 +89,10 @@ describe('MODEL_APPLIED — same provider branch (PR #44 — keep transport)', (
     if (after.kind !== 'ready-to-send') throw new Error('expected ready-to-send');
     expect(after.newProvider).toBe('claude-code');
     expect(after.transportAction).toEqual({ kind: 'keep' });
-    expect(after.payload).toEqual({ kind: 'text-only', text: IMPLEMENT_PLAN_BASE_TEXT });
+    expect(after.payload).toEqual({ kind: 'implement-plan', text: IMPLEMENT_PLAN_BASE_TEXT, subChatId: 's1' });
   });
 
-  test('Codex→Codex jumps directly to ready-to-send with text-only payload + KEEP', () => {
+  test('Codex→Codex jumps directly to ready-to-send with unified payload + KEEP', () => {
     const after = runPlanApproval(initialPlanApprovalState(), [
       { type: 'APPROVE_REQUESTED', subChatId: 's1', previousProvider: 'codex' },
       { type: 'MODE_SWITCHED' },
@@ -100,7 +100,8 @@ describe('MODEL_APPLIED — same provider branch (PR #44 — keep transport)', (
     ]);
     if (after.kind !== 'ready-to-send') throw new Error('expected ready-to-send');
     expect(after.transportAction).toEqual({ kind: 'keep' });
-    expect(after.payload.kind).toBe('text-only');
+    expect(after.payload.kind).toBe('implement-plan');
+    expect(after.payload.subChatId).toBe('s1');
   });
 });
 
@@ -128,8 +129,8 @@ describe('MODEL_APPLIED — cross provider branch (PR #52, #40)', () => {
   });
 });
 
-describe('PLAN_CONTENT_RESOLVED — produces ready-to-send with attachment + RECREATE', () => {
-  test('Claude→Codex with plan content → ready-to-send + with-plan-attachment + RECREATE(plan-approval-cross-provider)', () => {
+describe('PLAN_CONTENT_RESOLVED — produces ready-to-send with unified payload + RECREATE', () => {
+  test('Claude→Codex with plan content → ready-to-send + unified payload + RECREATE(plan-approval-cross-provider)', () => {
     const after = runPlanApproval(initialPlanApprovalState(), [
       { type: 'APPROVE_REQUESTED', subChatId: 's1', previousProvider: 'claude-code' },
       { type: 'MODE_SWITCHED' },
@@ -142,9 +143,7 @@ describe('PLAN_CONTENT_RESOLVED — produces ready-to-send with attachment + REC
       provider: 'codex',
       reason: 'plan-approval-cross-provider'
     });
-    if (after.payload.kind !== 'with-plan-attachment') throw new Error('expected attachment');
-    expect(after.payload.text).toBe(IMPLEMENT_PLAN_BASE_TEXT);
-    expect(after.payload.planContent).toBe('## Plan\n1. Step one');
+    expect(after.payload).toEqual({ kind: 'implement-plan', text: IMPLEMENT_PLAN_BASE_TEXT, subChatId: 's1' });
   });
 
   test('Cross-provider with null plan content still proceeds (best-effort)', () => {
@@ -155,8 +154,7 @@ describe('PLAN_CONTENT_RESOLVED — produces ready-to-send with attachment + REC
       { type: 'PLAN_CONTENT_RESOLVED', planContent: null }
     ]);
     if (after.kind !== 'ready-to-send') throw new Error('expected ready-to-send');
-    if (after.payload.kind !== 'with-plan-attachment') throw new Error('expected attachment');
-    expect(after.payload.planContent).toBeNull();
+    expect(after.payload).toEqual({ kind: 'implement-plan', text: IMPLEMENT_PLAN_BASE_TEXT, subChatId: 's1' });
   });
 
   test('PLAN_CONTENT_RESOLVED ignored from non-(model-applied) states', () => {
