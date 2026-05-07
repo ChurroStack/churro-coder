@@ -95,6 +95,14 @@ For the full annotated tree (renderer features, dock subsystem, agent layers), s
 - Files: kebab-case for components, hooks, stores, and utilities (`active-chat.tsx`, `agents-sidebar.tsx`, `use-overflow-detection.ts`, `agent-chat-store.ts`)
 - Atoms: camelCase with `Atom` suffix (`spotlightOpenAtom`, `terminalSidebarOpenAtom`)
 
+## Gotchas
+
+### Electron drag regions (`WebkitAppRegion`)
+
+The frameless window relies on `WebkitAppRegion: 'drag'` (inline style; the type augmentation lives at `src/renderer/css.d.ts`) to mark areas that move the window. Any interactive control rendered **inside or under** a drag region is non-clickable — the OS captures the click for window movement before the renderer sees it. To make a control clickable, add `style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}` to its wrapper.
+
+The settings dialog (`features/settings/settings-content.tsx`) overlays the **top ~48 px of every tab** with an absolute `WebkitAppRegion: 'drag'` bar so users can move the window from above tab content. Anything actionable that renders in that zone — search inputs, add/refresh buttons, detail-panel toggles — needs the no-drag opt-out on its wrapper. Existing examples: the search/+ rows in every two-panel settings tab (Projects, Skills, Custom Agents, MCP, Plugins, Keyboard) and the Disabled/Active toggle in the plugin-detail header (`agents-plugins-tab.tsx`).
+
 ## Resetting App State
 
 To simulate a clean install (wipe database, settings):

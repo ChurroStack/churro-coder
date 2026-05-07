@@ -81,9 +81,11 @@ export function SettingsContent() {
     activeTab === 'keyboard' ||
     activeTab === 'plugins';
 
-  // Drag region for window — floats as an absolute overlay so it doesn't
-  // consume layout space. pointer-events:none lets clicks reach content
-  // beneath; the inner wrapper re-enables them for the sidebar button.
+  // Drag region for window — absolute overlay so it doesn't consume layout
+  // space. Any interactive control rendered in the top 48 px (here OR in tab
+  // content beneath this overlay) must opt out with `WebkitAppRegion: 'no-drag'`
+  // on its wrapper; otherwise the OS captures the click for window movement
+  // and the control becomes unfocusable. See apps/desktop/AGENTS.md → "Gotchas".
   const dragBar = (
     <div
       className="absolute inset-x-0 top-0 h-12 flex items-center px-2 z-10"
