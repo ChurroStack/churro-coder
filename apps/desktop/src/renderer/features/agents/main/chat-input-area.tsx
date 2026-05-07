@@ -1,7 +1,7 @@
 'use client';
 
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { ChevronDown, MoreVertical, RefreshCw } from 'lucide-react';
+import { ChevronDown, MoreVertical, RefreshCw, Telescope } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -1462,6 +1462,8 @@ export const ChatInputArea = memo(function ChatInputArea({
                       <button className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
                         {subChatMode === 'plan' ? (
                           <PlanIcon className="h-3.5 w-3.5 shrink-0" />
+                        ) : subChatMode === 'explore' ? (
+                          <Telescope className="h-3.5 w-3.5 shrink-0" />
                         ) : (
                           <AgentIcon className="h-3.5 w-3.5 shrink-0" />
                         )}
@@ -1568,7 +1570,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                           setModeTooltip(null);
                         }}>
                         <div className="flex items-center gap-2">
-                          <AgentIcon className="w-4 h-4 text-muted-foreground" />
+                          <Telescope className="w-4 h-4 text-muted-foreground" />
                           <span>Explore</span>
                         </div>
                         {subChatMode === 'explore' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}

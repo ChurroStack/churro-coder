@@ -2,7 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { AlignJustify, FolderOpen, Plus } from 'lucide-react';
+import { AlignJustify, FolderOpen, Plus, Telescope } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '../../../components/ui/button';
@@ -1918,6 +1918,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                           <DropdownMenuTrigger className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
                             {agentMode === 'plan' ? (
                               <PlanIcon className="h-3.5 w-3.5" />
+                            ) : agentMode === 'explore' ? (
+                              <Telescope className="h-3.5 w-3.5" />
                             ) : (
                               <AgentIcon className="h-3.5 w-3.5" />
                             )}
@@ -2023,7 +2025,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                                 setModeTooltip(null);
                               }}>
                               <div className="flex items-center gap-2">
-                                <AgentIcon className="w-4 h-4 text-muted-foreground" />
+                                <Telescope className="w-4 h-4 text-muted-foreground" />
                                 <span>Explore</span>
                               </div>
                               {agentMode === 'explore' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
