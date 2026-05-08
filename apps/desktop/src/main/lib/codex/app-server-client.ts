@@ -39,6 +39,22 @@ export type CodexAppServerClientOptions = {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 
+/**
+ * Typed error used when JSON-RPC requests are rejected because the underlying
+ * Codex app-server process is gone (disposed by recovery, exited, or never
+ * started). The chat router's recovery loop checks for this with `instanceof`
+ * to decide whether to spawn a fresh process before the next attempt.
+ */
+export class CodexAppServerClosedError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'CodexAppServerClosedError';
+    this.reason = reason;
+  }
+}
+
 function formatRpcError(error: JsonRpcMessage['error']): Error {
   const message =
     typeof error?.message === 'string' && error.message.length > 0 ? error.message : 'Codex app-server request failed';
@@ -104,8 +120,9 @@ export class CodexAppServerClient {
     this.write(payload);
   }
 
-  dispose(): void {
-    const error = new Error('Codex app-server disposed');
+  dispose(reason = 'disposed'): void {
+    const error = new CodexAppServerClosedError(`Codex app-server ${reason}`);
+    console.log(`[codex app-server] lifecycle=dispose reason=${reason}`);
     this.rejectAll(error);
     this.readline?.close();
     this.readline = null;
@@ -119,6 +136,7 @@ export class CodexAppServerClient {
 
   private async startAndInitialize(): Promise<void> {
     this.closedError = null;
+    console.log('[codex app-server] lifecycle=spawn');
     this.process = spawn(this.options.command, this.options.args || ['app-server'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: this.options.env,
@@ -156,6 +174,7 @@ export class CodexAppServerClient {
       }
     });
     this.notify('initialized', {});
+    console.log('[codex app-server] lifecycle=ready');
   }
 
   private async requestWithoutInitialize<T = unknown>(
@@ -194,7 +213,7 @@ export class CodexAppServerClient {
 
   private write(payload: unknown): void {
     if (!this.process?.stdin || this.process.stdin.destroyed) {
-      throw this.closedError || new Error('Codex app-server is not running');
+      throw this.closedError || new CodexAppServerClosedError('Codex app-server is not running');
     }
     this.process.stdin.write(`${JSON.stringify(payload)}\n`);
   }
@@ -258,13 +277,16 @@ export class CodexAppServerClient {
 
   private handleClose(error: Error): void {
     if (this.closedError) return;
-    this.closedError = error;
-    this.rejectAll(error);
+    const closedError =
+      error instanceof CodexAppServerClosedError ? error : new CodexAppServerClosedError(error.message);
+    this.closedError = closedError;
+    console.log(`[codex app-server] lifecycle=exit reason=${closedError.reason}`);
+    this.rejectAll(closedError);
     this.readline?.close();
     this.readline = null;
     this.process = null;
     this.initialized = null;
-    this.options.onExit?.(error);
+    this.options.onExit?.(closedError);
   }
 
   private rejectAll(error: Error): void {

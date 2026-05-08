@@ -13,9 +13,18 @@ import { computeCatchupBlock } from '../../multi-provider/catchup';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
 import {
   CodexAppServerClient,
+  CodexAppServerClosedError,
   type CodexAppServerNotification,
   type CodexAppServerServerRequest
 } from '../../codex/app-server-client';
+import {
+  CODEX_FORCE_RESTART_AFTER,
+  CODEX_MAX_ATTEMPTS,
+  classifyCodexFailure,
+  delayWithAbort,
+  getCodexRetryDelay,
+  type CodexFailureClassification
+} from '../../codex/recovery';
 import { mapAppServerUsageToMetadata, type CodexUsageMetadata } from '../../codex/usage-metadata';
 import { getClaudeShellEnvironment } from '../../claude/env';
 import { resolveProjectPathFromWorktree } from '../../claude-config';
@@ -1470,6 +1479,45 @@ async function getOrCreateAppServerClient(params: { authConfig?: { apiKey: strin
   });
   await client.ensureInitialized();
   return client;
+}
+
+/**
+ * Force-dispose the cached Codex app-server for the given auth fingerprint.
+ * Used by the chat retry loop when repeated failures suggest the underlying
+ * process is wedged and needs a clean restart. Pending JSON-RPC calls reject
+ * with `CodexAppServerClosedError`.
+ *
+ * The app-server is shared across every sub-chat that uses the same auth
+ * fingerprint, so we skip the dispose when *another* sub-chat is currently
+ * streaming through it - tearing down the shared process would surface
+ * `CodexAppServerClosedError` toasts in unrelated chats. The current chat
+ * still retries; if the process really is dead, its own pending RPCs will
+ * already have rejected and the next attempt will spawn fresh on cache miss
+ * via the existing `onExit` eviction.
+ */
+function disposeAppServerSessionForAuth(
+  authConfig?: { apiKey: string },
+  reason = 'recovery-restart',
+  excludeSubChatId?: string
+): void {
+  const sessionKey = getAppServerSessionKey(authConfig);
+  const existing = appServerSessions.get(sessionKey);
+  if (!existing) return;
+
+  for (const [otherSubChatId, otherStream] of activeStreams) {
+    if (otherSubChatId === excludeSubChatId) continue;
+    if (otherStream.client === existing.client && !otherStream.controller.signal.aborted) {
+      console.log(
+        `[codex] skip force-restart sessionKey=${sessionKey.slice(0, 8)} ` +
+          `reason=${reason} other=${otherSubChatId.slice(-8)}`
+      );
+      return;
+    }
+  }
+
+  console.log(`[codex] app-server force restart sessionKey=${sessionKey.slice(0, 8)} reason=${reason}`);
+  existing.client.dispose(reason);
+  appServerSessions.delete(sessionKey);
 }
 
 export function cleanupCodexAppServerSubChat(subChatId: string): void {
@@ -3157,60 +3205,11 @@ export const codexRouter = router({
                   console.warn('[codex] Failed to capture pre-turn git snapshot:', error);
                   return new Map<string, GitChangeSnapshotEntry>();
                 });
-                const client = await getOrCreateAppServerClient({
-                  authConfig: input.authConfig
-                });
-                const activeStream = activeStreams.get(input.subChatId);
-                if (activeStream?.runId === input.runId) {
-                  activeStream.client = client;
-                }
 
                 const hasAppManagedApiKey = Boolean(input.authConfig?.apiKey?.trim());
                 const persistedThreadId =
                   subChatThreadIds.get(input.subChatId) ||
                   (!hasAppManagedApiKey ? getLastSessionId(existingMessages) : undefined);
-
-                let threadId: string;
-                try {
-                  threadId = await startOrResumeAppServerThread({
-                    client,
-                    threadId: input.forceNewSession ? undefined : persistedThreadId,
-                    cwd: input.cwd,
-                    selectedModelId
-                  });
-                } catch (resumeError) {
-                  if (!persistedThreadId || input.forceNewSession) {
-                    throw resumeError;
-                  }
-
-                  console.info('[codex] App-server thread not resumable, starting fresh:', resumeError);
-                  threadId = await startOrResumeAppServerThread({
-                    client,
-                    cwd: input.cwd,
-                    selectedModelId
-                  });
-                }
-
-                subChatThreadIds.set(input.subChatId, threadId);
-                activeStreamsByThreadId.set(threadId, input.subChatId);
-                if (activeStream?.runId === input.runId) {
-                  activeStream.threadId = threadId;
-                }
-                resolvedSessionId = threadId;
-                span.setAttribute('session_id', threadId);
-                recordChatEvent({
-                  ts: Date.now(),
-                  phase: 'session-resolved',
-                  sub: input.subChatId.slice(-8),
-                  workspace_id: input.chatId,
-                  mode: input.mode,
-                  session_id: threadId,
-                  stream_id: input.runId.slice(-8)
-                });
-                Sentry.logger.info(
-                  `stream session resolved sub=${input.subChatId.slice(-8)}`,
-                  logAttributes({ session_id: threadId })
-                );
 
                 const mcpServersForUi = mcpSnapshot.groups.flatMap((group) =>
                   group.mcpServers.map((server) => ({
@@ -3246,15 +3245,12 @@ export const codexRouter = router({
                           'TaskList',
                           'AskUserQuestion'
                         ];
-                safeEmit({
-                  type: 'session-init',
-                  tools: [...builtInTools, ...mcpTools],
-                  mcpServers: mcpServersForUi,
-                  plugins: [],
-                  skills: []
-                });
-                safeEmit({ type: 'start' });
-                safeEmit({ type: 'start-step' });
+
+                const codexSandboxPolicy = await resolveSandboxPolicy(
+                  input.chatId,
+                  input.cwd,
+                  input.projectPath ?? input.cwd
+                );
 
                 const turnAccumulator: AppServerTurnAccumulator = {
                   subChatId: input.subChatId,
@@ -3272,58 +3268,207 @@ export const codexRouter = router({
                   lastEventAt: Date.now()
                 };
 
-                activeAppServerTurns.set(threadId, turnAccumulator);
                 const onAbort = () => {
                   const stream = activeStreams.get(input.subChatId);
                   if (stream?.runId === input.runId) {
                     void interruptCodexTurn(stream);
                   }
                 };
-                abortController.signal.addEventListener('abort', onAbort, {
-                  once: true
-                });
+                let abortListenerAttached = false;
+                let didEmitSessionInit = false;
+                let resolvedThreadId: string | undefined;
 
-                const codexSandboxPolicy = await resolveSandboxPolicy(
-                  input.chatId,
-                  input.cwd,
-                  input.projectPath ?? input.cwd
-                );
-                const turnResult = await client.request(
-                  'turn/start',
-                  {
-                    threadId,
-                    input: buildAppServerInput(augmentedPrompt, input.images),
-                    ...buildCodexTurnConfig({
+                // Inner attempt: tries the full lifecycle (spawn / resume / turn / wait)
+                // exactly once. Throws on any failure so the surrounding retry loop can
+                // classify it and decide whether to restart and try again.
+                const runChatAttempt = async (): Promise<void> => {
+                  const client = await getOrCreateAppServerClient({
+                    authConfig: input.authConfig
+                  });
+                  const activeStream = activeStreams.get(input.subChatId);
+                  if (activeStream?.runId === input.runId) {
+                    activeStream.client = client;
+                  }
+
+                  const candidateThreadId = input.forceNewSession ? undefined : resolvedThreadId || persistedThreadId;
+
+                  let threadId: string;
+                  try {
+                    threadId = await startOrResumeAppServerThread({
+                      client,
+                      threadId: candidateThreadId,
                       cwd: input.cwd,
+                      selectedModelId
+                    });
+                  } catch (resumeError) {
+                    if (!candidateThreadId || input.forceNewSession) {
+                      throw resumeError;
+                    }
+                    console.info('[codex] App-server thread not resumable, starting fresh:', resumeError);
+                    threadId = await startOrResumeAppServerThread({
+                      client,
+                      cwd: input.cwd,
+                      selectedModelId
+                    });
+                  }
+
+                  resolvedThreadId = threadId;
+                  subChatThreadIds.set(input.subChatId, threadId);
+                  activeStreamsByThreadId.set(threadId, input.subChatId);
+                  const streamForThread = activeStreams.get(input.subChatId);
+                  if (streamForThread?.runId === input.runId) {
+                    streamForThread.threadId = threadId;
+                  }
+                  resolvedSessionId = threadId;
+                  span.setAttribute('session_id', threadId);
+
+                  if (!didEmitSessionInit) {
+                    recordChatEvent({
+                      ts: Date.now(),
+                      phase: 'session-resolved',
+                      sub: input.subChatId.slice(-8),
+                      workspace_id: input.chatId,
                       mode: input.mode,
-                      selectedModelId,
-                      sandboxEnabled: codexSandboxPolicy.enabled,
-                      // Pass the symlink-expanded set so the OS sandbox accepts
-                      // both forms of paths like macOS /tmp <-> /private/tmp.
-                      writableRoots: codexSandboxPolicy.writableRootsExpanded.filter((r) => r !== input.cwd)
-                    })
-                  },
-                  30_000
-                );
-                const turnId = extractTurnIdFromStartResult(turnResult);
-                if (turnId) {
-                  activeThreadIdsByTurnId.set(turnId, threadId);
-                  const stream = activeStreams.get(input.subChatId);
-                  if (stream?.runId === input.runId) {
-                    stream.turnId = turnId;
+                      session_id: threadId,
+                      stream_id: input.runId.slice(-8)
+                    });
+                    Sentry.logger.info(
+                      `stream session resolved sub=${input.subChatId.slice(-8)}`,
+                      logAttributes({ session_id: threadId })
+                    );
+                    safeEmit({
+                      type: 'session-init',
+                      tools: [...builtInTools, ...mcpTools],
+                      mcpServers: mcpServersForUi,
+                      plugins: [],
+                      skills: []
+                    });
+                    safeEmit({ type: 'start' });
+                    safeEmit({ type: 'start-step' });
+                    didEmitSessionInit = true;
+                  }
+
+                  // Reset per-attempt accumulator timing fields so the idle-timeout
+                  // doesn't fire immediately based on the previous attempt's clock.
+                  turnAccumulator.completed = false;
+                  turnAccumulator.lastEventAt = Date.now();
+                  activeAppServerTurns.set(threadId, turnAccumulator);
+
+                  if (!abortListenerAttached) {
+                    abortController.signal.addEventListener('abort', onAbort, { once: true });
+                    abortListenerAttached = true;
+                  }
+
+                  const turnResult = await client.request(
+                    'turn/start',
+                    {
+                      threadId,
+                      input: buildAppServerInput(augmentedPrompt, input.images),
+                      ...buildCodexTurnConfig({
+                        cwd: input.cwd,
+                        mode: input.mode,
+                        selectedModelId,
+                        sandboxEnabled: codexSandboxPolicy.enabled,
+                        // Pass the symlink-expanded set so the OS sandbox accepts
+                        // both forms of paths like macOS /tmp <-> /private/tmp.
+                        writableRoots: codexSandboxPolicy.writableRootsExpanded.filter((r) => r !== input.cwd)
+                      })
+                    },
+                    30_000
+                  );
+                  const turnId = extractTurnIdFromStartResult(turnResult);
+                  if (turnId) {
+                    activeThreadIdsByTurnId.set(turnId, threadId);
+                    const stream = activeStreams.get(input.subChatId);
+                    if (stream?.runId === input.runId) {
+                      stream.turnId = turnId;
+                    }
+                  }
+
+                  await waitForAppServerTurn({
+                    accumulator: turnAccumulator,
+                    signal: abortController.signal,
+                    idleTimeoutMs: 60_000,
+                    maxRuntimeMs: 60 * 60 * 1000
+                  });
+                  if (!turnAccumulator.usageMetadata && !abortController.signal.aborted) {
+                    await new Promise((resolve) => setTimeout(resolve, 750));
+                  }
+                };
+
+                // Retry loop: classify each failure and either retry transparently
+                // (emitting a `retry-notification` chunk so the renderer keeps the
+                // stream in `streaming` state and never shows the Continue button),
+                // or rethrow so the outer catch surfaces the user-facing error.
+                let attempts = 0;
+                while (true) {
+                  try {
+                    await runChatAttempt();
+                    break;
+                  } catch (error) {
+                    attempts += 1;
+                    const observedSideEffects =
+                      turnAccumulator.parts.length > 0 || turnAccumulator.usageMetadata !== null;
+                    const aborted = abortController.signal.aborted;
+                    const classification: CodexFailureClassification = classifyCodexFailure(error, {
+                      observedSideEffects,
+                      attempt: attempts,
+                      aborted
+                    });
+
+                    console.log(
+                      `[codex] retry attempt=${attempts}/${CODEX_MAX_ATTEMPTS} ` +
+                        `category=${classification.category} retry=${classification.retry} ` +
+                        `forceRestart=${classification.forceRestart} ` +
+                        `sideEffects=${observedSideEffects} ` +
+                        `sub=${input.subChatId.slice(-8)}`
+                    );
+                    Sentry.logger.info(
+                      `stream attempt failed sub=${input.subChatId.slice(-8)}`,
+                      logAttributes({
+                        attempt: String(attempts),
+                        category: classification.category,
+                        will_retry: String(classification.retry),
+                        force_restart: String(classification.forceRestart)
+                      })
+                    );
+
+                    if (!classification.retry) {
+                      throw error;
+                    }
+
+                    safeEmit({
+                      type: 'retry-notification',
+                      message: classification.userMessage
+                    });
+
+                    const shouldForceRestart =
+                      classification.forceRestart ||
+                      attempts >= CODEX_FORCE_RESTART_AFTER ||
+                      error instanceof CodexAppServerClosedError;
+                    if (shouldForceRestart) {
+                      disposeAppServerSessionForAuth(
+                        input.authConfig,
+                        `recovery-${classification.category}`,
+                        input.subChatId
+                      );
+                    }
+
+                    await delayWithAbort(getCodexRetryDelay(attempts - 1), abortController.signal);
+                    if (abortController.signal.aborted) {
+                      throw error;
+                    }
                   }
                 }
 
-                await waitForAppServerTurn({
-                  accumulator: turnAccumulator,
-                  signal: abortController.signal,
-                  idleTimeoutMs: 60_000,
-                  maxRuntimeMs: 60 * 60 * 1000
-                });
-                if (!turnAccumulator.usageMetadata && !abortController.signal.aborted) {
-                  await new Promise((resolve) => setTimeout(resolve, 750));
+                if (abortListenerAttached) {
+                  abortController.signal.removeEventListener('abort', onAbort);
                 }
-                abortController.signal.removeEventListener('abort', onAbort);
+
+                if (!resolvedThreadId) {
+                  throw new Error('Codex chat completed without resolving a thread id');
+                }
+                const threadId = resolvedThreadId;
 
                 flushTextPart(turnAccumulator);
 
@@ -3428,6 +3573,24 @@ export const codexRouter = router({
                 );
                 finishStreamSpan('ok', { session_id: threadId });
               } catch (error) {
+                // If the user cancelled mid-retry (or any time before the
+                // success path took over) the original transient error gets
+                // rethrown — but surfacing it as an `error` chunk would show
+                // the user a confusing "stream idle for 60s" toast for what
+                // was really a clean cancel. Treat any aborted exit as a
+                // benign cancel: emit `finish` only, no error chunk.
+                if (abortController.signal.aborted) {
+                  console.log(`[codex] stream cancelled sub=${input.subChatId.slice(-8)} (abort during retry)`);
+                  Sentry.logger.info(
+                    `stream cancelled sub=${input.subChatId.slice(-8)}`,
+                    logAttributes({ reason: 'aborted' })
+                  );
+                  safeEmit({ type: 'finish' });
+                  safeComplete();
+                  finishStreamSpan('cancelled');
+                  return;
+                }
+
                 const normalized = extractCodexError(error);
 
                 console.error('[codex] chat stream error:', error);
