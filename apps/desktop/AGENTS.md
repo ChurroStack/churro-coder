@@ -34,6 +34,7 @@ This is the **slim hub**. It carries the always-needed context (what the app is,
 | [docs/workflow-state.md](docs/workflow-state.md) | Plan→Code→Review→PR state machine, `pendingXxxMessageAtom` pattern, invariants |
 | [docs/chat-orchestrator.md](docs/chat-orchestrator.md) | Layered architecture (machines/services/components/hooks), refactor playbook for `active-chat.tsx`, bug-cluster regression matrix, Phase 3 wiring contract |
 | [docs/testing.md](docs/testing.md) | 6-layer test battery, when to add a test, conventions, `test-utils/` helpers |
+| [docs/prompts.md](docs/prompts.md) | **Read before adding any LLM-bound prompt.** Invariant: every agent prompt is a `.j2` template under `src/prompts/` — never an inline string. Covers layout, how to add one, user overrides via `.cscode/worktree.json`, and gotchas |
 | [docs/debug.md](docs/debug.md) | Structured debug logging server + workflow |
 | [docs/postmortems/](docs/postmortems/) | Incident writeups with triage heuristics for recurring bug classes |
 | [docs/status.md](docs/status.md) | Current branch's recent work + known limitations / deferred items |
