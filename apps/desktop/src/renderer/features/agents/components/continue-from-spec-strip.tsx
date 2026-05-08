@@ -1,5 +1,5 @@
 import { useAtom } from 'jotai';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { ChevronDown, ClipboardList, Loader2 } from 'lucide-react';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
 import { Kbd } from '../../../components/ui/kbd';
 import { cn } from '../../../lib/utils';
@@ -32,13 +32,16 @@ export function ContinueFromSpecStrip({
     <section className="rounded-md border border-border bg-card/80 backdrop-blur-sm">
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+        className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
         onClick={() => setExpanded((value) => !value)}>
-        <div className="space-y-1">
-          <div className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
+            <ClipboardList className="h-4 w-4" />
+          </div>
+          <div className="shrink-0 whitespace-nowrap text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Continue from a spec
           </div>
-          <div className="text-sm text-muted-foreground">
+          <div className="min-w-0 truncate whitespace-nowrap text-sm text-muted-foreground">
             {isLoading ? 'Loading OpenSpec changes…' : `${changes.length} available · pre-fills the wizard`}
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAtom } from 'jotai';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { FileText } from 'lucide-react';
+import { ClipboardList } from 'lucide-react';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '../../../components/ui/command';
 import { Kbd } from '../../../components/ui/kbd';
@@ -78,7 +78,7 @@ export function SpecPickerDialog({ changes, onSelectSpec }: SpecPickerDialogProp
                     }}
                     className="mx-2 gap-3 rounded-2xl px-4 py-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground">
-                      <FileText className="h-4 w-4" />
+                      <ClipboardList className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="truncate text-sm font-medium text-foreground">
