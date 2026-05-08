@@ -22,8 +22,11 @@ export type PickProjectOutput =
 
 export function pickProject(input: PickProjectInput): PickProjectOutput {
   if (input.validatedProject) return { kind: 'keep' };
-  if (!input.projects) return { kind: 'wait' };
-  if (input.projects.length === 0) return { kind: 'show-empty' };
+  if (input.projects === undefined) return { kind: 'wait' };
+  // Defensive: a corrupted react-query cache can hand us a non-array value
+  // (e.g. `{}` from a malformed persisted blob). Treat that the same as empty
+  // — Sentry #118566392 was `input.projects.find is not a function`.
+  if (!Array.isArray(input.projects) || input.projects.length === 0) return { kind: 'show-empty' };
 
   const fromParam = input.paramProjectId ? input.projects.find((project) => project.id === input.paramProjectId) : null;
   if (fromParam) {

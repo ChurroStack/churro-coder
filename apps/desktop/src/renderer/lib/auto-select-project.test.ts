@@ -149,4 +149,19 @@ describe('pickProject', () => {
       source: 'most-recent'
     });
   });
+
+  // Regression: Sentry #118566392 — a corrupted react-query cache handed pickProject
+  // a non-array `projects` value (e.g. `{}`), slipping past `!projects` and the
+  // `length === 0` check, then crashing on `.find is not a function`.
+  it('returns show-empty if projects is a non-array value', () => {
+    expect(
+      pickProject({
+        validatedProject: null,
+        paramProjectId: null,
+        chatProjectId: null,
+        projects: {} as unknown as AutoSelectProjectRow[],
+        selectedChatId: null
+      })
+    ).toEqual({ kind: 'show-empty' });
+  });
 });
