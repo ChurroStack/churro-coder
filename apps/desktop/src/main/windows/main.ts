@@ -231,7 +231,7 @@ function registerIpcHandlers(): void {
   });
 
   // New window - optionally open with specific chat/subchat
-  ipcMain.handle('window:new', (_event, options?: { chatId?: string; subChatId?: string }) => {
+  ipcMain.handle('window:new', (_event, options?: { chatId?: string; subChatId?: string; projectId?: string }) => {
     // If chatId specified, check ownership atomically via focusChatOwner
     if (options?.chatId && windowManager.focusChatOwner(options.chatId)) {
       return { blocked: true };
@@ -505,8 +505,9 @@ function getUseNativeFramePreference(): boolean {
  * @param options Optional settings for the new window
  * @param options.chatId Open this chat in the new window
  * @param options.subChatId Open this sub-chat in the new window
+ * @param options.projectId Preselect this project in the new window
  */
-export function createWindow(options?: { chatId?: string; subChatId?: string }): BrowserWindow {
+export function createWindow(options?: { chatId?: string; subChatId?: string; projectId?: string }): BrowserWindow {
   // Register IPC handlers before creating first window
   registerIpcHandlers();
 
@@ -697,6 +698,7 @@ export function createWindow(options?: { chatId?: string; subChatId?: string }):
       params.set('windowId', windowId);
       if (options?.chatId) params.set('chatId', options.chatId);
       if (options?.subChatId) params.set('subChatId', options.subChatId);
+      if (options?.projectId) params.set('projectId', options.projectId);
     };
 
     if (devServerUrl) {

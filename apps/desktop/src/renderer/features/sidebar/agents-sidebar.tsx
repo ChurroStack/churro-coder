@@ -423,7 +423,7 @@ const AgentChatItem = React.memo(function AgentChatItem({
   chatName: string | null;
   chatBranch: string | null;
   chatUpdatedAt: Date | null;
-  chatProjectId: string;
+  chatProjectId: string | null;
   globalIndex: number;
   isSelected: boolean;
   isLoading: boolean;
@@ -721,7 +721,10 @@ const AgentChatItem = React.memo(function AgentChatItem({
             {isDesktop && (
               <ContextMenuItem
                 onClick={async () => {
-                  const result = await window.desktopApi?.newWindow({ chatId });
+                  const result = await window.desktopApi?.newWindow({
+                    chatId,
+                    projectId: chatProjectId ?? undefined
+                  });
                   if (result?.blocked) {
                     toast.info('This workspace is already open in another window', {
                       description: 'Switching to the existing window.',
@@ -943,7 +946,7 @@ const ChatListSection = React.memo(function ChatListSection({
               chatName={chat.name}
               chatBranch={chat.branch}
               chatUpdatedAt={chat.updatedAt}
-              chatProjectId={chat.projectId ?? ''}
+              chatProjectId={chat.projectId ?? null}
               globalIndex={globalIndex}
               isSelected={isSelected}
               isLoading={isLoading}

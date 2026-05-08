@@ -86,7 +86,11 @@ export interface DesktopApi {
   onAuthError: (callback: (error: string) => void) => () => void;
 
   // Multi-window
-  newWindow: (options?: { chatId?: string; subChatId?: string }) => Promise<{ blocked: boolean } | void>;
+  newWindow: (options?: {
+    chatId?: string;
+    subChatId?: string;
+    projectId?: string;
+  }) => Promise<{ blocked: boolean } | void>;
 
   // Chat ownership — prevent same chat open in multiple windows
   claimChat: (chatId: string) => Promise<{ ok: true } | { ok: false; ownerStableId: string }>;

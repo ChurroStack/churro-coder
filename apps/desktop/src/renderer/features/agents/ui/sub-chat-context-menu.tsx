@@ -15,8 +15,8 @@ import { useResolvedHotkeyDisplay } from '../../../lib/hotkeys';
 import { exportChat, copyChat, type ExportFormat } from '../lib/export-chat';
 import { toast } from 'sonner';
 
-const openInNewWindow = async (chatId: string, subChatId: string) => {
-  const result = await window.desktopApi?.newWindow({ chatId, subChatId });
+const openInNewWindow = async (chatId: string, subChatId: string, projectId?: string | null) => {
+  const result = await window.desktopApi?.newWindow({ chatId, subChatId, projectId: projectId ?? undefined });
   if (result?.blocked) {
     toast.info('This workspace is already open in another window', {
       description: 'Switching to the existing window.',
@@ -55,6 +55,8 @@ interface SubChatContextMenuProps {
   canCloseOtherTabs?: boolean;
   /** Parent chat ID for export functionality */
   chatId?: string | null;
+  /** Parent project ID so the new window opens on the same workspace */
+  projectId?: string | null;
   /** Open this sub-chat in split view */
   onOpenInSplit?: (subChatId: string) => void;
   /** Close the current split view */
@@ -88,6 +90,7 @@ export function SubChatContextMenu({
   hasTabsToRight = false,
   canCloseOtherTabs = false,
   chatId,
+  projectId,
   onOpenInSplit,
   onCloseSplit,
   isActiveTab = false,
@@ -132,7 +135,9 @@ export function SubChatContextMenu({
         </ContextMenuSub>
       )}
       {isDesktopApp() && chatId && (
-        <ContextMenuItem onClick={() => openInNewWindow(chatId, subChat.id)}>Open in new window</ContextMenuItem>
+        <ContextMenuItem onClick={() => openInNewWindow(chatId, subChat.id, projectId)}>
+          Open in new window
+        </ContextMenuItem>
       )}
       {isSplitTab ? (
         <>

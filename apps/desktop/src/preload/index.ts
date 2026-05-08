@@ -121,7 +121,7 @@ contextBridge.exposeInMainWorld('desktopApi', {
   getZoom: () => ipcRenderer.invoke('window:get-zoom'),
 
   // Multi-window
-  newWindow: (options?: { chatId?: string; subChatId?: string }) =>
+  newWindow: (options?: { chatId?: string; subChatId?: string; projectId?: string }) =>
     ipcRenderer.invoke('window:new', options) as Promise<{ blocked: boolean } | void>,
   setWindowTitle: (title: string) => ipcRenderer.invoke('window:set-title', title),
 
@@ -344,7 +344,11 @@ export interface DesktopApi {
   zoomReset: () => Promise<void>;
   getZoom: () => Promise<number>;
   // Multi-window
-  newWindow: (options?: { chatId?: string; subChatId?: string }) => Promise<{ blocked: boolean } | void>;
+  newWindow: (options?: {
+    chatId?: string;
+    subChatId?: string;
+    projectId?: string;
+  }) => Promise<{ blocked: boolean } | void>;
   setWindowTitle: (title: string) => Promise<void>;
   // Chat ownership — prevent same chat open in multiple windows
   claimChat: (chatId: string) => Promise<{ ok: true } | { ok: false; ownerStableId: string }>;

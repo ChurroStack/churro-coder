@@ -11,6 +11,7 @@ import {
   loadingSubChatsAtom,
   agentsSubChatUnseenChangesAtom,
   selectedAgentChatIdAtom,
+  selectedProjectAtom,
   previousAgentChatIdAtom,
   subChatFilesAtom,
   justCreatedIdsAtom,
@@ -279,6 +280,7 @@ export function AgentsSubChatsSidebar({
 
   const [loadingSubChats] = useAtom(loadingSubChatsAtom);
   const subChatFiles = useAtomValue(subChatFilesAtom);
+  const selectedProject = useAtomValue(selectedProjectAtom);
   const selectedTeamId = useAtomValue(selectedTeamIdAtom);
   const [selectedChatId, setSelectedChatId] = useAtom(selectedAgentChatIdAtom);
   const previousChatId = useAtomValue(previousAgentChatIdAtom);
@@ -1476,6 +1478,7 @@ export function AgentsSubChatsSidebar({
                                       currentIndex={globalIndex}
                                       totalCount={filteredSubChats.length}
                                       chatId={parentChatId}
+                                      projectId={selectedProject?.id ?? null}
                                       onOpenInSplit={addToSplit}
                                       onCloseSplit={closeSplit}
                                       onRemoveFromSplit={removeFromSplit}
@@ -1757,6 +1760,7 @@ export function AgentsSubChatsSidebar({
                                       currentIndex={globalIndex}
                                       totalCount={filteredSubChats.length}
                                       chatId={parentChatId}
+                                      projectId={selectedProject?.id ?? null}
                                       onOpenInSplit={addToSplit}
                                       onCloseSplit={closeSplit}
                                       onRemoveFromSplit={removeFromSplit}

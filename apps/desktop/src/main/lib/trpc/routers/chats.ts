@@ -406,6 +406,13 @@ export const chatsRouter = router({
     return { ...chat, subChats: chatSubChats, project };
   }),
 
+  getProjectIdById: publicProcedure.input(z.object({ chatId: z.string() })).query(({ input }) => {
+    const db = getDatabase();
+    const row = db.select({ projectId: chats.projectId }).from(chats).where(eq(chats.id, input.chatId)).get();
+
+    return row?.projectId ?? null;
+  }),
+
   /**
    * Create a new chat with optional git worktree
    */
