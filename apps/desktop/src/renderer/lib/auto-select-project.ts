@@ -39,9 +39,14 @@ export function pickProject(input: PickProjectInput): PickProjectOutput {
     return { kind: 'select', project: fromChat, source: 'chat-lookup' };
   }
 
+  // Defensive: `projects.length > 0` does not guarantee `projects[0]` is defined
+  // (sparse arrays, cache corruption — see #85's non-array oldData guard).
+  const mostRecent = input.projects.find((project): project is AutoSelectProjectRow => project != null);
+  if (!mostRecent) return { kind: 'show-empty' };
+
   return {
     kind: 'select',
-    project: input.projects[0]!,
+    project: mostRecent,
     source: 'most-recent'
   };
 }

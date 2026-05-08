@@ -118,4 +118,35 @@ describe('pickProject', () => {
       source: 'most-recent'
     });
   });
+
+  // Regression: a corrupted/sparse projects array (e.g. [undefined]) used to make
+  // pickProject return { kind: 'select', project: undefined }, crashing App.tsx with
+  // "Cannot read properties of undefined (reading 'id')".
+  it('returns show-empty if the projects array contains only nullish entries', () => {
+    expect(
+      pickProject({
+        validatedProject: null,
+        paramProjectId: null,
+        chatProjectId: null,
+        projects: [undefined as unknown as AutoSelectProjectRow],
+        selectedChatId: null
+      })
+    ).toEqual({ kind: 'show-empty' });
+  });
+
+  it('skips nullish entries and returns the first defined project', () => {
+    expect(
+      pickProject({
+        validatedProject: null,
+        paramProjectId: null,
+        chatProjectId: null,
+        projects: [undefined as unknown as AutoSelectProjectRow, projects[1]!],
+        selectedChatId: null
+      })
+    ).toEqual({
+      kind: 'select',
+      project: projects[1],
+      source: 'most-recent'
+    });
+  });
 });
