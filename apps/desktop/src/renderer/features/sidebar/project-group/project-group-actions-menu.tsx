@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
-import { BarChart3, Settings } from 'lucide-react';
+import { BarChart3, Settings, SquareArrowOutUpRight } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../../../components/confirm-delete-dialog';
 import { OpenInMenuItems, getAppOption } from '../../../components/open-in-menu-items';
 import { ProjectGroupMenuButton } from './project-group-header';
@@ -80,6 +80,10 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
     setSidebarOpen(true);
   }
 
+  function openNewWorkspaceWindow() {
+    window.desktopApi?.newWindow({ projectId: project.id });
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -98,6 +102,11 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
           </DropdownMenuSub>
           <DropdownMenuItem onClick={() => openInFinderMutation.mutate(project.path)}>
             Reveal in Finder
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={openNewWorkspaceWindow} className="flex items-center gap-2">
+            <SquareArrowOutUpRight className="size-4" />
+            <span>New workspace window</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={openProjectStats} className="flex items-center gap-2">
