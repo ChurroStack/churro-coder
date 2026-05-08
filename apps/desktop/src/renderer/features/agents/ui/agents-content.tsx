@@ -73,6 +73,7 @@ import { isDesktopApp } from '../../../lib/utils/platform';
 import { remoteTrpc } from '../../../lib/remote-trpc';
 import { SettingsContent } from '../../settings/settings-content';
 import { UsageContent } from '../../usage/usage-content';
+import { ProjectStatsContent } from '../../project-stats/project-stats-content';
 // Desktop mock
 const useIsAdmin = () => false;
 
@@ -822,6 +823,8 @@ export function AgentsContent({
           <SettingsContent />
         ) : desktopView === 'usage' ? (
           <UsageContent />
+        ) : desktopView === 'project-stats' ? (
+          <ProjectStatsContent />
         ) : betaAutomationsEnabled && desktopView === 'automations' ? (
           <AutomationsView />
         ) : betaAutomationsEnabled && desktopView === 'automations-detail' ? (

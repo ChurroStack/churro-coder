@@ -47,6 +47,7 @@ import { DetailsRail } from './details-rail';
 import { SettingsSidebar } from '../settings/settings-sidebar';
 import { SettingsContent } from '../settings/settings-content';
 import { UsageContent } from '../usage/usage-content';
+import { ProjectStatsContent } from '../project-stats/project-stats-content';
 import { KanbanView } from '../kanban';
 import { AutomationsView, AutomationsDetailView, InboxView } from '../automations';
 import { NewChatForm } from '../agents/main/new-chat-form';
@@ -233,6 +234,7 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
           <div className="absolute inset-0 z-10 bg-background overflow-hidden">
             {systemView === 'settings' && <SettingsContent />}
             {systemView === 'usage' && <UsageContent />}
+            {systemView === 'project-stats' && <ProjectStatsContent />}
             {systemView === 'kanban' && <KanbanView />}
             {systemView === 'new-workspace' && (
               <div className="h-full flex flex-col relative overflow-hidden">

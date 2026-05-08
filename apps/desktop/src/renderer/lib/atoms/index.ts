@@ -73,16 +73,19 @@ export {
   AGENT_MODES,
   getNextMode,
 
-  // Desktop view navigation (Automations / Inbox)
+  // Desktop view navigation (Automations / Inbox / Project stats)
   desktopViewAtom,
   automationDetailIdAtom,
   automationTemplateParamsAtom,
   inboxSelectedChatIdAtom,
   agentsInboxSidebarWidthAtom,
   inboxMobileViewModeAtom,
+  projectStatsTargetIdAtom,
+  projectStatsPeriodAtom,
   type DesktopView,
   type AutomationTemplateParams,
-  type InboxMobileViewMode
+  type InboxMobileViewMode,
+  type ProjectStatsPeriod
 } from '../../features/agents/atoms';
 
 // ============================================

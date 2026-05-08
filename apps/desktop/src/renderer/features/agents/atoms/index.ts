@@ -1233,7 +1233,14 @@ export const showMessageJsonAtom = atomWithStorage<boolean>('agents:showMessageJ
 
 // Desktop view mode - takes priority over chat-based rendering
 // null = default behavior (chat/new-chat/kanban)
-export type DesktopView = 'automations' | 'automations-detail' | 'inbox' | 'settings' | 'usage' | null;
+export type DesktopView =
+  | 'automations'
+  | 'automations-detail'
+  | 'inbox'
+  | 'settings'
+  | 'usage'
+  | 'project-stats'
+  | null;
 export const desktopViewAtom = atom<DesktopView>(null);
 
 // Usage page — persisted user preferences
@@ -1241,6 +1248,11 @@ export type UsagePeriod = '7d' | '30d' | '90d' | 'all';
 export type UsageSourceFilter = 'claude' | 'codex' | 'all';
 export const usagePeriodAtom = atomWithStorage<UsagePeriod>('usage-period', '30d');
 export const usageSourceAtom = atomWithStorage<UsageSourceFilter>('usage-source', 'all');
+
+// Project statistics page
+export type ProjectStatsPeriod = '7d' | '30d' | '90d' | '1y' | 'all';
+export const projectStatsTargetIdAtom = atom<string | null>(null);
+export const projectStatsPeriodAtom = atomWithStorage<ProjectStatsPeriod>('project-stats-period', '90d');
 
 // Which automation is being viewed/edited (ID or "new" for creation)
 export const automationDetailIdAtom = atom<string | null>(null);

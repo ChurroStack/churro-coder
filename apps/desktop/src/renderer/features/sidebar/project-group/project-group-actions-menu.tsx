@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
-import { Settings } from 'lucide-react';
+import { BarChart3, Settings } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../../../components/confirm-delete-dialog';
 import { OpenInMenuItems, getAppOption } from '../../../components/open-in-menu-items';
 import { ProjectGroupMenuButton } from './project-group-header';
@@ -19,7 +19,8 @@ import {
   agentsSettingsDialogActiveTabAtom,
   agentsSidebarOpenAtom,
   preferredEditorAtom,
-  desktopViewAtom
+  desktopViewAtom,
+  projectStatsTargetIdAtom
 } from '../../../lib/atoms';
 import { trpc } from '../../../lib/trpc';
 import type { ProjectRecord } from '../grouping/group-chats-by-project';
@@ -33,6 +34,7 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
   const setSettingsTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
   const setDesktopView = useSetAtom(desktopViewAtom);
   const setSidebarOpen = useSetAtom(agentsSidebarOpenAtom);
+  const setProjectStatsTargetId = useSetAtom(projectStatsTargetIdAtom);
   const openInAppMutation = trpc.external.openInApp.useMutation();
   const openInFinderMutation = trpc.external.openInFinder.useMutation();
   const archiveBatchMutation = trpc.chats.archiveBatch.useMutation({
@@ -52,7 +54,7 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
   const removeDisabled = chatIds.length > 0;
   const archiveDisabled = chatIds.length === 0;
 
-  function openProjectSettings() {
+  function selectThisProject() {
     setSelectedProject({
       id: project.id,
       name: project.name ?? project.gitRepo ?? 'Untitled project',
@@ -62,8 +64,19 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
       gitOwner: project.gitOwner ?? null,
       gitRepo: project.gitRepo ?? null
     });
+  }
+
+  function openProjectSettings() {
+    selectThisProject();
     setSettingsTab('projects');
     setDesktopView('settings');
+    setSidebarOpen(true);
+  }
+
+  function openProjectStats() {
+    selectThisProject();
+    setProjectStatsTargetId(project.id);
+    setDesktopView('project-stats');
     setSidebarOpen(true);
   }
 
@@ -85,6 +98,11 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
           </DropdownMenuSub>
           <DropdownMenuItem onClick={() => openInFinderMutation.mutate(project.path)}>
             Reveal in Finder
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={openProjectStats} className="flex items-center gap-2">
+            <BarChart3 className="size-4" />
+            <span>Project statistics</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={openProjectSettings} className="flex items-center gap-2">

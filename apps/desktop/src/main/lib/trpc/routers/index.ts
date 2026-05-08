@@ -18,6 +18,7 @@ import { commandsRouter } from './commands';
 import { voiceRouter } from './voice';
 import { pluginsRouter } from './plugins';
 import { usageRouter } from './usage';
+import { projectStatsRouter } from './project-stats';
 import { sandboxRouter } from './sandbox';
 import { sandboxImportRouter } from './sandbox-import';
 import { analyticsRouter } from './analytics';
@@ -51,6 +52,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     voice: voiceRouter,
     plugins: pluginsRouter,
     usage: usageRouter,
+    projectStats: projectStatsRouter,
     analytics: analyticsRouter,
     sandbox: sandboxRouter,
     sandboxImport: sandboxImportRouter,
