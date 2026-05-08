@@ -12,17 +12,87 @@ interface ExtractedText {
   text: string;
 }
 
-/**
- * Extract all searchable text from a message part
- * NOTE: Currently only searches text parts for simplicity.
- * Tool content search was removed to avoid complexity with highlighting.
- */
 function extractTextFromPart(messageId: string, partIndex: number, part: MessagePart): ExtractedText[] {
   const results: ExtractedText[] = [];
 
-  // Only search text parts - tool content search is disabled for now
+  const addText = (text: string | undefined | null) => {
+    if (text && typeof text === 'string' && text.trim()) {
+      results.push({ messageId, partIndex, partType: part.type, text });
+    }
+  };
+
   if (part.type === 'text' && part.text && typeof part.text === 'string' && part.text.trim()) {
     results.push({ messageId, partIndex, partType: 'text', text: part.text });
+    return results;
+  }
+
+  switch (part.type) {
+    case 'tool-Bash':
+      addText([part.input?.command, part.output?.stdout, part.output?.stderr].filter(Boolean).join('\n'));
+      break;
+    case 'tool-Read':
+      addText([part.input?.file_path, part.output?.content].filter(Boolean).join('\n'));
+      break;
+    case 'tool-Write':
+    case 'tool-Edit': {
+      const patchText = Array.isArray(part.output?.structuredPatch)
+        ? part.output.structuredPatch.flatMap((patch: { lines?: string[] }) => patch.lines || []).join('\n')
+        : undefined;
+      addText([part.input?.file_path, part.input?.new_string, patchText].filter(Boolean).join('\n'));
+      break;
+    }
+    case 'tool-Glob': {
+      const outputText = Array.isArray(part.output) ? part.output.join('\n') : '';
+      addText([part.input?.pattern, part.input?.path, outputText].filter(Boolean).join('\n'));
+      break;
+    }
+    case 'tool-Grep':
+      addText([part.input?.pattern, part.input?.path, part.output?.content].filter(Boolean).join('\n'));
+      break;
+    case 'tool-WebSearch': {
+      const resultsText = Array.isArray(part.output?.results)
+        ? part.output.results
+            .map((item: { title?: string; snippet?: string; url?: string }) =>
+              [item.title, item.snippet, item.url].filter(Boolean).join(' ')
+            )
+            .join('\n')
+        : '';
+      addText([part.input?.query, resultsText].filter(Boolean).join('\n'));
+      break;
+    }
+    case 'tool-WebFetch':
+      addText(
+        [part.input?.url, part.input?.prompt, part.output?.markdown, part.output?.content].filter(Boolean).join('\n')
+      );
+      break;
+    case 'tool-Thinking':
+      addText(part.thinking || part.text || part.input?.text);
+      break;
+    case 'tool-TodoWrite': {
+      const todosText = Array.isArray(part.input?.todos)
+        ? part.input.todos
+            .map((todo: { content?: string; status?: string }) => [todo.status, todo.content].filter(Boolean).join(' '))
+            .join('\n')
+        : '';
+      addText(todosText);
+      break;
+    }
+    case 'tool-AskUserQuestion': {
+      const questionsText = Array.isArray(part.input?.questions)
+        ? part.input.questions.map((question: { question?: string }) => question.question || '').join('\n')
+        : '';
+      addText(questionsText);
+      break;
+    }
+    default: {
+      const fallbackParts: string[] = [];
+      if (typeof part.text === 'string') fallbackParts.push(part.text);
+      if (typeof part.output === 'string') fallbackParts.push(part.output);
+      if (part.input && typeof part.input === 'object') fallbackParts.push(JSON.stringify(part.input));
+      if (part.output && typeof part.output === 'object') fallbackParts.push(JSON.stringify(part.output));
+      addText(fallbackParts.join('\n'));
+      break;
+    }
   }
 
   return results;
@@ -174,8 +244,7 @@ function extractTextFromPartFull(
 */
 
 /**
- * Extract all searchable text from messages
- * Currently only extracts from text parts (tool content search disabled)
+ * Extract all searchable text from messages.
  */
 export function extractSearchableText(messages: Message[]): ExtractedText[] {
   const results: ExtractedText[] = [];

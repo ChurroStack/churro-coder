@@ -7,6 +7,9 @@ import { FileText } from 'lucide-react';
 import { IconSpinner } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
+import { FindBar } from '../../../find/find-bar';
+import { useDomTextFind } from '../../../find/use-dom-text-find';
+import { useFindScope } from '../../../find/use-find-scope';
 import type { ChangedFile } from '@/../shared/changes-types';
 import { getStatusIndicator } from '../../utils/status';
 
@@ -33,9 +36,15 @@ export const CommitDiffSplit = memo(function CommitDiffSplit({
   selectedFilePath,
   onFileSelect
 }: CommitDiffSplitProps) {
+  const scopeRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [leftWidth, setLeftWidth] = useAtom(commitDiffSplitWidthAtom);
   const [isDragging, setIsDragging] = useState(false);
+  const findScope = useFindScope(scopeRef, true);
+  const domFind = useDomTextFind({
+    rootRef: containerRef,
+    contentKey: `${commitHash}:${selectedFilePath || ''}:${files.map((file) => file.path).join('|')}`
+  });
 
   const handleFileClick = useCallback(
     (file: ChangedFile) => {
@@ -79,7 +88,27 @@ export const CommitDiffSplit = memo(function CommitDiffSplit({
   }, [isDragging, setLeftWidth]);
 
   return (
-    <div ref={containerRef} className="flex-1 flex min-h-0 overflow-hidden">
+    <div
+      ref={(node) => {
+        scopeRef.current = node;
+        containerRef.current = node;
+      }}
+      className="relative flex flex-1 min-h-0 overflow-hidden">
+      <FindBar
+        isOpen={findScope.isOpen}
+        query={domFind.query}
+        current={domFind.current}
+        total={domFind.total}
+        selectionVersion={findScope.selectionVersion}
+        searchCompleted={domFind.searchCompleted}
+        onQueryChange={domFind.setQuery}
+        onClose={() => {
+          findScope.setIsOpen(false);
+          domFind.close();
+        }}
+        onNext={domFind.next}
+        onPrev={domFind.prev}
+      />
       {/* Left: file list */}
       <div style={{ width: leftWidth, flexShrink: 0 }} className="border-r border-border/50 overflow-y-auto">
         {files.length === 0 ? (

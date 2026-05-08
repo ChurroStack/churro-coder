@@ -10,6 +10,7 @@ import type { SettingsTab, CustomHotkeysConfig } from '../../../lib/atoms';
 import { getResolvedHotkey, type ShortcutActionId } from '../../../lib/hotkeys';
 import { appStore } from '../../../lib/jotai-store';
 import { spotlightOpenAtom } from '../../spotlight/atoms';
+import { dispatchFindToScope, getActiveFindScope, getNearestFindScope } from '../../find/constants';
 
 // ============================================================================
 // ACTION ID MAPPING
@@ -259,13 +260,20 @@ export function useAgentsHotkeys(config: AgentsHotkeysManagerConfig, options: Us
       const searchInChatHotkey = getHotkeyForAction('search-in-chat');
       if (searchInChatHotkey && matchesHotkey(e, searchInChatHotkey)) {
         const active = document.activeElement;
-        const isInFileViewer = active?.closest?.('[data-file-viewer-path]');
-        if (!isInFileViewer) {
+        const monacoEditor = active?.closest?.('.monaco-editor');
+        if (monacoEditor) return;
+
+        const scopedFind = getNearestFindScope(active instanceof Element ? active : null) || getActiveFindScope();
+        if (dispatchFindToScope(scopedFind)) {
           e.preventDefault();
           e.stopPropagation();
-          handleHotkeyAction('toggle-chat-search');
           return;
         }
+
+        e.preventDefault();
+        e.stopPropagation();
+        handleHotkeyAction('toggle-chat-search');
+        return;
       }
 
       // Check open-spotlight hotkey (Cmd+K and Cmd+P).

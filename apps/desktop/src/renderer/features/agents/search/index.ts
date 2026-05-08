@@ -28,6 +28,7 @@ export {
 
 // Components
 export { ChatSearchBar } from './chat-search-bar';
+export { SearchHighlightContainer } from './search-highlight-container';
 
 // Context
 export {

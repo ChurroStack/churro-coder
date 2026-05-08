@@ -17,6 +17,10 @@ import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer';
 import { CopyButton } from '../../agents/ui/message-action-buttons';
 import { EDITOR_ICONS } from '@/lib/editor-icons';
 import { fileViewerWordWrapAtom } from '../../agents/atoms';
+import { FindBar } from '../../find/find-bar';
+import { markCurrentFindScope } from '../../find/constants';
+import { useDomTextFind } from '../../find/use-dom-text-find';
+import { useFindScope } from '../../find/use-find-scope';
 import { defaultEditorOptions, getMonacoTheme } from './monaco-config';
 import { FileTitleBlock } from './file-title-block';
 
@@ -28,11 +32,14 @@ interface MarkdownViewerProps {
 }
 
 export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = false }: MarkdownViewerProps) {
+  const scopeRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const monacoTheme = getMonacoTheme(resolvedTheme || 'dark');
 
   const [showPreview, setShowPreview] = useState(true);
   const [wordWrap] = useAtom(fileViewerWordWrapAtom);
+  const findScope = useFindScope(scopeRef, showPreview);
 
   const handleToggleView = useCallback(() => {
     setShowPreview((prev) => !prev);
@@ -91,6 +98,42 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    if (!showPreview) return;
+
+    const handleFindKeyDown = (e: KeyboardEvent) => {
+      const isFindHotkey = e.code === 'KeyF' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey;
+      if (!isFindHotkey) return;
+
+      const scope = scopeRef.current;
+      if (!scope || scope.getClientRects().length === 0) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      markCurrentFindScope(scope);
+      if (findScope.isOpen) {
+        findScope.bumpSelectionVersion();
+      } else {
+        findScope.setIsOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleFindKeyDown, true);
+    return () => window.removeEventListener('keydown', handleFindKeyDown, true);
+  }, [findScope, showPreview]);
+
+  const domFind = useDomTextFind({
+    rootRef: previewRef,
+    contentKey: `${absolutePath}:${data?.ok ? data.content : ''}`,
+    enabled: showPreview
+  });
+
+  useEffect(() => {
+    if (showPreview) return;
+    findScope.setIsOpen(false);
+    domFind.close();
+  }, [domFind, findScope, showPreview]);
+
   if (isLoading) {
     return (
       <div className="flex flex-col h-full bg-background">
@@ -140,7 +183,7 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
   const content = data?.ok ? data.content : '';
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div ref={scopeRef} className="relative flex flex-col h-full bg-background">
       <Header
         filePath={filePath}
         showPreview={showPreview}
@@ -149,9 +192,24 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
         showHeader={showHeader}
         onClose={onClose}
       />
+      <FindBar
+        isOpen={findScope.isOpen && showPreview}
+        query={domFind.query}
+        current={domFind.current}
+        total={domFind.total}
+        selectionVersion={findScope.selectionVersion}
+        searchCompleted={domFind.searchCompleted}
+        onQueryChange={domFind.setQuery}
+        onClose={() => {
+          findScope.setIsOpen(false);
+          domFind.close();
+        }}
+        onNext={domFind.next}
+        onPrev={domFind.prev}
+      />
       <div className="flex-1 min-h-0 overflow-hidden allow-text-selection" data-file-viewer-path={filePath}>
         {showPreview ? (
-          <div className="h-full overflow-auto p-6">
+          <div ref={previewRef} className="h-full overflow-auto p-6">
             <ChatMarkdownRenderer content={content} size="md" />
           </div>
         ) : (

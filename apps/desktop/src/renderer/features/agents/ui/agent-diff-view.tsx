@@ -66,6 +66,9 @@ import { isDesktopApp } from '../../../lib/utils/platform';
 import { api } from '../../../lib/mock-api';
 import { trpcClient } from '../../../lib/trpc';
 import { remoteApi } from '../../../lib/remote-api';
+import { FindBar } from '../../find/find-bar';
+import { useDomTextFind } from '../../find/use-dom-text-find';
+import { useFindScope } from '../../find/use-find-scope';
 export type DiffViewMode = 'unified' | 'split';
 
 const LARGE_DIFF_LINE_THRESHOLD = 2000;
@@ -988,6 +991,7 @@ export const AgentDiffView = forwardRef<AgentDiffViewRef, AgentDiffViewProps>(fu
   },
   ref
 ) {
+  const scopeRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const isHydrated = useIsHydrated();
 
@@ -1044,6 +1048,7 @@ export const AgentDiffView = forwardRef<AgentDiffViewRef, AgentDiffViewProps>(fu
   const focusedDiffFile = useAtomValue(agentsFocusedDiffFileAtom);
   const setFocusedDiffFile = useSetAtom(agentsFocusedDiffFileAtom);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const findScope = useFindScope(scopeRef, true);
 
   // Height for collapsed header (file name + stats)
   const COLLAPSED_HEIGHT = 44;
@@ -1467,6 +1472,10 @@ export const AgentDiffView = forwardRef<AgentDiffViewRef, AgentDiffViewProps>(fu
   // Use deferred value to prevent UI blocking during tab switches
   const deferredFileDiffs = useDeferredValue(fileDiffs);
   const isDiffStale = deferredFileDiffs !== fileDiffs;
+  const domFind = useDomTextFind({
+    rootRef: scrollContainerRef,
+    contentKey: deferredFileDiffs.map((file) => `${file.key}:${file.diffText.length}`).join('|')
+  });
 
   // Pre-fetch file contents when diff is loaded (for expand functionality)
   // Delayed to allow UI to render first, then fetch in background
@@ -1863,7 +1872,27 @@ export const AgentDiffView = forwardRef<AgentDiffViewRef, AgentDiffViewProps>(fu
   }
 
   return (
-    <div className={cn('flex flex-col bg-background overflow-hidden min-w-0', isMobile ? 'h-full w-full' : 'h-full')}>
+    <div
+      ref={scopeRef}
+      className={cn(
+        'relative flex flex-col bg-background overflow-hidden min-w-0',
+        isMobile ? 'h-full w-full' : 'h-full'
+      )}>
+      <FindBar
+        isOpen={findScope.isOpen}
+        query={domFind.query}
+        current={domFind.current}
+        total={domFind.total}
+        selectionVersion={findScope.selectionVersion}
+        searchCompleted={domFind.searchCompleted}
+        onQueryChange={domFind.setQuery}
+        onClose={() => {
+          findScope.setIsOpen(false);
+          domFind.close();
+        }}
+        onNext={domFind.next}
+        onPrev={domFind.prev}
+      />
       {/* Mobile Header */}
       {isMobile && (
         <div
