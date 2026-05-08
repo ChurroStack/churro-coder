@@ -523,23 +523,4 @@ describe('new-chat-form — applyFormSelectionToSubChat call-ordering regression
       "applyFormSelectionToSubChat missing from handleSend — model/thinking won't be applied to new chats"
     ).toBe(true);
   });
-
-  test("applyFormSelectionToSubChat is called in handleOpen's onSuccess before any await", () => {
-    const src = readFileSync(formPath, 'utf-8');
-
-    const openStart = src.indexOf('const handleOpen = useCallback(async');
-    expect(openStart, 'handleOpen not found in new-chat-form.tsx').toBeGreaterThan(-1);
-    const openEnd = src.indexOf('}, [', openStart);
-    const openBody = src.slice(openStart, openEnd);
-
-    const applyAt = openBody.indexOf('applyFormSelectionToSubChat');
-    const awaitAt = openBody.indexOf('await saveSubChatDraftWithAttachments');
-
-    expect(applyAt, 'applyFormSelectionToSubChat missing from handleOpen').toBeGreaterThanOrEqual(0);
-    expect(awaitAt, 'await saveSubChatDraftWithAttachments missing from handleOpen').toBeGreaterThanOrEqual(0);
-    expect(
-      applyAt < awaitAt,
-      'applyFormSelectionToSubChat must run before await saveSubChatDraftWithAttachments — model-switch ordering invariant'
-    ).toBe(true);
-  });
 });

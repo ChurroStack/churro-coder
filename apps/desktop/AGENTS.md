@@ -37,6 +37,7 @@ This is the **slim hub**. It carries the always-needed context (what the app is,
 | [docs/debug.md](docs/debug.md) | Structured debug logging server + workflow |
 | [docs/postmortems/](docs/postmortems/) | Incident writeups with triage heuristics for recurring bug classes |
 | [docs/status.md](docs/status.md) | Current branch's recent work + known limitations / deferred items |
+| [DESIGN.md](DESIGN.md) | **Read before building any new UI.** Design system: color tokens, typography, layout, elevation, shapes, component primitives, do's and don'ts |
 
 ## What is this?
 
@@ -94,6 +95,16 @@ For the full annotated tree (renderer features, dock subsystem, agent layers), s
 
 - Files: kebab-case for components, hooks, stores, and utilities (`active-chat.tsx`, `agents-sidebar.tsx`, `use-overflow-detection.ts`, `agent-chat-store.ts`)
 - Atoms: camelCase with `Atom` suffix (`spotlightOpenAtom`, `terminalSidebarOpenAtom`)
+
+## Shared UI Decisions
+
+> Authoritative design tokens, typography, layout primitives, and component conventions live in [DESIGN.md](DESIGN.md). Read it before building any new UI. The screen-specific notes below are addenda, not replacements.
+
+- New-workspace content should use the same readable width as the main chat surface (`max-w-5xl`), not a narrower one-off container.
+- For selection cards and similar form surfaces on this screen, prefer the tighter shared radius (`rounded-md`) over oversized `rounded-2xl` / `rounded-3xl` shells unless a component already has a stronger established visual treatment elsewhere.
+- The agent mode chooser is a segmented control with a detail panel below it, not a grid of large cards. Keep the selected icon, title, and description in the dedicated panel.
+- For the `Type of work` and `Harness` cards, keep the icon and title on the same top row, with the description underneath.
+- Keep the new-workspace hero compact. If spacing changes are needed, adjust the wrapper's top padding first instead of adding extra margin above the hero or compressing the inner sections unevenly.
 
 ## Gotchas
 
