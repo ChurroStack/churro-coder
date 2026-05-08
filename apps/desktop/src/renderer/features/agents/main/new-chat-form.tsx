@@ -2407,31 +2407,41 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
 
       {/* Worktree config banner - fixed bottom-right corner */}
       {showWorktreeBanner && (
-        <div className="absolute bottom-4 right-4 max-w-sm p-3 pb-4 bg-muted/50 backdrop-blur-sm rounded-lg border border-border space-y-3 shadow-lg z-50">
-          <p className="text-sm text-muted-foreground">
-            Configure a worktree setup script to install dependencies or copy environment variables.
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={handleConfigureWorktree}>
-              Settings
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                const prompt = COMMAND_PROMPTS['worktree-setup'];
-                if (prompt && validatedProject) {
-                  createChatMutation.mutate({
-                    projectId: validatedProject.id,
-                    name: 'Worktree Setup',
-                    model: selectedChatModel,
-                    initialMessageParts: [{ type: 'text', text: prompt }],
-                    useWorktree: false,
-                    mode: 'execute'
-                  });
-                }
-              }}>
-              Fill with AI
-            </Button>
+        <div className="absolute bottom-4 right-4 z-50 max-w-sm rounded-lg border border-border bg-muted/50 p-3 pb-4 shadow-lg backdrop-blur-sm">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-1 top-1 h-7 w-7 text-muted-foreground hover:text-foreground"
+            aria-label="Dismiss"
+            onClick={handleDismissWorktreeBanner}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+          <div className="space-y-3 pr-8">
+            <p className="text-sm text-muted-foreground">
+              Configure a worktree setup script to install dependencies or copy environment variables.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={handleConfigureWorktree}>
+                Settings
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  const prompt = COMMAND_PROMPTS['worktree-setup'];
+                  if (prompt && validatedProject) {
+                    createChatMutation.mutate({
+                      projectId: validatedProject.id,
+                      name: 'Worktree Setup',
+                      model: selectedChatModel,
+                      initialMessageParts: [{ type: 'text', text: prompt }],
+                      useWorktree: false,
+                      mode: 'execute'
+                    });
+                  }
+                }}>
+                Fill with AI
+              </Button>
+            </div>
           </div>
         </div>
       )}
