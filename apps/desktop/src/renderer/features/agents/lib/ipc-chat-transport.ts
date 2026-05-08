@@ -201,6 +201,9 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
         `lastAssistantModel=${lastAssistantModel ?? 'none'} ` +
         `selectedModelId=${selectedModelId} modelString=${modelString}`
     );
+    console.log(
+      `[claude-model] renderer-dispatch sub=${this.config.subChatId.slice(-8)} selectedModelId=${selectedModelId} modelString=${modelString} mode=${currentMode} effort=${effort || 'none'} customConfig=${customConfig ? 'set' : 'none'}`
+    );
 
     // Stream debug logging
     const subId = this.config.subChatId.slice(-8);
