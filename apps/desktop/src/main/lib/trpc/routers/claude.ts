@@ -1121,15 +1121,14 @@ export const claudeRouter = router({
                   return;
                 }
 
-                const transform = createTransformer({
-                  emitSdkMessageUuid: historyEnabled,
-                  isUsingOllama
-                });
-
                 // 4. Setup accumulation state
                 const parts: any[] = [];
                 let currentText = '';
-                let metadata: any = {};
+                const initialModel = finalCustomConfig?.model || input.model;
+                let metadata: any = {
+                  ...(initialModel ? { model: initialModel } : {}),
+                  ...(input.effort ? { thinking: input.effort } : {})
+                };
 
                 // Capture stderr from Claude process for debugging
                 const stderrLines: string[] = [];
@@ -1528,6 +1527,9 @@ export const claudeRouter = router({
                 }
 
                 const rawResolvedModel = finalCustomConfig?.model || input.model;
+                console.log(
+                  `[claude-model] router-request sub=${subId} requested=${input.model || 'none'} customModel=${finalCustomConfig?.model || 'none'} rawResolved=${rawResolvedModel || 'none'} mode=${input.mode} effort=${input.effort || 'none'}`
+                );
                 // 1M context: the UI exposes `opus[1m]` and `sonnet[1m]` as
                 // distinct models, but the Claude CLI only understands the base
                 // shortcuts (`opus`, `sonnet`). Strip the `[1m]` suffix for the
@@ -1805,6 +1807,26 @@ ${prompt}
                 if (sandboxOn) {
                   sandboxSettingsFilePath = await writeSandboxSettingsFile(input.cwd, sandboxPolicy);
                 }
+                const permissionMode =
+                  input.mode === 'plan'
+                    ? ('plan' as const)
+                    : input.mode === 'explore'
+                      ? ('default' as const)
+                      : sandboxOn
+                        ? ('default' as const)
+                        : ('bypassPermissions' as const);
+
+                console.log(
+                  `[claude-model] query-options sub=${subId} requested=${rawResolvedModel || 'none'} sdkModel=${resolvedModel || 'none'} permissionMode=${permissionMode} sandbox=${sandboxOn} sessionMode=${resumeSessionId ? 'resume' : 'new-or-continue'}`
+                );
+
+                const transform = createTransformer({
+                  emitSdkMessageUuid: historyEnabled,
+                  isUsingOllama,
+                  requestedModel: resolvedModel,
+                  permissionMode,
+                  subChatIdShort: subId
+                });
 
                 const queryOptions = {
                   prompt: finalQueryPrompt,
@@ -1823,14 +1845,7 @@ ${prompt}
                         mcpServers: mcpServersFiltered
                       }),
                     env: finalEnv,
-                    permissionMode:
-                      input.mode === 'plan'
-                        ? ('plan' as const)
-                        : input.mode === 'explore'
-                          ? ('default' as const)
-                          : sandboxOn
-                            ? ('default' as const)
-                            : ('bypassPermissions' as const),
+                    permissionMode,
                     ...(input.mode === 'execute' &&
                       !sandboxOn && {
                         allowDangerouslySkipPermissions: true
@@ -2438,12 +2453,25 @@ ${prompt}
                               mcp_servers: msgAny.mcp_servers,
                               tools: msgAny.tools,
                               plugins: msgAny.plugins,
+                              model: msgAny.model,
                               permissionMode: msgAny.permissionMode
                             },
                             null,
                             2
                           )
                         );
+                        if (msgAny.subtype === 'init') {
+                          const initModel = typeof msgAny.model === 'string' ? msgAny.model : 'none';
+                          const requested = resolvedModel || 'none';
+                          const mismatch =
+                            initModel !== 'none' &&
+                            requested !== 'none' &&
+                            initModel.toLowerCase() !== requested.toLowerCase() &&
+                            !initModel.toLowerCase().includes(requested.toLowerCase());
+                          console.log(
+                            `[claude-model] sdk-init sub=${subId} requested=${requested} initModel=${initModel} permissionMode=${msgAny.permissionMode || 'unknown'} mismatch=${mismatch}`
+                          );
+                        }
                       }
 
                       // Transform and emit + accumulate
@@ -2543,6 +2571,11 @@ ${prompt}
                             }
                             break;
                           case 'message-metadata':
+                            if (chunk.messageMetadata?.model && metadata.model !== chunk.messageMetadata.model) {
+                              console.warn(
+                                `[claude-model] metadata-merge-overwrite sub=${subId} before=${metadata.model || 'none'} incoming=${chunk.messageMetadata.model} requested=${rawResolvedModel || 'none'} permissionMode=${permissionMode}`
+                              );
+                            }
                             metadata = { ...metadata, ...chunk.messageMetadata };
                             break;
                         }

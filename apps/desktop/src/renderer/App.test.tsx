@@ -4,6 +4,7 @@ import type { PropsWithChildren } from 'react';
 import { cleanup, render } from '@testing-library/react';
 import { Provider as JotaiProvider } from 'jotai';
 import { createTestStore, type TestStore } from '../../test-utils/create-test-store';
+import { toast } from 'sonner';
 import {
   anthropicOnboardingCompletedAtom,
   apiKeyOnboardingCompletedAtom,
@@ -15,11 +16,12 @@ import {
 
 const projectsListMock = vi.fn();
 const chatsGetProjectIdByIdMock = vi.fn();
+let churroMcpStatusResult: { data: unknown } = { data: undefined };
 
 vi.mock('./lib/trpc', () => ({
   trpc: {
     codex: {
-      getChurroCoderMcpStatus: { useQuery: () => ({ data: undefined }) }
+      getChurroCoderMcpStatus: { useQuery: () => churroMcpStatusResult }
     },
     claudeCode: {
       hasExistingCliConfig: { useQuery: () => ({ data: undefined, isLoading: false }) }
@@ -34,6 +36,15 @@ vi.mock('./lib/trpc', () => ({
   trpcClient: {
     analytics: { setDebugSession: { mutate: vi.fn(() => Promise.resolve()) } },
     chats: { deleteEmptySubChatsByIds: { mutate: vi.fn(() => Promise.resolve()) } }
+  }
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn()
   }
 }));
 
@@ -96,6 +107,8 @@ describe('AppContent — project-page decision', () => {
     projectsListMock.mockReset();
     chatsGetProjectIdByIdMock.mockReset();
     chatsGetProjectIdByIdMock.mockReturnValue({ data: undefined });
+    churroMcpStatusResult = { data: undefined };
+    vi.mocked(toast.error).mockClear();
   });
 
   it('does not show the SelectRepoPage when projects exist and selectedProject is null', async () => {
@@ -128,5 +141,50 @@ describe('AppContent — project-page decision', () => {
 
     const { findByText } = mountAppContent(store);
     await findByText('Select a repository');
+  });
+
+  it('re-fires the Codex MCP failure toast only when status flips into failed', async () => {
+    const store = createTestStore();
+    seedOnboarding(store);
+    projectsListMock.mockReturnValue({ data: [], isLoading: false });
+
+    churroMcpStatusResult = {
+      data: {
+        state: 'failed',
+        serverName: 'churro-coder-dev',
+        error: 'bootstrap failed'
+      }
+    };
+
+    const view = mountAppContent(store);
+    expect(toast.error).toHaveBeenCalledTimes(1);
+
+    churroMcpStatusResult = {
+      data: {
+        state: 'ready',
+        serverName: 'churro-coder-dev',
+        url: 'http://127.0.0.1:5555/'
+      }
+    };
+    view.rerender(
+      <JotaiProvider store={store}>
+        <AppContent />
+      </JotaiProvider>
+    );
+    expect(toast.error).toHaveBeenCalledTimes(1);
+
+    churroMcpStatusResult = {
+      data: {
+        state: 'failed',
+        serverName: 'churro-coder-dev',
+        error: 'failed again'
+      }
+    };
+    view.rerender(
+      <JotaiProvider store={store}>
+        <AppContent />
+      </JotaiProvider>
+    );
+    expect(toast.error).toHaveBeenCalledTimes(2);
   });
 });

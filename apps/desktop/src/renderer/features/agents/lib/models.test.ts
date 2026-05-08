@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { coerceCodexThinking, formatModelLabel, formatClaudeThinkingLabel } from './models';
+import { coerceCodexThinking, formatClaudeThinkingLabel, formatModelLabel, formatThinkingLabel } from './models';
 
 describe('coerceCodexThinking', () => {
   test('max → xhigh when xhigh is supported', () => {
@@ -94,5 +94,19 @@ describe('formatClaudeThinkingLabel', () => {
 
   test('max → Max', () => {
     expect(formatClaudeThinkingLabel('max')).toBe('Max');
+  });
+});
+
+describe('formatThinkingLabel', () => {
+  test('formats Claude thinking labels from metadata', () => {
+    expect(formatThinkingLabel({ model: 'sonnet', thinking: 'xhigh' })).toBe('Extra High');
+  });
+
+  test('formats Codex thinking labels from metadata', () => {
+    expect(formatThinkingLabel({ model: 'gpt-5.4', thinking: 'medium' })).toBe('Medium');
+  });
+
+  test('passes through unknown effort strings with capitalization', () => {
+    expect(formatThinkingLabel({ model: 'unknown-model', thinking: 'turbo' })).toBe('Turbo');
   });
 });

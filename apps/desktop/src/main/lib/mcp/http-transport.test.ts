@@ -14,7 +14,12 @@ vi.mock('electron', () => ({
 }));
 
 import { writeCurrentPlan } from '../plans/plan-store';
-import { closeMcpHttpServer, getMcpHttpEndpoint, initMcpHttpServer } from './http-transport';
+import {
+  __simulateMcpHttpServerFailureForTest,
+  closeMcpHttpServer,
+  getMcpHttpEndpoint,
+  initMcpHttpServer
+} from './http-transport';
 
 beforeEach(async () => {
   tmpRoot = await mkdtemp(join(tmpdir(), 'http-transport-test-'));
@@ -182,5 +187,50 @@ describe('http-transport', () => {
     const second = await callOnce('b');
     expect(first).toContain('A');
     expect(second).toContain('B');
+  });
+
+  test('restarts after unexpected server error and keeps bearer stable', async () => {
+    const first = await initMcpHttpServer();
+
+    await __simulateMcpHttpServerFailureForTest('error');
+
+    const restarted = getMcpHttpEndpoint();
+    expect(restarted).not.toBeNull();
+    expect(restarted!.url).not.toBe(first.url);
+    expect(restarted!.bearer).toBe(first.bearer);
+  });
+
+  test('restarts after unexpected server close and still serves read_plan', async () => {
+    await writeCurrentPlan({
+      subChatId: 'restart-sub',
+      content: '# Restart Plan',
+      source: 'claude:ExitPlanMode',
+      title: 'Restart Plan'
+    });
+
+    const first = await initMcpHttpServer();
+    await __simulateMcpHttpServerFailureForTest('close');
+
+    const restarted = getMcpHttpEndpoint();
+    expect(restarted).not.toBeNull();
+    expect(restarted!.url).not.toBe(first.url);
+    expect(restarted!.bearer).toBe(first.bearer);
+
+    const transport = new StreamableHTTPClientTransport(new URL(restarted!.url), {
+      requestInit: { headers: { Authorization: `Bearer ${restarted!.bearer}` } }
+    });
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    await client.connect(transport);
+
+    try {
+      const result = await client.callTool({
+        name: 'read_plan',
+        arguments: { subChatId: 'restart-sub' }
+      });
+      const content = result.content as Array<{ type: string; text: string }>;
+      expect(content[0].text).toContain('# Restart Plan');
+    } finally {
+      await client.close();
+    }
   });
 });

@@ -1,7 +1,25 @@
 import type { MCPServer, MCPServerStatus, MessageMetadata, SubagentInfo, UIMessageChunk } from './types';
 
-export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMessageUuid?: boolean }) {
+type TransformerOptions = {
+  isUsingOllama?: boolean;
+  emitSdkMessageUuid?: boolean;
+  requestedModel?: string;
+  permissionMode?: string;
+  subChatIdShort?: string;
+};
+
+function modelMatchesRequested(observed: string | undefined, requested: string | undefined): boolean {
+  if (!observed || !requested) return true;
+  const observedLower = observed.toLowerCase();
+  const requestedLower = requested.toLowerCase().replace(/\[1m\]$/, '');
+  return observedLower === requestedLower || observedLower.includes(requestedLower);
+}
+
+export function createTransformer(options?: TransformerOptions) {
   const isUsingOllama = options?.isUsingOllama === true;
+  const requestedModel = options?.requestedModel;
+  const permissionMode = options?.permissionMode;
+  const subChatIdShort = options?.subChatIdShort ?? 'unknown';
   let textId: string | null = null;
   let textStarted = false;
   let started = false;
@@ -60,6 +78,7 @@ export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMe
 
   // Model from the last main (non-subagent) assistant message
   let lastMainAssistantModel: string | undefined;
+  let assistantModelTraceEmitted = false;
 
   // Track usage from the last main assistant message (exclude sidechain/subagents).
   // This is used for accurate context window display in final metadata.
@@ -286,7 +305,16 @@ export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMe
     // Track per-turn usage from main assistant messages only.
     // Sidechain/subagent assistant messages have parent_tool_use_id set.
     if (msg.type === 'assistant' && msg.parent_tool_use_id == null) {
-      if (msg.message?.model) lastMainAssistantModel = msg.message.model;
+      if (msg.message?.model) {
+        lastMainAssistantModel = msg.message.model;
+        if (!assistantModelTraceEmitted) {
+          assistantModelTraceEmitted = true;
+          const mismatch = !modelMatchesRequested(lastMainAssistantModel, requestedModel);
+          console.log(
+            `[claude-model] assistant-observed sub=${subChatIdShort} requested=${requestedModel || 'none'} observed=${lastMainAssistantModel} permissionMode=${permissionMode || 'unknown'} mismatch=${mismatch}`
+          );
+        }
+      }
       if (msg.message?.usage) {
         lastMainAssistantUsage = {
           input_tokens: msg.message.usage.input_tokens ?? 0,
@@ -515,6 +543,16 @@ export function createTransformer(options?: { isUsingOllama?: boolean; emitSdkMe
 
       const resolvedInputTokens = usage.input_tokens;
       const resolvedOutputTokens = resultOutputTokens ?? usage.output_tokens;
+      const metadataMismatch = !modelMatchesRequested(lastMainAssistantModel, requestedModel);
+      if (metadataMismatch) {
+        console.warn(
+          `[claude-model] metadata-model-mismatch sub=${subChatIdShort} requested=${requestedModel || 'none'} metadataModel=${lastMainAssistantModel || 'none'} permissionMode=${permissionMode || 'unknown'}`
+        );
+      } else {
+        console.log(
+          `[claude-model] metadata-model sub=${subChatIdShort} requested=${requestedModel || 'none'} metadataModel=${lastMainAssistantModel || 'none'} permissionMode=${permissionMode || 'unknown'}`
+        );
+      }
       const metadata: MessageMetadata = {
         sessionId: msg.session_id,
         model: lastMainAssistantModel,
