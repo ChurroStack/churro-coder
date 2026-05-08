@@ -2,7 +2,19 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { AlignJustify, Bug, ClipboardList, FileText, Loader2, Plus, Telescope, Sparkles, Wand2, X, Zap } from 'lucide-react';
+import {
+  AlignJustify,
+  Bug,
+  ClipboardList,
+  FileText,
+  Loader2,
+  Plus,
+  Telescope,
+  Sparkles,
+  Wand2,
+  X,
+  Zap
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../components/ui/button';
 import {
