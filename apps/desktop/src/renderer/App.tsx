@@ -104,21 +104,35 @@ export function AppContent() {
   // Surface churro-coder MCP bootstrap failures (e.g. Codex CLI rejected
   // --bearer-token-env-var) — agent's read_plan tool won't work for Codex
   // until resolved, so we tell the user instead of failing silently.
-  const churroMcpStatusToastShown = useRef(false);
+  const lastChurroMcpStatus = useRef<string | undefined>(undefined);
   const { data: churroMcpStatus } = trpc.codex.getChurroCoderMcpStatus.useQuery(undefined, {
     refetchOnWindowFocus: false,
     refetchOnMount: true,
     staleTime: Infinity
   });
   useEffect(() => {
-    if (churroMcpStatusToastShown.current) return;
-    if (churroMcpStatus?.state === 'failed') {
-      churroMcpStatusToastShown.current = true;
+    const previousState = lastChurroMcpStatus.current;
+    const nextState = churroMcpStatus?.state;
+
+    if (previousState !== nextState) {
+      console.log(
+        `[churro-coder] renderer MCP status transition from=${previousState || 'unknown'} to=${nextState || 'unknown'}`
+      );
+    }
+
+    if (nextState === 'failed' && previousState !== 'failed') {
+      console.warn('[churro-coder] renderer MCP failure toast trigger');
       toast.error('Codex MCP setup failed', {
         description: `The read_plan tool will not be available for Codex agents. ${churroMcpStatus.error}`,
         duration: 10_000
       });
     }
+
+    if (previousState === 'failed' && nextState === 'ready') {
+      console.log('[churro-coder] renderer MCP failure recovered');
+    }
+
+    lastChurroMcpStatus.current = nextState;
   }, [churroMcpStatus]);
 
   // Check if user has existing CLI config (API key or proxy)

@@ -27,7 +27,7 @@ import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { resolveSandboxPolicy } from '../../sandbox/policy';
 import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-codex-plan';
-import { initMcpHttpServer } from '../../mcp/http-transport';
+import { getMcpHttpEndpoint, initMcpHttpServer } from '../../mcp/http-transport';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
 import { resolveAppOwnedMcpHeaders, shouldRemoveStaleAppOwnedMcpEntry } from '../codex-mcp-auth';
@@ -80,6 +80,7 @@ const codexPlanSchema = z.object({
 type CodexAppServerSession = {
   client: CodexAppServerClient;
   authFingerprint: string | null;
+  mcpBearer: string | null;
 };
 
 type CodexLoginSessionState = 'running' | 'success' | 'error' | 'cancelled';
@@ -840,6 +841,25 @@ function clearCodexMcpCache(): void {
   codexMcpCache.clear();
 }
 
+function formatChurroCoderMcpStatusForLog(status: ChurroCoderMcpStatus): string {
+  switch (status.state) {
+    case 'ready':
+      return `state=ready serverName=${status.serverName} url=${status.url}`;
+    case 'failed':
+      return `state=failed serverName=${status.serverName} error=${JSON.stringify(status.error)}`;
+    default:
+      return `state=${status.state}`;
+  }
+}
+
+function setChurroCoderMcpStatus(nextStatus: ChurroCoderMcpStatus, reason: string): void {
+  const previous = churroCoderMcpStatus;
+  churroCoderMcpStatus = nextStatus;
+  console.log(
+    `[churro-coder] MCP bootstrap status from=${formatChurroCoderMcpStatusForLog(previous)} to=${formatChurroCoderMcpStatusForLog(nextStatus)} reason=${reason}`
+  );
+}
+
 function getCodexServerIdentity(server: CodexMcpServerForSettings): string {
   const config = server.config as Record<string, unknown>;
   return JSON.stringify({
@@ -1028,6 +1048,10 @@ function buildCodexProviderEnv(authConfig?: { apiKey: string }): Record<string, 
   }
 
   env.CLAUDE_CODE_ENABLE_TASKS = 'true';
+  const currentMcpBearer = getMcpHttpEndpoint()?.bearer || process.env.CHURRO_MCP_BEARER || '';
+  if (currentMcpBearer) {
+    env.CHURRO_MCP_BEARER = currentMcpBearer;
+  }
 
   const apiKey = authConfig?.apiKey?.trim();
   if (!apiKey) {
@@ -1440,11 +1464,21 @@ function getAppServerSessionKey(authConfig?: { apiKey: string }): string {
 async function getOrCreateAppServerClient(params: { authConfig?: { apiKey: string } }): Promise<CodexAppServerClient> {
   const sessionKey = getAppServerSessionKey(params.authConfig);
   const authFingerprint = getAuthFingerprint(params.authConfig);
+  const currentMcpBearer = getMcpHttpEndpoint()?.bearer || process.env.CHURRO_MCP_BEARER || null;
   const existing = appServerSessions.get(sessionKey);
 
-  if (existing && existing.authFingerprint === authFingerprint) {
+  if (existing && existing.authFingerprint === authFingerprint && existing.mcpBearer === currentMcpBearer) {
     await existing.client.ensureInitialized();
     return existing.client;
+  }
+
+  if (existing) {
+    const authChanged = existing.authFingerprint !== authFingerprint;
+    const bearerChanged = existing.mcpBearer !== currentMcpBearer;
+    const reason = authChanged && bearerChanged ? 'both' : authChanged ? 'auth' : 'bearer';
+    console.log(
+      `[churro-coder] Codex app-server session invalidated reason=${reason} sessionKey=${sessionKey} hadBearer=${Boolean(existing.mcpBearer)} hasBearer=${Boolean(currentMcpBearer)}`
+    );
   }
 
   existing?.client.dispose();
@@ -1466,7 +1500,8 @@ async function getOrCreateAppServerClient(params: { authConfig?: { apiKey: strin
 
   appServerSessions.set(sessionKey, {
     client,
-    authFingerprint
+    authFingerprint,
+    mcpBearer: currentMcpBearer
   });
   await client.ensureInitialized();
   return client;
@@ -2501,20 +2536,21 @@ export type ChurroCoderMcpStatus =
   | { state: 'failed'; serverName: string; error: string };
 
 let churroCoderMcpStatus: ChurroCoderMcpStatus = { state: 'pending' };
+let ensureChurroCoderMcpReadyInFlight: Promise<void> | null = null;
 
 export function getChurroCoderMcpStatus(): ChurroCoderMcpStatus {
   return churroCoderMcpStatus;
 }
 
 /**
- * Register the churro-coder MCP server with the Codex CLI on startup.
+ * Register the churro-coder MCP server with the Codex CLI.
  * Self-heals: re-runs mcp add if the entry is absent or the URL has drifted.
  *
  * Codex reads the bearer from process.env.CHURRO_MCP_BEARER at session start
  * (referenced by name, not value), so rotating the bearer in churro-mcp.json
  * does not require re-registration — the CLI entry stays valid.
  */
-export async function bootstrapChurroCoderMcp(): Promise<void> {
+async function bootstrapChurroCoderMcpInternal(): Promise<void> {
   const { url, bearer } = await initMcpHttpServer();
   process.env.CHURRO_MCP_BEARER = bearer;
 
@@ -2526,9 +2562,8 @@ export async function bootstrapChurroCoderMcp(): Promise<void> {
       existing = JSON.parse(listResult.stdout);
     }
   } catch {
-    // Codex CLI may not be installed; degrade gracefully
-    console.warn('[churro-coder] Could not list Codex MCP servers — CLI unavailable?');
-    churroCoderMcpStatus = { state: 'cli-missing' };
+    console.warn('[churro-coder] Could not list Codex MCP servers action=cli-missing');
+    setChurroCoderMcpStatus({ state: 'cli-missing' }, 'mcp-list-cli-missing');
     return;
   }
 
@@ -2547,10 +2582,14 @@ export async function bootstrapChurroCoderMcp(): Promise<void> {
   const entry = Array.isArray(existing) ? existing.find((s: any) => s.name === serverName) : null;
   const existingUrl = entry?.transport?.url ?? entry?.url ?? null;
   const alreadyRegistered = entry && existingUrl === url;
+  const registrationAction = alreadyRegistered ? 'noop' : entry ? 'replace' : 'add';
+  console.log(
+    `[churro-coder] Codex MCP list result serverName=${serverName} hasEntry=${Boolean(entry)} entryUrl=${existingUrl || 'none'} currentUrl=${url} action=${registrationAction}`
+  );
 
   if (alreadyRegistered) {
     console.log(`[churro-coder] Codex MCP entry "${serverName}" already up-to-date`);
-    churroCoderMcpStatus = { state: 'ready', serverName, url };
+    setChurroCoderMcpStatus({ state: 'ready', serverName, url }, 'already-registered');
     return;
   }
 
@@ -2563,7 +2602,7 @@ export async function bootstrapChurroCoderMcp(): Promise<void> {
     await runCodexCliChecked(['mcp', 'add', serverName, '--url', url, '--bearer-token-env-var', 'CHURRO_MCP_BEARER']);
     clearCodexMcpCache();
     console.log(`[churro-coder] Registered Codex MCP server "${serverName}" at ${url}`);
-    churroCoderMcpStatus = { state: 'ready', serverName, url };
+    setChurroCoderMcpStatus({ state: 'ready', serverName, url }, registrationAction);
   } catch (err) {
     // Most likely cause: bundled Codex CLI doesn't accept --bearer-token-env-var.
     // The plan tracks this as a follow-up (fall back to writing ~/.codex/config.toml).
@@ -2573,7 +2612,57 @@ export async function bootstrapChurroCoderMcp(): Promise<void> {
         'Codex agents will not be able to call read_plan until this is resolved. Error:',
       err
     );
-    churroCoderMcpStatus = { state: 'failed', serverName, error: errorMessage };
+    setChurroCoderMcpStatus({ state: 'failed', serverName, error: errorMessage }, 'bootstrap-failed');
+  }
+}
+
+export async function ensureChurroCoderMcpReady(params?: { subChatId?: string; force?: boolean }): Promise<void> {
+  const endpoint = getMcpHttpEndpoint();
+  const status = getChurroCoderMcpStatus();
+  const isReadyForCurrentEndpoint =
+    status.state === 'ready' && Boolean(endpoint) && endpoint?.url === status.url && Boolean(endpoint?.bearer);
+
+  if (!params?.force && isReadyForCurrentEndpoint) {
+    console.log(
+      `[churro-coder] MCP bootstrap preflight action=skip subChatId=${params?.subChatId || 'none'} status=${status.state} url=${status.url}`
+    );
+    return;
+  }
+
+  if (ensureChurroCoderMcpReadyInFlight) {
+    console.log(
+      `[churro-coder] MCP bootstrap preflight action=await-inflight subChatId=${params?.subChatId || 'none'} status=${status.state}`
+    );
+    return await ensureChurroCoderMcpReadyInFlight;
+  }
+
+  console.log(
+    `[churro-coder] MCP bootstrap preflight action=bootstrap subChatId=${params?.subChatId || 'none'} status=${status.state} endpointUrl=${endpoint?.url || 'none'} force=${Boolean(params?.force)}`
+  );
+  ensureChurroCoderMcpReadyInFlight = (async () => {
+    try {
+      await bootstrapChurroCoderMcpInternal();
+    } finally {
+      ensureChurroCoderMcpReadyInFlight = null;
+    }
+  })();
+  await ensureChurroCoderMcpReadyInFlight;
+}
+
+export async function bootstrapChurroCoderMcp(): Promise<void> {
+  try {
+    await ensureChurroCoderMcpReady({ force: true });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[churro-coder] MCP bootstrap startup failure:', error);
+    setChurroCoderMcpStatus(
+      {
+        state: 'failed',
+        serverName: `churro-coder${process.env.ELECTRON_RENDERER_URL ? '-dev' : ''}`,
+        error: errorMessage
+      },
+      'startup-exception'
+    );
   }
 }
 
@@ -3061,6 +3150,14 @@ export const codexRouter = router({
                   toolsResolved: false
                 };
                 try {
+                  await ensureChurroCoderMcpReady({ subChatId: input.subChatId });
+                } catch (mcpBootstrapError) {
+                  console.error(
+                    `[churro-coder] MCP bootstrap preflight failed subChatId=${input.subChatId}:`,
+                    mcpBootstrapError
+                  );
+                }
+                try {
                   const resolvedProjectPathFromCwd = resolveProjectPathFromWorktree(input.cwd);
                   const mcpLookupPath = input.projectPath || resolvedProjectPathFromCwd || input.cwd;
                   mcpSnapshot = await resolveCodexMcpSnapshot({
@@ -3338,6 +3435,7 @@ export const codexRouter = router({
                 const changedFiles = diffGitChangeSnapshots(beforeSnapshot, afterSnapshot);
                 const finalMetadata = {
                   model: metadataModel,
+                  thinking: splitCodexModelAndEffort(metadataModel).effort,
                   sessionId: threadId,
                   durationMs: Date.now() - startedAt,
                   resultSubtype:

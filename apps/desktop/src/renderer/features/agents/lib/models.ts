@@ -90,6 +90,22 @@ export function formatCodexThinkingLabel(thinking: CodexThinkingLevel): string {
   return thinking.charAt(0).toUpperCase() + thinking.slice(1);
 }
 
+export function formatThinkingLabel(params: { model?: string; thinking?: string }): string {
+  const rawThinking = params.thinking?.trim().toLowerCase();
+  if (!rawThinking) return '';
+
+  const rawModel = params.model?.trim().toLowerCase() || '';
+  if (rawModel.startsWith('gpt-') || rawModel.includes('codex')) {
+    if (['low', 'medium', 'high', 'xhigh'].includes(rawThinking)) {
+      return formatCodexThinkingLabel(rawThinking as CodexThinkingLevel);
+    }
+  } else if (['off', 'low', 'medium', 'high', 'xhigh', 'max'].includes(rawThinking)) {
+    return formatClaudeThinkingLabel(rawThinking as ClaudeThinkingLevel);
+  }
+
+  return rawThinking.charAt(0).toUpperCase() + rawThinking.slice(1);
+}
+
 export function coerceCodexThinking(
   thinking: ClaudeThinkingLevel | 'off' | 'max',
   supported: readonly CodexThinkingLevel[]

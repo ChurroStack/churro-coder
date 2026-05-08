@@ -15,6 +15,7 @@ export type AgentSubagentInfo = {
 
 export interface AgentMessageMetadata {
   model?: string;
+  thinking?: string;
   sessionId?: string;
   totalCostUsd?: number;
   inputTokens?: number;

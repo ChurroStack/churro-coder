@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../../co
 import { Badge } from '../../../components/ui/badge';
 import { cn } from '../../../lib/utils';
 import { formatCost, formatDuration, formatTokens, humanizeStopReason, isNormalStop } from './agent-format-utils';
-import { formatModelLabel } from '../lib/models';
+import { formatModelLabel, formatThinkingLabel } from '../lib/models';
 import type { AgentMessageMetadata } from './agent-message-usage';
 
 interface AgentTurnRecapProps {
@@ -29,6 +29,7 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({ metadata, isStreami
 
   const {
     model,
+    thinking,
     inputTokens = 0,
     outputTokens = 0,
     cacheReadInputTokens,
@@ -48,6 +49,8 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({ metadata, isStreami
   const displayTokens = totalTokens || inputTokens + outputTokens;
   const hasCost = typeof totalCostUsd === 'number' && totalCostUsd > 0;
   const hasCacheStats = typeof cacheReadInputTokens === 'number' || typeof cacheCreationInputTokens === 'number';
+  const modelLabel = formatModelLabel(model);
+  const thinkingLabel = formatThinkingLabel({ model, thinking });
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -84,6 +87,8 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({ metadata, isStreami
                 {formatTokens(displayTokens)}
               </span>
             )}
+            {modelLabel && <span className="text-[10px] text-foreground/80">{modelLabel}</span>}
+            {thinkingLabel && <span className="text-[10px] text-muted-foreground/80">· {thinkingLabel}</span>}
             {hasCost && (
               <span className="flex items-center gap-1 tabular-nums">
                 <Coins className="w-3 h-3" />
@@ -112,7 +117,8 @@ export const AgentTurnRecap = memo(function AgentTurnRecap({ metadata, isStreami
             )}
             {hasCost && <Row label="Cost" value={formatCost(totalCostUsd!)} />}
             {durationMs !== undefined && durationMs > 0 && <Row label="Duration" value={formatDuration(durationMs)} />}
-            {model && <Row label="Model" value={formatModelLabel(model)} />}
+            {modelLabel && <Row label="Model" value={modelLabel} />}
+            {thinkingLabel && <Row label="Effort" value={thinkingLabel} />}
             {sessionId && (
               <Row
                 label="Session"

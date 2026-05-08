@@ -1129,7 +1129,11 @@ export const claudeRouter = router({
                 // 4. Setup accumulation state
                 const parts: any[] = [];
                 let currentText = '';
-                let metadata: any = {};
+                const initialModel = finalCustomConfig?.model || input.model;
+                let metadata: any = {
+                  ...(initialModel ? { model: initialModel } : {}),
+                  ...(input.effort ? { thinking: input.effort } : {})
+                };
 
                 // Capture stderr from Claude process for debugging
                 const stderrLines: string[] = [];

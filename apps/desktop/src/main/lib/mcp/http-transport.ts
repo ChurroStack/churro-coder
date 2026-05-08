@@ -28,10 +28,13 @@ interface McpHttpState {
   bearer: string;
   port: number;
   server: http.Server;
+  restartCount: number;
 }
 
 let state: McpHttpState | null = null;
 let nextRequestId = 1;
+let restartInFlight: Promise<{ url: string; bearer: string; port: number }> | null = null;
+const intentionallyClosingServers = new WeakSet<http.Server>();
 
 function getMcpStatePath(): string {
   return join(app.getPath('userData'), 'churro-mcp.json');
@@ -109,13 +112,10 @@ function isToolCallBody(body: unknown): boolean {
   return isRecord(envelope) && envelope.method === 'tools/call';
 }
 
-export async function initMcpHttpServer(): Promise<{ url: string; bearer: string; port: number }> {
-  if (state) {
-    return { url: state.url, bearer: state.bearer, port: state.port };
-  }
-
-  const bearer = (await loadSavedBearer()) ?? randomUUID();
-
+async function startMcpHttpServer(
+  bearer: string,
+  restartCount: number
+): Promise<{ url: string; bearer: string; port: number; server: http.Server; restartCount: number }> {
   const MAX_BODY_BYTES = 1_048_576; // 1 MiB — MCP messages are small JSON-RPC envelopes
   const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -126,7 +126,6 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
       sendJsonRpcError(res, 408, -32001, 'Request timeout');
     });
 
-    // Simple bearer-token auth check
     const authHeader = req.headers['authorization'] ?? '';
     if (authHeader !== `Bearer ${bearer}`) {
       console.warn(
@@ -136,7 +135,6 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
       return;
     }
 
-    // Collect body for POST requests with size cap
     let body: unknown;
     if (req.method === 'POST') {
       const chunks: Buffer[] = [];
@@ -169,8 +167,6 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
       console.log(`[churro-coder] MCP HTTP request id=${requestId} method=${req.method} ${summarizeJsonRpcBody(body)}`);
     }
 
-    // Per-request McpServer + transport (stateless mode requires this — the
-    // shared-transport pattern returns 500 on the second request).
     const mcpServer = createMcpServerStateless();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
@@ -191,21 +187,59 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
     }
   });
 
+  let bindReject: ((reason: Error) => void) | null = null;
   await new Promise<void>((resolve, reject) => {
+    bindReject = reject;
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => resolve());
   });
+  if (bindReject) {
+    server.removeListener('error', bindReject);
+    bindReject = null;
+  }
 
   const addr = server.address() as { port: number };
   const port = addr.port;
   const url = `http://127.0.0.1:${port}/`;
 
+  // Only no-op when state has been committed to a *different* server.
+  // A null state happens during the restart's own startup window — in that
+  // case this server is the most recent and should be allowed to restart.
+  const scheduleRestart = (reason: 'error' | 'close', error?: Error) => {
+    if (intentionallyClosingServers.has(server)) return;
+    if (state !== null && state.server !== server) return;
+    void restartMcpHttpServer({ reason, error, expectedServer: server });
+  };
+
+  server.on('error', (error) => {
+    console.error(
+      `[churro-coder] MCP HTTP server stopped unexpectedly reason=error restartCount=${restartCount} message=${error.message}`
+    );
+    scheduleRestart('error', error);
+  });
+
+  server.on('close', () => {
+    if (intentionallyClosingServers.has(server)) {
+      return;
+    }
+    console.warn(`[churro-coder] MCP HTTP server stopped unexpectedly reason=close restartCount=${restartCount}`);
+    scheduleRestart('close');
+  });
+
   await persistState(port, bearer);
+  console.log(`[churro-coder] HTTP transport listening on ${url} restartCount=${restartCount}`);
 
-  state = { url, bearer, port, server };
+  return { url, bearer, port, server, restartCount };
+}
 
-  console.log(`[churro-coder] HTTP transport listening on ${url}`);
-  return { url, bearer, port };
+export async function initMcpHttpServer(): Promise<{ url: string; bearer: string; port: number }> {
+  if (state) {
+    return { url: state.url, bearer: state.bearer, port: state.port };
+  }
+
+  const bearer = (await loadSavedBearer()) ?? randomUUID();
+  state = await startMcpHttpServer(bearer, 0);
+  return { url: state.url, bearer: state.bearer, port: state.port };
 }
 
 export function getMcpHttpEndpoint(): { url: string; bearer: string } | null {
@@ -213,10 +247,65 @@ export function getMcpHttpEndpoint(): { url: string; bearer: string } | null {
   return { url: state.url, bearer: state.bearer };
 }
 
+async function restartMcpHttpServer(params: {
+  reason: 'error' | 'close';
+  error?: Error;
+  expectedServer?: http.Server;
+}): Promise<{ url: string; bearer: string; port: number }> {
+  if (restartInFlight) {
+    return restartInFlight;
+  }
+
+  const previous = state;
+  // Drop stale crash signals from a server that was already replaced.
+  if (previous && params.expectedServer && previous.server !== params.expectedServer) {
+    return { url: previous.url, bearer: previous.bearer, port: previous.port };
+  }
+  if (!previous) {
+    return initMcpHttpServer();
+  }
+
+  restartInFlight = (async () => {
+    const nextRestartCount = previous.restartCount + 1;
+    intentionallyClosingServers.add(previous.server);
+    state = null;
+    await new Promise<void>((resolve) => previous.server.close(() => resolve()));
+    const next = await startMcpHttpServer(previous.bearer, nextRestartCount);
+    state = next;
+    console.log(
+      `[churro-coder] MCP HTTP server restarted reason=${params.reason} restartCount=${nextRestartCount} url=${next.url}`
+    );
+    return { url: next.url, bearer: next.bearer, port: next.port };
+  })();
+
+  try {
+    return await restartInFlight;
+  } finally {
+    restartInFlight = null;
+  }
+}
+
+export async function __simulateMcpHttpServerFailureForTest(kind: 'error' | 'close'): Promise<void> {
+  if (!state) {
+    throw new Error('MCP HTTP server not initialized');
+  }
+
+  if (kind === 'error') {
+    state.server.emit('error', new Error('synthetic MCP HTTP server failure'));
+  } else {
+    await new Promise<void>((resolve) => state!.server.close(() => resolve()));
+  }
+
+  if (restartInFlight) {
+    await restartInFlight;
+  }
+}
+
 /** Stops the HTTP server and clears state. Used by tests; callable on app quit. */
 export async function closeMcpHttpServer(): Promise<void> {
   if (!state) return;
   const current = state;
+  intentionallyClosingServers.add(current.server);
   state = null;
   await new Promise<void>((resolve) => current.server.close(() => resolve()));
 }
