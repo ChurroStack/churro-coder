@@ -2,20 +2,20 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'jotai';
 import type { PropsWithChildren } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { createTestStore } from '../../../../../test-utils/create-test-store';
 import {
   agentsSidebarOpenAtom,
+  selectedAgentChatIdAtom,
   desktopViewAtom,
   projectStatsTargetIdAtom,
   selectedProjectAtom
 } from '../../../lib/atoms';
+import { newWorkspaceFormKeyAtom, selectedDraftIdAtom, showNewChatFormAtom } from '../../agents/atoms';
 import { ProjectGroupActionsMenu } from './project-group-actions-menu';
 
 afterEach(cleanup);
-
-const newWindow = vi.fn();
 
 vi.mock('../../../components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: PropsWithChildren) => <div>{children}</div>,
@@ -78,14 +78,7 @@ const project = {
   gitRepo: null
 };
 
-describe('ProjectGroupActionsMenu – Project statistics item', () => {
-  beforeEach(() => {
-    newWindow.mockReset();
-    (window as typeof window & { desktopApi: any }).desktopApi = {
-      newWindow
-    };
-  });
-
+describe('ProjectGroupActionsMenu', () => {
   it('clicking Project statistics sets projectStatsTargetIdAtom and desktopViewAtom', () => {
     const store = createTestStore();
     render(
@@ -102,16 +95,27 @@ describe('ProjectGroupActionsMenu – Project statistics item', () => {
     expect(store.get(selectedProjectAtom)?.id).toBe('proj-42');
   });
 
-  it('opens a new workspace window targeted at the project', () => {
+  it('opens the in-window new workspace flow targeted at the project', () => {
     const store = createTestStore();
+    store.set(selectedAgentChatIdAtom, 'chat-123');
+    store.set(selectedDraftIdAtom, 'draft-123');
+    store.set(showNewChatFormAtom, false);
+    store.set(newWorkspaceFormKeyAtom, 4);
+    store.set(desktopViewAtom, 'project-stats');
+
     render(
       <Provider store={store}>
         <ProjectGroupActionsMenu project={project as any} chatIds={['chat-1']} />
       </Provider>
     );
 
-    fireEvent.click(screen.getByText(/new workspace window/i));
+    fireEvent.click(screen.getByText(/^new workspace$/i));
 
-    expect(newWindow).toHaveBeenCalledWith({ projectId: 'proj-42' });
+    expect(store.get(selectedProjectAtom)?.id).toBe('proj-42');
+    expect(store.get(selectedAgentChatIdAtom)).toBeNull();
+    expect(store.get(selectedDraftIdAtom)).toBeNull();
+    expect(store.get(showNewChatFormAtom)).toBe(true);
+    expect(store.get(desktopViewAtom)).toBeNull();
+    expect(store.get(newWorkspaceFormKeyAtom)).toBe(5);
   });
 });
