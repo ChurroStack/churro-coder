@@ -29,7 +29,7 @@ export default defineConfig({
     plugins: [
       externalizeDepsPlugin({
         // Don't externalize these - bundle them instead
-        exclude: ["superjson", "trpc-electron", "gray-matter", "async-mutex"],
+        exclude: ["superjson", "trpc-electron", "gray-matter", "async-mutex", "nunjucks"],
       }),
       sentryPlugin,
     ],

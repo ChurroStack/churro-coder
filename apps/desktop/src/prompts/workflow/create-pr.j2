@@ -1,0 +1,14 @@
+{% if uncommittedCount > 0 %}There are {{ uncommittedCount }} uncommitted changes.{% else %}All changes are committed.{% endif %}
+The current branch is {{ branch }}.
+The target branch is origin/{{ baseBranch }}.
+{% if hasUpstream %}The branch is already pushed to remote.{% else %}There is no upstream branch yet.{% endif %}
+The user requested a PR.
+
+Follow these exact steps to create a PR:
+
+{% set step = 1 %}{% if uncommittedCount > 0 %}{{ step }}. Run git diff to review uncommitted changes
+{% set step = step + 1 %}{{ step }}. Commit them. Write a clear, concise commit message.
+{% set step = step + 1 %}{% endif %}{% if not hasUpstream %}{{ step }}. Push to origin
+{% set step = step + 1 %}{% endif %}{{ step }}. Use git diff origin/{{ baseBranch }}... to review the PR diff
+{% set step = step + 1 %}{% if provider == 'azure' %}{{ step }}. Use az repos pr create --source-branch {{ branch }} --target-branch {{ baseBranch }} --repository {{ azureRepository }} --project "{{ azureProject }}" --organization https://dev.azure.com/{{ azureOrganization }} --title "<title>" --description "<summary>" --output json to create a PR. Keep the title under 80 characters and description under five sentences.{% else %}{{ step }}. Use gh pr create --base {{ baseBranch }} to create a PR. Keep the title under 80 characters and description under five sentences.{% endif %}
+{% set step = step + 1 %}{{ step }}. If any of these steps fail, ask the user for help.

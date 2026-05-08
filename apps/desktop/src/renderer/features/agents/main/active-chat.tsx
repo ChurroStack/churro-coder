@@ -44,6 +44,7 @@ import { useResolvedHotkeyDisplay } from '../../../lib/hotkeys';
 import { appStore } from '../../../lib/jotai-store';
 import { api } from '../../../lib/mock-api';
 import { trpc, trpcClient } from '../../../lib/trpc';
+import { renderBuiltinPrompt } from '../../../../prompts/render';
 import { cn } from '../../../lib/utils';
 import { isDesktopApp } from '../../../lib/utils/platform';
 import { useCommitActions } from '../../changes/components/commit-input';
@@ -4912,17 +4913,11 @@ export function ChatView({
   const setPendingConflictResolutionMessage = useSetAtom(pendingConflictResolutionMessageAtom);
 
   const handleFixConflicts = useCallback(() => {
-    const message = `This PR has merge conflicts with the main branch. Please:
-
-1. First, fetch and merge the latest changes from main branch using git commands
-2. If there are any merge conflicts, resolve them carefully by keeping the correct code from both branches
-3. After resolving conflicts, commit the merge
-4. Push the changes to update the PR
-
-Make sure to preserve all functionality from both branches when resolving conflicts.`;
-
     if (activeSubChatId) {
-      setPendingConflictResolutionMessage({ message, subChatId: activeSubChatId });
+      setPendingConflictResolutionMessage({
+        message: renderBuiltinPrompt('workflow/fix-conflicts'),
+        subChatId: activeSubChatId
+      });
     }
   }, [activeSubChatId, setPendingConflictResolutionMessage]);
 

@@ -16,6 +16,7 @@ export interface WorktreeConfig {
   'setup-worktree-windows'?: string[] | string;
   'setup-worktree'?: string[] | string;
   scripts?: WorktreeScript[];
+  prompts?: Record<string, string>;
 }
 
 export type WorktreeConfigSource = 'custom' | 'cursor' | 'cscode' | null;

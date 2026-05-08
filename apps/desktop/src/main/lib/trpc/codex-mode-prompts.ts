@@ -1,45 +1,9 @@
+import { renderBuiltinPrompt } from '../../../prompts/render';
+
 export function buildCodexModeInstruction(mode: 'plan' | 'execute' | 'explore'): string {
-  if (mode === 'plan') {
-    return [
-      '[PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.',
-      'Read the codebase as needed using read-only tools.',
-      'Use Codex-native planning tools in this turn: create the plan with PlanWrite, and use AskUserQuestion only when a high-impact requirement is ambiguous and cannot be resolved from the repository.',
-      'Do not rely on MCP to create the plan or a task list.',
-      'A plan-mode turn is incomplete until PlanWrite succeeds. Do not stop after inspection or status text.',
-      'When no clarification is needed, immediately call PlanWrite in this same turn.',
-      'Call PlanWrite exactly once with action "create" and plan.status "awaiting_approval".',
-      'PlanWrite input must include a concrete task-specific plan with title, summary, and pending steps. Include step descriptions and files when useful.',
-      'Do not write the final plan as plain text only, do not call PlanWrite more than once, and do not restate the plan after PlanWrite.',
-      "After PlanWrite, stop and wait for the user's approval before implementing anything."
-    ].join('\n');
-  }
-
-  if (mode === 'explore') {
-    return [
-      '[EXPLORE MODE] You are in read-only exploration mode.',
-      'Inspect the codebase, answer questions, and gather evidence using read-only tools only.',
-      'Do not modify, create, or delete files, and do not run commands that change state.',
-      'Do not call PlanWrite and do not implement changes.',
-      'If you need clarification, ask; otherwise continue exploring and report findings.'
-    ].join(' ');
-  }
-
-  return [
-    '[EXECUTE MODE] You are in implementation mode. Implement changes directly using your available tools.',
-    'Use Codex-native task-management tools to track progress through the approved plan as you work.',
-    'Do not call PlanWrite and do not create a new plan.',
-    'When the current request asks you to implement an approved plan, call the read_plan MCP tool before editing.',
-    'For ordinary follow-up requests, use read_plan only when you need to recover the already-approved plan after compaction, a provider switch, or a fresh session.',
-    'Execute each step now.'
-  ].join(' ');
+  return renderBuiltinPrompt(`mode/${mode}`);
 }
 
 export function buildCodexApprovedPlanHint(subChatId: string): string {
-  return [
-    `[CONTEXT] Sub-chat id: ${subChatId}.`,
-    'An approved plan governs this sub-chat.',
-    'For an implement-plan turn, call `read_plan` before editing and use Codex-native task tools to track progress.',
-    `Call \`read_plan\` on the app-owned churro-coder MCP server with EXACTLY this argument object: { "subChatId": "${subChatId}" }.`,
-    'The subChatId argument is required — do not call read_plan without it.'
-  ].join(' ');
+  return renderBuiltinPrompt('mode/codex-approved-plan-hint', { subChatId });
 }

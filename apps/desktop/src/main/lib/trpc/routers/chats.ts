@@ -25,6 +25,7 @@ import { splitUnifiedDiffByFile } from '../../git/diff-parser';
 import { applyRollbackStash } from '../../git/stash';
 import { repairSubChatModeForHydration } from '../../sub-chat-mode';
 import { checkOllamaStatus } from '../../ollama';
+import { getPrompt } from '../../prompts/prompt-service';
 import { terminalManager } from '../../terminal/manager';
 import { publicProcedure, router } from '../index';
 import { abortClaudeSessionsForSubChats } from './claude';
@@ -254,34 +255,13 @@ async function generateCommitMessageWithClaude(
       : { Authorization: `Bearer ${oauthToken}` };
 
     const contextBlock = chatContext ? `Task context (what the developer was working on):\n${chatContext}\n\n` : '';
+    const vars = { contextBlock, fileCount, additions, deletions, diff: diff.slice(0, 6000) };
 
     let userPrompt: string;
     if (existingTitle) {
-      userPrompt = `Write a commit description body for: "${existingTitle}"
-
-Describe the functional impact in 2-4 sentences — what changed from a user/business perspective and why it was needed. Do NOT repeat the title. Write for someone skimming git log, not reading the diff.
-
-${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
-
-Diff:
-${diff.slice(0, 6000)}
-
-Output only the description text, no title, no prefix:`;
+      userPrompt = await getPrompt({ key: 'commit-message/claude-description-only', vars: { ...vars, existingTitle } });
     } else {
-      userPrompt = `Generate a git commit message for these changes. Return a JSON object with "title" and "description" fields.
-
-Rules:
-- "title": conventional commit format (≤72 chars). Be specific and concrete — name the feature, fix, or component. Use plain English.
-- "description": 2-4 sentences for a developer reading git log. Describe what changed from a user/business perspective, why it was needed, and any notable trade-offs. Avoid restating the title or listing file names.
-
-Types: feat, fix, docs, style, refactor, test, chore
-
-${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
-
-Diff:
-${diff.slice(0, 6000)}
-
-Return only valid JSON, no markdown. Example: {"title":"feat: add OAuth login via GitHub","description":"Replaces the email/password form with GitHub OAuth to reduce signup friction. Uses the existing session table; no schema changes needed. The redirect URI is configured per-environment via .env."}`;
+      userPrompt = await getPrompt({ key: 'commit-message/claude-full', vars });
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -337,33 +317,13 @@ async function generateCommitMessageWithOllama(
     }
 
     const contextBlock = chatContext ? `Task context (what the developer was working on):\n${chatContext}\n\n` : '';
+    const vars = { contextBlock, fileCount, additions, deletions, diff: diff.slice(0, 6000) };
 
     let prompt: string;
     if (existingTitle) {
-      prompt = `Write a commit description body for: "${existingTitle}"
-
-Describe the functional impact in 2-4 sentences — what changed from a user/business perspective and why it was needed. Do NOT repeat the title.
-
-${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
-
-Diff:
-${diff.slice(0, 6000)}
-
-Description:`;
+      prompt = await getPrompt({ key: 'commit-message/ollama-description-only', vars: { ...vars, existingTitle } });
     } else {
-      prompt = `Generate a git commit message for these changes.
-
-Line 1: conventional commit title (type: concrete description, ≤72 chars). Be specific — name the feature or fix.
-Types: feat, fix, docs, style, refactor, test, chore
-Line 2: blank
-Lines 3+: 2-4 sentences describing the functional impact from a user/business perspective and why it was needed. Do not list file names.
-
-${contextBlock}Changes: ${fileCount} files, +${additions}/-${deletions} lines
-
-Diff:
-${diff.slice(0, 6000)}
-
-Commit message:`;
+      prompt = await getPrompt({ key: 'commit-message/ollama-full', vars });
     }
 
     const response = await fetch('http://localhost:11434/api/generate', {

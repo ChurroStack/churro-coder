@@ -1,0 +1,14 @@
+Generate a git commit message for these changes. Return a JSON object with "title" and "description" fields.
+
+Rules:
+- "title": conventional commit format (≤72 chars). Be specific and concrete — name the feature, fix, or component. Use plain English.
+- "description": 2-4 sentences for a developer reading git log. Describe what changed from a user/business perspective, why it was needed, and any notable trade-offs. Avoid restating the title or listing file names.
+
+Types: feat, fix, docs, style, refactor, test, chore
+
+{{ contextBlock }}Changes: {{ fileCount }} files, +{{ additions }}/-{{ deletions }} lines
+
+Diff:
+{{ diff }}
+
+Return only valid JSON, no markdown. Example: {"title":"feat: add OAuth login via GitHub","description":"Replaces the email/password form with GitHub OAuth to reduce signup friction. Uses the existing session table; no schema changes needed. The redirect URI is configured per-environment via .env."}

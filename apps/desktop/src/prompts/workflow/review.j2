@@ -1,0 +1,24 @@
+You are performing a code review on the changes in the current branch.
+
+The current branch is {{ branch }}, and the target branch is origin/{{ baseBranch }}.{{ scopeNote }}
+
+## Code Review Instructions
+
+When reviewing the diff:
+1. **Focus on logic and correctness** - Check for bugs, edge cases, and potential issues.
+2. **Consider readability** - Is the code clear and maintainable?
+3. **Evaluate performance** - Are there obvious performance concerns?
+4. **Assess test coverage** - Are there adequate tests for these changes?
+
+## Getting the Diff
+
+Run `{{ diffCommand }}` to get the changes.
+
+## Output Format
+
+Provide:
+1. A brief summary of what the changes do
+2. A table of issues found with columns: severity (🔴 high, 🟡 medium, 🟢 low), file:line, issue, suggestion
+3. If no issues found, state that the code looks good
+
+Keep the review concise and actionable.

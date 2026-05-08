@@ -1,0 +1,30 @@
+Populate the "scripts" array in .cscode/worktree.json so the Scripts widget can run common project commands.
+
+Steps:
+1. Detect the project type by scanning the repo root and (if applicable) workspace packages:
+   - Node/TS: every package.json (root + monorepo packages). Read the "scripts" field of each and surface the most useful ones (dev, build, start, test, lint, typecheck). Use the project's package manager based on the lockfile (bun.lockb -> bun, pnpm-lock.yaml -> pnpm, yarn.lock -> yarn, package-lock.json -> npm).
+   - .NET: any *.csproj or *.sln -> "dotnet run", "dotnet build", "dotnet test".
+   - Rust: Cargo.toml -> "cargo run", "cargo build", "cargo test".
+   - Go: go.mod -> "go run ./...", "go build ./...", "go test ./...".
+   - Python: pyproject.toml / poetry / uv / pipenv -> the appropriate run/test commands.
+   - Mix only what makes sense; prefer high-value commands (dev / build / test / lint / typecheck) over surfacing every script in the repo.
+2. Read the existing .cscode/worktree.json (it may already have setup-worktree). MERGE: do not delete other top-level keys.
+3. Write back .cscode/worktree.json with a "scripts" array of objects: { "name": <short slug>, "command": <shell command> }.
+
+Constraints:
+- "name" must be unique within the array, lowercase, kebab-case (e.g. "dev", "build", "test", "lint-web").
+- "command" runs from the worktree root. Do not include "cd ..." prefixes.
+- Pick commands that work cross-platform when possible. No platform variants.
+- Cap at ~8 entries to avoid clutter — surface the most useful ones.
+
+Example for a bun monorepo:
+{
+  "scripts": [
+    { "name": "dev",       "command": "bun run dev" },
+    { "name": "build",     "command": "bun run build" },
+    { "name": "test",      "command": "bun test" },
+    { "name": "typecheck", "command": "bun run typecheck" }
+  ]
+}
+
+Now analyze this project and update .cscode/worktree.json with the appropriate scripts array.
