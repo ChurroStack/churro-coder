@@ -24,10 +24,12 @@ import { parseCwd } from './parseCwd';
 import { sanitizeForTitle } from './commandBuffer';
 import { shellEscapePaths } from './utils';
 import { TerminalSearch } from './TerminalSearch';
+import { useFindScope } from '../find/use-find-scope';
 import type { TerminalProps, TerminalStreamEvent } from './types';
 import 'xterm/css/xterm.css';
 
 export function Terminal({ paneId, cwd, workspaceId, scopeKey, tabId, initialCommands, initialCwd }: TerminalProps) {
+  const scopeRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -36,9 +38,10 @@ export function Terminal({ paneId, cwd, workspaceId, scopeKey, tabId, initialCom
   const isExitedRef = useRef(false);
   const commandBufferRef = useRef('');
 
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [terminalCwd, setTerminalCwd] = useState<string | null>(initialCwd || cwd);
   const setGlobalCwds = useSetAtom(terminalCwdAtom);
+  const findScope = useFindScope(scopeRef, true);
 
   // Theme detection
   const { resolvedTheme } = useTheme();
@@ -340,18 +343,15 @@ export function Terminal({ paneId, cwd, workspaceId, scopeKey, tabId, initialCom
     }
   }, [isDark, fullThemeData]);
 
-  // Keyboard shortcut for search
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'f' && e.metaKey && !e.shiftKey) {
-        e.preventDefault();
-        setIsSearchOpen((prev) => !prev);
-      }
-    };
+    if (!searchAddonRef.current) return;
+    if (!searchQuery.trim()) {
+      searchAddonRef.current.clearDecorations();
+      return;
+    }
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    searchAddonRef.current.findNext(searchQuery, { caseSensitive: false, regex: false });
+  }, [searchQuery]);
 
   // Drag and drop files. Bail out for non-file drags (e.g. dockview tab
   // drag, where `types` contains "application/vnd.dockview-panel" or just
@@ -414,15 +414,30 @@ export function Terminal({ paneId, cwd, workspaceId, scopeKey, tabId, initialCom
 
   return (
     <div
+      ref={scopeRef}
       role="application"
       className="relative h-full w-full overflow-hidden"
       style={{ backgroundColor: terminalBg }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}>
       <TerminalSearch
-        searchAddon={searchAddonRef.current}
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
+        isOpen={findScope.isOpen}
+        query={searchQuery}
+        selectionVersion={findScope.selectionVersion}
+        onQueryChange={setSearchQuery}
+        onClose={() => {
+          findScope.setIsOpen(false);
+          setSearchQuery('');
+          searchAddonRef.current?.clearDecorations();
+        }}
+        onNext={() => {
+          if (!searchQuery.trim()) return;
+          searchAddonRef.current?.findNext(searchQuery, { caseSensitive: false, regex: false });
+        }}
+        onPrev={() => {
+          if (!searchQuery.trim()) return;
+          searchAddonRef.current?.findPrevious(searchQuery, { caseSensitive: false, regex: false });
+        }}
       />
       <div ref={containerRef} className="h-full w-full" style={{ padding: '8px' }} />
     </div>

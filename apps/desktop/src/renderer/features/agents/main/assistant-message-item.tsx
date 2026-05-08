@@ -36,6 +36,7 @@ import { AgentWebFetchTool } from '../ui/agent-web-fetch-tool';
 import { AgentWebSearchCollapsible } from '../ui/agent-web-search-collapsible';
 import { CopyButton, PlayButton, getMessageTextContent } from '../ui/message-action-buttons';
 import { useFileOpen } from '../mentions';
+import { SearchHighlightContainer } from '../search';
 import { GitActivityBadges } from '../ui/git-activity-badges';
 import { ForkContext } from './isolated-message-group';
 import { MemoizedTextPart } from './memoized-text-part';
@@ -629,6 +630,15 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
 
   const renderPart = useCallback(
     (part: any, idx: number, isFinal = false) => {
+      const withSearchHighlight = (node: any) => {
+        if (!node) return null;
+        return (
+          <SearchHighlightContainer key={idx} messageId={message.id} partIndex={idx} partType={part.type}>
+            {node}
+          </SearchHighlightContainer>
+        );
+      };
+
       if (part.type === 'step-start') return null;
       if (part.type === 'tool-TaskOutput') return null;
 
@@ -675,9 +685,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
 
       if (isSubagentDispatchType(part.type)) {
         const nestedTools = nestedToolsMap.get(part.toolCallId) || [];
-        return (
+        return withSearchHighlight(
           <AgentTaskTool
-            key={idx}
             part={part}
             nestedTools={nestedTools}
             chatStatus={status}
@@ -687,9 +696,13 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
       }
 
       if (part.type === 'tool-Bash')
-        return <AgentBashTool key={idx} part={part} messageId={message.id} partIndex={idx} chatStatus={status} />;
+        return withSearchHighlight(
+          <AgentBashTool part={part} messageId={message.id} partIndex={idx} chatStatus={status} />
+        );
       if (part.type === 'reasoning' || part.type === 'tool-Thinking') {
-        return <AgentThinkingTool key={idx} part={toThinkingToolPart(part, message?.id, idx)} chatStatus={status} />;
+        return withSearchHighlight(
+          <AgentThinkingTool part={toThinkingToolPart(part, message?.id, idx)} chatStatus={status} />
+        );
       }
 
       // Plan files: unified handling
@@ -723,8 +736,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
             const { isPending } = getToolStatus(part, status);
             const isOpStreaming = isPending || (part.state === 'input-streaming' && isStreaming && isLastMessage);
 
-            return (
-              <div key={idx} className="flex items-center gap-1.5 px-2 py-0.5">
+            return withSearchHighlight(
+              <div className="flex items-center gap-1.5 px-2 py-0.5">
                 <span className="text-xs text-muted-foreground">
                   {isOpStreaming ? (
                     <TextShimmer as="span" duration={1.2}>
@@ -741,9 +754,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
           }
 
           // Last operation in final parts: show full card
-          return (
+          return withSearchHighlight(
             <AgentPlanFileTool
-              key={idx}
               part={part}
               chatStatus={status}
               subChatId={subChatId}
@@ -754,12 +766,18 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
       }
 
       if (part.type === 'tool-Edit')
-        return <AgentEditTool key={idx} part={part} messageId={message.id} partIndex={idx} chatStatus={status} />;
+        return withSearchHighlight(
+          <AgentEditTool part={part} messageId={message.id} partIndex={idx} chatStatus={status} />
+        );
       if (part.type === 'tool-Write')
-        return <AgentEditTool key={idx} part={part} messageId={message.id} partIndex={idx} chatStatus={status} />;
+        return withSearchHighlight(
+          <AgentEditTool part={part} messageId={message.id} partIndex={idx} chatStatus={status} />
+        );
       if (part.type === 'tool-WebSearch')
-        return <AgentWebSearchCollapsible key={idx} part={part} chatStatus={status} />;
-      if (part.type === 'tool-WebFetch') return <AgentWebFetchTool key={idx} part={part} chatStatus={status} />;
+        return withSearchHighlight(<AgentWebSearchCollapsible part={part} chatStatus={status} />);
+      if (part.type === 'tool-WebFetch') {
+        return withSearchHighlight(<AgentWebFetchTool part={part} chatStatus={status} />);
+      }
       if (part.type === 'tool-PlanWrite') {
         // In agent mode, PlanWrite should never be called — but if it is (e.g. a
         // model ignoring the instruction), render it as a plain tool call rather
@@ -769,9 +787,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
         if (!hasRenderablePlan || isAgentMode) {
           const meta = AgentToolRegistry[part.type];
           const { isPending, isError } = getToolStatus(part, status);
-          return (
+          return withSearchHighlight(
             <AgentToolCall
-              key={idx}
               icon={meta.icon}
               title={meta.title(part)}
               subtitle={meta.subtitle?.(part)}
@@ -783,7 +800,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
 
         const opIndex = planOpsSummary.operations.findIndex((op) => op.part.toolCallId === part.toolCallId);
         if (opIndex === -1) {
-          return <AgentPlanTool key={idx} part={part} chatStatus={status} subChatId={subChatId} />;
+          return withSearchHighlight(<AgentPlanTool part={part} chatStatus={status} subChatId={subChatId} />);
         }
 
         const originalIndex = planOpsSummary.operations[opIndex]?.index ?? -1;
@@ -799,8 +816,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
 
         if (isInCollapsedSteps || !isLastOperation) {
           const { isPending } = getToolStatus(part, status);
-          return (
-            <div key={idx} className="flex items-center gap-1.5 px-2 py-0.5">
+          return withSearchHighlight(
+            <div className="flex items-center gap-1.5 px-2 py-0.5">
               <span className="text-xs text-muted-foreground">
                 {isPending ? (
                   <TextShimmer as="span" duration={1.2}>
@@ -814,7 +831,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
           );
         }
 
-        return <AgentPlanTool key={idx} part={part} chatStatus={status} subChatId={subChatId} />;
+        return withSearchHighlight(<AgentPlanTool part={part} chatStatus={status} subChatId={subChatId} />);
       }
 
       // ExitPlanMode tool is hidden - plan is shown in sidebar instead
@@ -823,14 +840,13 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
       }
 
       if (part.type === 'tool-TodoWrite') {
-        return <AgentTodoTool key={idx} part={part} chatStatus={status} subChatId={subChatId} />;
+        return withSearchHighlight(<AgentTodoTool part={part} chatStatus={status} subChatId={subChatId} />);
       }
 
       if (part.type === 'tool-AskUserQuestion') {
         const { isPending, isError } = getToolStatus(part, status);
-        return (
+        return withSearchHighlight(
           <AgentAskUserQuestionTool
-            key={idx}
             input={part.input}
             result={part.result}
             errorText={(part as any).errorText || (part as any).error}
@@ -850,9 +866,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
           part.type === 'tool-Read' && onOpenFile && part.input?.file_path
             ? () => onOpenFile(part.input.file_path)
             : undefined;
-        return (
+        return withSearchHighlight(
           <AgentToolCall
-            key={idx}
             icon={meta.icon}
             title={meta.title(part)}
             subtitle={meta.subtitle?.(part)}
@@ -867,14 +882,14 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
       // MCP tool calls (pattern: tool-mcp__<server>__<tool>)
       const mcpInfo = parseMcpToolType(part.type);
       if (mcpInfo) {
-        return <AgentMcpToolCall key={idx} part={part} mcpInfo={mcpInfo} chatStatus={status} />;
+        return withSearchHighlight(<AgentMcpToolCall part={part} mcpInfo={mcpInfo} chatStatus={status} />);
       }
 
       if (part.type?.startsWith('tool-')) {
         const toolName = part.type.replace('tool-', '');
         const summary = summarizeToolInput(part.input);
-        return (
-          <div key={idx} className="text-xs py-0.5 px-2 flex items-center gap-1.5 min-w-0">
+        return withSearchHighlight(
+          <div className="text-xs py-0.5 px-2 flex items-center gap-1.5 min-w-0">
             <span className="font-medium text-foreground flex-shrink-0">{toolName}</span>
             {summary && <span className="text-muted-foreground truncate min-w-0">{summary}</span>}
           </div>
