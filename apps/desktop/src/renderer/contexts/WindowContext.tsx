@@ -61,10 +61,10 @@ export function getWindowId(): string {
 }
 
 /**
- * Get initial window params (chatId, subChatId) passed when opening a new window.
+ * Get initial window params (chatId, subChatId, projectId) passed when opening a new window.
  * These are one-time use - cleared from sessionStorage after first read.
  */
-export function getInitialWindowParams(): { chatId?: string; subChatId?: string } {
+export function getInitialWindowParams(): { chatId?: string; subChatId?: string; projectId?: string } {
   // Check if already consumed
   const consumed = sessionStorage.getItem('windowParamsConsumed');
   if (consumed) return {};
@@ -73,21 +73,24 @@ export function getInitialWindowParams(): { chatId?: string; subChatId?: string 
   const urlParams = new URLSearchParams(window.location.search);
   let chatId = urlParams.get('chatId');
   let subChatId = urlParams.get('subChatId');
+  let projectId = urlParams.get('projectId');
 
   // Try hash params (production file:// URLs)
-  if (!chatId && window.location.hash) {
+  if ((!chatId || !projectId) && window.location.hash) {
     const hashParams = new URLSearchParams(window.location.hash.slice(1));
-    chatId = hashParams.get('chatId');
-    subChatId = hashParams.get('subChatId');
+    chatId ||= hashParams.get('chatId');
+    subChatId ||= hashParams.get('subChatId');
+    projectId ||= hashParams.get('projectId');
   }
 
   // Mark as consumed so we don't re-apply on hot reload
-  if (chatId || subChatId) {
+  if (chatId || subChatId || projectId) {
     sessionStorage.setItem('windowParamsConsumed', 'true');
   }
 
   return {
     chatId: chatId || undefined,
-    subChatId: subChatId || undefined
+    subChatId: subChatId || undefined,
+    projectId: projectId || undefined
   };
 }

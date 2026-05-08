@@ -26,6 +26,7 @@ import {
 } from './lib/atoms';
 import { debugSessionEnabledAtom } from './lib/debug-session';
 import { appStore } from './lib/jotai-store';
+import { pickProject } from './lib/auto-select-project';
 import { VSCodeThemeProvider } from './lib/themes/theme-provider';
 import { trpc, trpcClient } from './lib/trpc';
 
@@ -54,7 +55,7 @@ function AnalyticsBindings() {
 /**
  * Main content router - decides which page to show based on onboarding state
  */
-function AppContent() {
+export function AppContent() {
   const billingMethod = useAtomValue(billingMethodAtom);
   const setBillingMethod = useSetAtom(billingMethodAtom);
   const anthropicOnboardingCompleted = useAtomValue(anthropicOnboardingCompletedAtom);
@@ -63,22 +64,24 @@ function AppContent() {
   const setApiKeyOnboardingCompleted = useSetAtom(apiKeyOnboardingCompletedAtom);
   const codexOnboardingCompleted = useAtomValue(codexOnboardingCompletedAtom);
   const selectedProject = useAtomValue(selectedProjectAtom);
+  const setSelectedProject = useSetAtom(selectedProjectAtom);
+  const selectedChatId = useAtomValue(selectedAgentChatIdAtom);
   const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom);
   const { setActiveSubChat, addToOpenSubChats, setChatId } = useAgentSubChatStore();
+  const initialWindowParams = useMemo(() => getInitialWindowParams(), []);
 
   // Apply initial window params (chatId/subChatId) when opening via "Open in new window"
   useEffect(() => {
-    const params = getInitialWindowParams();
-    if (params.chatId) {
-      console.log('[App] Opening chat from window params:', params.chatId, params.subChatId);
-      setSelectedChatId(params.chatId);
-      setChatId(params.chatId);
-      if (params.subChatId) {
-        addToOpenSubChats(params.subChatId);
-        setActiveSubChat(params.subChatId);
+    if (initialWindowParams.chatId) {
+      console.log('[App] Opening chat from window params:', initialWindowParams.chatId, initialWindowParams.subChatId);
+      setSelectedChatId(initialWindowParams.chatId);
+      setChatId(initialWindowParams.chatId);
+      if (initialWindowParams.subChatId) {
+        addToOpenSubChats(initialWindowParams.subChatId);
+        setActiveSubChat(initialWindowParams.subChatId);
       }
     }
-  }, [setSelectedChatId, setChatId, addToOpenSubChats, setActiveSubChat]);
+  }, [initialWindowParams, setSelectedChatId, setChatId, addToOpenSubChats, setActiveSubChat]);
 
   // Claim the initially selected chat to prevent duplicate windows.
   // For new windows opened via "Open in new window", the chat is pre-claimed by main process.
@@ -154,6 +157,47 @@ function AppContent() {
     return exists ? selectedProject : null;
   }, [selectedProject, projects, isLoadingProjects]);
 
+  const chatLookupId =
+    !validatedProject && !initialWindowParams.projectId && !isLoadingProjects && Array.isArray(projects)
+      ? selectedChatId
+      : null;
+  const { data: chatProjectId } = trpc.chats.getProjectIdById.useQuery(
+    { chatId: chatLookupId ?? '' },
+    { enabled: !!chatLookupId }
+  );
+
+  const projectSelection = useMemo(
+    () =>
+      pickProject({
+        validatedProject,
+        paramProjectId: initialWindowParams.projectId ?? null,
+        chatProjectId,
+        projects: isLoadingProjects ? undefined : projects,
+        selectedChatId
+      }),
+    [validatedProject, initialWindowParams.projectId, chatProjectId, isLoadingProjects, projects, selectedChatId]
+  );
+
+  useEffect(() => {
+    if (projectSelection.kind !== 'select') return;
+
+    const { project } = projectSelection;
+    console.log(`[App] Auto-selecting project ${project.id} via ${projectSelection.source}`, {
+      chatId: selectedChatId ?? null,
+      requestedProjectId: initialWindowParams.projectId ?? null
+    });
+
+    setSelectedProject({
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      gitRemoteUrl: project.gitRemoteUrl,
+      gitProvider: project.gitProvider as 'github' | 'gitlab' | 'bitbucket' | null,
+      gitOwner: project.gitOwner,
+      gitRepo: project.gitRepo
+    });
+  }, [projectSelection, selectedChatId, initialWindowParams.projectId, setSelectedProject]);
+
   // Determine which page to show:
   // 1. No billing method selected -> BillingMethodPage
   // 2. Claude subscription selected but not completed -> AnthropicOnboardingPage
@@ -177,8 +221,12 @@ function AppContent() {
     return <ApiKeyOnboardingPage />;
   }
 
-  if (!validatedProject && !isLoadingProjects) {
+  if (projectSelection.kind === 'show-empty') {
     return <SelectRepoPage />;
+  }
+
+  if (projectSelection.kind !== 'keep') {
+    return null;
   }
 
   return <AgentsLayout />;
