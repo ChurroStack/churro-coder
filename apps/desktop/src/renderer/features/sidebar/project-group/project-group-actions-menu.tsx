@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
-import { BarChart3, Settings } from 'lucide-react';
+import { BarChart3, Plus, Settings } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../../../components/confirm-delete-dialog';
 import { OpenInMenuItems, getAppOption } from '../../../components/open-in-menu-items';
 import { ProjectGroupMenuButton } from './project-group-header';
@@ -16,12 +16,14 @@ import {
 } from '../../../components/ui/dropdown-menu';
 import {
   selectedProjectAtom,
+  selectedAgentChatIdAtom,
   agentsSettingsDialogActiveTabAtom,
   agentsSidebarOpenAtom,
   preferredEditorAtom,
   desktopViewAtom,
   projectStatsTargetIdAtom
 } from '../../../lib/atoms';
+import { newWorkspaceFormKeyAtom, selectedDraftIdAtom, showNewChatFormAtom } from '../../agents/atoms';
 import { trpc } from '../../../lib/trpc';
 import type { ProjectRecord } from '../grouping/group-chats-by-project';
 
@@ -31,6 +33,10 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const setSelectedProject = useSetAtom(selectedProjectAtom);
+  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom);
+  const setSelectedDraftId = useSetAtom(selectedDraftIdAtom);
+  const setShowNewChatForm = useSetAtom(showNewChatFormAtom);
+  const bumpNewWorkspaceFormKey = useSetAtom(newWorkspaceFormKeyAtom);
   const setSettingsTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
   const setDesktopView = useSetAtom(desktopViewAtom);
   const setSidebarOpen = useSetAtom(agentsSidebarOpenAtom);
@@ -80,6 +86,15 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
     setSidebarOpen(true);
   }
 
+  function openNewWorkspace() {
+    selectThisProject();
+    setSelectedChatId(null);
+    setSelectedDraftId(null);
+    setShowNewChatForm(true);
+    setDesktopView(null);
+    bumpNewWorkspaceFormKey((key) => key + 1);
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -98,6 +113,11 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
           </DropdownMenuSub>
           <DropdownMenuItem onClick={() => openInFinderMutation.mutate(project.path)}>
             Reveal in Finder
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={openNewWorkspace} className="flex items-center gap-2">
+            <Plus className="size-4" />
+            <span>New workspace</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={openProjectStats} className="flex items-center gap-2">
