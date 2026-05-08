@@ -36,9 +36,7 @@ function extractTextFromPart(messageId: string, partIndex: number, part: Message
     case 'tool-Write':
     case 'tool-Edit': {
       const patchText = Array.isArray(part.output?.structuredPatch)
-        ? part.output.structuredPatch
-            .flatMap((patch: { lines?: string[] }) => patch.lines || [])
-            .join('\n')
+        ? part.output.structuredPatch.flatMap((patch: { lines?: string[] }) => patch.lines || []).join('\n')
         : undefined;
       addText([part.input?.file_path, part.input?.new_string, patchText].filter(Boolean).join('\n'));
       break;
@@ -63,7 +61,9 @@ function extractTextFromPart(messageId: string, partIndex: number, part: Message
       break;
     }
     case 'tool-WebFetch':
-      addText([part.input?.url, part.input?.prompt, part.output?.markdown, part.output?.content].filter(Boolean).join('\n'));
+      addText(
+        [part.input?.url, part.input?.prompt, part.output?.markdown, part.output?.content].filter(Boolean).join('\n')
+      );
       break;
     case 'tool-Thinking':
       addText(part.thinking || part.text || part.input?.text);

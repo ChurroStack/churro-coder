@@ -18,6 +18,7 @@ import { CopyButton } from '../../agents/ui/message-action-buttons';
 import { EDITOR_ICONS } from '@/lib/editor-icons';
 import { fileViewerWordWrapAtom } from '../../agents/atoms';
 import { FindBar } from '../../find/find-bar';
+import { markCurrentFindScope } from '../../find/constants';
 import { useDomTextFind } from '../../find/use-dom-text-find';
 import { useFindScope } from '../../find/use-find-scope';
 import { defaultEditorOptions, getMonacoTheme } from './monaco-config';
@@ -97,6 +98,30 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    if (!showPreview) return;
+
+    const handleFindKeyDown = (e: KeyboardEvent) => {
+      const isFindHotkey = e.code === 'KeyF' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey;
+      if (!isFindHotkey) return;
+
+      const scope = scopeRef.current;
+      if (!scope || scope.getClientRects().length === 0) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      markCurrentFindScope(scope);
+      if (findScope.isOpen) {
+        findScope.bumpSelectionVersion();
+      } else {
+        findScope.setIsOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleFindKeyDown, true);
+    return () => window.removeEventListener('keydown', handleFindKeyDown, true);
+  }, [findScope, showPreview]);
+
   const domFind = useDomTextFind({
     rootRef: previewRef,
     contentKey: `${absolutePath}:${data?.ok ? data.content : ''}`,
@@ -158,7 +183,7 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
   const content = data?.ok ? data.content : '';
 
   return (
-    <div ref={scopeRef} className="flex flex-col h-full bg-background">
+    <div ref={scopeRef} className="relative flex flex-col h-full bg-background">
       <Header
         filePath={filePath}
         showPreview={showPreview}

@@ -1,21 +1,77 @@
 const HIGHLIGHT_SELECTOR = '.search-highlight';
 
+function collectSearchRoots(container: HTMLElement): Array<HTMLElement | ShadowRoot> {
+  const roots: Array<HTMLElement | ShadowRoot> = [container];
+  const queue: Array<HTMLElement | ShadowRoot> = [container];
+
+  while (queue.length > 0) {
+    const root = queue.shift();
+    if (!root) continue;
+
+    for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+      if (element.shadowRoot) {
+        roots.push(element.shadowRoot);
+        queue.push(element.shadowRoot);
+      }
+    }
+  }
+
+  return roots;
+}
+
 function unwrapHighlights(container: HTMLElement) {
-  const existingHighlights = container.querySelectorAll(HIGHLIGHT_SELECTOR);
-  existingHighlights.forEach((element) => {
-    const parent = element.parentNode;
-    if (!parent) return;
-    parent.replaceChild(document.createTextNode(element.textContent || ''), element);
-    parent.normalize();
+  const roots = collectSearchRoots(container);
+  roots.forEach((root) => {
+    const existingHighlights = root.querySelectorAll(HIGHLIGHT_SELECTOR);
+    existingHighlights.forEach((element) => {
+      const parent = element.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(element.textContent || ''), element);
+      parent.normalize();
+    });
   });
 }
 
 function shouldSkipTextNode(node: Text): boolean {
   const parent = node.parentElement;
   if (!parent) return true;
-  if (parent.closest('mark.search-highlight')) return true;
   const tagName = parent.tagName;
   return tagName === 'SCRIPT' || tagName === 'STYLE' || tagName === 'INPUT' || tagName === 'TEXTAREA';
+}
+
+function collectMatchingTextNodes(container: HTMLElement, lowerSearch: string): Text[] {
+  const textNodes: Text[] = [];
+  for (const root of collectSearchRoots(container)) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      if (
+        node instanceof Text &&
+        node.nodeValue &&
+        node.nodeValue.toLowerCase().includes(lowerSearch) &&
+        !shouldSkipTextNode(node)
+      ) {
+        textNodes.push(node);
+      }
+      node = walker.nextNode();
+    }
+  }
+  return textNodes;
+}
+
+export function countSearchMatches(container: HTMLElement | null, searchText: string): number {
+  if (!container || !searchText.trim()) return 0;
+  const lowerSearch = searchText.toLowerCase();
+  let count = 0;
+  for (const textNode of collectMatchingTextNodes(container, lowerSearch)) {
+    const lower = (textNode.nodeValue || '').toLowerCase();
+    let idx = lower.indexOf(lowerSearch);
+    while (idx !== -1) {
+      count++;
+      idx = lower.indexOf(lowerSearch, idx + lowerSearch.length);
+    }
+  }
+  return count;
 }
 
 export interface ApplySearchHighlightsResult {
@@ -44,16 +100,7 @@ export function applySearchHighlights(
   }
 
   const lowerSearch = searchText.toLowerCase();
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  const textNodes: Text[] = [];
-
-  let node = walker.nextNode();
-  while (node) {
-    if (node instanceof Text && node.nodeValue && node.nodeValue.toLowerCase().includes(lowerSearch) && !shouldSkipTextNode(node)) {
-      textNodes.push(node);
-    }
-    node = walker.nextNode();
-  }
+  const textNodes = collectMatchingTextNodes(container, lowerSearch);
 
   let matchCounter = 0;
   let currentElement: HTMLElement | null = null;

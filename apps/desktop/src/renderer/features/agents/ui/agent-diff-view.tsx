@@ -1872,7 +1872,12 @@ export const AgentDiffView = forwardRef<AgentDiffViewRef, AgentDiffViewProps>(fu
   }
 
   return (
-    <div ref={scopeRef} className={cn('flex flex-col bg-background overflow-hidden min-w-0', isMobile ? 'h-full w-full' : 'h-full')}>
+    <div
+      ref={scopeRef}
+      className={cn(
+        'relative flex flex-col bg-background overflow-hidden min-w-0',
+        isMobile ? 'h-full w-full' : 'h-full'
+      )}>
       <FindBar
         isOpen={findScope.isOpen}
         query={domFind.query}

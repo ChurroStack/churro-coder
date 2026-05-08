@@ -91,7 +91,11 @@ export function FindBar({
       <div className="w-[96px] text-right text-xs text-muted-foreground">
         {total > 0 ? `${current} of ${total}` : query.trim() && searchCompleted ? 'No results' : ''}
       </div>
-      <button type="button" onClick={onPrev} className="rounded p-1 hover:bg-muted" title="Previous match (Shift+Enter)">
+      <button
+        type="button"
+        onClick={onPrev}
+        className="rounded p-1 hover:bg-muted"
+        title="Previous match (Shift+Enter)">
         <ChevronUp className="h-4 w-4 text-muted-foreground" />
       </button>
       <button type="button" onClick={onNext} className="rounded p-1 hover:bg-muted" title="Next match (Enter)">
