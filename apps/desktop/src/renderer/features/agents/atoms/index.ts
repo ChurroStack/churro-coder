@@ -2,6 +2,7 @@ import { atom } from 'jotai';
 import { atomFamily, atomWithStorage } from 'jotai/utils';
 import { atomWithWindowStorage } from '../../../lib/window-storage';
 import type { FileMentionOption } from '../mentions/agents-mentions-editor';
+import type { Harness, WorkType } from '../lib/wizard-state';
 
 export type AgentMode = 'plan' | 'execute' | 'explore';
 type LegacyAgentMode = AgentMode | 'agent';
@@ -369,6 +370,23 @@ export const defaultReviewModeThinkingAtom = atomWithStorage<ClaudeThinkingPrefe
   undefined,
   { getOnInit: true }
 );
+
+export const lastSelectedWorkTypeAtom = atomWithStorage<WorkType>('preferences:work-type', 'feature', undefined, {
+  getOnInit: true
+});
+
+export const lastSelectedHarnessAtom = atomWithStorage<Harness>('preferences:harness', 'vibe-coding', undefined, {
+  getOnInit: true
+});
+
+export const continueFromSpecExpandedAtom = atomWithStorage<boolean>(
+  'preferences:spec-strip-expanded',
+  true,
+  undefined,
+  { getOnInit: true }
+);
+
+export const specPickerOpenAtom = atom<boolean>(false);
 
 // Storage for per-subChat Claude model selection.
 // Falls back to lastSelectedModelIdAtom when sub-chat has no explicit selection yet.
