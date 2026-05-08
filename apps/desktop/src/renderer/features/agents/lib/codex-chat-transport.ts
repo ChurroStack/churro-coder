@@ -320,6 +320,19 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
                 return;
               }
 
+              // Recovery notification: backend is silently retrying after a
+              // micro-cut (transient network/app-server failure). Surface a
+              // friendly toast and DO NOT enqueue the chunk — the AI SDK
+              // status must stay in 'streaming' so the Continue button never
+              // shows during automatic recovery.
+              if (chunk.type === 'retry-notification') {
+                toast.info('Reconnecting to Codex', {
+                  description: chunk.message || 'Request was unsuccessful, retrying…',
+                  duration: 4000
+                });
+                return;
+              }
+
               if (chunk.type === 'error') {
                 recordChatEvent({
                   ts: Date.now(),
