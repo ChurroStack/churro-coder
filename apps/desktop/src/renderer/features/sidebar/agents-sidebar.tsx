@@ -1311,8 +1311,11 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
   const bottomGradientRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Multiple drafts state - uses event-based sync instead of polling
-  const drafts = useNewChatDrafts();
+  // Multiple drafts state - uses event-based sync instead of polling.
+  // Only show visible drafts in the sidebar (user has navigated away from the new-chat form).
+  // Memoize so children that depend on `drafts` reference don't churn on every render.
+  const allDrafts = useNewChatDrafts();
+  const drafts = useMemo(() => allDrafts.filter((d) => d.isVisible), [allDrafts]);
 
   // Read unseen changes from global atoms
   const unseenChanges = useAtomValue(agentsUnseenChangesAtom);

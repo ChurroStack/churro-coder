@@ -125,7 +125,9 @@ export function isSubChatDraftKey(key: string): boolean {
   return key.includes(':');
 }
 
-// Get new chat drafts as sorted array (only visible ones)
+// Get new chat drafts as sorted array (all drafts, including non-visible ones).
+// Callers that only want visible drafts (sidebar) must add .filter(d => d.isVisible).
+// The kanban passes isVisible into the state machine and lets it drop non-visible cards.
 export function getNewChatDrafts(): NewChatDraft[] {
   const globalDrafts = loadGlobalDrafts();
   return Object.entries(globalDrafts)
@@ -137,7 +139,6 @@ export function getNewChatDrafts(): NewChatDraft[] {
       project: (data as NewChatDraft).project,
       isVisible: (data as NewChatDraft).isVisible
     }))
-    .filter((draft) => draft.isVisible === true)
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -329,7 +330,8 @@ export function useNewChatDrafts(): NewChatDraft[] {
       // For storage events, only react to draft-related keys
       // This prevents re-renders when other localStorage keys change (e.g., sub-chat active state)
       if (e instanceof StorageEvent) {
-        if (!e.key?.startsWith('new-chat-draft-')) {
+        // Only react when the drafts blob itself changes, not unrelated keys
+        if (e.key !== DRAFTS_STORAGE_KEY) {
           return;
         }
       }

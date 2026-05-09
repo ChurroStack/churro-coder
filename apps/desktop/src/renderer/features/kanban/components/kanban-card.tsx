@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { formatTimeAgo } from '../../../lib/utils/format-time-ago';
 import { cn } from '../../../lib/utils';
-import type { SubChatStatus } from '../lib/derive-status';
+import type { KanbanStatus, AttentionReason } from '../lib/kanban-state-machine';
 import { LoadingDot, QuestionIcon, ArchiveIcon } from '../../../components/ui/icons';
 import { Pin } from 'lucide-react';
 import { Checkbox } from '../../../components/ui/checkbox';
@@ -25,7 +25,8 @@ export interface KanbanCardData {
   projectName: string | null;
   branch: string | null;
   mode: 'plan' | 'execute' | 'explore';
-  status: SubChatStatus;
+  status: KanbanStatus;
+  attentionReason: AttentionReason;
   hasUnseenChanges: boolean;
   hasPendingPlan: boolean;
   hasPendingQuestion: boolean;
@@ -71,11 +72,12 @@ export const KanbanCard = memo(function KanbanCard({
       : card.branch
     : card.projectName || 'Local project';
 
-  // Status flags
+  // Derive loading from the mode + status
   const isLoading = card.status === 'in-progress';
   const hasUnseenChanges = card.hasUnseenChanges;
   const hasPendingPlan = card.hasPendingPlan;
   const hasPendingQuestion = card.hasPendingQuestion;
+  const needsAttention = card.attentionReason != null;
 
   // Show status indicator if there's something to show (pin has lowest priority)
   const showStatusIndicator = hasPendingQuestion || isLoading || hasPendingPlan || hasUnseenChanges || card.isPinned;
@@ -92,14 +94,14 @@ export const KanbanCard = memo(function KanbanCard({
 
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-        {/* First row: name + status indicator (справа!) */}
+        {/* First row: name + status indicator */}
         <div className="flex items-center gap-1">
           <span className="truncate block text-sm leading-tight flex-1">{card.name || 'New Workspace'}</span>
 
-          {/* Status indicator container - справа от названия */}
+          {/* Status indicator container */}
           {!isMultiSelectMode && (
             <div className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center relative">
-              {/* Indicator - absolute, скрывается при hover */}
+              {/* Indicator — hidden on hover */}
               {showStatusIndicator && (
                 <div className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover:opacity-0">
                   <AnimatePresence mode="wait">
@@ -153,7 +155,7 @@ export const KanbanCard = memo(function KanbanCard({
                 </div>
               )}
 
-              {/* Archive button - absolute, appears on hover */}
+              {/* Archive button — appears on hover */}
               {!card.isDraft && (
                 <button
                   type="button"
@@ -188,20 +190,20 @@ export const KanbanCard = memo(function KanbanCard({
     </div>
   );
 
+  const baseCardClasses = cn(
+    'w-full text-left py-1.5 cursor-pointer group relative',
+    'pl-2 pr-2 rounded-md',
+    'bg-card border',
+    needsAttention ? 'border-amber-500/50' : 'border-border/50',
+    'hover:bg-accent/50 hover:border-border',
+    'transition-colors duration-75',
+    'outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70'
+  );
+
   // Don't show context menu for drafts
   if (card.isDraft) {
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          'w-full text-left py-1.5 cursor-pointer group relative',
-          'pl-2 pr-2 rounded-md',
-          'bg-card border border-border/50',
-          'hover:bg-accent/50 hover:border-border',
-          'transition-colors duration-75',
-          'outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70'
-        )}>
+      <button type="button" onClick={onClick} className={baseCardClasses}>
         {cardContent}
       </button>
     );
@@ -213,15 +215,7 @@ export const KanbanCard = memo(function KanbanCard({
         <button
           type="button"
           onClick={onClick}
-          className={cn(
-            'w-full text-left py-1.5 cursor-pointer group relative',
-            'pl-2 pr-2 rounded-md',
-            'bg-card border border-border/50',
-            'hover:bg-accent/50 hover:border-border',
-            'transition-colors duration-75',
-            'outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70',
-            card.isSelected && 'bg-primary/10 border-primary/30'
-          )}>
+          className={cn(baseCardClasses, card.isSelected && 'bg-primary/10 border-primary/30')}>
           {cardContent}
         </button>
       </ContextMenuTrigger>
