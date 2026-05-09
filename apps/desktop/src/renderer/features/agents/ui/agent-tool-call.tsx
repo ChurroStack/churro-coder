@@ -9,6 +9,7 @@ interface AgentToolCallProps {
   title: string;
   subtitle?: string;
   tooltipContent?: string;
+  errorTooltip?: string;
   isPending: boolean;
   isError: boolean;
   isNested?: boolean;
@@ -21,6 +22,7 @@ export const AgentToolCall = memo(
     title,
     subtitle,
     tooltipContent,
+    errorTooltip,
     isPending,
     isError,
     isNested,
@@ -62,11 +64,28 @@ export const AgentToolCall = memo(
 
     const iconColorClass = isError ? 'text-destructive/70' : 'text-muted-foreground/70';
 
+    const iconElement = <Icon className={`w-3.5 h-3.5 ${iconColorClass}`} />;
+    const wrappedIcon =
+      isError && errorTooltip ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">{iconElement}</span>
+          </TooltipTrigger>
+          <TooltipContent
+            side="top"
+            className="px-2 py-1.5 w-fit max-w-[min(420px,calc(100vw-24px))] flex items-center justify-center overflow-hidden">
+            <span className="font-mono text-[10px] text-popover-foreground leading-snug whitespace-pre-wrap break-words">
+              {errorTooltip}
+            </span>
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        iconElement
+      );
+
     return (
       <div className={`flex items-start gap-1.5 py-0.5 ${isNested ? '' : 'rounded-md px-2'}`}>
-        <div className="flex-shrink-0 flex items-start pt-[1px]">
-          <Icon className={`w-3.5 h-3.5 ${iconColorClass}`} />
-        </div>
+        <div className="flex-shrink-0 flex items-start pt-[1px]">{wrappedIcon}</div>
 
         {/* Content container - matches canvas exactly */}
         <div className="flex-1 min-w-0 flex items-center gap-1.5">
@@ -92,6 +111,7 @@ export const AgentToolCall = memo(
       prevProps.title === nextProps.title &&
       prevProps.subtitle === nextProps.subtitle &&
       prevProps.tooltipContent === nextProps.tooltipContent &&
+      prevProps.errorTooltip === nextProps.errorTooltip &&
       prevProps.isPending === nextProps.isPending &&
       prevProps.isError === nextProps.isError &&
       prevProps.isNested === nextProps.isNested &&

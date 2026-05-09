@@ -866,12 +866,19 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
           part.type === 'tool-Read' && onOpenFile && part.input?.file_path
             ? () => onOpenFile(part.input.file_path)
             : undefined;
+        const errorTooltip = isError
+          ? (part as any).errorText ||
+            (typeof (part as any).output?.error === 'string' ? (part as any).output.error : undefined) ||
+            (part as any).error ||
+            'Tool call failed'
+          : undefined;
         return withSearchHighlight(
           <AgentToolCall
             icon={meta.icon}
             title={meta.title(part)}
             subtitle={meta.subtitle?.(part)}
             tooltipContent={meta.tooltipContent?.(part, projectPath)}
+            errorTooltip={errorTooltip}
             isPending={isPending}
             isError={isError}
             onClick={handleClick}
