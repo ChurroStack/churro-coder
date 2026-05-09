@@ -353,6 +353,33 @@ async function generateCommitMessageWithOllama(
   }
 }
 
+type SubChatModeSummary = { id: string; mode: 'plan' | 'execute' | 'explore'; updatedAt: Date | null };
+
+function normalizeSubChatMode(raw: string | null | undefined): 'plan' | 'execute' | 'explore' {
+  return raw === 'execute' || raw === 'explore' ? raw : 'plan';
+}
+
+/** Attach sub-chat mode summaries to a chat list (single IN-query, no N+1). */
+function attachSubChatModes<T extends { id: string }>(
+  db: ReturnType<typeof getDatabase>,
+  chatList: T[]
+): (T & { subChats: SubChatModeSummary[] })[] {
+  if (chatList.length === 0) return chatList.map((c) => ({ ...c, subChats: [] }));
+  const chatIds = chatList.map((c) => c.id);
+  const rows = db
+    .select({ id: subChats.id, chatId: subChats.chatId, mode: subChats.mode, updatedAt: subChats.updatedAt })
+    .from(subChats)
+    .where(inArray(subChats.chatId, chatIds))
+    .orderBy(desc(subChats.updatedAt))
+    .all();
+  const byChat = new Map<string, SubChatModeSummary[]>();
+  for (const row of rows) {
+    if (!byChat.has(row.chatId)) byChat.set(row.chatId, []);
+    byChat.get(row.chatId)!.push({ id: row.id, mode: normalizeSubChatMode(row.mode), updatedAt: row.updatedAt });
+  }
+  return chatList.map((c) => ({ ...c, subChats: byChat.get(c.id) ?? [] }));
+}
+
 export const chatsRouter = router({
   /**
    * List all non-archived chats (optionally filter by project)
@@ -363,12 +390,13 @@ export const chatsRouter = router({
     if (input.projectId) {
       conditions.push(eq(chats.projectId, input.projectId));
     }
-    return db
+    const chatList = db
       .select()
       .from(chats)
       .where(and(...conditions))
       .orderBy(desc(chats.updatedAt))
       .all();
+    return attachSubChatModes(db, chatList);
   }),
 
   listArchived: publicProcedure.input(z.object({ projectId: z.string().optional() })).query(({ input }) => {
@@ -377,12 +405,13 @@ export const chatsRouter = router({
     if (input.projectId) {
       conditions.push(eq(chats.projectId, input.projectId));
     }
-    return db
+    const chatList = db
       .select()
       .from(chats)
       .where(and(...conditions))
       .orderBy(desc(chats.archivedAt))
       .all();
+    return attachSubChatModes(db, chatList);
   }),
 
   /**

@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { KanbanColumn } from './kanban-column';
 import type { KanbanCardData } from './kanban-card';
-import type { SubChatStatus } from '../lib/derive-status';
+import type { KanbanStatus } from '../lib/kanban-state-machine';
 
 interface KanbanBoardProps {
   cards: KanbanCardData[];
@@ -18,12 +18,14 @@ interface KanbanBoardProps {
   onCopyChat: (params: { chatId: string; format: 'markdown' | 'json' | 'text' }) => void;
 }
 
-// 4 columns: drafts + workspace statuses
-const COLUMNS: { status: SubChatStatus; title: string }[] = [
+// 6 SDLC columns
+const COLUMNS: { status: KanbanStatus; title: string }[] = [
   { status: 'draft', title: 'Drafts' },
+  { status: 'planning', title: 'Planning' },
   { status: 'in-progress', title: 'In Progress' },
-  { status: 'needs-input', title: 'Need Input' },
-  { status: 'done', title: 'Done' }
+  { status: 'in-review', title: 'In Review' },
+  { status: 'done', title: 'Done' },
+  { status: 'archived', title: 'Archived' }
 ];
 
 export const KanbanBoard = memo(function KanbanBoard({
@@ -40,11 +42,13 @@ export const KanbanBoard = memo(function KanbanBoard({
 }: KanbanBoardProps) {
   // Group cards by status
   const cardsByStatus = useMemo(() => {
-    const grouped: Record<SubChatStatus, KanbanCardData[]> = {
+    const grouped: Record<KanbanStatus, KanbanCardData[]> = {
       draft: [],
+      planning: [],
       'in-progress': [],
-      'needs-input': [],
-      done: []
+      'in-review': [],
+      done: [],
+      archived: []
     };
 
     for (const card of cards) {
@@ -55,9 +59,10 @@ export const KanbanBoard = memo(function KanbanBoard({
   }, [cards]);
 
   return (
-    <div className="h-full overflow-x-auto">
-      {/* Centered container with max-width */}
-      <div className="flex gap-3 h-full px-4 py-2 mx-auto max-w-5xl min-w-min">
+    <div className="h-full overflow-hidden">
+      {/* Full-width responsive container: columns share viewport via flex-1 + min-w-0,
+          shrinking together as the window narrows. No horizontal scroll. */}
+      <div className="flex gap-3 h-full px-4 py-2 w-full">
         {COLUMNS.map((column) => (
           <KanbanColumn
             key={column.status}

@@ -1,11 +1,12 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState, useEffect } from 'react';
 import { cn } from '../../../lib/utils';
 import { KanbanCard, type KanbanCardData } from './kanban-card';
-import type { SubChatStatus } from '../lib/derive-status';
+import type { KanbanStatus } from '../lib/kanban-state-machine';
+import { Button } from '../../../components/ui/button';
 
 interface KanbanColumnProps {
   title: string;
-  status: SubChatStatus;
+  status: KanbanStatus;
   cards: KanbanCardData[];
   isMultiSelectMode: boolean;
   onCardClick: (card: KanbanCardData, e: React.MouseEvent) => void;
@@ -18,11 +19,15 @@ interface KanbanColumnProps {
   onCopyChat: (params: { chatId: string; format: 'markdown' | 'json' | 'text' }) => void;
 }
 
-const STATUS_COLORS: Record<SubChatStatus, string> = {
+const PAGE_SIZE = 15;
+
+const STATUS_COLORS: Record<KanbanStatus, string> = {
   draft: 'bg-muted-foreground/20',
+  planning: 'bg-slate-500',
   'in-progress': 'bg-blue-500',
-  'needs-input': 'bg-amber-500',
-  done: 'bg-emerald-500'
+  'in-review': 'bg-violet-500',
+  done: 'bg-emerald-500',
+  archived: 'bg-muted-foreground/40'
 };
 
 export const KanbanColumn = memo(function KanbanColumn({
@@ -39,26 +44,56 @@ export const KanbanColumn = memo(function KanbanColumn({
   onExportChat,
   onCopyChat
 }: KanbanColumnProps) {
-  // Sort cards: pinned first, then by updatedAt desc
-  const sortedCards = useMemo(() => {
-    const pinned = cards.filter((c) => c.isPinned);
-    const unpinned = cards.filter((c) => !c.isPinned);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-    // Sort each group by updatedAt desc
-    const sortByDate = (a: KanbanCardData, b: KanbanCardData) => {
-      const aTime = a.updatedAt?.getTime() || a.createdAt.getTime();
-      const bTime = b.updatedAt?.getTime() || b.createdAt.getTime();
-      return bTime - aTime;
+  // Reset pagination when the card set changes
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [cards.length]);
+
+  // Split into three groups, each sorted oldest→newest by createdAt
+  const { attentionCards, pinnedCards, regularCards, ordered } = useMemo(() => {
+    const sortAsc = (a: KanbanCardData, b: KanbanCardData) => a.createdAt.getTime() - b.createdAt.getTime();
+
+    const attention = cards.filter((c) => c.attentionReason != null).sort(sortAsc);
+    const userPinned = cards.filter((c) => c.attentionReason == null && c.isPinned).sort(sortAsc);
+    const regular = cards.filter((c) => c.attentionReason == null && !c.isPinned).sort(sortAsc);
+
+    return {
+      attentionCards: attention,
+      pinnedCards: userPinned,
+      regularCards: regular,
+      ordered: [...attention, ...userPinned, ...regular]
     };
-
-    pinned.sort(sortByDate);
-    unpinned.sort(sortByDate);
-
-    return [...pinned, ...unpinned];
   }, [cards]);
 
+  // Attention cards are always fully shown; pagination applies to the rest
+  const nonAttentionCount = pinnedCards.length + regularCards.length;
+  const visibleNonAttention = Math.min(visibleCount, nonAttentionCount);
+  const visibleOrdered = [
+    ...attentionCards,
+    ...ordered.slice(attentionCards.length, attentionCards.length + visibleNonAttention)
+  ];
+  const hiddenCount = nonAttentionCount - visibleNonAttention;
+
+  const renderCard = (card: KanbanCardData) => (
+    <KanbanCard
+      key={card.id}
+      card={card}
+      isMultiSelectMode={isMultiSelectMode}
+      onClick={(e) => onCardClick(card, e)}
+      onCheckboxClick={onCheckboxClick}
+      onTogglePin={onTogglePin}
+      onRename={onRename}
+      onArchive={onArchive}
+      onCopyBranch={onCopyBranch}
+      onExportChat={onExportChat}
+      onCopyChat={onCopyChat}
+    />
+  );
+
   return (
-    <div className="flex flex-col min-w-[140px] max-w-[240px] flex-1 h-full">
+    <div className="flex flex-col flex-1 min-w-0 h-full">
       {/* Column header */}
       <div className="flex items-center gap-2 px-2 py-2 mb-2">
         <span className={cn('w-2 h-2 rounded-full flex-shrink-0', STATUS_COLORS[status])} />
@@ -68,24 +103,31 @@ export const KanbanColumn = memo(function KanbanColumn({
 
       {/* Cards container with scroll */}
       <div className="flex-1 overflow-y-auto px-1 pb-4 space-y-2">
-        {sortedCards.length === 0 ? (
+        {cards.length === 0 ? (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground/60">No workspaces</div>
         ) : (
-          sortedCards.map((card) => (
-            <KanbanCard
-              key={card.id}
-              card={card}
-              isMultiSelectMode={isMultiSelectMode}
-              onClick={(e) => onCardClick(card, e)}
-              onCheckboxClick={onCheckboxClick}
-              onTogglePin={onTogglePin}
-              onRename={onRename}
-              onArchive={onArchive}
-              onCopyBranch={onCopyBranch}
-              onExportChat={onExportChat}
-              onCopyChat={onCopyChat}
-            />
-          ))
+          <>
+            {/* Needs-attention section (always shown, always at top) */}
+            {attentionCards.length > 0 && (
+              <div className="rounded-md bg-muted/40 px-1 py-1 mb-1 border-b border-border/60 space-y-2">
+                {attentionCards.map(renderCard)}
+              </div>
+            )}
+
+            {/* Pinned + regular cards (paginated) */}
+            {visibleOrdered.slice(attentionCards.length).map(renderCard)}
+
+            {/* View more button */}
+            {hiddenCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full text-xs text-muted-foreground h-7"
+                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
+                View more ({hiddenCount})
+              </Button>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -1,54 +1,8 @@
 import { describe, test, expect } from 'vitest';
-import { deriveWorkspaceStatus, isSubChatNeedingInput } from './derive-status';
+// Test via the re-export shim to confirm it still works for external consumers
+import { isSubChatNeedingInput } from './derive-status';
 
-describe('deriveWorkspaceStatus', () => {
-  test('pending question → needs-input (highest priority)', () => {
-    const status = deriveWorkspaceStatus('chat-1', {
-      workspacesLoading: new Set(['chat-1']),
-      workspacesWithPendingQuestions: new Set(['chat-1']),
-      workspacesWithPendingApprovals: new Set()
-    });
-    expect(status).toBe('needs-input');
-  });
-
-  test('pending plan approval → needs-input', () => {
-    const status = deriveWorkspaceStatus('chat-1', {
-      workspacesLoading: new Set(),
-      workspacesWithPendingQuestions: new Set(),
-      workspacesWithPendingApprovals: new Set(['chat-1'])
-    });
-    expect(status).toBe('needs-input');
-  });
-
-  test('loading only → in-progress', () => {
-    const status = deriveWorkspaceStatus('chat-1', {
-      workspacesLoading: new Set(['chat-1']),
-      workspacesWithPendingQuestions: new Set(),
-      workspacesWithPendingApprovals: new Set()
-    });
-    expect(status).toBe('in-progress');
-  });
-
-  test('nothing active → done', () => {
-    const status = deriveWorkspaceStatus('chat-1', {
-      workspacesLoading: new Set(),
-      workspacesWithPendingQuestions: new Set(),
-      workspacesWithPendingApprovals: new Set()
-    });
-    expect(status).toBe('done');
-  });
-
-  test('different chatId → not affected by other workspace state', () => {
-    const status = deriveWorkspaceStatus('chat-2', {
-      workspacesLoading: new Set(['chat-1']),
-      workspacesWithPendingQuestions: new Set(['chat-1']),
-      workspacesWithPendingApprovals: new Set()
-    });
-    expect(status).toBe('done');
-  });
-});
-
-describe('isSubChatNeedingInput', () => {
+describe('isSubChatNeedingInput (shim)', () => {
   test('pending question → true', () => {
     expect(
       isSubChatNeedingInput('sub-1', {
