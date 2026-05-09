@@ -13,16 +13,14 @@ import {
   selectedCommitAtom,
   isCreatingPrAtom,
   pendingPrMessageAtom,
-  pendingReviewMessageAtom,
   pendingConflictResolutionMessageAtom,
   subChatFilesAtom,
-  filteredSubChatIdAtom,
   selectedDiffFilePathAtom,
   type SelectedCommit
 } from '../../agents/atoms';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
-import { applyModeDefaultModelAndSwitchProvider, reviewInFlight } from '../../agents/lib/model-switching';
-import { generatePrMessage, generateReviewMessage } from '../../agents/utils/pr-message';
+import { generatePrMessage } from '../../agents/utils/pr-message';
+import { useReviewAction } from '../../agents/hooks/use-review-action';
 import { usePRStatus } from '../../../hooks/usePRStatus';
 import { trpc, trpcClient } from '../../../lib/trpc';
 import { computeSubChatFiles } from '../../agents/hooks/use-changed-files-tracking';
@@ -234,11 +232,9 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
 
   const diffViewRef = useRef<AgentDiffViewRef | null>(null);
   const [viewedCount, setViewedCount] = useState(0);
-  const [isReviewing, setIsReviewing] = useState(false);
   const [isFixingConflicts, setIsFixingConflicts] = useState(false);
   const [isCreatingPr, setIsCreatingPr] = useAtom(isCreatingPrAtom);
   const setPendingPrMessage = useSetAtom(pendingPrMessageAtom);
-  const setPendingReviewMessage = useSetAtom(pendingReviewMessageAtom);
   const setPendingConflictResolutionMessage = useSetAtom(pendingConflictResolutionMessageAtom);
 
   // PR status drives the Publish / Merge / Fix-conflicts buttons.
@@ -292,50 +288,27 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
     bumpDiffRefreshTick((n) => n + 1);
   }, [chatId, trpcUtils, worktreePath, bumpDiffRefreshTick]);
 
-  // Review — sends a "review the diff" prompt to the active sub-chat.
-  // Mirrors active-chat.tsx's handleReview: pulls PR context, switches
-  // the sub-chat to the review-mode model, and seeds
-  // pendingReviewMessageAtom which ChatViewInner consumes and sends.
-  const filteredSubChatIdValue = useAtomValue(filteredSubChatIdAtom);
+  // Review — single canonical implementation lives in `useReviewAction`.
+  // The diff panel adds its own pre/post navigation: open the chat tab
+  // optimistically, then activate it after the prompt is queued so the
+  // user sees the AI start working.
+  const activeSubChatIdForReview = useAgentSubChatStore((s) => s.activeSubChatId);
+  const { runReview, isReviewing: isReviewActionRunning } = useReviewAction({
+    activeSubChatId: activeSubChatIdForReview,
+    chatId
+  });
   const handleReview = useCallback(async () => {
-    if (!chatId) return;
-    const subChatStore = useAgentSubChatStore.getState();
-    const activeSubChatId = subChatStore.activeSubChatId;
-    if (!activeSubChatId) {
+    const id = useAgentSubChatStore.getState().activeSubChatId;
+    if (!id) {
       toast.error('No active chat available', { position: 'top-center' });
       return;
     }
-    if (reviewInFlight.has(activeSubChatId)) return;
-    reviewInFlight.add(activeSubChatId);
-
-    setIsReviewing(true);
-    try {
-      subChatStore.addToOpenSubChats(activeSubChatId);
-      applyModeDefaultModelAndSwitchProvider(activeSubChatId, 'review');
-
-      const context = await trpcClient.chats.getPrContext.query({ chatId });
-      if (!context) {
-        toast.error('Could not get git context', { position: 'top-center' });
-        return;
-      }
-      // Honor the Scoped/All toggle: pass the filtered file list when set.
-      const scopedFiles = filteredSubChatIdValue
-        ? (subChatFiles.get(filteredSubChatIdValue) ?? [])
-            .map((f) => f.displayPath || f.filePath)
-            .filter((p): p is string => !!p)
-        : [];
-      const message = generateReviewMessage(context, scopedFiles.length > 0 ? scopedFiles : undefined);
-      setPendingReviewMessage({ message, subChatId: activeSubChatId });
-      await activateChatPanelWhenReady(dockApi, activeSubChatId);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to start review', {
-        position: 'top-center'
-      });
-    } finally {
-      setIsReviewing(false);
-      reviewInFlight.delete(activeSubChatId);
+    useAgentSubChatStore.getState().addToOpenSubChats(id);
+    const result = await runReview();
+    if (result.ok) {
+      await activateChatPanelWhenReady(dockApi, id);
     }
-  }, [chatId, dockApi, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles]);
+  }, [runReview, dockApi]);
 
   // Create PR — direct mutation (opens GitHub's PR-create page).
   const handleCreatePrDirect = useCallback(async () => {
@@ -463,7 +436,7 @@ Make sure to preserve all functionality from both branches when resolving confli
         aheadOfDefault={gitStatus?.ahead ?? 0}
         behindDefault={gitStatus?.behind ?? 0}
         onReview={handleReview}
-        isReviewing={isReviewing}
+        isReviewing={isReviewActionRunning}
         onCreatePr={handleCreatePrDirect}
         isCreatingPr={isCreatingPr}
         onCreatePrWithAI={handleCreatePrWithAI}

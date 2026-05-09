@@ -14,7 +14,6 @@ const LEGACY_DEFAULT_AGENT_MODEL_KEY = 'preferences:default-agent-mode-model';
 const EXECUTE_DEFAULT_MODEL_KEY = 'preferences:default-execute-mode-model';
 const LEGACY_DEFAULT_AGENT_THINKING_KEY = 'preferences:default-agent-mode-thinking';
 const EXECUTE_DEFAULT_THINKING_KEY = 'preferences:default-execute-mode-thinking';
-const SUBCHAT_MODES_STORAGE_KEY = 'agents:subChatModes';
 
 export function normalizeAgentMode(mode: string | null | undefined): AgentMode {
   if (mode === 'plan' || mode === 'execute' || mode === 'explore') return mode;
@@ -40,15 +39,6 @@ function migrateAgentModeStorage() {
     const legacyDefaultThinking = localStorage.getItem(LEGACY_DEFAULT_AGENT_THINKING_KEY);
     if (legacyDefaultThinking !== null && localStorage.getItem(EXECUTE_DEFAULT_THINKING_KEY) === null) {
       localStorage.setItem(EXECUTE_DEFAULT_THINKING_KEY, legacyDefaultThinking);
-    }
-
-    const rawModes = localStorage.getItem(SUBCHAT_MODES_STORAGE_KEY);
-    if (rawModes) {
-      const parsed = JSON.parse(rawModes) as Record<string, LegacyAgentMode>;
-      const migrated = Object.fromEntries(
-        Object.entries(parsed).map(([subChatId, mode]) => [subChatId, normalizeAgentMode(mode)])
-      );
-      localStorage.setItem(SUBCHAT_MODES_STORAGE_KEY, JSON.stringify(migrated));
     }
 
     for (const key of [LEGACY_DEFAULT_MODE_KEY, EXECUTE_DEFAULT_MODE_KEY]) {
@@ -508,25 +498,6 @@ export const subChatClaudeThinkingAtomFamily = atomFamily((subChatId: string) =>
   )
 );
 
-// Storage for all sub-chat modes (persisted per subChatId)
-export const subChatModesStorageAtom = atomWithStorage<Record<string, AgentMode>>(
-  SUBCHAT_MODES_STORAGE_KEY,
-  {},
-  undefined,
-  { getOnInit: true }
-);
-
-// atomFamily to get/set mode per subChatId
-export const subChatModeAtomFamily = atomFamily((subChatId: string) =>
-  atom(
-    (get) => normalizeAgentMode(get(subChatModesStorageAtom)[subChatId]),
-    (get, set, newMode: AgentMode) => {
-      const current = get(subChatModesStorageAtom);
-      set(subChatModesStorageAtom, { ...current, [subChatId]: newMode });
-    }
-  )
-);
-
 // Model ID to full Claude model string mapping
 export const MODEL_ID_MAP: Record<string, string> = {
   opus: 'opus',
@@ -872,6 +843,10 @@ export const pendingPrMessageAtom = atom<{ message: string; subChatId: string } 
 // Pending Review message to send to chat
 // Set by ChatView when "Review" is clicked, consumed by ChatViewInner
 export const pendingReviewMessageAtom = atom<{ message: string; subChatId: string } | null>(null);
+
+// Pending "Fix issues" from review card — sends a fix-review-issues prompt
+// Set by AgentReviewTool, consumed by ChatViewInner
+export const pendingFixReviewIssuesAtom = atom<{ message: string; subChatId: string } | null>(null);
 
 // Pending merge conflict resolution message to send to chat
 // Set when user clicks "Fix Conflicts" button, consumed by ChatViewInner

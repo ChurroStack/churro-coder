@@ -73,7 +73,6 @@ import {
   fileViewerOpenAtomFamily,
   fileViewerSidebarWidthAtom,
   filteredDiffFilesAtom,
-  filteredSubChatIdAtom,
   isCreatingPrAtom,
   justCreatedIdsAtom,
   loadingSubChatsAtom,
@@ -81,6 +80,7 @@ import {
   pendingAuthRetryMessageAtom,
   pendingBuildPlanSubChatIdAtom,
   pendingConflictResolutionMessageAtom,
+  pendingFixReviewIssuesAtom,
   pendingContinueMessageAtom,
   pendingChatHistoryAtom,
   type PendingChatHistory,
@@ -103,7 +103,6 @@ import {
   subChatCodexSessionEpochAtomFamily,
   subChatCodexThinkingAtomFamily,
   subChatModelIdAtomFamily,
-  subChatModeAtomFamily,
   chatModeFsmStateAtomFamily,
   subChatProviderOverridesAtom,
   suppressInputFocusAtom,
@@ -116,9 +115,11 @@ import {
 import { BUILTIN_SLASH_COMMANDS } from '../commands';
 import { useChatScrollInit } from '../hooks/use-chat-scroll-init';
 import { useChatViewState } from '../hooks/use-chat-view-state';
+import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { useModeSwitchDeps } from '../hooks/use-mode-switch-deps';
 import { useTransportFactoryDeps } from '../hooks/use-transport-factory-deps';
 import { useApprovePlanDeps } from '../hooks/use-approve-plan-deps';
+import { useReviewAction } from '../hooks/use-review-action';
 import {
   getChatMessages,
   messageIdSignature,
@@ -170,12 +171,7 @@ import { formatStructuredPlanAsMarkdown, getPlanFromPlanWritePart } from '../../
 import { formatHistoryForContext } from '../lib/export-chat';
 import { clearSubChatDraft, getSubChatDraftFull } from '../lib/drafts';
 import { IPCChatTransport } from '../lib/ipc-chat-transport';
-import {
-  applyModeDefaultModel,
-  applyModeDefaultModelAndSwitchProvider,
-  getProviderForModelId,
-  reviewInFlight
-} from '../lib/model-switching';
+import { applyModeDefaultModel, getProviderForModelId } from '../lib/model-switching';
 import {
   createQueueItem,
   createTextPreview,
@@ -233,7 +229,7 @@ import type { WorkflowActionKind } from '../utils/workflow-state';
 // multi-pane chat layout. Drag a chat tab to a group's edge to split.
 import { TextSelectionPopover } from '../ui/text-selection-popover';
 import { autoRenameAgentChat } from '../utils/auto-rename';
-import { generateCommitToPrMessage, generatePrMessage, generateReviewMessage } from '../utils/pr-message';
+import { generateCommitToPrMessage, generatePrMessage } from '../utils/pr-message';
 import { extractGitActivity } from '../utils/git-activity';
 import { evictChatsForParentChatSwitch, evictInactiveChatsForWorkspace } from '../lib/chat-instance-pruning';
 import { ChatInputArea } from './chat-input-area';
@@ -775,16 +771,6 @@ export const ChatViewInner = memo(function ChatViewInner({
   // (`hydratedSubChatIdsRef` and the chat-level hydration deps live in
   // `ChatView`, not here — the hydration loop iterates dbSubChats which
   // is chat-scoped.)
-
-  // Sync atomFamily mode to Zustand store on mount/subChatId change
-  // This ensures the sidebar shows the correct mode icon
-  useEffect(() => {
-    if (subChatId) {
-      // Read mode directly from atomFamily to ensure we get the correct value
-      const mode = appStore.get(subChatModeAtomFamily(subChatId));
-      useAgentSubChatStore.getState().updateSubChatMode(subChatId, mode);
-    }
-  }, [subChatId]);
 
   // NOTE: We no longer clear caches on deactivation.
   // With proper subChatId isolation, each chat's caches are separate.
@@ -1349,6 +1335,12 @@ export const ChatViewInner = memo(function ChatViewInner({
   useEffect(() => {
     void sendPending(pendingReviewMessage, () => setPendingReviewMessage(null));
   }, [pendingReviewMessage, sendPending, setPendingReviewMessage]);
+
+  // Watch for "Fix issues" from review card and send the fix-review-issues prompt
+  const [pendingFixReviewIssues, setPendingFixReviewIssues] = useAtom(pendingFixReviewIssuesAtom);
+  useEffect(() => {
+    void sendPending(pendingFixReviewIssues, () => setPendingFixReviewIssues(null));
+  }, [pendingFixReviewIssues, sendPending, setPendingFixReviewIssues]);
 
   // Watch for pending conflict resolution message and send it
   const [pendingConflictMessage, setPendingConflictMessage] = useAtom(pendingConflictResolutionMessageAtom);
@@ -2205,8 +2197,6 @@ export const ChatViewInner = memo(function ChatViewInner({
           mode: newMode
         });
 
-        // Set mode atom for the new sub-chat
-        appStore.set(subChatModeAtomFamily(newSubChat.id), newMode);
         // Inherit model preferences from source sub-chat for deterministic behavior.
         appStore.set(subChatModelIdAtomFamily(newSubChat.id), appStore.get(subChatModelIdAtomFamily(subChatId)));
         appStore.set(
@@ -3237,7 +3227,6 @@ export const ChatViewInner = memo(function ChatViewInner({
           created_at: new Date().toISOString(),
           mode: subChatMode
         });
-        appStore.set(subChatModeAtomFamily(newId), subChatMode);
         store.addToOpenSubChats(newId);
         store.setActiveSubChat(newId);
 
@@ -3535,6 +3524,7 @@ export function ChatView({
   // still live in `ChatViewInner` with their own `modeDeps`.
   // ──────────────────────────────────────────────────────────────────────────
   const hydratedSubChatIdsRef = useRef<Set<string>>(new Set());
+  const trpcUtils = trpc.useUtils();
   const chatViewHydrationDeps = useMemo<
     Pick<ModeSwitchDeps, 'readState' | 'writeState' | 'setMode' | 'applyDefaultModel'>
   >(
@@ -3543,7 +3533,7 @@ export function ChatView({
       writeState: (id, state) => appStore.set(chatModeFsmStateAtomFamily(id), state),
       setMode: (id, mode) => {
         if (mode === 'review') return;
-        appStore.set(subChatModeAtomFamily(id), mode);
+        trpcUtils.chats.getSubChat.setData({ id }, (prev) => (prev ? { ...prev, mode } : prev));
         useAgentSubChatStore.getState().updateSubChatMode(id, mode);
       },
       applyDefaultModel: (id, mode) => {
@@ -3551,7 +3541,7 @@ export function ChatView({
         return { modelId: result.modelId, provider: result.provider as ProviderId };
       }
     }),
-    []
+    [trpcUtils]
   );
 
   // Get active sub-chat ID from store for mode tracking (reactive). When the
@@ -3560,9 +3550,8 @@ export function ChatView({
   // visible panel shows its own conversation regardless of global focus.
   const activeSubChatIdFromStoreForMode = useAgentSubChatStore((state) => state.activeSubChatId);
   const activeSubChatIdForMode = subChatIdOverride ?? activeSubChatIdFromStoreForMode;
-  // Use per-subChat mode atom - falls back to "execute" if no active sub-chat
-  const subChatModeAtom = useMemo(() => subChatModeAtomFamily(activeSubChatIdForMode || ''), [activeSubChatIdForMode]);
-  const [subChatMode] = useAtom(subChatModeAtom);
+  // Use per-subChat mode hook - falls back to "plan" if no active sub-chat
+  const { mode: subChatMode } = useSubChatMode(activeSubChatIdForMode || '');
   // Default mode for new sub-chats (used as fallback when no active sub-chat)
   const defaultAgentMode = useAtomValue(defaultAgentModeAtom);
   // Current mode - use subChatMode when there's an active sub-chat, otherwise use user's default preference
@@ -3968,12 +3957,10 @@ export function ChatView({
 
   // PR creation loading state - using atom to allow ChatViewInner to reset it
   const [isCreatingPr, setIsCreatingPr] = useAtom(isCreatingPrAtom);
-  // Review loading state
-  const [isReviewing, setIsReviewing] = useState(false);
-  // Active filter scope — read in handleReview to scope Claude's prompt to
-  // the same files the user sees in the Changes panel. Driven by the
-  // Scoped/All toggle there.
-  const filteredSubChatIdValue = useAtomValue(filteredSubChatIdAtom);
+  // Review action — single canonical implementation lives in useReviewAction.
+  // The hook handles model-switch + PR-context + scoped-files + atom-set so
+  // this surface and the diff-panel surface can't drift.
+  const { runReview, isReviewing } = useReviewAction({ activeSubChatId, chatId });
   const setSessionInfo = useSetAtom(sessionInfoAtom);
 
   // Determine if we're in sandbox mode
@@ -4173,9 +4160,6 @@ export function ChatView({
   // PR is open if state is explicitly "open" or "draft"
   // When PR status is still loading, assume open to avoid showing wrong button
   const isPrOpen = hasPrNumber && (isPrStatusLoading || prState === 'open' || prState === 'draft');
-
-  // Merge PR mutation
-  const trpcUtils = trpc.useUtils();
 
   // Direct PR creation mutation (push branch and open GitHub)
   const createPrMutation = trpc.changes.createPR.useMutation({
@@ -4730,54 +4714,10 @@ export function ChatView({
     [chatId, setPendingPrMessage, setIsCommittingToPr]
   );
 
-  // Handle Review - sends a message to Claude to review the diff
-  const setPendingReviewMessage = useSetAtom(pendingReviewMessageAtom);
-
+  // Review handler thin wrapper — the chat is already focused so no panel navigation.
   const handleReview = useCallback(async () => {
-    if (!chatId) {
-      toast.error('Chat ID is required', { position: 'top-center' });
-      return;
-    }
-    if (!activeSubChatId) return;
-
-    if (reviewInFlight.has(activeSubChatId)) return;
-    reviewInFlight.add(activeSubChatId);
-
-    setIsReviewing(true);
-    try {
-      // Switch the sub-chat to the configured Review-mode model + thinking
-      // FIRST, synchronously, before any await yields the event loop. If the
-      // provider crosses, tear down the existing transport so the next
-      // getOrCreateChat recreates under the new provider.
-      applyModeDefaultModelAndSwitchProvider(activeSubChatId, 'review');
-
-      // Get PR context from backend
-      const context = await trpcClient.chats.getPrContext.query({ chatId });
-      if (!context) {
-        toast.error('Could not get git context', { position: 'top-center' });
-        return;
-      }
-
-      // Honor the Scoped/All toggle in the Changes panel: if a sub-chat
-      // filter is active, narrow Claude's review to those files. Empty
-      // file lists fall back to the unscoped prompt rather than sending
-      // Claude an empty `git diff -- ` (which would diff nothing).
-      const scopedFiles = filteredSubChatIdValue
-        ? (subChatFiles.get(filteredSubChatIdValue) ?? [])
-            .map((f) => f.displayPath || f.filePath)
-            .filter((p): p is string => !!p)
-        : [];
-
-      // Generate review message and set it for ChatViewInner to send
-      const message = generateReviewMessage(context, scopedFiles.length > 0 ? scopedFiles : undefined);
-      setPendingReviewMessage({ message, subChatId: activeSubChatId });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to start review', { position: 'top-center' });
-    } finally {
-      setIsReviewing(false);
-      reviewInFlight.delete(activeSubChatId);
-    }
-  }, [chatId, activeSubChatId, setPendingReviewMessage, filteredSubChatIdValue, subChatFiles]);
+    await runReview();
+  }, [runReview]);
 
   // Handle Fix Conflicts - sends a message to Claude to sync with main and fix merge conflicts
   const setPendingConflictResolutionMessage = useSetAtom(pendingConflictResolutionMessageAtom);
@@ -5432,8 +5372,6 @@ export function ChatView({
       mode: newSubChatMode
     });
 
-    // Set the mode atomFamily for the new sub-chat (so currentMode reads correct value)
-    appStore.set(subChatModeAtomFamily(newId), newSubChatMode);
     // Inherit model preferences from source sub-chat for deterministic behavior.
     appStore.set(subChatModelIdAtomFamily(newId), appStore.get(subChatModelIdAtomFamily(sourceSubChatId)));
     appStore.set(subChatCodexModelIdAtomFamily(newId), appStore.get(subChatCodexModelIdAtomFamily(sourceSubChatId)));

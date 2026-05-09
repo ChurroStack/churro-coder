@@ -18,7 +18,6 @@ import {
   pendingUserQuestionsAtom,
   expiredUserQuestionsAtom,
   undoStackAtom,
-  subChatModeAtomFamily,
   suppressInputFocusAtom,
   type UndoItem
 } from '../agents/atoms';
@@ -748,9 +747,6 @@ export function AgentsSubChatsSidebar({
 
     // Track this subchat as just created for typewriter effect
     setJustCreatedIds((prev) => new Set([...prev, newId]));
-
-    // Initialize atomFamily mode for the new sub-chat
-    appStore.set(subChatModeAtomFamily(newId), defaultAgentMode);
 
     // Add to allSubChats with placeholder name (optimistic — UI updates instantly)
     store.addToAllSubChats({

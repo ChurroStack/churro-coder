@@ -10,7 +10,8 @@ import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { cn } from '../../../lib/utils';
 import { useChatAttentionStore } from '../stores/chat-attention-store';
-import { pendingBuildPlanSubChatIdAtom, subChatModeAtomFamily, virtualPlanContentAtomFamily } from '../atoms';
+import { pendingBuildPlanSubChatIdAtom, virtualPlanContentAtomFamily } from '../atoms';
+import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { addOrFocus } from '../../dock/add-or-focus';
 import { useDockApi } from '../../dock/dock-context';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
@@ -155,8 +156,7 @@ export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, sub
 
   const plan = getPlanFromPlanWritePart(part);
   const targetSubChatId = subChatId || '';
-  const subChatModeAtom = useMemo(() => subChatModeAtomFamily(targetSubChatId), [targetSubChatId]);
-  const subChatMode = useAtomValue(subChatModeAtom);
+  const { mode: subChatMode } = useSubChatMode(targetSubChatId);
   const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom);
   const hasCompletedPlanWrite =
     part.output !== undefined ||

@@ -1,85 +1,66 @@
 'use client';
 
-import { useAtomValue, useSetAtom } from 'jotai';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useSetAtom } from 'jotai';
 import { ChatMarkdownRenderer } from '../../../components/chat-markdown-renderer';
-import { Button } from '../../../components/ui/button';
-import { CheckIcon, CollapseIcon, CopyIcon, ExpandIcon, PlanIcon } from '../../../components/ui/icons';
-import { Kbd } from '../../../components/ui/kbd';
+import { CheckIcon, ClipboardIcon, CollapseIcon, CopyIcon, ExpandIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
+import { Button } from '../../../components/ui/button';
 import { cn } from '../../../lib/utils';
-import { currentPlanPathAtomFamily, pendingBuildPlanSubChatIdAtom } from '../atoms';
-import { useSubChatMode } from '../hooks/use-sub-chat-mode';
+import { trpc } from '../../../lib/trpc';
+import { pendingFixReviewIssuesAtom } from '../atoms';
 import { addOrFocus } from '../../dock/add-or-focus';
 import { useDockApi } from '../../dock/dock-context';
-import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { getToolStatus } from './agent-tool-registry';
 import { areToolPropsEqual } from './agent-tool-utils';
+import { renderBuiltinPrompt } from '../../../../prompts/render';
 
-interface AgentPlanFileToolProps {
+interface AgentReviewToolProps {
   part: {
-    type: string; // "tool-Write" | "tool-Edit"
+    type: string;
     state?: string;
     input?: {
-      file_path?: string;
-      content?: string;
-      new_string?: string;
+      markdown?: string;
+      title?: string;
     };
+    output?: string;
   };
   chatStatus?: string;
-  subChatId: string;
-  isEdit?: boolean; // Whether this represents an edit operation (for messaging)
+  subChatId?: string;
 }
 
 /**
- * AgentPlanFileTool - Unified component for plan files.
- * Shows plan content during streaming and after completion.
- * Features: expand/collapse, View plan (dock panel), Build button.
+ * AgentReviewTool — shown when the agent calls the `write_review` MCP tool.
+ * Mirrors the AgentPlanFileTool layout: collapsed header + expandable content +
+ * action footer with "View review" and "Fix issues" buttons.
  */
-export const AgentPlanFileTool = memo(function AgentPlanFileTool({
-  part,
-  chatStatus,
-  subChatId,
-  isEdit = false
-}: AgentPlanFileToolProps) {
+export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus, subChatId }: AgentReviewToolProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const { isPending } = getToolStatus(part, chatStatus);
-  const isWrite = part.type === 'tool-Write';
-  const { mode: subChatMode } = useSubChatMode(subChatId);
-  const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom);
+  const setPendingFixReviewIssues = useSetAtom(pendingFixReviewIssuesAtom);
+  const dockApi = useDockApi();
 
-  // Refs for scroll gradients (avoid re-renders)
   const contentRef = useRef<HTMLDivElement>(null);
   const topGradientRef = useRef<HTMLDivElement>(null);
   const bottomGradientRef = useRef<HTMLDivElement>(null);
 
-  const currentPlanPathAtom = useMemo(() => currentPlanPathAtomFamily(subChatId), [subChatId]);
-  const setCurrentPlanPath = useSetAtom(currentPlanPathAtom);
-  const dockApi = useDockApi();
-
-  // Only consider streaming if chat is actively streaming
   const isActivelyStreaming = chatStatus === 'streaming' || chatStatus === 'submitted';
   const isInputStreaming = part.state === 'input-streaming' && isActivelyStreaming;
-
-  // Get plan content - for Write mode it's in input.content, for Edit it's in new_string
-  const planContent = isWrite ? part.input?.content || '' : part.input?.new_string || '';
-  const filePath = part.input?.file_path || '';
-
-  // Show shimmer during streaming/pending
   const shouldShowShimmer = isPending || isInputStreaming;
 
-  // View plan button enabled when there's content
-  const viewPlanEnabled = planContent.length > 0;
+  const reviewContentFromPart = part.input?.markdown || '';
 
-  // Build button disabled during streaming
-  const buildDisabled = shouldShowShimmer;
+  // Fallback: if the tool part has no content (e.g. input not yet populated),
+  // load it from the persisted review store.
+  const { data: storedReview } = trpc.chats.getReviewContent.useQuery(
+    { subChatId: subChatId ?? '' },
+    { enabled: !!subChatId && !reviewContentFromPart }
+  );
+  const reviewContent = reviewContentFromPart || (storedReview?.exists ? (storedReview.content ?? '') : '');
+  const hasVisibleContent = reviewContent.length > 0;
 
-  // Check if we have content to show
-  const hasVisibleContent = planContent.length > 0;
-
-  // Update scroll gradients via DOM (no state, no re-renders)
   const updateScrollGradients = useCallback(() => {
     const content = contentRef.current;
     const topGradient = topGradientRef.current;
@@ -91,76 +72,54 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
     const isAtTop = scrollTop <= 1;
     const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
 
-    // Show top gradient when scrolled down
     topGradient.style.opacity = isScrollable && !isAtTop ? '1' : '0';
-    // Show bottom gradient when not at bottom
     bottomGradient.style.opacity = isScrollable && !isAtBottom ? '1' : '0';
   }, []);
 
-  // Update gradients on scroll and expand state change
   useEffect(() => {
     const content = contentRef.current;
     if (!content) return;
-
     content.addEventListener('scroll', updateScrollGradients);
-    // Initial check
     updateScrollGradients();
-
     return () => content.removeEventListener('scroll', updateScrollGradients);
   }, [updateScrollGradients, isExpanded]);
 
-  // Also update gradients when content changes
   useEffect(() => {
     updateScrollGradients();
-  }, [planContent, updateScrollGradients]);
+  }, [reviewContent, updateScrollGradients]);
 
-  // Auto-set current plan path when plan file appears (so Details sidebar can show it immediately)
-  useEffect(() => {
-    if (filePath && hasVisibleContent) {
-      setCurrentPlanPath(filePath);
-    }
-  }, [filePath, hasVisibleContent, setCurrentPlanPath]);
+  const handleToggleExpand = useCallback(() => setIsExpanded((prev) => !prev), []);
 
-  // Handle expand/collapse
-  const handleToggleExpand = useCallback(() => {
-    setIsExpanded((prev) => !prev);
-  }, []);
-
-  const handleOpenInDock = useCallback(() => {
-    if (!filePath || !dockApi) return;
-    addOrFocus(dockApi, {
-      kind: 'plan',
-      data: { chatId: subChatId, planPath: filePath }
-    });
-  }, [filePath, dockApi, subChatId]);
-
-  // Handle build plan - triggers via atom, consumed by ChatViewInner
-  const handleBuildPlan = useCallback(() => {
-    const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId;
-    if (activeSubChatId) {
-      setPendingBuildPlanSubChatId(activeSubChatId);
-    }
-  }, [setPendingBuildPlanSubChatId]);
-
-  // Handle copy plan
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(planContent);
+    navigator.clipboard.writeText(reviewContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [planContent]);
+  }, [reviewContent]);
 
-  // If no content yet, show minimal view with shimmer (no icon during shimmer)
+  const handleViewReview = useCallback(() => {
+    if (!dockApi || !subChatId) return;
+    addOrFocus(dockApi, { kind: 'review', data: { subChatId } });
+  }, [dockApi, subChatId]);
+
+  const handleFixIssues = useCallback(() => {
+    if (!subChatId) return;
+    setPendingFixReviewIssues({
+      subChatId,
+      message: renderBuiltinPrompt('workflow/fix-review-issues', { subChatId })
+    });
+  }, [subChatId, setPendingFixReviewIssues]);
+
   if (!hasVisibleContent) {
     return (
       <div className="flex items-center gap-1.5 px-2 py-0.5">
-        {!shouldShowShimmer && <PlanIcon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />}
+        {!shouldShowShimmer && <ClipboardIcon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />}
         <span className="text-xs text-muted-foreground">
           {shouldShowShimmer ? (
             <TextShimmer as="span" duration={1.2}>
-              {isEdit ? 'Updating plan...' : 'Creating plan...'}
+              Writing review...
             </TextShimmer>
           ) : (
-            'Plan'
+            'Review'
           )}
         </span>
       </div>
@@ -169,23 +128,22 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
 
   return (
     <div className="rounded-lg border border-border bg-muted/30 overflow-hidden mx-2">
-      {/* Header - title + expand/collapse button */}
+      {/* Header */}
       <div
         onClick={handleToggleExpand}
         className="flex items-center justify-between pl-2.5 pr-0.5 h-7 cursor-pointer hover:bg-muted/50 transition-colors duration-150">
         <div className="flex items-center gap-1.5 text-xs truncate flex-1 min-w-0">
-          <PlanIcon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
+          <ClipboardIcon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
           {shouldShowShimmer ? (
             <TextShimmer as="span" duration={1.2} className="truncate">
-              {isEdit ? 'Updating plan...' : 'Creating plan...'}
+              Writing review...
             </TextShimmer>
           ) : (
-            <span className="truncate text-foreground font-medium">Plan</span>
+            <span className="truncate text-foreground font-medium">Review</span>
           )}
         </div>
 
         <div className="flex items-center gap-0.5">
-          {/* Copy button */}
           {hasVisibleContent && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -212,12 +170,11 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top" showArrow={false}>
-                Copy plan
+                Copy review
               </TooltipContent>
             </Tooltip>
           )}
 
-          {/* Expand/Collapse button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -242,9 +199,8 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
         </div>
       </div>
 
-      {/* Content - markdown preview with scroll gradients */}
+      {/* Content */}
       <div className="relative">
-        {/* Top scroll gradient - matches card background (muted/30) */}
         <div
           ref={topGradientRef}
           className="absolute top-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
@@ -263,11 +219,10 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
             isExpanded ? 'max-h-[300px] overflow-y-auto' : 'h-[72px] cursor-pointer hover:bg-muted/50'
           )}>
           <div className="px-3 py-2">
-            <ChatMarkdownRenderer content={planContent} size="sm" />
+            <ChatMarkdownRenderer content={reviewContent} size="sm" />
           </div>
         </div>
 
-        {/* Bottom scroll gradient - matches card background (muted/30) */}
         <div
           ref={bottomGradientRef}
           className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
@@ -279,27 +234,25 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
         />
       </div>
 
-      {/* Footer - action buttons */}
+      {/* Footer — action buttons (mirrors AgentPlanFileTool) */}
       <div className="flex items-center justify-between p-1.5">
         <div className="flex items-center">
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleOpenInDock}
-            disabled={!viewPlanEnabled}
+            onClick={handleViewReview}
+            disabled={!subChatId || !dockApi}
             className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50">
-            View plan
+            View review
           </Button>
         </div>
 
-        {subChatMode === 'plan' && (
+        {subChatId && !isPending && (
           <Button
             size="sm"
-            onClick={handleBuildPlan}
-            disabled={buildDisabled}
-            className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97] disabled:opacity-50">
-            Approve
-            <Kbd className="ml-1.5 text-primary-foreground/70">⌘↵</Kbd>
+            onClick={handleFixIssues}
+            className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97]">
+            Fix issues
           </Button>
         )}
       </div>

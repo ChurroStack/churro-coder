@@ -36,7 +36,8 @@ import { useMemo } from 'react';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { applyModeDefaultModel } from '../lib/model-switching';
 import { appStore } from '../../../lib/jotai-store';
-import { chatModeFsmStateAtomFamily, subChatModeAtomFamily } from '../atoms';
+import { trpc } from '../../../lib/trpc';
+import { chatModeFsmStateAtomFamily } from '../atoms';
 import type { ModeSwitchDeps } from '../services/mode-switch-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
 
@@ -53,6 +54,7 @@ export interface ModeSwitchMutationLike {
  *   `mutateAsync` is awaited inside `persistMode`.
  */
 export function useModeSwitchDeps(updateSubChatModeMutation: ModeSwitchMutationLike): ModeSwitchDeps {
+  const utils = trpc.useUtils();
   return useMemo<ModeSwitchDeps>(
     () => ({
       readState: (id) => appStore.get(chatModeFsmStateAtomFamily(id)),
@@ -62,7 +64,7 @@ export function useModeSwitchDeps(updateSubChatModeMutation: ModeSwitchMutationL
         // only persists "plan" / "execute". Drop "review" writes here —
         // applyDefaultModel still applies the right model + thinking.
         if (mode === 'review') return;
-        appStore.set(subChatModeAtomFamily(id), mode);
+        utils.chats.getSubChat.setData({ id }, (prev) => (prev ? { ...prev, mode } : prev));
         useAgentSubChatStore.getState().updateSubChatMode(id, mode);
       },
       applyDefaultModel: (id, mode) => {
@@ -85,6 +87,6 @@ export function useModeSwitchDeps(updateSubChatModeMutation: ModeSwitchMutationL
         }
       }
     }),
-    [updateSubChatModeMutation]
+    [updateSubChatModeMutation, utils]
   );
 }

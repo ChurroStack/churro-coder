@@ -30,7 +30,6 @@
 import { useAtom } from 'jotai';
 import { useMemo } from 'react';
 import {
-  subChatModeAtomFamily,
   subChatModelIdAtomFamily,
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily,
@@ -40,6 +39,7 @@ import {
   type CodexThinkingPreference,
   type ClaudeThinkingPreference
 } from '../atoms';
+import { useSubChatMode } from './use-sub-chat-mode';
 
 export type ChatProvider = 'claude-code' | 'codex';
 
@@ -76,17 +76,14 @@ export interface ChatViewStateSetters {
 export type UseChatViewStateReturn = ChatViewStateValues & ChatViewStateSetters;
 
 export function useChatViewState(subChatId: string): UseChatViewStateReturn {
-  // useMemo guards against re-creating the atomFamily entry on every render
-  // (atomFamily memoizes internally, but the function-identity check
-  // matters for `useAtom`'s dependency tracking).
-  const modeAtom = useMemo(() => subChatModeAtomFamily(subChatId), [subChatId]);
+  const { mode, setMode } = useSubChatMode(subChatId);
+
   const modelAtom = useMemo(() => subChatModelIdAtomFamily(subChatId), [subChatId]);
   const codexModelAtom = useMemo(() => subChatCodexModelIdAtomFamily(subChatId), [subChatId]);
   const codexThinkingAtom = useMemo(() => subChatCodexThinkingAtomFamily(subChatId), [subChatId]);
   const claudeThinkingAtom = useMemo(() => subChatClaudeThinkingAtomFamily(subChatId), [subChatId]);
   const providerOverrideAtom = useMemo(() => subChatProviderOverrideAtomFamily(subChatId), [subChatId]);
 
-  const [mode, setMode] = useAtom(modeAtom);
   const [modelId, setModelId] = useAtom(modelAtom);
   const [codexModelId, setCodexModelId] = useAtom(codexModelAtom);
   const [codexThinking, setCodexThinking] = useAtom(codexThinkingAtom);

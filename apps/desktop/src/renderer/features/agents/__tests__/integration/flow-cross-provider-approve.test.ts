@@ -36,7 +36,6 @@ import {
   subChatClaudeThinkingAtomFamily,
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily,
-  subChatModeAtomFamily,
   subChatModelIdAtomFamily,
   subChatProviderOverrideAtomFamily
 } from '../../atoms';
@@ -47,7 +46,10 @@ import type { ProviderId } from '../../machines/transport-lifecycle';
 let testCounter = 0;
 const newSubChatId = () => `int-cross-${++testCounter}`;
 
+const modeMap = new Map<string, string>();
+
 beforeEach(() => {
+  modeMap.clear();
   appStore.set(defaultPlanModeModelAtom, 'gpt-5.5');
   appStore.set(defaultPlanModeThinkingAtom, 'high');
   appStore.set(defaultExecuteModeModelAtom, 'sonnet');
@@ -59,7 +61,7 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
     const subChatId = newSubChatId();
 
     // Seed a Codex plan: provider override = codex, model = gpt-5.5.
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatCodexModelIdAtomFamily(subChatId), 'gpt-5.5');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'codex');
 
@@ -75,7 +77,7 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
         return v;
       },
       setMode: (id, mode) => {
-        appStore.set(subChatModeAtomFamily(id), mode);
+        modeMap.set(id, mode as string);
       },
       persistMode: async () => {},
       applyDefaultModel: (id, mode) => {
@@ -112,7 +114,7 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
 
   test('notifyProviderChange fires with the new provider before plan content resolves', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'codex');
 
     const events: string[] = [];
@@ -121,7 +123,7 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
       readPreviousProvider: () => 'codex',
       setMode: (id, mode) => {
         events.push(`setMode:${mode}`);
-        appStore.set(subChatModeAtomFamily(id), mode);
+        modeMap.set(id, mode as string);
       },
       persistMode: async () => {
         events.push('persistMode');
@@ -165,14 +167,14 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
 
   test('deferred send stays text-only when resolved, with no file attachment', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'codex');
 
     const scheduledSends: { subChatId: string; parts: unknown[] }[] = [];
 
     const deps: PlanApprovalDeps = {
       readPreviousProvider: () => 'codex',
-      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      setMode: (id, mode) => modeMap.set(id, mode as string),
       persistMode: async () => {},
       applyDefaultModel: (id, mode) => {
         const result = applyModeDefaultModel(id, mode);
@@ -198,13 +200,13 @@ describe('L4 integration — Codex GPT-5.5 plan → Claude Sonnet agent (PR #52)
 
   test('model atom flipped from gpt-5.5 to sonnet by approval', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatCodexModelIdAtomFamily(subChatId), 'gpt-5.5');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'codex');
 
     const deps: PlanApprovalDeps = {
       readPreviousProvider: () => 'codex',
-      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      setMode: (id, mode) => modeMap.set(id, mode as string),
       persistMode: async () => {},
       applyDefaultModel: (id, mode) => {
         const result = applyModeDefaultModel(id, mode);

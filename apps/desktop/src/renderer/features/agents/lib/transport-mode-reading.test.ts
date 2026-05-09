@@ -1,10 +1,10 @@
 // Behavioral regression guards for the "approve plan → next message uses agent mode" bug.
 //
-// Each transport reads sub-chat mode at send time from subChatModeAtomFamily via
-// getCurrentSubChatMode. The bug we fixed was: IPCChatTransport and CodexChatTransport
+// Each transport reads sub-chat mode at send time via getCurrentSubChatMode
+// (which reads from the Zustand sub-chat store). The bug we fixed was: IPCChatTransport and CodexChatTransport
 // fell back to a stale this.config.mode when the Zustand store lookup missed, and
 // RemoteChatTransport never read dynamically at all. These tests reproduce the
-// post-approval scenario (atom flipped to "execute" *after* transport construction)
+// post-approval scenario (mode flipped to "execute" *after* transport construction)
 // and assert the new mode reaches the boundary (trpcClient.subscribe input or
 // fetch headers).
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -36,8 +36,7 @@ vi.mock('../../../lib/trpc', () => ({
   }
 }));
 
-import { appStore } from '../../../lib/jotai-store';
-import { subChatModeAtomFamily } from '../atoms';
+import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { trpcClient } from '../../../lib/trpc';
 import { IPCChatTransport } from './ipc-chat-transport';
 import { CodexChatTransport } from './codex-chat-transport';
@@ -56,20 +55,34 @@ beforeEach(() => {
   codexSubscribe.mockClear();
 });
 
+afterEach(() => {
+  useAgentSubChatStore.setState({ allSubChats: [] });
+});
+
 describe('Transport mode propagation — regression guards', () => {
   test('IPCChatTransport sends current atom value to claude.chat.subscribe (not stale construction-time value)', async () => {
     const id = nextSubChatId();
 
-    // Pre-approval state: atom is "plan", transport constructed
-    appStore.set(subChatModeAtomFamily(id), 'plan');
+    // Pre-approval state: mode is "plan", transport constructed
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'plan' as const }
+      ]
+    }));
     const transport = new IPCChatTransport({
       chatId: 'chat-1',
       subChatId: id,
       cwd: '/tmp'
     });
 
-    // handleApprovePlan flips atom to "execute" AFTER construction
-    appStore.set(subChatModeAtomFamily(id), 'execute');
+    // handleApprovePlan flips mode to "execute" AFTER construction
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'execute' as const }
+      ]
+    }));
 
     await transport.sendMessages({
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] } as any]
@@ -82,7 +95,12 @@ describe('Transport mode propagation — regression guards', () => {
 
   test("IPCChatTransport sends 'plan' when atom holds 'plan' — sanity check the read isn't hard-coded", async () => {
     const id = nextSubChatId();
-    appStore.set(subChatModeAtomFamily(id), 'plan');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'plan' as const }
+      ]
+    }));
     const transport = new IPCChatTransport({
       chatId: 'chat-1',
       subChatId: id,
@@ -100,7 +118,12 @@ describe('Transport mode propagation — regression guards', () => {
   test('CodexChatTransport sends current atom value to codex.chat.subscribe (not stale construction-time value)', async () => {
     const id = nextSubChatId();
 
-    appStore.set(subChatModeAtomFamily(id), 'plan');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'plan' as const }
+      ]
+    }));
     const transport = new CodexChatTransport({
       chatId: 'chat-1',
       subChatId: id,
@@ -108,7 +131,12 @@ describe('Transport mode propagation — regression guards', () => {
       provider: 'codex'
     });
 
-    appStore.set(subChatModeAtomFamily(id), 'execute');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'execute' as const }
+      ]
+    }));
 
     await transport.sendMessages({
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] } as any]
@@ -121,7 +149,12 @@ describe('Transport mode propagation — regression guards', () => {
 
   test("CodexChatTransport sends 'plan' when atom holds 'plan' — sanity check the read isn't hard-coded", async () => {
     const id = nextSubChatId();
-    appStore.set(subChatModeAtomFamily(id), 'plan');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'plan' as const }
+      ]
+    }));
     const transport = new CodexChatTransport({
       chatId: 'chat-1',
       subChatId: id,
@@ -167,7 +200,12 @@ describe('RemoteChatTransport mode propagation — regression guard for the neve
     };
 
     const id = nextSubChatId();
-    appStore.set(subChatModeAtomFamily(id), 'plan');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'plan' as const }
+      ]
+    }));
     const transport = new RemoteChatTransport({
       chatId: 'chat-1',
       subChatId: id,
@@ -175,7 +213,12 @@ describe('RemoteChatTransport mode propagation — regression guard for the neve
       sandboxUrl: 'http://localhost:3000'
     });
 
-    appStore.set(subChatModeAtomFamily(id), 'execute');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'execute' as const }
+      ]
+    }));
 
     await transport.sendMessages({
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] } as any]
@@ -200,7 +243,12 @@ describe('RemoteChatTransport mode propagation — regression guard for the neve
     };
 
     const id = nextSubChatId();
-    appStore.set(subChatModeAtomFamily(id), 'plan');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'plan' as const }
+      ]
+    }));
     const transport = new RemoteChatTransport({
       chatId: 'chat-1',
       subChatId: id,

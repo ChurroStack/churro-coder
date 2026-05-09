@@ -16,6 +16,7 @@ import {
  */
 const WIDGET_TO_PANEL_KIND: Partial<Record<WidgetId, PanelKind>> = {
   plan: 'plan',
+  review: 'review',
   terminal: 'terminal',
   diff: 'diff'
 };

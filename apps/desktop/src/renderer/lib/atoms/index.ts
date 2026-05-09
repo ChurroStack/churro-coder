@@ -9,7 +9,6 @@ import { desktopViewAtom as _desktopViewAtom } from '../../features/agents/atoms
 export {
   // Chat atoms
   selectedAgentChatIdAtom,
-  subChatModeAtomFamily,
   lastSelectedModelIdAtom,
   lastSelectedAgentIdAtom,
   lastSelectedRepoAtom,

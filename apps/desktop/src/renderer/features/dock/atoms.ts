@@ -8,6 +8,7 @@ export type PanelKind =
   | 'terminal'
   | 'file'
   | 'plan'
+  | 'review'
   | 'diff'
   | 'search'
   | 'files-tree'
@@ -67,6 +68,9 @@ export interface PlanPanelEntity {
   chatId: string;
   planPath: string;
 }
+export interface ReviewPanelEntity {
+  subChatId: string;
+}
 export interface DiffPanelEntity {
   chatId: string;
   subChatId?: string;
@@ -94,6 +98,7 @@ export type PanelEntity =
   | { kind: 'terminal'; data: TerminalPanelEntity }
   | { kind: 'file'; data: FilePanelEntity }
   | { kind: 'plan'; data: PlanPanelEntity }
+  | { kind: 'review'; data: ReviewPanelEntity }
   | { kind: 'diff'; data: DiffPanelEntity }
   | { kind: 'search'; data: SearchPanelEntity }
   | { kind: 'files-tree'; data: FilesTreePanelEntity }
@@ -111,6 +116,8 @@ export function panelIdFor(entity: PanelEntity): string {
       return `file:${entity.data.absolutePath}`;
     case 'plan':
       return `plan:${entity.data.chatId}:${entity.data.planPath}`;
+    case 'review':
+      return `review:${entity.data.subChatId}`;
     case 'diff':
       return `diff:${entity.data.chatId}`;
     case 'search':
@@ -136,6 +143,8 @@ export function panelTitleFor(entity: PanelEntity): string {
     }
     case 'plan':
       return 'Plan';
+    case 'review':
+      return 'Review';
     case 'diff':
       return 'Changes';
     case 'search':

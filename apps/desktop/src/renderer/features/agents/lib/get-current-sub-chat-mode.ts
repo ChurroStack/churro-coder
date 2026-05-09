@@ -1,6 +1,7 @@
-import { appStore } from '../../../lib/jotai-store';
-import { subChatModeAtomFamily, type AgentMode } from '../atoms';
+import { useAgentSubChatStore } from '../stores/sub-chat-store';
+import { normalizeAgentMode, type AgentMode } from '../atoms';
 
 export function getCurrentSubChatMode(subChatId: string): AgentMode {
-  return appStore.get(subChatModeAtomFamily(subChatId));
+  const { allSubChats } = useAgentSubChatStore.getState();
+  return normalizeAgentMode(allSubChats.find((c) => c.id === subChatId)?.mode);
 }

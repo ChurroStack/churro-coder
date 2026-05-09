@@ -15,9 +15,28 @@ vi.mock('../lib/remote-chat-transport', () => ({
   RemoteChatTransport: class {}
 }));
 vi.mock('../../../lib/trpc', () => ({
-  trpc: {},
+  trpc: {
+    useUtils: () => ({
+      chats: {
+        getSubChat: {
+          setData: () => {}
+        }
+      }
+    })
+  },
   trpcClient: {}
 }));
+
+vi.mock('./use-sub-chat-mode', async () => {
+  const { useState, useCallback } = await import('react');
+  return {
+    useSubChatMode: (_subChatId: string) => {
+      const [mode, setModeState] = useState<string>('plan');
+      const setMode = useCallback((newMode: string) => setModeState(newMode), []);
+      return { mode, setMode };
+    }
+  };
+});
 
 import { renderHook, act, cleanup } from '@testing-library/react';
 import type { ReactNode } from 'react';

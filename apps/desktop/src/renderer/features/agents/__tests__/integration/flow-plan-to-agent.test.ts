@@ -4,7 +4,7 @@
  * Verifies the **workflow**, not the LLM output. The orchestrator must:
  *   1. Capture the planner's provider BEFORE applyDefaultModel writes the
  *      provider override atom (PR #40).
- *   2. Flip `subChatModeAtomFamily` to "execute" synchronously (PR #36, #38).
+ *   2. Flip sub-chat mode to "execute" synchronously (PR #36, #38).
  *   3. Apply the configured agent-mode default model (PR #38, #32).
  *   4. Persist with `exitPlan: true` so the server clears sessionId (PR #45).
  *   5. Keep the same transport for same-provider approvals (PR #44).
@@ -33,10 +33,11 @@ import {
   subChatClaudeThinkingAtomFamily,
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily,
-  subChatModeAtomFamily,
   subChatModelIdAtomFamily,
   subChatProviderOverrideAtomFamily
 } from '../../atoms';
+
+const modeMap = new Map<string, string>();
 import { applyModeDefaultModel } from '../../lib/model-switching';
 import { approvePlan, type PlanApprovalDeps } from '../../services/plan-approval-service';
 import type { ProviderId } from '../../machines/transport-lifecycle';
@@ -45,6 +46,7 @@ let testCounter = 0;
 const newSubChatId = () => `int-plan-${++testCounter}`;
 
 beforeEach(() => {
+  modeMap.clear();
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
   appStore.set(defaultExecuteModeModelAtom, 'sonnet');
   appStore.set(defaultPlanModeThinkingAtom, 'high');
@@ -75,9 +77,7 @@ function makeRealisticDeps(opts: { subChatId: string; initialProvider: ProviderI
   const deps: PlanApprovalDeps = {
     readPreviousProvider: (subChatId) => appStore.get(subChatProviderOverrideAtomFamily(subChatId)) ?? 'claude-code',
     setMode: (subChatId, mode) => {
-      // Mirror the renderer: write the per-subChat atom + storage atom (omitted for brevity here
-      // — the integration test asserts on subChatModeAtomFamily directly).
-      appStore.set(subChatModeAtomFamily(subChatId), mode);
+      modeMap.set(subChatId, mode as string);
     },
     persistMode: async (input) => {
       orchestration.persistCalls.push(input);
@@ -110,7 +110,7 @@ function makeRealisticDeps(opts: { subChatId: string; initialProvider: ProviderI
 describe('L4 integration — plan → agent same-provider Claude→Claude (PR #36, #38, #44, #45, #51)', () => {
   test('approve flips mode atom to agent and applies sonnet model synchronously', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'opus[1m]');
 
     const { deps, orchestration } = makeRealisticDeps({
@@ -123,8 +123,8 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
     expect(result.ok).toBe(true);
     expect(result.transportAction).toEqual({ kind: 'keep' });
 
-    // Mode atom flipped.
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
+    // Mode flipped.
+    expect(modeMap.get(subChatId)).toBe('execute');
     // Model atom now holds the configured agent-mode default (sonnet).
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('sonnet');
     // Thinking propagated.
@@ -144,7 +144,7 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
     const subChatId = newSubChatId();
     appStore.set(defaultExecuteModeModelAtom, 'gpt-5.4');
     appStore.set(defaultExecuteModeThinkingAtom, 'medium');
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatCodexModelIdAtomFamily(subChatId), 'gpt-5.3-codex');
 
     const { deps, orchestration } = makeRealisticDeps({
@@ -156,7 +156,7 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
     expect(result.ok).toBe(true);
     expect(result.transportAction).toEqual({ kind: 'keep' });
 
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
+    expect(modeMap.get(subChatId)).toBe('execute');
     expect(appStore.get(subChatCodexModelIdAtomFamily(subChatId))).toBe('gpt-5.4');
     expect(appStore.get(subChatCodexThinkingAtomFamily(subChatId))).toBe('medium');
     expect(appStore.get(subChatProviderOverrideAtomFamily(subChatId))).toBe('codex');
@@ -171,7 +171,7 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
 describe('L4 integration — single-flight (PR #51)', () => {
   test('two parallel approvePlan calls only schedule one deferred send', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
 
     const { deps, orchestration } = makeRealisticDeps({
       subChatId,

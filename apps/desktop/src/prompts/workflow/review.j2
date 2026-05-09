@@ -16,9 +16,20 @@ Run `{{ diffCommand }}` to get the changes.
 
 ## Output Format
 
-Provide:
+Build the review as a single markdown document with:
 1. A brief summary of what the changes do
 2. A table of issues found with columns: severity (🔴 high, 🟡 medium, 🟢 low), file:line, issue, suggestion
 3. If no issues found, state that the code looks good
 
 Keep the review concise and actionable.
+
+## Persist the review (REQUIRED)
+
+When your review is complete, you **MUST** call the `write_review` tool from the
+`churro-coder` MCP server to persist the review document. Pass the entire
+markdown body (summary + issues table) as the `markdown` argument. This is what
+flips the Review milestone in the UI from "needs review" to "done" — without
+this call the user never sees their review artifact.
+
+Render the markdown in the chat *and* call `write_review` with the same content.
+Do not skip the tool call even if the review is short or finds no issues.

@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { toast } from 'sonner';
-import { trpc, trpcClient } from '@/lib/trpc';
+import { trpc } from '@/lib/trpc';
 import { usePushAction } from '@/features/changes/hooks/use-push-action';
 import {
-  agentFinishedTickAtomFamily,
   compactingSubChatsAtom,
   diffSidebarOpenAtomFamily,
   filteredDiffFilesAtom,
@@ -12,27 +10,18 @@ import {
   loadingSubChatsAtom,
   pendingMergeBaseMessageAtom,
   pendingPrMessageAtom,
-  pendingReviewMessageAtom,
-  currentPlanPathAtomFamily,
-  subChatModeAtomFamily
+  currentPlanPathAtomFamily
 } from '@/features/agents/atoms';
 import { addOrFocus } from '@/features/dock/add-or-focus';
 import { useDockApi } from '@/features/dock/dock-context';
-import {
-  aiEverRespondedAtomFamily,
-  localReviewCompletedAtomFamily,
-  planEverGeneratedAtomFamily,
-  prCreatingAtomFamily
-} from '@/features/details-sidebar/atoms';
-import { applyModeDefaultModel } from '@/features/agents/lib/model-switching';
-import { generateReviewMessage } from '@/features/agents/utils/pr-message';
+import { aiEverRespondedAtomFamily, prCreatingAtomFamily } from '@/features/details-sidebar/atoms';
 import { renderBuiltinPrompt } from '../../../../prompts/render';
 import {
   computeWorkflowState,
   type WorkflowActionKind,
-  type WorkflowInputs,
   type WorkflowState
 } from '@/features/agents/utils/workflow-state';
+import { useWorkflowSnapshot } from './use-workflow-snapshot';
 
 const IDLE_WORKFLOW_STATE: WorkflowState = {
   plan: { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (execute mode)' },
@@ -45,7 +34,7 @@ const IDLE_WORKFLOW_STATE: WorkflowState = {
 /**
  * Read all inputs the Status widget + notch need from atoms / tRPC and return
  * a memoized {@link WorkflowState}. The state machine itself is pure so this
- * hook just feeds it the current values.
+ * hook just feeds it the current values via {@link useWorkflowSnapshot}.
  *
  * Recompute triggers come for free via React selectors: jotai atoms,
  * `getPrStatus` polling (30s), `agentFinishedTickAtomFamily` after each AI run.
@@ -54,71 +43,54 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
   const safeChatId = chatId ?? '';
   const safeSubChatId = subChatId ?? '';
 
-  const mode = useAtomValue(subChatModeAtomFamily(safeSubChatId));
   const loading = useAtomValue(loadingSubChatsAtom);
   const compacting = useAtomValue(compactingSubChatsAtom);
-  const [planEverGenerated, setPlanEverGenerated] = useAtom(planEverGeneratedAtomFamily(safeSubChatId));
   const [aiEverResponded, setAiEverResponded] = useAtom(aiEverRespondedAtomFamily(safeSubChatId));
-  const localReviewCompleted = useAtomValue(localReviewCompletedAtomFamily(safeSubChatId));
   const [prCreating, setPrCreating] = useAtom(prCreatingAtomFamily(safeSubChatId));
-  // Force re-evaluation after each AI run (e.g. a new file was committed externally).
-  useAtomValue(agentFinishedTickAtomFamily(safeChatId));
 
   const isStreaming = !!subChatId && loading.has(subChatId);
-  const isCompacting = !!subChatId && compacting.has(subChatId);
 
-  // When mode transitions plan→execute the plan was approved.
-  // Persist planEverGenerated so Plan shows as "done" in future sessions.
-  const prevModeRef = useRef(mode);
-  useEffect(() => {
-    const prev = prevModeRef.current;
-    prevModeRef.current = mode;
-    if (prev === 'plan' && mode === 'execute' && !planEverGenerated) {
-      setPlanEverGenerated(true);
-    }
-  }, [mode, planEverGenerated, setPlanEverGenerated]);
+  const snapshot = useWorkflowSnapshot(chatId, subChatId);
 
-  // Clear the optimistic "Creating PR…" spinner once the PR shows up.
+  // For getPrStatus / getStatus invalidation we need the worktree path.
+  const { data: chat } = trpc.chats.get.useQuery({ id: safeChatId }, { enabled: !!chatId });
+  const worktreePath = chat?.worktreePath ?? null;
 
-  // getPrStatus polls every 30s and returns baseBranchBehind plus pr metadata.
   const { data: prStatusData } = trpc.chats.getPrStatus.useQuery(
     { chatId: safeChatId },
     { enabled: !!chatId, refetchInterval: 30000 }
   );
 
+  const trpcUtils = trpc.useUtils();
+
+  // Clear the optimistic "Creating PR…" spinner once the PR shows up.
   useEffect(() => {
     if (prCreating && prStatusData?.pr) {
       setPrCreating(false);
     }
   }, [prCreating, prStatusData?.pr, setPrCreating]);
 
-  // For pushCount / hasUpstream / hasRemote we need a worktree path. The
-  // simplest route is to read it from the chat record once.
-  const { data: chat } = trpc.chats.get.useQuery({ id: safeChatId }, { enabled: !!chatId });
-  const worktreePath = chat?.worktreePath ?? null;
-
-  const { data: gitStatus } = trpc.changes.getStatus.useQuery(
-    { worktreePath: worktreePath ?? '' },
-    { enabled: !!worktreePath, staleTime: 30000 }
-  );
-
   // If prCreating is stuck true but there is no remote (PR can never arrive),
   // clear it immediately so the spinner doesn't spin forever.
-  const hasRemoteForPr = gitStatus?.hasRemote ?? false;
+  const hasRemoteForPr = snapshot?.git.hasRemote ?? false;
   useEffect(() => {
     if (prCreating && !hasRemoteForPr) {
       setPrCreating(false);
     }
   }, [prCreating, hasRemoteForPr, setPrCreating]);
 
-  // When a streaming session ends: mark that the AI has responded at least once
-  // (so Plan/Code milestones don't show as idle for fresh-but-not-empty chats),
-  // and clear the prCreating spinner if the PR never appeared within 10 s.
-  // The aiEverResponded ref lets us skip redundant localStorage writes after
-  // the flag has flipped to true (atomWithStorage writes on every set call).
-  const wasStreamingRef = useRef(isStreaming);
+  // Keep refs for invalidation targets so they're always current inside the effect.
+  const worktreePathRef = useRef(worktreePath);
+  worktreePathRef.current = worktreePath;
+  const safeChatIdRef = useRef(safeChatId);
+  safeChatIdRef.current = safeChatId;
   const aiEverRespondedRef = useRef(aiEverResponded);
   aiEverRespondedRef.current = aiEverResponded;
+  const wasStreamingRef = useRef(isStreaming);
+
+  // When a streaming session ends: mark that the AI has responded at least once,
+  // invalidate durable queries, and clear the prCreating spinner if the PR never
+  // appeared within 10 s.
   useEffect(() => {
     const wasStreaming = wasStreamingRef.current;
     wasStreamingRef.current = isStreaming;
@@ -126,61 +98,30 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
       if (!aiEverRespondedRef.current) {
         setAiEverResponded(true);
       }
+      // Invalidate durable queries so stale indicators (e.g. "Update from base",
+      // PR status) clear immediately after every agent run rather than waiting
+      // for the 30 s poll interval.
+      trpcUtils.chats.getPrStatus.invalidate({ chatId: safeChatIdRef.current });
+      // Invalidate artifact queries so Plan/Review milestones reflect any new artifacts.
+      trpcUtils.chats.getCurrentPlan.invalidate({ subChatId: safeSubChatId });
+      trpcUtils.chats.getCurrentReview.invalidate({ subChatId: safeSubChatId });
+      trpcUtils.chats.getReviewContent.invalidate({ subChatId: safeSubChatId });
+      if (worktreePathRef.current) {
+        trpcUtils.changes.getStatus.invalidate({ worktreePath: worktreePathRef.current });
+      }
       if (prCreating) {
         const timeout = setTimeout(() => setPrCreating(false), 10000);
         return () => clearTimeout(timeout);
       }
     }
-  }, [isStreaming, prCreating, setPrCreating, setAiEverResponded]);
-
-  const inputs: WorkflowInputs = useMemo(() => {
-    const changedFilesCount =
-      (gitStatus?.staged?.length ?? 0) + (gitStatus?.unstaged?.length ?? 0) + (gitStatus?.untracked?.length ?? 0);
-
-    const pr = prStatusData?.pr;
-    const prState: WorkflowInputs['prState'] = pr ? pr.state : 'none';
-    const reviewDecision: WorkflowInputs['reviewDecision'] = pr?.reviewDecision ?? 'none';
-
-    return {
-      mode: mode === 'execute' ? 'execute' : 'plan',
-      isStreaming,
-      isCompacting,
-      planEverGenerated,
-      hasAiResponded: aiEverResponded,
-      changedFilesCount,
-      pushCount: gitStatus?.pushCount ?? 0,
-      hasUpstream: gitStatus?.hasUpstream ?? false,
-      hasRemote: gitStatus?.hasRemote ?? false,
-      baseBranchBehind: prStatusData?.baseBranchBehind ?? 0,
-      prState,
-      reviewDecision,
-      localReviewCompleted,
-      prCreating
-    };
-  }, [
-    mode,
-    isStreaming,
-    isCompacting,
-    planEverGenerated,
-    aiEverResponded,
-    gitStatus?.staged,
-    gitStatus?.unstaged,
-    gitStatus?.untracked,
-    gitStatus?.pushCount,
-    gitStatus?.hasUpstream,
-    gitStatus?.hasRemote,
-    prStatusData?.pr,
-    prStatusData?.baseBranchBehind,
-    localReviewCompleted,
-    prCreating
-  ]);
+  }, [isStreaming, prCreating, setPrCreating, setAiEverResponded, trpcUtils, safeSubChatId]);
 
   return useMemo(() => {
     if (!chatId) return null;
-    // No active sub-chat: show all-idle so the widget renders but makes no claims
     if (!subChatId) return IDLE_WORKFLOW_STATE;
-    return computeWorkflowState(inputs);
-  }, [chatId, subChatId, inputs]);
+    if (!snapshot) return IDLE_WORKFLOW_STATE;
+    return computeWorkflowState(snapshot);
+  }, [chatId, subChatId, snapshot]);
 }
 
 /**
@@ -189,6 +130,27 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
  * message into a `pendingXMessageAtom` (consumed elsewhere in active-chat.tsx),
  * or open an external URL — none of them depend on local component state, so
  * this hook can be reused from any consumer that has chatId + subChatId.
+ *
+ * ## Dispatcher invalidation table
+ *
+ * | Action        | Query mutations / invalidations                                  |
+ * |---------------|------------------------------------------------------------------|
+ * | expandPlan    | none (UI-only — opens dock panel)                               |
+ * | mergeBase     | invalidates getPrStatus + changes.getStatus immediately;        |
+ * |               | streaming-end effect in useWorkflowState re-invalidates after   |
+ * |               | the agent completes the merge                                    |
+ * | pushBranch    | invalidates getPrStatus + changes.getStatus in onSuccess        |
+ * | reviewLocal   | one-shot getCurrentReview.fetch; opens review panel if artifact |
+ * |               | exists, else opens diff sidebar. Does NOT trigger the AI —      |
+ * |               | the canonical AI-trigger surface is the changes/diff Review     |
+ * |               | button (`useReviewAction.runReview`).                           |
+ * | reviewPr      | same as reviewLocal (both navigational; no AI trigger).         |
+ * | createPr      | none (sets prCreatingAtom; getPrStatus poll picks up new PR)    |
+ * | openPr        | none (opens external URL)                                       |
+ *
+ * Post-streaming: useWorkflowState always invalidates getPrStatus + getStatus + getCurrentPlan
+ * when isStreaming transitions true→false, keeping milestones fresh regardless
+ * of which agent-driven action (mergeBase, reviewPr, createPr) just ran.
  */
 export function useWorkflowActions(chatId: string | null, subChatId: string | null) {
   const safeChatId = chatId ?? '';
@@ -196,8 +158,6 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
 
   const setPendingPrMessage = useSetAtom(pendingPrMessageAtom);
   const setPendingMergeBaseMessage = useSetAtom(pendingMergeBaseMessageAtom);
-  const setPendingReviewMessage = useSetAtom(pendingReviewMessageAtom);
-  const setLocalReviewCompleted = useSetAtom(localReviewCompletedAtomFamily(safeSubChatId));
   const setPrCreating = useSetAtom(prCreatingAtomFamily(safeSubChatId));
   const setFilteredDiffFiles = useSetAtom(filteredDiffFilesAtom);
   const setFilteredSubChatId = useSetAtom(filteredSubChatIdAtom);
@@ -253,38 +213,40 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
             message: renderBuiltinPrompt('workflow/merge-base', { baseBranch }),
             subChatId
           });
+          trpcUtils.chats.getPrStatus.invalidate({ chatId });
+          if (worktreePath) {
+            trpcUtils.changes.getStatus.invalidate({ worktreePath });
+          }
           break;
 
         case 'pushBranch':
           pushBranch();
           break;
 
+        // Both review actions just open the "review window". The AI is only
+        // triggered from the changes/diff panel's Review button — keeping
+        // the workflow badge and notch buttons strictly navigational means
+        // the user can't accidentally kick off a costly review run by
+        // clicking the milestone, and there's a single canonical surface
+        // (the changes view) where reviews start.
         case 'reviewLocal':
-          setFilteredSubChatId(subChatId);
-          setFilteredDiffFiles(null);
-          setDiffSidebarOpen(true);
-          setLocalReviewCompleted(true);
-          break;
-
         case 'reviewPr': {
+          // If a review artifact exists, open the review dock panel so the
+          // user can read it. Otherwise fall back to opening the changes
+          // view, where the canonical "Review" button lives.
+          let reviewExists = false;
           try {
-            // Switch to the configured Review-mode model FIRST, before the
-            // await yields the event loop. This guarantees the model is in
-            // place by the time the transport reads it.
-            applyModeDefaultModel(subChatId, 'review');
-            const context = await trpcClient.chats.getPrContext.query({
-              chatId
-            });
-            if (!context) {
-              toast.error('Could not get git context', {
-                position: 'top-center'
-              });
-              return;
-            }
-            const message = generateReviewMessage(context);
-            setPendingReviewMessage({ message, subChatId });
-          } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to start review', { position: 'top-center' });
+            const review = await trpcUtils.chats.getCurrentReview.fetch({ subChatId });
+            reviewExists = !!review?.exists;
+          } catch {
+            // ignore — fall back to diff sidebar
+          }
+          if (reviewExists && dockApi) {
+            addOrFocus(dockApi, { kind: 'review', data: { subChatId } });
+          } else {
+            setFilteredSubChatId(subChatId);
+            setFilteredDiffFiles(null);
+            setDiffSidebarOpen(true);
           }
           break;
         }
@@ -313,12 +275,12 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
       pushBranch,
       dockApi,
       planPath,
+      worktreePath,
+      trpcUtils,
       setPendingMergeBaseMessage,
       setFilteredSubChatId,
       setFilteredDiffFiles,
       setDiffSidebarOpen,
-      setLocalReviewCompleted,
-      setPendingReviewMessage,
       setPrCreating,
       setPendingPrMessage
     ]

@@ -29,9 +29,11 @@ import { appStore } from '../../../../lib/jotai-store';
 import {
   defaultExecuteModeModelAtom,
   defaultPlanModeModelAtom,
-  subChatModeAtomFamily,
-  subChatModelIdAtomFamily
+  subChatModelIdAtomFamily,
+  type AgentMode
 } from '../../atoms';
+
+const modeMap = new Map<string, string>();
 import { applyModeDefaultModel } from '../../lib/model-switching';
 import {
   initialState,
@@ -47,6 +49,7 @@ let testCounter = 0;
 const newSubChatId = () => `int-toggle-${++testCounter}`;
 
 beforeEach(() => {
+  modeMap.clear();
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
   appStore.set(defaultExecuteModeModelAtom, 'sonnet');
 });
@@ -63,11 +66,11 @@ function makeDeps(subChatId: string): {
       states.set(id, state);
     },
     setMode: (id, mode) => {
-      // ChatMode is "plan" | "execute" | "review"; the persisted atom only
+      // ChatMode is "plan" | "execute" | "review"; the persisted map only
       // accepts AgentMode ("plan" | "execute"). Review is transient and
       // never reaches setMode in toggleMode flows.
       if (mode === 'review') return;
-      appStore.set(subChatModeAtomFamily(id), mode);
+      modeMap.set(id, mode as string);
     },
     applyDefaultModel: (id, mode) => {
       const result = applyModeDefaultModel(id, mode);
@@ -82,7 +85,7 @@ function makeDeps(subChatId: string): {
 describe('L4 integration — mode toggle mid-stream is rejected', () => {
   test('agent → plan toggle during streaming: no atom writes', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
+    modeMap.set(subChatId, 'execute');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
     const { deps } = makeDeps(subChatId);
@@ -95,15 +98,15 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
 
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('busy');
-    // Atom did not flip.
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
+    // Mode did not flip.
+    expect(modeMap.get(subChatId) as AgentMode).toBe('execute');
     // Model atom did not change to opus[1m].
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('sonnet');
   });
 
   test('agent → plan toggle after STREAM_COMPLETED: atoms flip', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
+    modeMap.set(subChatId, 'execute');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
     const { deps } = makeDeps(subChatId);
@@ -116,14 +119,14 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     const result = await toggleMode(subChatId, 'plan', deps);
 
     expect(result.ok).toBe(true);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('plan');
+    expect(modeMap.get(subChatId) as AgentMode).toBe('plan');
     // Plan-mode default applied.
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('opus[1m]');
   });
 
   test('rapid toggle: 5 toggles during streaming all rejected, atoms unchanged', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
+    modeMap.set(subChatId, 'execute');
 
     const { deps } = makeDeps(subChatId);
     noteSendRequested(subChatId, deps);
@@ -134,12 +137,12 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
       const result = await toggleMode(subChatId, target, deps);
       expect(result.ok).toBe(false);
     }
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
+    expect(modeMap.get(subChatId) as AgentMode).toBe('execute');
   });
 
   test('user model pick preserved when toggle rejected mid-stream', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
+    modeMap.set(subChatId, 'execute');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
 
     const { deps } = makeDeps(subChatId);
@@ -156,7 +159,7 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     expect(result.reason).toBe('busy');
 
     // Mode unchanged.
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
+    expect(modeMap.get(subChatId) as AgentMode).toBe('execute');
     // User's haiku pick is preserved — NOT overwritten with the plan default (opus[1m]).
     // Before the fix: updateMode's trailing applyModeDefaultModel call would stamp opus[1m] here
     // even though the FSM rejected the toggle.
@@ -165,7 +168,7 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
 
   test('toggle accepted between consecutive turns (complete → toggle → send → complete)', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
+    modeMap.set(subChatId, 'execute');
 
     const { deps } = makeDeps(subChatId);
 
@@ -177,7 +180,7 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     // User toggles to plan between turns — accepted.
     const r1 = await toggleMode(subChatId, 'plan', deps);
     expect(r1.ok).toBe(true);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('plan');
+    expect(modeMap.get(subChatId) as AgentMode).toBe('plan');
 
     // Turn 2 in plan mode.
     noteSendRequested(subChatId, deps);
@@ -186,7 +189,7 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     // Toggle attempted mid-stream — rejected.
     const r2 = await toggleMode(subChatId, 'execute', deps);
     expect(r2.ok).toBe(false);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('plan');
+    expect(modeMap.get(subChatId) as AgentMode).toBe('plan');
 
     // Stream completes.
     noteStreamCompleted(subChatId, deps);
@@ -194,6 +197,6 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     // Now accepted.
     const r3 = await toggleMode(subChatId, 'execute', deps);
     expect(r3.ok).toBe(true);
-    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
+    expect(modeMap.get(subChatId) as AgentMode).toBe('execute');
   });
 });

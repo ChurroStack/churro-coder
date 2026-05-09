@@ -11,7 +11,8 @@ import {
   GitPullRequest,
   Activity,
   PlayCircle,
-  Workflow
+  Workflow,
+  ClipboardList
 } from 'lucide-react';
 import { OriginalMCPIcon } from '../../../components/ui/icons';
 
@@ -19,7 +20,18 @@ import { OriginalMCPIcon } from '../../../components/ui/icons';
 // Widget System Types & Registry
 // ============================================================================
 
-export type WidgetId = 'status' | 'info' | 'tasks' | 'todo' | 'plan' | 'terminal' | 'diff' | 'mcp' | 'pr' | 'scripts';
+export type WidgetId =
+  | 'status'
+  | 'info'
+  | 'tasks'
+  | 'todo'
+  | 'plan'
+  | 'review'
+  | 'terminal'
+  | 'diff'
+  | 'mcp'
+  | 'pr'
+  | 'scripts';
 
 export interface WidgetConfig {
   id: WidgetId;
@@ -36,6 +48,7 @@ export const WIDGET_REGISTRY: WidgetConfig[] = [
   { id: 'tasks', label: 'Tasks', icon: Activity, canExpand: false, defaultVisible: true },
   { id: 'todo', label: 'To-dos', icon: ListTodo, canExpand: false, defaultVisible: true },
   { id: 'plan', label: 'Plan', icon: FileText, canExpand: true, defaultVisible: true },
+  { id: 'review', label: 'Review', icon: ClipboardList, canExpand: false, defaultVisible: true },
   { id: 'scripts', label: 'Scripts', icon: PlayCircle, canExpand: false, defaultVisible: false },
   { id: 'terminal', label: 'Terminal', icon: Terminal, canExpand: true, defaultVisible: false },
   { id: 'diff', label: 'Changes', icon: FileDiff, canExpand: true, defaultVisible: true },

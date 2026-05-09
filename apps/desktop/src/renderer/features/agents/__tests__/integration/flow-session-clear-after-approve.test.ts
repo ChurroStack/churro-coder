@@ -33,9 +33,10 @@ import {
   defaultPlanModeModelAtom,
   subChatClaudeSessionEpochAtomFamily,
   subChatCodexSessionEpochAtomFamily,
-  subChatModeAtomFamily,
   subChatProviderOverrideAtomFamily
 } from '../../atoms';
+
+const modeMap = new Map<string, string>();
 import { resolveContextUsage } from '../../lib/context-usage';
 import { applyModeDefaultModel } from '../../lib/model-switching';
 import { markCodexFreshNextTurn } from '../../lib/codex-chat-transport';
@@ -55,6 +56,7 @@ let testCounter = 0;
 const newSubChatId = () => `int-session-${++testCounter}`;
 
 beforeEach(() => {
+  modeMap.clear();
   appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
   appStore.set(defaultExecuteModeModelAtom, 'sonnet');
 });
@@ -62,14 +64,14 @@ beforeEach(() => {
 describe('L4 integration — session clear via persistMode exitPlan flag (PR #45)', () => {
   test('persistMode receives { exitPlan: true } on plan approval', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'claude-code');
 
     const persistCalls: { subChatId: string; mode: string; exitPlan: boolean }[] = [];
 
     const deps: PlanApprovalDeps = {
       readPreviousProvider: () => 'claude-code',
-      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      setMode: (id, mode) => modeMap.set(id, mode as string),
       persistMode: async (input) => {
         persistCalls.push(input);
       },
@@ -94,7 +96,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
   test('persistMode is awaited before scheduleDeferredSend (no stale session resume)', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
 
     const events: string[] = [];
     const resolver: { fn: (() => void) | null } = { fn: null };
@@ -104,7 +106,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
     const deps: PlanApprovalDeps = {
       readPreviousProvider: () => 'claude-code',
-      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      setMode: (id, mode) => modeMap.set(id, mode as string),
       persistMode: async () => {
         events.push('persistMode-enter');
         await persistGate;
@@ -140,13 +142,13 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
   test('persistMode failure → no deferred send fires', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
 
     const scheduledSends: { subChatId: string; parts: unknown[] }[] = [];
 
     const deps: PlanApprovalDeps = {
       readPreviousProvider: () => 'claude-code',
-      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      setMode: (id, mode) => modeMap.set(id, mode as string),
       persistMode: async () => {
         throw new Error('DB locked');
       },
@@ -174,13 +176,13 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
   test('after persistMode failure, the in-flight lock is released so retry is possible', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
 
     const inFlight = new Set<string>();
     let firstAttempt = true;
     const deps: PlanApprovalDeps = {
       readPreviousProvider: () => 'claude-code',
-      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      setMode: (id, mode) => modeMap.set(id, mode as string),
       persistMode: async () => {
         if (firstAttempt) {
           firstAttempt = false;
@@ -211,12 +213,12 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
   test('Codex approve path marks the next turn as a fresh session after persist succeeds', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'codex');
 
     const deps: PlanApprovalDeps = {
       readPreviousProvider: () => 'codex',
-      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      setMode: (id, mode) => modeMap.set(id, mode as string),
       persistMode: async () => {
         markCodexFreshNextTurn(subChatId);
       },
@@ -241,7 +243,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
   test('resetSessionTracking bumps both per-provider epochs so the indicator drops to 0', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'claude-code');
 
     const claudeBefore = appStore.get(subChatClaudeSessionEpochAtomFamily(subChatId));
@@ -249,7 +251,7 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
 
     const deps: PlanApprovalDeps = {
       readPreviousProvider: () => 'claude-code',
-      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      setMode: (id, mode) => modeMap.set(id, mode as string),
       persistMode: async () => {},
       resetSessionTracking: (id) => {
         bumpSessionEpoch(id, 'claude-code', appStore.set);

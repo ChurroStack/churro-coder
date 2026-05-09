@@ -3,6 +3,7 @@ import { PlaceholderPanel } from './panels/placeholder-panel';
 import { MainPanel } from './panels/main-panel';
 import { ChatPanel } from './panels/chat-panel';
 import { PlanPanel } from './panels/plan-panel';
+import { ReviewPanel } from './panels/review-panel';
 import { DiffPanel } from './panels/diff-panel';
 import { TerminalPanel } from './panels/terminal-panel';
 import { FilePanel } from './panels/file-panel';
@@ -19,6 +20,7 @@ export const PANEL_COMPONENTS: Record<PanelKind, PanelComponent> = {
   terminal: TerminalPanel,
   file: FilePanel,
   plan: PlanPanel,
+  review: ReviewPanel,
   diff: DiffPanel,
   search: SearchPanel,
   'files-tree': FilesTreePanel,

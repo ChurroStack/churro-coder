@@ -76,10 +76,9 @@ export interface PlanApprovalDeps {
   readPreviousProvider: (subChatId: string) => ProviderId;
 
   /**
-   * Synchronous mode flip — writes `subChatModeAtomFamily(subChatId)` AND
-   * `subChatModesStorageAtom` AND the Zustand `useAgentSubChatStore`.
-   * Must NOT await internally; the contract is "all visible UI flips by the
-   * time this returns".
+   * Synchronous mode flip — writes the tRPC query cache AND the Zustand
+   * `useAgentSubChatStore`. Must NOT await internally; the contract is
+   * "all visible UI flips by the time this returns".
    */
   setMode: (subChatId: string, mode: 'execute' | 'plan') => void;
 
@@ -207,9 +206,7 @@ export async function approvePlan(subChatId: string, deps: PlanApprovalDeps): Pr
     state = step(state, { type: 'APPROVE_REQUESTED', subChatId, previousProvider });
 
     // 3. Synchronous mode flip + Zustand store sync (PR #36, #38, #51).
-    //    setMode writes `subChatModesStorageAtom`, which the dbSubChats
-    //    hydration loop in active-chat.tsx checks before letting a stale
-    //    refetch overwrite the mode atom back to "plan".
+    //    setMode writes the tRPC cache (getSubChat) + Zustand immediately.
     deps.setMode(subChatId, 'execute');
 
     state = step(state, { type: 'MODE_SWITCHED' });

@@ -1,10 +1,24 @@
 // @vitest-environment jsdom
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { Provider as JotaiProvider } from 'jotai';
 import { createTestStore, type TestStore } from '../../../../../test-utils';
 import { useChatViewState } from './use-chat-view-state';
+
+// useSubChatMode requires a tRPC context (React Query provider) that this
+// test doesn't provide. Mock it with local useState so the test stays a
+// pure Jotai/hook test without a full provider tree.
+vi.mock('./use-sub-chat-mode', async () => {
+  const { useState, useCallback } = await import('react');
+  return {
+    useSubChatMode: (_subChatId: string) => {
+      const [mode, setModeState] = useState<string>('plan');
+      const setMode = useCallback((newMode: string) => setModeState(newMode), []);
+      return { mode, setMode };
+    }
+  };
+});
 
 // L3.5 — hook tests. Sit between L3 (component) and L2 (service):
 //   - render the hook with a jotai store, no DOM tree under it

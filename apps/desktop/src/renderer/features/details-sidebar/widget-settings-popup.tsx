@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useAtom } from 'jotai';
-import { GripVertical, Box, MoreVertical, TerminalSquare, ListTodo } from 'lucide-react';
+import { GripVertical, Box, MoreVertical, TerminalSquare, ListTodo, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -26,6 +26,8 @@ function getWidgetIcon(widgetId: WidgetId) {
       return ListTodo;
     case 'plan':
       return PlanIcon;
+    case 'review':
+      return ClipboardList;
     case 'terminal':
       return TerminalSquare;
     case 'diff':

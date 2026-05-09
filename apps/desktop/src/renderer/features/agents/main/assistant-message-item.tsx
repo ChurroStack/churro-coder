@@ -14,7 +14,8 @@ import {
 import { CollapseIcon, ExpandIcon, PlanIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { cn } from '../../../lib/utils';
-import { selectedProjectAtom, showMessageJsonAtom, subChatModeAtomFamily } from '../atoms';
+import { selectedProjectAtom, showMessageJsonAtom } from '../atoms';
+import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { MessageJsonDisplay } from '../ui/message-json-display';
 import { AgentAskUserQuestionTool } from '../ui/agent-ask-user-question-tool';
 import { AgentBashTool } from '../ui/agent-bash-tool';
@@ -22,6 +23,7 @@ import { AgentEditTool } from '../ui/agent-edit-tool';
 import { AgentExploringGroup } from '../ui/agent-exploring-group';
 import { AgentTaskToolsGroup } from '../ui/agent-task-tools';
 import { AgentPlanFileTool } from '../ui/agent-plan-file-tool';
+import { AgentReviewTool } from '../ui/agent-review-tool';
 import { isPlanFile, isSubagentDispatchType, summarizeToolInput } from '../ui/agent-tool-utils';
 import { AgentMessageUsage, type AgentMessageMetadata } from '../ui/agent-message-usage';
 import { AgentTurnRecap } from '../ui/agent-turn-recap';
@@ -458,7 +460,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   const showMessageJson = useAtomValue(showMessageJsonAtom);
   const selectedProject = useAtomValue(selectedProjectAtom);
   const projectPath = selectedProject?.path;
-  const subChatMode = useAtomValue(useMemo(() => subChatModeAtomFamily(subChatId), [subChatId]));
+  const { mode: subChatMode } = useSubChatMode(subChatId);
   const onOpenFile = useFileOpen();
   const onFork = useContext(ForkContext);
   const isDev = import.meta.env.DEV;
@@ -610,6 +612,32 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
     const collapsedOps = planOpsSummary.operations.filter((op) => op.index < collapseBeforeIndex);
     return collapsedOps[collapsedOps.length - 1] || null;
   }, [hasPlanInCollapsedSteps, planOpsSummary.operations, collapseBeforeIndex]);
+
+  // Same pattern as plan ops: collect every `write_review` MCP part so the
+  // dispatch can decide whether to render a full card, a mini indicator, or
+  // skip (because the part will be promoted outside the collapsed group).
+  const reviewWriteOps = useMemo(() => {
+    const ops: Array<{ part: any; index: number }> = [];
+    for (let i = 0; i < messageParts.length; i++) {
+      const p = messageParts[i];
+      if (p.type === 'tool-mcp__churro-coder__write_review') {
+        ops.push({ part: p, index: i });
+      }
+    }
+    return ops;
+  }, [messageParts]);
+
+  const lastReviewWritePart = reviewWriteOps[reviewWriteOps.length - 1]?.part ?? null;
+
+  // When the *last* write_review lands inside the collapsed window we promote
+  // it outside the CollapsibleSteps group so the user sees a real review card
+  // without expanding the steps. Earlier write_review calls in the same group
+  // render as mini "Review persisted" pills (matching plan's pattern).
+  const lastCollapsedReviewWritePart = useMemo(() => {
+    if (!shouldCollapse || collapseBeforeIndex === -1) return null;
+    const lastInCollapsed = reviewWriteOps.filter((op) => op.index < collapseBeforeIndex).slice(-1)[0];
+    return lastInCollapsed?.part ?? null;
+  }, [reviewWriteOps, shouldCollapse, collapseBeforeIndex]);
 
   const stepParts = useMemo(() => {
     if (!shouldCollapse || collapseBeforeIndex === -1) return [];
@@ -889,6 +917,36 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
       // MCP tool calls (pattern: tool-mcp__<server>__<tool>)
       const mcpInfo = parseMcpToolType(part.type);
       if (mcpInfo) {
+        if (mcpInfo.serverName === 'churro-coder' && mcpInfo.toolName === 'write_review') {
+          // Promotion: the last write_review in the collapsed window is rendered
+          // OUTSIDE the CollapsibleSteps group (see render block below). Skip it
+          // here so we don't double-render.
+          if (lastCollapsedReviewWritePart && part.toolCallId === lastCollapsedReviewWritePart.toolCallId) {
+            return null;
+          }
+          // Only the LAST write_review in the message gets the rich card. All
+          // earlier ones render as a small "Review persisted" pill (matches the
+          // plan-file-tool pattern at line ~735).
+          const isLastReviewWrite = lastReviewWritePart && part.toolCallId === lastReviewWritePart.toolCallId;
+          if (!isLastReviewWrite) {
+            const { isPending } = getToolStatus(part, status);
+            const isOpStreaming = isPending || (part.state === 'input-streaming' && isStreaming && isLastMessage);
+            return withSearchHighlight(
+              <div className="flex items-center gap-1.5 px-2 py-0.5">
+                <span className="text-xs text-muted-foreground">
+                  {isOpStreaming ? (
+                    <TextShimmer as="span" duration={1.2}>
+                      Persisting review...
+                    </TextShimmer>
+                  ) : (
+                    'Review persisted'
+                  )}
+                </span>
+              </div>
+            );
+          }
+          return withSearchHighlight(<AgentReviewTool part={part} chatStatus={status} subChatId={subChatId} />);
+        }
         return withSearchHighlight(<AgentMcpToolCall part={part} mcpInfo={mcpInfo} chatStatus={status} />);
       }
 
@@ -920,7 +978,9 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
       message.id,
       planOpsSummary,
       shouldCollapse,
-      lastCollapsedPlanOp
+      lastCollapsedPlanOp,
+      lastCollapsedReviewWritePart,
+      lastReviewWritePart
     ]
   );
 
@@ -1009,6 +1069,11 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
               isEdit={lastCollapsedPlanOp.type === 'edit'}
             />
           ))}
+
+        {/* Same pattern for write_review: promote the last collapsed call so the user sees the review card. */}
+        {shouldCollapse && lastCollapsedReviewWritePart && (
+          <AgentReviewTool part={lastCollapsedReviewWritePart} chatStatus={status} subChatId={subChatId} />
+        )}
 
         {shouldShowPlanning && (
           <AgentToolCall

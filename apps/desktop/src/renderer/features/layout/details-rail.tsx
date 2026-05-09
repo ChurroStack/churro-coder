@@ -8,9 +8,9 @@ import {
   currentPlanPathAtomFamily,
   workspaceDiffCacheAtomFamily,
   planEditRefetchTriggerAtomFamily,
-  subChatModeAtomFamily,
   selectedDiffFilePathAtom
 } from '../agents/atoms';
+import { useSubChatMode } from '../agents/hooks/use-sub-chat-mode';
 import { defaultAgentModeAtom } from '../../lib/atoms';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
 import { DetailsSidebar } from '../details-sidebar/details-sidebar';
@@ -68,7 +68,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   const effectiveSubChatId = activeSubChatId ?? chatId ?? '';
   const planPath = useAtomValue(currentPlanPathAtomFamily(effectiveSubChatId));
   const planRefetchTrigger = useAtomValue(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
-  const subChatMode = useAtomValue(subChatModeAtomFamily(activeSubChatId ?? ''));
+  const { mode: subChatMode } = useSubChatMode(activeSubChatId ?? '');
   const defaultMode = useAtomValue(defaultAgentModeAtom);
   const currentMode = activeSubChatId ? subChatMode : defaultMode;
 

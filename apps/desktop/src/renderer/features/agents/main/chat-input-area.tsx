@@ -50,7 +50,6 @@ import {
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily,
   subChatModelIdAtomFamily,
-  subChatModeAtomFamily,
   getNextMode,
   type AgentMode,
   type SubChatFileChange
@@ -60,6 +59,7 @@ import { AgentsSlashCommand, BUILTIN_SLASH_COMMANDS, type SlashCommandOption } f
 import { AgentModelSelector } from '../components/agent-model-selector';
 import { AgentSendButton } from '../components/agent-send-button';
 import type { UploadedFile, UploadedImage } from '../hooks/use-agents-file-upload';
+import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { clearSubChatDraft, saveSubChatDraftWithAttachments } from '../lib/drafts';
 import { CLAUDE_MODELS, CODEX_MODELS, type ClaudeThinkingLevel, type CodexThinkingLevel } from '../lib/models';
 import { applyModeDefaultModel } from '../lib/model-switching';
@@ -642,9 +642,8 @@ export const ChatInputArea = memo(function ChatInputArea({
   // Note: When offline, we show Ollama models selector instead of Claude models
   // The selectedOllamaModel atom is used to track which Ollama model is selected
 
-  // Plan mode - per-subChat using atomFamily
-  const subChatModeAtom = useMemo(() => subChatModeAtomFamily(subChatId), [subChatId]);
-  const [subChatMode, setSubChatMode] = useAtom(subChatModeAtom);
+  // Plan mode - per-subChat via tRPC single source of truth
+  const { mode: subChatMode, setMode: setSubChatMode } = useSubChatMode(subChatId);
 
   // Helper to update mode (atomFamily + Zustand store sync)
   // Also applies the mode's default model so the chat input selector reflects

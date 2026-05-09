@@ -1,8 +1,9 @@
 import type { IDockviewPanelProps } from 'dockview-react';
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useSetAtom } from 'jotai';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
-import { pendingBuildPlanSubChatIdAtom, subChatModeAtomFamily } from '../../agents/atoms';
+import { pendingBuildPlanSubChatIdAtom } from '../../agents/atoms';
+import { useSubChatMode } from '../../agents/hooks/use-sub-chat-mode';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
 import { PlanSection } from '../../details-sidebar/sections/plan-section';
 import type { PlanPanelEntity } from '../atoms';
@@ -20,7 +21,7 @@ export function PlanPanel({ params, api, containerApi }: IDockviewPanelProps<Pla
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   // Reading mode for the active sub-chat tracks the approve-button visibility
   // automatically when the user toggles between plan and agent modes.
-  const mode = useAtomValue(subChatModeAtomFamily(activeSubChatId ?? ''));
+  const { mode } = useSubChatMode(activeSubChatId ?? '');
 
   const handleApprove = () => {
     const id = useAgentSubChatStore.getState().activeSubChatId;

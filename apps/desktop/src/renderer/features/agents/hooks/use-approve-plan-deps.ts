@@ -41,8 +41,8 @@ import { agentChatStore } from '../stores/agent-chat-store';
 import { CodexChatTransport, markCodexFreshNextTurn } from '../lib/codex-chat-transport';
 import { applyModeDefaultModel } from '../lib/model-switching';
 import { appStore } from '../../../lib/jotai-store';
-import { trpcClient } from '../../../lib/trpc';
-import { bumpSessionEpoch, subChatModeAtomFamily, subChatProviderOverridesAtom } from '../atoms';
+import { trpc, trpcClient } from '../../../lib/trpc';
+import { bumpSessionEpoch, subChatProviderOverridesAtom } from '../atoms';
 import { buildImplementPlanParts } from '../lib/implement-plan-parts';
 import type { ApprovedPlanContent, PlanApprovalDeps } from '../services/plan-approval-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
@@ -89,6 +89,7 @@ export interface UseApprovePlanDepsConfig {
  */
 export function useApprovePlanDeps(config: UseApprovePlanDepsConfig): PlanApprovalDeps {
   const { updateSubChatModeMutation, onProviderChange, resolveApprovedPlanContent, scheduleDeferredSend } = config;
+  const utils = trpc.useUtils();
 
   return useMemo<PlanApprovalDeps>(
     () => ({
@@ -105,7 +106,7 @@ export function useApprovePlanDeps(config: UseApprovePlanDepsConfig): PlanApprov
         return (appStore.get(subChatProviderOverridesAtom)[id] ?? 'claude-code') as ProviderId;
       },
       setMode: (id, mode) => {
-        appStore.set(subChatModeAtomFamily(id), mode);
+        utils.chats.getSubChat.setData({ id }, (prev) => (prev ? { ...prev, mode } : prev));
         useAgentSubChatStore.getState().updateSubChatMode(id, mode);
       },
       persistMode: async ({ subChatId: id, mode, exitPlan }) => {
@@ -168,6 +169,6 @@ export function useApprovePlanDeps(config: UseApprovePlanDepsConfig): PlanApprov
         console.log(msg);
       }
     }),
-    [updateSubChatModeMutation, onProviderChange, resolveApprovedPlanContent, scheduleDeferredSend]
+    [updateSubChatModeMutation, onProviderChange, resolveApprovedPlanContent, scheduleDeferredSend, utils]
   );
 }

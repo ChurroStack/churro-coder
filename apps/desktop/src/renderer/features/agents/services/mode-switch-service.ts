@@ -57,8 +57,8 @@ export interface ModeSwitchDeps {
   writeState: (subChatId: string, state: ChatModeState) => void;
 
   /**
-   * Synchronous mode flip. Writes both the per-subChat atom AND
-   * `subChatModesStorageAtom` AND the Zustand store. Must NOT await internally.
+   * Synchronous mode flip. Writes the tRPC query cache AND the Zustand store.
+   * Must NOT await internally.
    */
   setMode: (subChatId: string, mode: ChatMode) => void;
 
@@ -251,9 +251,9 @@ export async function forceMode(
  * and pass it in here so a stale refetch can't overwrite a forced flip.
  *
  * Hydration is the *source* of truth for an initial mount. It must also sync
- * the external mode atom/store even when the FSM mode is unchanged: the FSM
- * starts at "execute", while `subChatModeAtomFamily` may still contain a stale
- * persisted "plan" value from localStorage after an app restart.
+ * the tRPC cache and Zustand even when the FSM mode is unchanged: the FSM
+ * starts at "execute", while the DB may still contain a persisted "plan" value
+ * from a previous session.
  */
 export function hydrateMode(
   subChatId: string,

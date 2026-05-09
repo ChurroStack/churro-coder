@@ -147,10 +147,12 @@ export function getNewChatDrafts(): NewChatDraft[] {
 export function saveNewChatDraft(draftId: string, text: string, project?: DraftProject): void {
   const globalDrafts = loadGlobalDrafts();
   if (text.trim()) {
+    const existing = globalDrafts[draftId] as NewChatDraft | undefined;
     globalDrafts[draftId] = {
       text,
       updatedAt: Date.now(),
-      ...(project && { project })
+      ...(project && { project }),
+      ...(existing?.isVisible && { isVisible: true })
     };
   } else {
     delete globalDrafts[draftId];
@@ -218,11 +220,15 @@ export async function saveNewChatDraftWithAttachments(
 
   const draftPastedTexts = options?.pastedTexts?.map(toDraftPastedText) ?? [];
 
+  const existing = globalDrafts[draftId] as NewChatDraft | undefined;
+  const preserveVisible = existing?.isVisible ? { isVisible: true as const } : {};
+
   const draft: NewChatDraft = {
     id: draftId,
     text,
     updatedAt: Date.now(),
     ...(project && { project }),
+    ...preserveVisible,
     ...(draftImages.length > 0 && { images: draftImages }),
     ...(draftFiles.length > 0 && { files: draftFiles }),
     ...(draftTextContexts.length > 0 && { textContexts: draftTextContexts }),
@@ -235,7 +241,8 @@ export async function saveNewChatDraftWithAttachments(
       id: draftId,
       text,
       updatedAt: Date.now(),
-      ...(project && { project })
+      ...(project && { project }),
+      ...preserveVisible
     };
     try {
       saveGlobalDrafts(globalDrafts);

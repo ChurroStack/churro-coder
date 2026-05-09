@@ -14,6 +14,7 @@ import {
   Search,
   PlayCircle,
   Workflow,
+  ClipboardList,
   Terminal as TerminalIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,7 @@ import { InfoSection } from './sections/info-section';
 import { TodoWidget } from './sections/todo-widget';
 import { TasksWidget } from './sections/tasks-widget';
 import { PlanWidget } from './sections/plan-widget';
+import { ReviewWidget } from './sections/review-widget';
 import { TerminalWidget } from './sections/terminal-widget';
 import { ChangesWidget } from './sections/changes-widget';
 import { McpWidget } from './sections/mcp-widget';
@@ -80,6 +82,8 @@ function getWidgetIcon(widgetId: WidgetId) {
       return ListTodo;
     case 'plan':
       return PlanIcon;
+    case 'review':
+      return ClipboardList;
     case 'terminal':
       return TerminalSquare;
     case 'diff':
@@ -536,6 +540,9 @@ export function DetailsSidebar({
                     onApprovePlan={onBuildPlan}
                   />
                 );
+
+              case 'review':
+                return <ReviewWidget key="review" activeSubChatId={activeSubChatId} />;
 
               case 'terminal':
                 // Hidden when Terminal sidebar is open

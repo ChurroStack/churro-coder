@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,8 +54,8 @@ import {
   reviewInFlight
 } from './model-switching';
 import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
-import { subChatModeAtomFamily } from '../atoms';
 import { agentChatStore } from '../stores/agent-chat-store';
+import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { CodexChatTransport } from './codex-chat-transport';
 
 let testCounter = 0;
@@ -72,6 +72,10 @@ beforeEach(() => {
   appStore.set(defaultPlanModeThinkingAtom, 'high');
   appStore.set(defaultExecuteModeThinkingAtom, 'high');
   appStore.set(defaultReviewModeThinkingAtom, 'high');
+});
+
+afterEach(() => {
+  useAgentSubChatStore.setState({ allSubChats: [] });
 });
 
 function createCodexTransport(): CodexChatTransport {
@@ -485,15 +489,25 @@ describe('applyFormSelectionToSubChat — Codex path', () => {
 // actual runtime bug (stale fallback in transport constructors) because it only
 // asserted text ordering, not that the new mode reaches the server.
 describe('Approve Plan → next message uses agent mode', () => {
-  test('getCurrentSubChatMode returns current atom value immediately', () => {
+  test('getCurrentSubChatMode returns current Zustand value immediately', () => {
     const id = nextSubChatId();
     // Unknown subChatId defaults to the factory default mode ("plan").
     expect(getCurrentSubChatMode(id)).toBe('plan');
     // Simulate pre-approval state
-    appStore.set(subChatModeAtomFamily(id), 'plan');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'plan' as const }
+      ]
+    }));
     expect(getCurrentSubChatMode(id)).toBe('plan');
-    // Simulate handleApprovePlan writing the atom
-    appStore.set(subChatModeAtomFamily(id), 'execute');
+    // Simulate handleApprovePlan writing the mode
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'execute' as const }
+      ]
+    }));
     expect(getCurrentSubChatMode(id)).toBe('execute');
   });
 

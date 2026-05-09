@@ -13,7 +13,7 @@
  * drives the same mutation the production code performs and asserts the
  * resolver agrees.
  */
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('../../../../lib/window-storage', async () => {
   const { atom } = await import('jotai');
@@ -36,7 +36,6 @@ import {
   subChatCodexModelIdAtomFamily,
   subChatCodexSessionEpochAtomFamily,
   subChatModelIdAtomFamily,
-  subChatModeAtomFamily,
   subChatProviderOverrideAtomFamily
 } from '../../atoms';
 import { resolveContextUsage } from '../../lib/context-usage';
@@ -54,8 +53,14 @@ vi.mock('../../lib/codex-chat-transport', async () => {
   };
 });
 
+const modeMap = new Map<string, string>();
+
 let testCounter = 0;
 const newSubChatId = () => `int-counter-reset-${++testCounter}`;
+
+beforeEach(() => {
+  modeMap.clear();
+});
 
 type Message = { role: 'assistant'; metadata: Record<string, number | string | undefined> };
 
@@ -74,7 +79,7 @@ function readResolverInputs(subChatId: string, provider: 'claude-code' | 'codex'
 function makeDeps(): PlanApprovalDeps {
   return {
     readPreviousProvider: () => 'claude-code',
-    setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+    setMode: (id, mode) => modeMap.set(id, mode as string),
     persistMode: async () => {},
     resetSessionTracking: (id) => {
       bumpSessionEpoch(id, 'claude-code', appStore.set);
@@ -101,7 +106,7 @@ describe('L4 integration — context counter session reset', () => {
     const subChatId = newSubChatId();
     appStore.set(defaultPlanModeModelAtom, 'opus[1m]');
     appStore.set(defaultExecuteModeModelAtom, 'sonnet');
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'claude-code');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'opus[1m]');
 
@@ -125,7 +130,7 @@ describe('L4 integration — context counter session reset', () => {
 
   test('approvePlan also clears the Codex counter for cross-provider execute', async () => {
     const subChatId = newSubChatId();
-    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    modeMap.set(subChatId, 'plan');
     appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'claude-code');
     appStore.set(subChatModelIdAtomFamily(subChatId), 'opus[1m]');
     appStore.set(subChatCodexModelIdAtomFamily(subChatId), 'gpt-5.5');
