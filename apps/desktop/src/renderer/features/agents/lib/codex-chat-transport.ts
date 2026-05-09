@@ -16,6 +16,7 @@ import {
   expiredUserQuestionsAtom,
   pendingAuthRetryMessageAtom,
   pendingUserQuestionsAtom,
+  subChatCodexSessionEpochAtomFamily,
   subChatCodexModelIdAtomFamily,
   subChatCodexThinkingAtomFamily
 } from '../atoms';
@@ -355,6 +356,13 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               }
 
               if (chunk.type === 'finish') {
+                if (chunk.messageMetadata) {
+                  const sessionEpoch = appStore.get(subChatCodexSessionEpochAtomFamily(this.config.subChatId));
+                  chunk.messageMetadata = {
+                    ...chunk.messageMetadata,
+                    sessionEpoch
+                  };
+                }
                 recordChatEvent({
                   ts: Date.now(),
                   phase: 'end',

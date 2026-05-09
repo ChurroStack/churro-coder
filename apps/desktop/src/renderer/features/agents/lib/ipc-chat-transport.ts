@@ -17,11 +17,13 @@ import { appStore } from '../../../lib/jotai-store';
 import { trpcClient } from '../../../lib/trpc';
 import {
   askUserQuestionResultsAtom,
+  bumpSessionEpoch,
   compactingSubChatsAtom,
   expiredUserQuestionsAtom,
   MODEL_ID_MAP,
   pendingAuthRetryMessageAtom,
   pendingUserQuestionsAtom,
+  subChatClaudeSessionEpochAtomFamily,
   subChatClaudeThinkingAtomFamily,
   subChatModelIdAtomFamily
 } from '../atoms';
@@ -321,6 +323,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 // Compacting finished
                 newCompacting.delete(this.config.subChatId);
                 appStore.set(compactingSubChatsAtom, newCompacting);
+                bumpSessionEpoch(this.config.subChatId, 'claude-code', appStore.set);
               }
 
               // Handle session init - store MCP servers, plugins, tools info
@@ -502,6 +505,13 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               }
 
               // Try to enqueue, but don't crash if stream is already closed
+              if ((chunk.type === 'message-metadata' || chunk.type === 'finish') && chunk.messageMetadata) {
+                const sessionEpoch = appStore.get(subChatClaudeSessionEpochAtomFamily(this.config.subChatId));
+                chunk.messageMetadata = {
+                  ...chunk.messageMetadata,
+                  sessionEpoch
+                };
+              }
               try {
                 controller.enqueue(chunk);
               } catch (e) {

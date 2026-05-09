@@ -5,30 +5,35 @@ export const CLAUDE_MODELS = [
     id: 'opus',
     name: 'Opus',
     version: '4.7',
+    contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
   },
   {
     id: 'opus[1m]',
     name: 'Opus',
     version: '4.7 1M',
+    contextWindow: 1_000_000,
     thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
   },
   {
     id: 'sonnet',
     name: 'Sonnet',
     version: '4.6',
+    contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high'] as ClaudeThinkingLevel[]
   },
   {
     id: 'sonnet[1m]',
     name: 'Sonnet',
     version: '4.6 1M',
+    contextWindow: 1_000_000,
     thinkings: ['off', 'low', 'medium', 'high'] as ClaudeThinkingLevel[]
   },
   {
     id: 'haiku',
     name: 'Haiku',
     version: '4.5',
+    contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high'] as ClaudeThinkingLevel[]
   }
 ];
@@ -46,44 +51,66 @@ export const CODEX_MODELS = [
   {
     id: 'gpt-5.5',
     name: 'GPT-5.5',
+    contextWindow: 400_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.4',
     name: 'GPT-5.4',
+    contextWindow: 400_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.4-mini',
     name: 'GPT-5.4 mini',
+    contextWindow: 400_000,
     thinkings: ['low', 'medium', 'high'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.3-codex',
     name: 'Codex 5.3',
+    contextWindow: 400_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.3-codex-spark',
     name: 'Codex 5.3 Spark',
+    contextWindow: 400_000,
     thinkings: ['low', 'medium', 'high'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.2-codex',
     name: 'Codex 5.2',
+    contextWindow: 400_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.1-codex-max',
     name: 'Codex 5.1 Max',
+    contextWindow: 400_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.1-codex-mini',
     name: 'Codex 5.1 Mini',
+    contextWindow: 400_000,
     thinkings: ['medium', 'high'] as CodexThinkingLevel[]
   }
 ];
+
+export const DEFAULT_CONTEXT_WINDOW = 200_000;
+
+export function getModelContextWindow(modelId: string | undefined): number | undefined {
+  if (!modelId) return undefined;
+  const normalizedId = modelId.trim().toLowerCase();
+  const model = [...CLAUDE_MODELS, ...CODEX_MODELS].find((entry) => entry.id.toLowerCase() === normalizedId);
+  return model?.contextWindow;
+}
+
+export function isCodexModelId(modelId: string | undefined): boolean {
+  const normalized = modelId?.trim().toLowerCase() ?? '';
+  return normalized.startsWith('gpt-') || normalized.includes('codex');
+}
 
 export function formatCodexThinkingLabel(thinking: CodexThinkingLevel): string {
   if (thinking === 'xhigh') return 'Extra High';

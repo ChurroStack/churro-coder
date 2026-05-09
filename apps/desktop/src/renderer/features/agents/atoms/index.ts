@@ -439,6 +439,21 @@ export const subChatCodexModelIdAtomFamily = atomFamily((subChatId: string) =>
   )
 );
 
+export const subChatClaudeSessionEpochAtomFamily = atomFamily((_subChatId: string) => atom(0));
+export const subChatCodexSessionEpochAtomFamily = atomFamily((_subChatId: string) => atom(0));
+
+export function bumpSessionEpoch(
+  subChatId: string,
+  provider: 'claude-code' | 'codex',
+  set: <Value, Args extends unknown[], Result>(atomConfig: any, ...args: Args) => Result
+): void {
+  const targetAtom =
+    provider === 'codex'
+      ? subChatCodexSessionEpochAtomFamily(subChatId)
+      : subChatClaudeSessionEpochAtomFamily(subChatId);
+  set(targetAtom, (prev: number) => prev + 1);
+}
+
 // Storage for per-subChat Codex thinking level.
 // Falls back to lastSelectedCodexThinkingAtom when sub-chat has no explicit selection yet.
 const subChatCodexThinkingStorageAtom = atomWithStorage<Record<string, CodexThinkingPreference>>(

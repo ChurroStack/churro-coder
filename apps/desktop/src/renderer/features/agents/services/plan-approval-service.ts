@@ -95,6 +95,12 @@ export interface PlanApprovalDeps {
   persistMode: (input: { subChatId: string; mode: 'execute'; exitPlan: true }) => Promise<void>;
 
   /**
+   * Bump the renderer-side session reset markers after plan approval has
+   * forced the next execute turn to start fresh.
+   */
+  resetSessionTracking?: (subChatId: string) => void;
+
+  /**
    * Synchronous wrapper around `applyModeDefaultModel(subChatId, "execute")`.
    * Returns the resolved provider so the FSM can decide same/cross-provider
    * branching. **MUST run before any await** — invariant from PR #36.
@@ -236,6 +242,7 @@ export async function approvePlan(subChatId: string, deps: PlanApprovalDeps): Pr
       state = reducePlanApproval(state, { type: 'FAIL', reason });
       return { ok: false, finalState: state, reason: 'persist-failed' };
     }
+    deps.resetSessionTracking?.(subChatId);
 
     // 6. Same-provider branch (PR #44): the FSM has already transitioned
     //    to ready-to-send during MODEL_APPLIED for same-provider; we don't
