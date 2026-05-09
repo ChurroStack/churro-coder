@@ -7,6 +7,8 @@ describe('buildCodexModeInstruction', () => {
     const prompt = buildCodexModeInstruction('plan');
 
     expect(prompt).toContain('create the plan with PlanWrite');
+    expect(prompt).toContain('You may run read-only shell commands');
+    expect(prompt).toContain('use WebFetch/WebSearch to gather context');
     expect(prompt).toContain('Do not rely on MCP to create the plan or a task list.');
     expect(prompt).toContain('Call PlanWrite exactly once');
   });
@@ -25,6 +27,8 @@ describe('buildCodexModeInstruction', () => {
 
     expect(prompt).toContain('[EXPLORE MODE]');
     expect(prompt).toContain('read-only');
+    expect(prompt).toContain('You may run read-only shell commands');
+    expect(prompt).toContain('use WebFetch/WebSearch to gather context');
     expect(prompt).toContain('Do not call PlanWrite');
     expect(prompt).not.toContain('Implement changes');
   });

@@ -64,6 +64,8 @@ import {
 import { getApprovedPluginMcpServers, getEnabledPlugins } from './claude-settings';
 import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { writeCurrentPlan, hasPlan, extractPlanTitleFromContent } from '../../plans/plan-store';
+import { renderBuiltinPrompt } from '../../../../prompts/render';
+import { evaluateClaudeModeToolPolicy } from './claude-mode-policy';
 import { createMcpServerForSubChat } from '../../mcp/server';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
@@ -346,8 +348,6 @@ async function readProjectMcpJsonCached(projectPath: string): Promise<Record<str
     return {};
   }
 }
-
-const PLAN_MODE_BLOCKED_TOOLS = new Set(['Bash', 'NotebookEdit']);
 
 // Image attachment schema
 const imageAttachmentSchema = z.object({
@@ -1791,7 +1791,16 @@ ${prompt}
                 const agentsAppend = agentsMdContent
                   ? `\n\n# AGENTS.md\nThe following are the project's AGENTS.md instructions:\n\n${agentsMdContent}`
                   : '';
-                const systemAppend = agentsAppend + planHint;
+                // For plan/explore modes, communicate the read-only contract to Claude.
+                // Plan mode also gets the SDK's built-in plan reminder; explore mode does not,
+                // so this prompt is the only contract Claude sees in explore mode.
+                const modeInstruction =
+                  input.mode === 'plan'
+                    ? '\n\n' + renderBuiltinPrompt('mode/claude-plan')
+                    : input.mode === 'explore'
+                      ? '\n\n' + renderBuiltinPrompt('mode/claude-explore')
+                      : '';
+                const systemAppend = agentsAppend + planHint + modeInstruction;
                 const systemPromptConfig = systemAppend
                   ? {
                       type: 'preset' as const,
@@ -1965,42 +1974,12 @@ ${prompt}
                         }
                       }
 
-                      if (input.mode === 'explore') {
-                        if (
-                          toolName === 'Edit' ||
-                          toolName === 'Write' ||
-                          toolName === 'NotebookEdit' ||
-                          toolName === 'MultiEdit' ||
-                          toolName === 'Bash' ||
-                          toolName === 'ExitPlanMode'
-                        ) {
-                          return {
-                            behavior: 'deny',
-                            message: `Tool "${toolName}" blocked in explore mode.`
-                          };
-                        }
-                      }
-
-                      if (input.mode === 'plan') {
-                        if (toolName === 'Edit' || toolName === 'Write') {
-                          const filePath = typeof toolInput.file_path === 'string' ? toolInput.file_path : '';
-                          if (!/\.md$/i.test(filePath)) {
-                            return {
-                              behavior: 'deny',
-                              message: 'Only ".md" files can be modified in plan mode.'
-                            };
-                          }
-                        } else if (toolName == 'ExitPlanMode') {
-                          return {
-                            behavior: 'deny',
-                            message: `IMPORTANT: DONT IMPLEMENT THE PLAN UNTIL THE EXPLIT COMMAND. THE PLAN WAS **ONLY** PRESENTED TO USER, FINISH CURRENT MESSAGE AS SOON AS POSSIBLE`
-                          };
-                        } else if (PLAN_MODE_BLOCKED_TOOLS.has(toolName)) {
-                          return {
-                            behavior: 'deny',
-                            message: `Tool "${toolName}" blocked in plan mode.`
-                          };
-                        }
+                      const modePolicyDecision = evaluateClaudeModeToolPolicy(input.mode, toolName, toolInput);
+                      if (modePolicyDecision) {
+                        console.log(
+                          `[claude-policy] deny sub=${subId} mode=${input.mode} tool=${toolName} reason=${modePolicyDecision.message}`
+                        );
+                        return { behavior: 'deny', message: modePolicyDecision.message };
                       }
                       if (toolName === 'AskUserQuestion') {
                         const { toolUseID } = options;

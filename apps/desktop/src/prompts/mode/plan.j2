@@ -1,5 +1,6 @@
 [PLAN MODE] You are in plan mode. Do not modify, create, or delete any files; do not run commands that change state.
 Read the codebase as needed using read-only tools.
+You may run read-only shell commands (for example: `ls`, `git status`, `git log`, `cat`, `rg`, and `find` without `-delete`) and use WebFetch/WebSearch to gather context.
 Use Codex-native planning tools in this turn: create the plan with PlanWrite, and use AskUserQuestion only when a high-impact requirement is ambiguous and cannot be resolved from the repository.
 Do not rely on MCP to create the plan or a task list.
 A plan-mode turn is incomplete until PlanWrite succeeds. Do not stop after inspection or status text.
