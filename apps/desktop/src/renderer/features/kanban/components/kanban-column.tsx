@@ -108,11 +108,7 @@ export const KanbanColumn = memo(function KanbanColumn({
         ) : (
           <>
             {/* Needs-attention section (always shown, always at top) */}
-            {attentionCards.length > 0 && (
-              <div className="rounded-md bg-muted/40 px-1 py-1 mb-1 border-b border-border/60 space-y-2">
-                {attentionCards.map(renderCard)}
-              </div>
-            )}
+            {attentionCards.length > 0 && <div className="mb-1 space-y-2">{attentionCards.map(renderCard)}</div>}
 
             {/* Pinned + regular cards (paginated) */}
             {visibleOrdered.slice(attentionCards.length).map(renderCard)}

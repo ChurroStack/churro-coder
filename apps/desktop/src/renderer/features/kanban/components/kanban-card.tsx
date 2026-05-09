@@ -77,7 +77,14 @@ export const KanbanCard = memo(function KanbanCard({
   const hasUnseenChanges = card.hasUnseenChanges;
   const hasPendingPlan = card.hasPendingPlan;
   const hasPendingQuestion = card.hasPendingQuestion;
-  const needsAttention = card.attentionReason != null;
+  const attentionClasses =
+    card.attentionReason === 'pending-plan'
+      ? 'border-amber-500/30 border-l-[5px] border-l-amber-500'
+      : card.attentionReason === 'pending-question'
+        ? 'border-blue-500/30 border-l-[5px] border-l-blue-500'
+        : card.attentionReason === 'unseen-changes'
+          ? 'border-emerald-500/30 border-l-[5px] border-l-emerald-500'
+          : null;
 
   // Show status indicator if there's something to show (pin has lowest priority)
   const showStatusIndicator = hasPendingQuestion || isLoading || hasPendingPlan || hasUnseenChanges || card.isPinned;
@@ -194,8 +201,9 @@ export const KanbanCard = memo(function KanbanCard({
     'w-full text-left py-1.5 cursor-pointer group relative',
     'pl-2 pr-2 rounded-md',
     'bg-card border',
-    needsAttention ? 'border-amber-500/50' : 'border-border/50',
-    'hover:bg-accent/50 hover:border-border',
+    attentionClasses ?? 'border-border/50',
+    'hover:bg-accent/50',
+    !attentionClasses && 'hover:border-border',
     'transition-colors duration-75',
     'outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70'
   );
