@@ -113,7 +113,11 @@ function getPlanFromPlanWritePart(part: any): any | null {
  * @param userMessage - The user message to generate a title for
  * @param model - Optional model to use (if not provided, uses recommended model)
  */
-async function generateChatNameWithOllama(userMessage: string, model?: string | null): Promise<string | null> {
+async function generateChatNameWithOllama(
+  userMessage: string,
+  model?: string | null,
+  signal?: AbortSignal
+): Promise<string | null> {
   try {
     const cleanedMessage = stripTitleMentionTokens(userMessage);
     if (!cleanedMessage) {
@@ -149,7 +153,8 @@ Title:`;
           temperature: 0.3,
           num_predict: 50
         }
-      })
+      }),
+      signal
     });
 
     if (!response.ok) {
@@ -172,6 +177,114 @@ Title:`;
     return null;
   } catch (error) {
     console.error('[Ollama] Generate chat name error:', error);
+    return null;
+  }
+}
+
+async function generateChatNameWithClaude(userMessage: string, signal: AbortSignal): Promise<string | null> {
+  if (signal.aborted) return null;
+  const start = Date.now();
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const oauthToken = apiKey ? null : getActiveOAuthToken();
+    if (!apiKey && !oauthToken) return null;
+
+    const authHeaders: Record<string, string> = apiKey
+      ? { 'x-api-key': apiKey }
+      : { Authorization: `Bearer ${oauthToken}` };
+
+    const userPrompt = await getPrompt({
+      key: 'chat-title/prompt',
+      vars: { userMessage: stripTitleMentionTokens(userMessage).slice(0, 4000) }
+    });
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        ...authHeaders
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 40,
+        messages: [{ role: 'user', content: userPrompt }]
+      }),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(3000)])
+    });
+
+    if (!response.ok) {
+      console.error('[Claude] Generate chat name failed:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const text = data.content?.[0]?.text?.trim();
+    if (!text) return null;
+
+    const cleaned = text
+      .replace(/^["']|["']$/g, '')
+      .replace(/^title:\s*/i, '')
+      .trim()
+      .slice(0, 80);
+    if (!cleaned) return null;
+
+    console.log(`[generateChatName] provider=claude len=${cleaned.length} ms=${Date.now() - start}`);
+    return cleaned;
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return null;
+    console.error('[Claude] Generate chat name failed:', error);
+    return null;
+  }
+}
+
+async function generateChatNameWithOpenAI(userMessage: string, signal: AbortSignal): Promise<string | null> {
+  if (signal.aborted) return null;
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  const start = Date.now();
+  try {
+    const userPrompt = await getPrompt({
+      key: 'chat-title/prompt',
+      vars: { userMessage: stripTitleMentionTokens(userMessage).slice(0, 4000) }
+    });
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-5-mini',
+        reasoning_effort: 'minimal',
+        max_completion_tokens: 40,
+        messages: [{ role: 'user', content: userPrompt }]
+      }),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(3000)])
+    });
+
+    if (!response.ok) {
+      console.error('[OpenAI] Generate chat name failed:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content?.trim();
+    if (!text) return null;
+
+    const cleaned = text
+      .replace(/^["']|["']$/g, '')
+      .replace(/^title:\s*/i, '')
+      .trim()
+      .slice(0, 80);
+    if (!cleaned) return null;
+
+    console.log(`[generateChatName] provider=openai len=${cleaned.length} ms=${Date.now() - start}`);
+    return cleaned;
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return null;
+    console.error('[OpenAI] Generate chat name failed:', error);
     return null;
   }
 }
@@ -1538,10 +1651,34 @@ export const chatsRouter = router({
     )
     .mutation(async ({ input }) => {
       try {
-        const ollamaName = await generateChatNameWithOllama(input.userMessage, input.ollamaModel);
-        if (ollamaName) {
-          return { name: ollamaName };
+        const cleaned = stripTitleMentionTokens(input.userMessage);
+
+        if (cleaned.length <= 64) {
+          return { name: cleaned || getFallbackName(input.userMessage) };
         }
+
+        const budgetController = new AbortController();
+        const budgetTimer = setTimeout(() => budgetController.abort(), 5000);
+
+        try {
+          const claudeName = await generateChatNameWithClaude(input.userMessage, budgetController.signal);
+          if (claudeName) return { name: claudeName };
+
+          const openaiName = await generateChatNameWithOpenAI(input.userMessage, budgetController.signal);
+          if (openaiName) return { name: openaiName };
+
+          if (!budgetController.signal.aborted) {
+            const ollamaName = await generateChatNameWithOllama(
+              input.userMessage,
+              input.ollamaModel,
+              budgetController.signal
+            );
+            if (ollamaName) return { name: ollamaName };
+          }
+        } finally {
+          clearTimeout(budgetTimer);
+        }
+
         return { name: getFallbackName(input.userMessage) };
       } catch (error) {
         console.error('[generateSubChatName] Error:', error);
