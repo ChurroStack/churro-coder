@@ -26,9 +26,18 @@ import {
 } from './lib/atoms';
 import { debugSessionEnabledAtom } from './lib/debug-session';
 import { appStore } from './lib/jotai-store';
-import { pickProject } from './lib/auto-select-project';
+import { pickProject, type PickProjectOutput } from './lib/auto-select-project';
 import { VSCodeThemeProvider } from './lib/themes/theme-provider';
 import { trpc, trpcClient } from './lib/trpc';
+
+function previewUnknown(value: unknown, max: number): string {
+  try {
+    const json = JSON.stringify(value);
+    return typeof json === 'string' ? json.slice(0, max) : '[unserializable]';
+  } catch {
+    return '[circular]';
+  }
+}
 
 /**
  * Custom Toaster that adapts to theme
@@ -158,14 +167,16 @@ export function AppContent() {
   }, [cliConfig?.hasConfig, billingMethod, setBillingMethod, setApiKeyOnboardingCompleted]);
 
   // Fetch projects to validate selectedProject exists
-  const { data: projects, isLoading: isLoadingProjects } = trpc.projects.list.useQuery();
+  const { data: projects, isLoading: isLoadingProjects, refetch: refetchProjects } = trpc.projects.list.useQuery();
 
   // Validated project - only valid if exists in DB
   const validatedProject = useMemo(() => {
     if (!selectedProject) return null;
-    // While loading, trust localStorage value to prevent flicker
-    if (isLoadingProjects) return selectedProject;
-    // After loading, validate against DB
+    // While loading (or when the response came back as an unexpected non-array shape),
+    // trust the localStorage value to prevent a flash of SelectRepoPage. The non-array
+    // case is recovered by the refetch guard below.
+    if (isLoadingProjects || (projects !== undefined && !Array.isArray(projects))) return selectedProject;
+    // After a clean load, validate against DB
     if (!Array.isArray(projects)) return null;
     const exists = projects.some((p) => p.id === selectedProject.id);
     return exists ? selectedProject : null;
@@ -211,6 +222,63 @@ export function AppContent() {
       gitRepo: project.gitRepo
     });
   }, [projectSelection, selectedChatId, initialWindowParams.projectId, setSelectedProject]);
+
+  // Guard: if projects.list resolves to an unexpected non-array shape, trigger a refetch
+  // so the correct data lands without a page reload. Capped at 2 attempts to prevent a
+  // spin if the underlying cause is persistent. Counter resets when an array eventually
+  // arrives.
+  const refetchAttemptsRef = useRef(0);
+  useEffect(() => {
+    if (Array.isArray(projects)) {
+      refetchAttemptsRef.current = 0;
+      return;
+    }
+    if (isLoadingProjects || projects === undefined) return;
+    if (refetchAttemptsRef.current >= 2) {
+      console.warn('[App] projects.list still non-array after retries — giving up', {
+        attempts: refetchAttemptsRef.current,
+        preview: previewUnknown(projects, 300)
+      });
+      return;
+    }
+    refetchAttemptsRef.current += 1;
+    console.warn('[App] projects.list resolved to non-array — refetching', {
+      attempt: refetchAttemptsRef.current,
+      type: typeof projects,
+      isNull: projects === null,
+      preview: previewUnknown(projects, 300)
+    });
+    refetchProjects();
+  }, [isLoadingProjects, projects, refetchProjects]);
+
+  const lastSelectionKindRef = useRef<PickProjectOutput['kind'] | null>(null);
+  useEffect(() => {
+    if (lastSelectionKindRef.current === projectSelection.kind) return;
+    lastSelectionKindRef.current = projectSelection.kind;
+    const nonArrayDebug =
+      !Array.isArray(projects) && projects !== undefined
+        ? { type: typeof projects, isNull: projects === null, preview: previewUnknown(projects, 300) }
+        : undefined;
+    console.log('[App] pickProject', {
+      kind: projectSelection.kind,
+      source: projectSelection.kind === 'select' ? projectSelection.source : null,
+      projectsCount: Array.isArray(projects) ? projects.length : projects === undefined ? 'loading' : 'non-array',
+      projectsNonArrayDebug: nonArrayDebug,
+      isLoadingProjects,
+      selectedProjectId: selectedProject?.id ?? null,
+      selectedChatId: selectedChatId ?? null,
+      paramProjectId: initialWindowParams.projectId ?? null,
+      chatProjectIdResolved: chatProjectId ?? null
+    });
+  }, [
+    projectSelection,
+    projects,
+    isLoadingProjects,
+    selectedProject,
+    selectedChatId,
+    initialWindowParams.projectId,
+    chatProjectId
+  ]);
 
   // Determine which page to show:
   // 1. No billing method selected -> BillingMethodPage

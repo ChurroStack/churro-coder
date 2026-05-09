@@ -15,6 +15,7 @@ import {
 } from './lib/atoms';
 
 const projectsListMock = vi.fn();
+const refetchProjectsMock = vi.fn();
 const chatsGetProjectIdByIdMock = vi.fn();
 let churroMcpStatusResult: { data: unknown } = { data: undefined };
 
@@ -105,29 +106,36 @@ afterEach(() => {
 describe('AppContent — project-page decision', () => {
   beforeEach(() => {
     projectsListMock.mockReset();
+    refetchProjectsMock.mockReset();
     chatsGetProjectIdByIdMock.mockReset();
     chatsGetProjectIdByIdMock.mockReturnValue({ data: undefined });
     churroMcpStatusResult = { data: undefined };
     vi.mocked(toast.error).mockClear();
   });
 
+  function projectsResult(override: { data: unknown; isLoading: boolean }) {
+    return { ...override, refetch: refetchProjectsMock };
+  }
+
   it('does not show the SelectRepoPage when projects exist and selectedProject is null', async () => {
     const store = createTestStore();
     seedOnboarding(store);
-    projectsListMock.mockReturnValue({
-      data: [
-        {
-          id: 'p1',
-          name: 'Alpha',
-          path: '/alpha',
-          gitRemoteUrl: null,
-          gitProvider: 'github',
-          gitOwner: 'a',
-          gitRepo: 'alpha'
-        }
-      ],
-      isLoading: false
-    });
+    projectsListMock.mockReturnValue(
+      projectsResult({
+        data: [
+          {
+            id: 'p1',
+            name: 'Alpha',
+            path: '/alpha',
+            gitRemoteUrl: null,
+            gitProvider: 'github',
+            gitOwner: 'a',
+            gitRepo: 'alpha'
+          }
+        ],
+        isLoading: false
+      })
+    );
 
     const { findByText, queryByText } = mountAppContent(store);
     await findByText('Agents Layout');
@@ -137,16 +145,97 @@ describe('AppContent — project-page decision', () => {
   it('shows the SelectRepoPage when DB has no projects', async () => {
     const store = createTestStore();
     seedOnboarding(store);
-    projectsListMock.mockReturnValue({ data: [], isLoading: false });
+    projectsListMock.mockReturnValue(projectsResult({ data: [], isLoading: false }));
 
     const { findByText } = mountAppContent(store);
     await findByText('Select a repository');
   });
 
+  it('renders AgentsLayout when localStorage selectedProject points at a deleted project but DB has others', async () => {
+    const store = createTestStore();
+    seedOnboarding(store);
+    store.set(selectedProjectAtom, {
+      id: 'deleted-id',
+      name: 'Old',
+      path: '/old',
+      gitRemoteUrl: null,
+      gitProvider: 'github',
+      gitOwner: 'a',
+      gitRepo: 'old'
+    });
+    projectsListMock.mockReturnValue(
+      projectsResult({
+        data: [
+          {
+            id: 'p1',
+            name: 'Alpha',
+            path: '/alpha',
+            gitRemoteUrl: null,
+            gitProvider: 'github',
+            gitOwner: 'a',
+            gitRepo: 'alpha'
+          }
+        ],
+        isLoading: false
+      })
+    );
+    const { findByText, queryByText } = mountAppContent(store);
+    await findByText('Agents Layout');
+    expect(queryByText('Select a repository')).toBeNull();
+  });
+
+  it('falls back to most-recent when selectedChatId points at a deleted chat (getProjectIdById returns null)', async () => {
+    const store = createTestStore();
+    seedOnboarding(store);
+    store.set(selectedAgentChatIdAtom, 'stale-chat-id');
+    projectsListMock.mockReturnValue(
+      projectsResult({
+        data: [
+          {
+            id: 'p1',
+            name: 'Alpha',
+            path: '/alpha',
+            gitRemoteUrl: null,
+            gitProvider: 'github',
+            gitOwner: 'a',
+            gitRepo: 'alpha'
+          }
+        ],
+        isLoading: false
+      })
+    );
+    chatsGetProjectIdByIdMock.mockReturnValue({ data: null }); // chat row deleted
+    const { findByText, queryByText } = mountAppContent(store);
+    await findByText('Agents Layout');
+    expect(queryByText('Select a repository')).toBeNull();
+  });
+
+  it('trusts localStorage and triggers refetch when projects.list resolves to a non-array shape', async () => {
+    const store = createTestStore();
+    seedOnboarding(store);
+    store.set(selectedProjectAtom, {
+      id: 'p1',
+      name: 'Alpha',
+      path: '/alpha',
+      gitRemoteUrl: null,
+      gitProvider: 'github',
+      gitOwner: 'a',
+      gitRepo: 'alpha'
+    });
+    // Simulate the bug: projects.list resolved with a non-array value.
+    projectsListMock.mockReturnValue(projectsResult({ data: { hasConfig: false }, isLoading: false }));
+    const { findByText, queryByText } = mountAppContent(store);
+    // localStorage project is trusted while the corrected refetch is in flight
+    await findByText('Agents Layout');
+    expect(queryByText('Select a repository')).toBeNull();
+    // defensive refetch must have been triggered
+    expect(refetchProjectsMock).toHaveBeenCalled();
+  });
+
   it('re-fires the Codex MCP failure toast only when status flips into failed', async () => {
     const store = createTestStore();
     seedOnboarding(store);
-    projectsListMock.mockReturnValue({ data: [], isLoading: false });
+    projectsListMock.mockReturnValue(projectsResult({ data: [], isLoading: false }));
 
     churroMcpStatusResult = {
       data: {
