@@ -3,26 +3,8 @@
 import { memo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { cn } from '../../../lib/utils';
-
-// Claude model context windows
-const CONTEXT_WINDOWS = {
-  opus: 200_000,
-  'opus[1m]': 1_000_000,
-  sonnet: 200_000,
-  'sonnet[1m]': 1_000_000,
-  haiku: 200_000
-} as const;
-
-type ModelId = keyof typeof CONTEXT_WINDOWS;
-
-// Pre-computed token data to avoid re-computing on every render
-export interface MessageTokenData {
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCostUsd: number;
-  messageCount: number;
-  contextWindow?: number;
-}
+import { resolveContextWindow, type MessageTokenData } from '../lib/context-usage';
+export type { MessageTokenData } from '../lib/context-usage';
 
 interface AgentContextIndicatorProps {
   tokenData: MessageTokenData;
@@ -39,16 +21,6 @@ export function progressColorClass(percent: number): string {
   if (percent <= 60) return 'text-yellow-500';
   if (percent <= 80) return 'text-orange-500';
   return 'text-red-500';
-}
-
-export function resolveContextWindow(args: {
-  modelId: string | undefined;
-  metadataWindow: number | undefined;
-}): number {
-  const claudeWindow = args.modelId !== undefined ? CONTEXT_WINDOWS[args.modelId as ModelId] : undefined;
-  const metadataWindow = args.metadataWindow !== undefined && args.metadataWindow > 0 ? args.metadataWindow : undefined;
-
-  return claudeWindow ?? metadataWindow ?? CONTEXT_WINDOWS.sonnet;
 }
 
 function formatTokens(tokens: number): string {

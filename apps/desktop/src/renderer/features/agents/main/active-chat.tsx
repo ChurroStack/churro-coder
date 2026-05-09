@@ -98,7 +98,9 @@ import {
   setLoading,
   subChatFilesAtom,
   agentsSidebarOpenAtom,
+  subChatClaudeSessionEpochAtomFamily,
   subChatCodexModelIdAtomFamily,
+  subChatCodexSessionEpochAtomFamily,
   subChatCodexThinkingAtomFamily,
   subChatModelIdAtomFamily,
   subChatModeAtomFamily,
@@ -122,6 +124,7 @@ import {
   parseStoredMessages,
   shouldRecreateStaleRuntimeChat
 } from '../lib/chat-instance-helpers';
+import { resolveContextUsage } from '../lib/context-usage';
 import { sendPendingMessage, type PendingMessage } from '../services/chat-send-service';
 import {
   hydrateMode,
@@ -1406,6 +1409,10 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Unified display questions: prefer pending (live), fall back to expired
   const displayQuestions = pendingQuestions ?? expiredQuestions;
   const isQuestionExpired = !pendingQuestions && !!expiredQuestions;
+  const selectedClaudeModelId = useAtomValue(useMemo(() => subChatModelIdAtomFamily(subChatId), [subChatId]));
+  const selectedCodexModelId = useAtomValue(useMemo(() => subChatCodexModelIdAtomFamily(subChatId), [subChatId]));
+  const claudeSessionEpoch = useAtomValue(useMemo(() => subChatClaudeSessionEpochAtomFamily(subChatId), [subChatId]));
+  const codexSessionEpoch = useAtomValue(useMemo(() => subChatCodexSessionEpochAtomFamily(subChatId), [subChatId]));
 
   // Track whether chat input has content (for custom text with questions)
   const [inputHasContent, setInputHasContent] = useState(false);
@@ -1420,65 +1427,13 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Prefer the latest assistant metadata that actually includes token/context fields.
   // This keeps the indicator stable while a new assistant message is streaming.
   const messageTokenData = useMemo(() => {
-    const lastAssistantWithTokenData = [...messagesForSync].reverse().find((msg) => {
-      if (msg.role !== 'assistant' || !msg.metadata) return false;
-      const metadata = msg.metadata as {
-        inputTokens?: number;
-        outputTokens?: number;
-        totalTokens?: number;
-        cacheReadInputTokens?: number;
-        cacheCreationInputTokens?: number;
-        modelContextWindow?: number;
-      };
-
-      return (
-        metadata.inputTokens !== undefined ||
-        metadata.outputTokens !== undefined ||
-        metadata.totalTokens !== undefined ||
-        metadata.cacheReadInputTokens !== undefined ||
-        metadata.cacheCreationInputTokens !== undefined ||
-        metadata.modelContextWindow !== undefined
-      );
+    return resolveContextUsage({
+      messages: messagesForSync,
+      selectedProvider: provider,
+      selectedModelId: provider === 'codex' ? selectedCodexModelId : selectedClaudeModelId,
+      sessionEpoch: provider === 'codex' ? codexSessionEpoch : claudeSessionEpoch
     });
-
-    const metadata = lastAssistantWithTokenData?.metadata as
-      | {
-          inputTokens?: number;
-          outputTokens?: number;
-          totalTokens?: number;
-          totalCostUsd?: number;
-          cacheReadInputTokens?: number;
-          cacheCreationInputTokens?: number;
-          modelContextWindow?: number;
-        }
-      | undefined;
-
-    const cacheReadInputTokens = metadata?.cacheReadInputTokens || 0;
-    const cacheCreationInputTokens = metadata?.cacheCreationInputTokens || 0;
-    const codexInputTokensFromTotal =
-      metadata?.totalTokens !== undefined
-        ? Math.max(0, metadata.totalTokens - (metadata?.outputTokens ?? 0))
-        : undefined;
-
-    const totalInputTokens =
-      provider === 'codex'
-        ? (codexInputTokensFromTotal ?? metadata?.inputTokens ?? 0)
-        : (metadata?.inputTokens || 0) + cacheReadInputTokens + cacheCreationInputTokens;
-    const totalOutputTokens = metadata?.outputTokens || 0;
-    const totalCostUsd = metadata?.totalCostUsd || 0;
-    const contextWindow = metadata?.modelContextWindow;
-
-    // Keep this tied to rendered messages for memo comparator stability.
-    const messageCount = messagesForSync.length;
-
-    return {
-      totalInputTokens,
-      totalOutputTokens,
-      totalCostUsd,
-      messageCount,
-      contextWindow
-    };
-  }, [messagesForSync, provider]);
+  }, [claudeSessionEpoch, codexSessionEpoch, messagesForSync, provider, selectedClaudeModelId, selectedCodexModelId]);
 
   // Track previous streaming state to detect stream stop
   const prevIsStreamingRef = useRef(isStreaming);

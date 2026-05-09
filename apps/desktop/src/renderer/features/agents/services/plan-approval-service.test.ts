@@ -49,6 +49,9 @@ function makeDeps(overrides: Partial<PlanApprovalDeps> = {}): {
     persistMode: vi.fn(async (input) => {
       record('persistMode', input);
     }),
+    resetSessionTracking: vi.fn((subChatId: string) => {
+      record('resetSessionTracking', { subChatId });
+    }),
     applyDefaultModel: vi.fn((subChatId: string, mode: 'execute') => {
       record('applyDefaultModel', { subChatId, mode });
       return { provider: 'claude-code' as ProviderId, isRemote: false };
@@ -101,6 +104,7 @@ describe('approvePlan — happy path call ordering', () => {
       'setMode',
       'applyDefaultModel',
       'persistMode',
+      'resetSessionTracking',
       'resolvePlanContent',
       'buildImplementPlanParts',
       'scheduleDeferredSend',
@@ -123,6 +127,7 @@ describe('approvePlan — happy path call ordering', () => {
     expect(result.ok).toBe(true);
     expect(result.transportAction).toEqual({ kind: 'keep' });
     expect(deps.notifyProviderChange).not.toHaveBeenCalled();
+    expect(deps.resetSessionTracking).toHaveBeenCalledWith('sub-1');
   });
 
   test('buildImplementPlanParts is called with unified payload for same-provider', async () => {
@@ -215,6 +220,7 @@ describe('approvePlan — cross-provider (PR #52)', () => {
       text: IMPLEMENT_PLAN_BASE_TEXT,
       subChatId: 'sub-1'
     });
+    expect(deps.resetSessionTracking).toHaveBeenCalledWith('sub-1');
   });
 
   test('cross-provider preserves isRemote flag through to transportAction', async () => {

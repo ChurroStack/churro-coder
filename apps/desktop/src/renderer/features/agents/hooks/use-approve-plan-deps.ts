@@ -42,7 +42,7 @@ import { CodexChatTransport, markCodexFreshNextTurn } from '../lib/codex-chat-tr
 import { applyModeDefaultModel } from '../lib/model-switching';
 import { appStore } from '../../../lib/jotai-store';
 import { trpcClient } from '../../../lib/trpc';
-import { subChatModeAtomFamily, subChatProviderOverridesAtom } from '../atoms';
+import { bumpSessionEpoch, subChatModeAtomFamily, subChatProviderOverridesAtom } from '../atoms';
 import { buildImplementPlanParts } from '../lib/implement-plan-parts';
 import type { ApprovedPlanContent, PlanApprovalDeps } from '../services/plan-approval-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
@@ -115,6 +115,10 @@ export function useApprovePlanDeps(config: UseApprovePlanDepsConfig): PlanApprov
           mode,
           exitPlan
         });
+      },
+      resetSessionTracking: (id) => {
+        bumpSessionEpoch(id, 'claude-code', appStore.set);
+        bumpSessionEpoch(id, 'codex', appStore.set);
         markCodexFreshNextTurn(id);
       },
       applyDefaultModel: (id, mode) => {

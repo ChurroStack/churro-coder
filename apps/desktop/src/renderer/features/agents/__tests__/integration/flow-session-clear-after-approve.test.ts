@@ -28,11 +28,15 @@ vi.mock('../../../../lib/window-storage', async () => {
 
 import { appStore } from '../../../../lib/jotai-store';
 import {
+  bumpSessionEpoch,
   defaultExecuteModeModelAtom,
   defaultPlanModeModelAtom,
+  subChatClaudeSessionEpochAtomFamily,
+  subChatCodexSessionEpochAtomFamily,
   subChatModeAtomFamily,
   subChatProviderOverrideAtomFamily
 } from '../../atoms';
+import { resolveContextUsage } from '../../lib/context-usage';
 import { applyModeDefaultModel } from '../../lib/model-switching';
 import { markCodexFreshNextTurn } from '../../lib/codex-chat-transport';
 import { approvePlan, type PlanApprovalDeps } from '../../services/plan-approval-service';
@@ -233,5 +237,58 @@ describe('L4 integration — session clear via persistMode exitPlan flag (PR #45
     const result = await approvePlan(subChatId, deps);
     expect(result.ok).toBe(true);
     expect(markCodexFreshNextTurn).toHaveBeenCalledWith(subChatId);
+  });
+
+  test('resetSessionTracking bumps both per-provider epochs so the indicator drops to 0', async () => {
+    const subChatId = newSubChatId();
+    appStore.set(subChatModeAtomFamily(subChatId), 'plan');
+    appStore.set(subChatProviderOverrideAtomFamily(subChatId), 'claude-code');
+
+    const claudeBefore = appStore.get(subChatClaudeSessionEpochAtomFamily(subChatId));
+    const codexBefore = appStore.get(subChatCodexSessionEpochAtomFamily(subChatId));
+
+    const deps: PlanApprovalDeps = {
+      readPreviousProvider: () => 'claude-code',
+      setMode: (id, mode) => appStore.set(subChatModeAtomFamily(id), mode),
+      persistMode: async () => {},
+      resetSessionTracking: (id) => {
+        bumpSessionEpoch(id, 'claude-code', appStore.set);
+        bumpSessionEpoch(id, 'codex', appStore.set);
+        markCodexFreshNextTurn(id);
+      },
+      applyDefaultModel: (id, mode) => {
+        const r = applyModeDefaultModel(id, mode);
+        return { provider: r.provider, isRemote: false };
+      },
+      notifyProviderChange: () => {},
+      resolvePlanContent: async () => null,
+      ensurePlanPersisted: async () => {},
+      buildImplementPlanParts: () => [{ type: 'text', text: 'x' }],
+      isInFlight: () => false,
+      markInFlight: () => {},
+      releaseInFlight: () => {},
+      scheduleDeferredSend: () => {}
+    };
+
+    const result = await approvePlan(subChatId, deps);
+    expect(result.ok).toBe(true);
+
+    const claudeAfter = appStore.get(subChatClaudeSessionEpochAtomFamily(subChatId));
+    const codexAfter = appStore.get(subChatCodexSessionEpochAtomFamily(subChatId));
+    expect(claudeAfter).toBeGreaterThan(claudeBefore);
+    expect(codexAfter).toBeGreaterThan(codexBefore);
+
+    // Pre-approval Claude turn (epoch = before-bump) must be filtered out by the resolver.
+    const planTurn = {
+      role: 'assistant' as const,
+      metadata: { model: 'claude-sonnet-4-6', inputTokens: 80_000, sessionEpoch: claudeBefore }
+    };
+    const usage = resolveContextUsage({
+      messages: [planTurn],
+      selectedProvider: 'claude-code',
+      selectedModelId: 'sonnet',
+      sessionEpoch: claudeAfter
+    });
+    expect(usage.totalInputTokens).toBe(0);
   });
 });

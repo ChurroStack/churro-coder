@@ -78,6 +78,7 @@ export type SubagentInfo = {
 
 export type MessageMetadata = {
   sessionId?: string;
+  sessionEpoch?: number;
   sdkMessageUuid?: string; // SDK's message UUID for resumeSessionAt (rollback support)
   model?: string;
   inputTokens?: number;
@@ -86,6 +87,7 @@ export type MessageMetadata = {
   outputTokens?: number;
   totalTokens?: number;
   totalCostUsd?: number;
+  modelContextWindow?: number;
   durationMs?: number;
   resultSubtype?: string;
   finalTextId?: string;

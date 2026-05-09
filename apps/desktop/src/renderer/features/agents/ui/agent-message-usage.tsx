@@ -17,6 +17,7 @@ export interface AgentMessageMetadata {
   model?: string;
   thinking?: string;
   sessionId?: string;
+  sessionEpoch?: number;
   totalCostUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
