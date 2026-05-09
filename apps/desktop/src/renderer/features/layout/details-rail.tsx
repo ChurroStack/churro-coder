@@ -42,6 +42,8 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   // and falls back to window.desktopApi.getAgentChatSnapshot on startup IPC poisoning.
   const { data: chat } = api.agents.getAgentChat.useQuery({ chatId: chatId ?? '' }, { enabled: !!chatId });
   const worktreePath = chat?.worktreePath ?? null;
+  const sandboxId = (chat as { sandboxId?: string | null } | null)?.sandboxId ?? null;
+  const meta = (chat as { meta?: { repository?: string; branch?: string | null } } | null)?.meta;
 
   const mountTimeRef = useRef(performance.now());
   const lastLoggedRef = useRef<string | null>(null);
@@ -61,8 +63,6 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     lastLoggedRef.current = signature;
     console.log('[DetailsRail] chat-record state', { sinceMountMs, ...JSON.parse(signature) });
   }, [chat, chatId]);
-  const sandboxId = (chat as { sandboxId?: string | null } | null)?.sandboxId ?? null;
-  const meta = (chat as { meta?: { repository?: string; branch?: string | null } } | null)?.meta;
 
   // Plan / mode / refetch trigger (per active sub-chat, falls back to chatId)
   const effectiveSubChatId = activeSubChatId ?? chatId ?? '';

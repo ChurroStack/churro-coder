@@ -92,18 +92,6 @@ export function AppContent() {
     }
   }, [initialWindowParams, setSelectedChatId, setChatId, addToOpenSubChats, setActiveSubChat]);
 
-  // On cold launch the tRPC IPC channel bursts with many concurrent requests.
-  // Occasionally a mismatched response poisons the React Query cache under the
-  // chats.get key (chat object with no id string). A one-shot invalidate after
-  // mount forces a clean refetch once the burst settles.
-  const utils = trpc.useUtils();
-  const chatInvalidatedRef = useRef(false);
-  useEffect(() => {
-    if (chatInvalidatedRef.current || !selectedChatId) return;
-    chatInvalidatedRef.current = true;
-    void utils.chats.get.invalidate({ id: selectedChatId });
-  }, [selectedChatId, utils]);
-
   // Claim the initially selected chat to prevent duplicate windows.
   // For new windows opened via "Open in new window", the chat is pre-claimed by main process.
   // For restored windows (persisted localStorage), we need to claim here.
