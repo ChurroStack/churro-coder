@@ -1,7 +1,8 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import type { IGridviewPanelProps } from 'dockview-react';
 import { trpc } from '../../lib/trpc';
+import { api } from '../../lib/mock-api';
 import {
   selectedAgentChatIdAtom,
   currentPlanPathAtomFamily,
@@ -36,9 +37,30 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   const dockApi = useDockApi();
 
-  // Chat record → worktreePath, sandboxId, projectId
-  const { data: chat } = trpc.chats.get.useQuery({ id: chatId ?? '' }, { enabled: !!chatId });
+  // Chat record → worktreePath, sandboxId, projectId.
+  // Uses api.agents.getAgentChat (via mock-api) which validates the tRPC response
+  // and falls back to window.desktopApi.getAgentChatSnapshot on startup IPC poisoning.
+  const { data: chat } = api.agents.getAgentChat.useQuery({ chatId: chatId ?? '' }, { enabled: !!chatId });
   const worktreePath = chat?.worktreePath ?? null;
+
+  const mountTimeRef = useRef(performance.now());
+  const lastLoggedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const sinceMountMs = Math.round(performance.now() - mountTimeRef.current);
+    const chatKeys = chat && typeof chat === 'object' ? Object.keys(chat as object).slice(0, 8) : null;
+    const signature = JSON.stringify({
+      chatId: chatId ?? null,
+      chatIsUndefined: chat === undefined,
+      chatIsNull: chat === null,
+      chatHasIdString: !!(chat && typeof (chat as { id?: unknown }).id === 'string'),
+      chatHasSubChatsArray: Array.isArray((chat as { subChats?: unknown } | null | undefined)?.subChats),
+      chatKeys,
+      worktreePath: chat?.worktreePath ?? null
+    });
+    if (signature === lastLoggedRef.current) return;
+    lastLoggedRef.current = signature;
+    console.log('[DetailsRail] chat-record state', { sinceMountMs, ...JSON.parse(signature) });
+  }, [chat, chatId]);
   const sandboxId = (chat as { sandboxId?: string | null } | null)?.sandboxId ?? null;
   const meta = (chat as { meta?: { repository?: string; branch?: string | null } } | null)?.meta;
 

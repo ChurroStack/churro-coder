@@ -17,6 +17,7 @@ import {
 const projectsListMock = vi.fn();
 const refetchProjectsMock = vi.fn();
 const chatsGetProjectIdByIdMock = vi.fn();
+const chatsGetInvalidateMock = vi.fn();
 let churroMcpStatusResult: { data: unknown } = { data: undefined };
 
 vi.mock('./lib/trpc', () => ({
@@ -32,7 +33,10 @@ vi.mock('./lib/trpc', () => ({
     },
     chats: {
       getProjectIdById: { useQuery: (...args: unknown[]) => chatsGetProjectIdByIdMock(...args) }
-    }
+    },
+    useUtils: () => ({
+      chats: { get: { invalidate: chatsGetInvalidateMock } }
+    })
   },
   trpcClient: {
     analytics: { setDebugSession: { mutate: vi.fn(() => Promise.resolve()) } },
@@ -109,6 +113,7 @@ describe('AppContent — project-page decision', () => {
     refetchProjectsMock.mockReset();
     chatsGetProjectIdByIdMock.mockReset();
     chatsGetProjectIdByIdMock.mockReturnValue({ data: undefined });
+    chatsGetInvalidateMock.mockReset();
     churroMcpStatusResult = { data: undefined };
     vi.mocked(toast.error).mockClear();
   });
@@ -275,5 +280,69 @@ describe('AppContent — project-page decision', () => {
       </JotaiProvider>
     );
     expect(toast.error).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates chats.get on mount when a chatId is persisted — guards against startup cache poisoning', async () => {
+    const store = createTestStore();
+    seedOnboarding(store);
+    store.set(selectedAgentChatIdAtom, 'chat-abc123');
+    store.set(selectedProjectAtom, {
+      id: 'p1',
+      name: 'Alpha',
+      path: '/alpha',
+      gitRemoteUrl: null,
+      gitProvider: 'github',
+      gitOwner: 'a',
+      gitRepo: 'alpha'
+    });
+    projectsListMock.mockReturnValue(
+      projectsResult({
+        data: [
+          {
+            id: 'p1',
+            name: 'Alpha',
+            path: '/alpha',
+            gitRemoteUrl: null,
+            gitProvider: 'github',
+            gitOwner: 'a',
+            gitRepo: 'alpha'
+          }
+        ],
+        isLoading: false
+      })
+    );
+
+    const { findByText } = mountAppContent(store);
+    await findByText('Agents Layout');
+
+    expect(chatsGetInvalidateMock).toHaveBeenCalledOnce();
+    expect(chatsGetInvalidateMock).toHaveBeenCalledWith({ id: 'chat-abc123' });
+  });
+
+  it('does not invalidate chats.get when no chatId is persisted on mount', async () => {
+    const store = createTestStore();
+    seedOnboarding(store);
+    // selectedAgentChatIdAtom is null (default from seedOnboarding)
+    projectsListMock.mockReturnValue(
+      projectsResult({
+        data: [
+          {
+            id: 'p1',
+            name: 'Alpha',
+            path: '/alpha',
+            gitRemoteUrl: null,
+            gitProvider: 'github',
+            gitOwner: 'a',
+            gitRepo: 'alpha'
+          }
+        ],
+        isLoading: false
+      })
+    );
+
+    const { findByText } = mountAppContent(store);
+    await findByText('Agents Layout');
+
+    expect(chatsGetInvalidateMock).not.toHaveBeenCalled();
   });
 });
