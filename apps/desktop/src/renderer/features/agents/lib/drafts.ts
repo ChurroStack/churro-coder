@@ -53,6 +53,7 @@ export interface DraftContent {
   images?: DraftImage[];
   files?: DraftFile[];
   textContexts?: DraftTextContext[];
+  pastedTexts?: DraftPastedText[];
 }
 
 export interface DraftProject {
@@ -624,7 +625,7 @@ export function toDraftPastedText(p: PastedTextFile): DraftPastedText {
  * Restore PastedTextFile from DraftPastedText (ISO string → Date)
  *
  * Note: the on-disk file at draft.filePath is written under
- * `{userData}/claude-sessions/{tempId}/pasted/` and persists across restarts.
+ * `{userData}/agent-sessions/{tempId}/pasted/` and persists across restarts.
  * If the file has been removed externally, downstream consumers must handle
  * the missing-file case at submit time — restoration here is metadata only.
  */
@@ -665,7 +666,8 @@ export function getSubChatDraftFull(chatId: string, subChatId: string): FullDraf
     text: draft.text || null,
     images: draft.images?.map(fromDraftImage).filter((img): img is UploadedImage => img !== null) ?? [],
     files: draft.files?.map(fromDraftFile).filter((f): f is UploadedFile => f !== null) ?? [],
-    textContexts: draft.textContexts?.map(fromDraftTextContext) ?? []
+    textContexts: draft.textContexts?.map(fromDraftTextContext) ?? [],
+    pastedTexts: draft.pastedTexts?.map(fromDraftPastedText) ?? []
   };
 }
 
@@ -680,6 +682,7 @@ export async function saveSubChatDraftWithAttachments(
     images?: UploadedImage[];
     files?: UploadedFile[];
     textContexts?: SelectedTextContext[];
+    pastedTexts?: PastedTextFile[];
   }
 ): Promise<{ success: boolean; error?: string }> {
   const globalDrafts = loadGlobalDrafts();
@@ -689,7 +692,8 @@ export async function saveSubChatDraftWithAttachments(
     text.trim() ||
     (options?.images?.length ?? 0) > 0 ||
     (options?.files?.length ?? 0) > 0 ||
-    (options?.textContexts?.length ?? 0) > 0;
+    (options?.textContexts?.length ?? 0) > 0 ||
+    (options?.pastedTexts?.length ?? 0) > 0;
 
   if (!hasContent) {
     delete globalDrafts[key];
@@ -708,12 +712,15 @@ export async function saveSubChatDraftWithAttachments(
 
   const draftTextContexts = options?.textContexts?.map(toDraftTextContext) ?? [];
 
+  const draftPastedTexts = options?.pastedTexts?.map(toDraftPastedText) ?? [];
+
   const draft: DraftContent = {
     text,
     updatedAt: Date.now(),
     ...(draftImages.length > 0 && { images: draftImages }),
     ...(draftFiles.length > 0 && { files: draftFiles }),
-    ...(draftTextContexts.length > 0 && { textContexts: draftTextContexts })
+    ...(draftTextContexts.length > 0 && { textContexts: draftTextContexts }),
+    ...(draftPastedTexts.length > 0 && { pastedTexts: draftPastedTexts })
   };
 
   // Check storage limits before saving

@@ -1,3 +1,5 @@
+import { isAppInternalSessionPath } from './session-paths';
+
 export interface GitCommitInfo {
   type: 'commit';
   message: string;
@@ -220,7 +222,7 @@ export function extractChangedFiles(
   for (const changedFile of metadata?.changedFiles || []) {
     const filePath = changedFile.filePath || '';
     if (!filePath) continue;
-    if (filePath.includes('claude-sessions') || filePath.includes('Application Support')) continue;
+    if (isAppInternalSessionPath(filePath) || filePath.includes('Application Support')) continue;
 
     fileMap.set(filePath, {
       filePath,
@@ -237,7 +239,7 @@ export function extractChangedFiles(
     if (fileMap.has(filePath)) continue;
 
     // Skip session/plan files
-    if (filePath.includes('claude-sessions') || filePath.includes('Application Support')) continue;
+    if (isAppInternalSessionPath(filePath) || filePath.includes('Application Support')) continue;
 
     // Use relative path as display, full path as key
     const displayPath = toRelativePath(filePath, projectPath);

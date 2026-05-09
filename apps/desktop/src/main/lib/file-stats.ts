@@ -1,3 +1,5 @@
+import { isAppInternalSessionPath } from './paths';
+
 /**
  * Aggregate +/- line counts and file count for a sub-chat's messages array.
  *
@@ -61,7 +63,7 @@ export function computeFileStatsFromMessages(messagesJson: string | null | undef
   const fileStats = new Map<string, { additions: number; deletions: number }>();
 
   const isSessionFile = (filePath: string) =>
-    filePath.includes('claude-sessions') || filePath.includes('Application Support');
+    isAppInternalSessionPath(filePath) || filePath.includes('Application Support');
 
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue;

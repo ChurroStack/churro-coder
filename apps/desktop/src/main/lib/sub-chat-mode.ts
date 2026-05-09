@@ -15,7 +15,9 @@ export function normalizePersistedRunMode(mode: string | null | undefined): Pers
 //   • Current store: `<userData>/sub-chats/<id>/plans/current.md(.meta.json)`
 //   • Legacy store : `…/claude-sessions/.../plans/...`
 function isPlanFile(filePath: string): boolean {
-  return /\/sub-chats\/[^/]+\/plans\//.test(filePath) || /claude-sessions\/.*\/plans\//.test(filePath);
+  return (
+    /\/sub-chats\/[^/]+\/plans\//.test(filePath) || /(?:claude-sessions|agent-sessions)\/.*\/plans\//.test(filePath)
+  );
 }
 
 // Tool-part types that signify a real file write. Mirrors the allowlist used

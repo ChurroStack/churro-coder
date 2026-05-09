@@ -1,6 +1,7 @@
 import { useSetAtom } from 'jotai';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { subChatFilesAtom, subChatToChatMapAtom, type SubChatFileChange } from '../atoms';
+import { isAppInternalSessionPath } from '../utils/session-paths';
 // import { REPO_ROOT_PATH } from "@/lib/codesandbox-constants"
 const REPO_ROOT_PATH = '/workspace'; // Desktop mock
 
@@ -29,7 +30,7 @@ interface Message {
 
 // Strip session/plan files stored in app's local storage (never user-facing).
 function isSessionFile(filePath: string): boolean {
-  if (filePath.includes('claude-sessions')) return true;
+  if (isAppInternalSessionPath(filePath)) return true;
   if (filePath.includes('Application Support')) return true;
   return false;
 }

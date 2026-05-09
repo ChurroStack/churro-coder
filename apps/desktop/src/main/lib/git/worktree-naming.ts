@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import simpleGit from 'simple-git';
 import { adjectives, uniqueNamesGenerator } from 'unique-names-generator';
 import { landscapes } from './dictionaries/landscapes';
 
@@ -60,6 +61,43 @@ export function generateWorktreeFolderName(parentDir: string): string {
   for (let suffix = 2; suffix <= 999; suffix++) {
     const name = `${baseName}-${suffix}`;
     if (!existsSync(join(parentDir, name))) {
+      return name;
+    }
+  }
+
+  // Absolute fallback: append timestamp
+  return `${baseName}-${Date.now().toString(36)}`;
+}
+
+async function gitBranchExists(repoPath: string, name: string): Promise<boolean> {
+  try {
+    const git = simpleGit(repoPath);
+    const result = await git.branch(['--list', name]);
+    return result.all.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Generate a unique workspace name used for BOTH the git branch and the
+ * worktree folder, so the two always match. Checks both filesystem and
+ * existing git branches for collisions.
+ */
+export async function generateWorkspaceName(parentDir: string, repoPath: string): Promise<string> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const name = generateLandscapeName();
+    if (!existsSync(join(parentDir, name)) && !(await gitBranchExists(repoPath, name))) {
+      return name;
+    }
+  }
+
+  // Fallback: generate a base name and append numeric suffix
+  const baseName = generateLandscapeName();
+
+  for (let suffix = 2; suffix <= 999; suffix++) {
+    const name = `${baseName}-${suffix}`;
+    if (!existsSync(join(parentDir, name)) && !(await gitBranchExists(repoPath, name))) {
       return name;
     }
   }

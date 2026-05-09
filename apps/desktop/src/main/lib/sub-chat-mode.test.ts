@@ -113,6 +113,15 @@ describe('inferSubChatModeForHydration', () => {
     ).toBe('plan');
   });
 
+  test('keeps plan mode for agent-sessions plan-store paths', () => {
+    expect(
+      inferSubChatModeForHydration({
+        mode: 'plan',
+        messages: messagesWithTool('tool-Write', '/tmp/agent-sessions/sub/plans/plan.md')
+      })
+    ).toBe('plan');
+  });
+
   test('treats user-owned `*plan*.md` project files as agent edits', () => {
     expect(
       inferSubChatModeForHydration({

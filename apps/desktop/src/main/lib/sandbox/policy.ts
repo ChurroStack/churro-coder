@@ -274,7 +274,7 @@ export async function resolveSandboxPolicy(
   // Build per-workspace session dirs so CLIs can read their own plans/pasted/memory.
   // Claude SDK keys session files by subChatId; Ollama uses chatId — both are added.
   const userData = app.getPath('userData');
-  const sessionsBase = path.join(userData, 'claude-sessions');
+  const sessionsBase = path.join(userData, 'agent-sessions');
   const subChatRows = db.select({ id: subChats.id }).from(subChats).where(eq(subChats.chatId, chatId)).all();
   const sessionRoots: string[] = subChatRows.map((row) => path.join(sessionsBase, row.id));
   sessionRoots.push(path.join(sessionsBase, chatId));

@@ -83,8 +83,8 @@ export function getDisplayPath(filePath: string, projectPath?: string): string {
   if (worktreeMatch) {
     return worktreeMatch[1];
   }
-  // Handle claude-sessions paths: .../claude-sessions/{sessionId}/{folder}/{file}
-  const sessionMatch = filePath.match(/claude-sessions\/[^/]+\/(.+)$/);
+  // Handle session paths: .../agent-sessions/{sessionId}/{folder}/{file} (or legacy claude-sessions)
+  const sessionMatch = filePath.match(/(?:claude-sessions|agent-sessions)\/[^/]+\/(.+)$/);
   if (sessionMatch) {
     return sessionMatch[1];
   }

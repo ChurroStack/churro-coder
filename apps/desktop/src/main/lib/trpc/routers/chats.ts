@@ -517,8 +517,8 @@ export const chatsRouter = router({
       if (input.tempPastedSubChatId && input.tempPastedSubChatId !== subChat.id) {
         try {
           const userData = app.getPath('userData');
-          const tempDir = path.join(userData, 'claude-sessions', input.tempPastedSubChatId);
-          const realDir = path.join(userData, 'claude-sessions', subChat.id);
+          const tempDir = path.join(userData, 'agent-sessions', input.tempPastedSubChatId);
+          const realDir = path.join(userData, 'agent-sessions', subChat.id);
           const tempPastedDir = path.join(tempDir, 'pasted');
           const realPastedDir = path.join(realDir, 'pasted');
 
@@ -1033,8 +1033,8 @@ export const chatsRouter = router({
         try {
           const { app } = await import('electron');
           const userDataPath = app.getPath('userData');
-          const sourceDir = path.join(userDataPath, 'claude-sessions', input.subChatId, 'projects');
-          const targetDir = path.join(userDataPath, 'claude-sessions', newSubChat.id, 'projects');
+          const sourceDir = path.join(userDataPath, 'agent-sessions', input.subChatId, 'projects');
+          const targetDir = path.join(userDataPath, 'agent-sessions', newSubChat.id, 'projects');
 
           const sourceDirExists = await fs
             .stat(sourceDir)

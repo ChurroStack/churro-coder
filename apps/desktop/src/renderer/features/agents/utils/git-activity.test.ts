@@ -151,6 +151,22 @@ describe('extractChangedFiles', () => {
     expect(result[0]!.filePath).toBe('/project/src/real.ts');
   });
 
+  test('filters out agent-sessions paths', () => {
+    const parts = [
+      {
+        type: 'tool-Write',
+        input: {
+          file_path: '/Users/user/Library/Application Support/Churro Coder/agent-sessions/sub-1/plans/plan.md',
+          content: 'x'
+        }
+      },
+      { type: 'tool-Write', input: { file_path: '/project/src/real.ts', content: 'x' } }
+    ];
+    const result = extractChangedFiles(parts, '/project');
+    expect(result).toHaveLength(1);
+    expect(result[0]!.filePath).toBe('/project/src/real.ts');
+  });
+
   test('filters out Application Support paths', () => {
     const parts = [
       { type: 'tool-Write', input: { file_path: '/Users/user/Library/Application Support/data.db', content: 'x' } }

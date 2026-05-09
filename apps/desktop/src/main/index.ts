@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage } from 'electron';
 import { existsSync, readFileSync, readlinkSync, unlinkSync } from 'fs';
+import { rename as renameDir } from 'fs/promises';
 import { createServer } from 'http';
 import { join } from 'path';
 import { AuthManager, initAuthManager, getAuthManager as getAuthManagerFromModule } from './auth-manager';
@@ -616,6 +617,25 @@ if (gotTheLock) {
 
     // Track app opened
     trackAppOpened();
+
+    // One-shot migration: rename claude-sessions → agent-sessions (no-op after first run).
+    // Must run before DB / tRPC init so policy.ts and routers see the renamed directory.
+    {
+      const oldDir = join(app.getPath('userData'), 'claude-sessions');
+      const newDir = join(app.getPath('userData'), 'agent-sessions');
+      if (existsSync(oldDir) && !existsSync(newDir)) {
+        try {
+          await renameDir(oldDir, newDir);
+          console.log('[migrate-agent-sessions] Renamed claude-sessions → agent-sessions');
+        } catch (err) {
+          console.error('[migrate-agent-sessions] Rename failed; continuing with legacy path:', err);
+        }
+      } else if (existsSync(oldDir) && existsSync(newDir)) {
+        console.warn(
+          '[migrate-agent-sessions] Both claude-sessions and agent-sessions exist; leaving claude-sessions in place. Manual reconciliation required.'
+        );
+      }
+    }
 
     // Initialize database
     try {

@@ -1,16 +1,14 @@
 import { execFile } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { devNull, homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import simpleGit from 'simple-git';
-import { adjectives, animals, uniqueNamesGenerator } from 'unique-names-generator';
 import { createGit, createGitForNetwork, withGitLock } from './git-factory';
 import { checkGitLfsAvailable, getShellEnvironment } from './shell-env';
 import { executeWorktreeSetup } from './worktree-config';
 import type { WorktreeSetupResult } from './worktree-config';
-import { generateWorktreeFolderName } from './worktree-naming';
+import { generateWorkspaceName } from './worktree-naming';
 
 const execFileAsync = promisify(execFile);
 
@@ -99,18 +97,6 @@ async function repoUsesLfs(repoPath: string): Promise<boolean> {
 
 function isEnoent(error: unknown): boolean {
   return error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT';
-}
-
-export function generateBranchName(): string {
-  const name = uniqueNamesGenerator({
-    dictionaries: [adjectives, animals],
-    separator: '-',
-    length: 2,
-    style: 'lowerCase'
-  });
-  const suffix = randomBytes(3).toString('hex');
-
-  return `${name}-${suffix}`;
 }
 
 export async function createWorktree(
@@ -913,11 +899,11 @@ export async function createWorktreeForChat(
       }
     }
 
-    const branch = generateBranchName();
     const worktreesDir = join(homedir(), '.churrostack', 'worktrees');
     const projectWorktreeDir = join(worktreesDir, projectSlug);
-    const folderName = generateWorktreeFolderName(projectWorktreeDir);
-    const worktreePath = join(projectWorktreeDir, folderName);
+    const name = await generateWorkspaceName(projectWorktreeDir, projectPath);
+    const branch = name;
+    const worktreePath = join(projectWorktreeDir, name);
 
     // For remote selections we already use origin/<base>. For local selections,
     // prefer origin/<base> only when (a) the local branch tracks it and (b) the

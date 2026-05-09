@@ -6,6 +6,7 @@
  * the values inside have changed. We MUST cache state externally
  * and compare cached values, not object references.
  */
+import { isAppInternalSessionPath } from '../utils/session-paths';
 
 // ============================================================================
 // TOOL STATE CACHE
@@ -245,11 +246,11 @@ export function isSubagentDispatchType(type: string | undefined): boolean {
 
 /**
  * Check if a file path is a plan file.
- * Plan files are stored in the claude-sessions directory under /plans/
+ * Plan files live in the canonical store (<userData>/sub-chats/<id>/plans/) or
+ * in the session store (agent-sessions/ or legacy claude-sessions/).
  */
 export function isPlanFile(filePath: string): boolean {
-  // Check for official plan location in claude-sessions
-  if (filePath.includes('claude-sessions') && filePath.includes('/plans/')) {
+  if ((isAppInternalSessionPath(filePath) || filePath.includes('sub-chats')) && filePath.includes('/plans/')) {
     return true;
   }
   // Also check for plan files by name pattern (for backwards compatibility)

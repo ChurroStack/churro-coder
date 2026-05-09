@@ -587,7 +587,7 @@ export const filesRouter = router({
       const { subChatId, text, filename } = input;
 
       // Create pasted directory in session folder
-      const sessionDir = join(app.getPath('userData'), 'claude-sessions', subChatId);
+      const sessionDir = join(app.getPath('userData'), 'agent-sessions', subChatId);
       const pastedDir = join(sessionDir, 'pasted');
       await mkdir(pastedDir, { recursive: true });
 

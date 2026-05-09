@@ -1234,7 +1234,7 @@ export const claudeRouter = router({
                 // For Ollama: use chatId instead of subChatId so all messages in the same chat share history
                 const isolatedConfigDir = path.join(
                   app.getPath('userData'),
-                  'claude-sessions',
+                  'agent-sessions',
                   isUsingOllama ? input.chatId : input.subChatId
                 );
 
