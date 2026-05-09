@@ -114,6 +114,7 @@ import {
   type AgentMode
 } from '../atoms';
 import { BUILTIN_SLASH_COMMANDS } from '../commands';
+import { useChatScrollInit } from '../hooks/use-chat-scroll-init';
 import { useChatViewState } from '../hooks/use-chat-view-state';
 import { useModeSwitchDeps } from '../hooks/use-mode-switch-deps';
 import { useTransportFactoryDeps } from '../hooks/use-transport-factory-deps';
@@ -249,9 +250,6 @@ type PlanType = string;
 // were extracted to `lib/chat-instance-helpers.ts` so the transport-factory
 // deps hook can import them without circling back through the renderer.
 
-// Module-level scroll position cache (per subChatId, session-only)
-// Stores { scrollTop, scrollHeight, wasAtBottom } so we can restore position on tab switch
-const scrollPositionCache = new Map<string, { scrollTop: number; scrollHeight: number; wasAtBottom: boolean }>();
 const mountedChatViewInnerCounts = new Map<string, number>();
 const pendingSubChatCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -262,7 +260,6 @@ const pendingSubChatCleanupTimers = new Map<string, ReturnType<typeof setTimeout
 function clearRuntimeCachesForSubChat(subChatId: string) {
   console.log(`[SD] R:CLEAR_CACHES sub=${subChatId.slice(-8)}`);
   clearSubChatRuntimeCaches(subChatId);
-  scrollPositionCache.delete(subChatId);
 }
 
 import { utf8ToBase64, base64ToUtf8 } from '../utils/base64';
@@ -583,33 +580,6 @@ export const ChatViewInner = memo(function ChatViewInner({
       isAutoScrollingRef.current = false;
     };
   }, []);
-
-  const saveScrollPosition = useCallback(() => {
-    // Skip cache writes for panes that never completed initial scroll setup.
-    // Hidden keep-alive panes can otherwise persist default top-position values.
-    if (!scrollInitializedRef.current) return;
-
-    const container = chatContainerRef.current;
-    if (!container) return;
-
-    const threshold = 50;
-    const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
-    scrollPositionCache.set(subChatId, {
-      scrollTop: container.scrollTop,
-      scrollHeight: container.scrollHeight,
-      wasAtBottom
-    });
-  }, [subChatId]);
-
-  // Save scroll position when tab becomes inactive or on unmount
-  useEffect(() => {
-    if (!isVisiblePane) {
-      saveScrollPosition();
-    }
-    return () => {
-      saveScrollPosition();
-    };
-  }, [isVisiblePane, saveScrollPosition]);
 
   // Track chat container height via CSS custom property (no re-renders)
   const chatContainerObserverRef = useRef<ResizeObserver | null>(null);
@@ -2358,84 +2328,20 @@ export const ChatViewInner = memo(function ChatViewInner({
   }, [status, messages, regenerate, isFirstSubChat, onAutoRename, streamId, subChatId]);
 
   // Initialize scroll position on mount or tab re-activation.
-  // Strategy: restore saved position if user was scrolled up, otherwise scroll to bottom.
-  // Uses ResizeObserver on content wrapper to catch ALL height changes (markdown rendering,
-  // syntax highlighting, image loading, content-visibility reflows) — not just childList mutations.
-  useLayoutEffect(() => {
-    // Skip if not active (keep-alive: hidden tabs don't need scroll init)
-    if (!isVisiblePane) return;
-
-    const container = chatContainerRef.current;
-    if (!container) return;
-
-    scrollInitializedRef.current = false;
-    isInitializingScrollRef.current = true;
-
-    // Check for saved scroll position from tab switch
-    const savedPosition = scrollPositionCache.get(subChatId);
-
-    if (savedPosition && !savedPosition.wasAtBottom) {
-      // User was scrolled up — restore their position relative to content bottom.
-      // Content may have changed height since we saved, so we offset from the bottom:
-      const savedOffset = savedPosition.scrollHeight - savedPosition.scrollTop;
-      container.scrollTop = Math.max(0, container.scrollHeight - savedOffset);
-      shouldAutoScrollRef.current = false;
-    } else {
-      // No saved position or user was at bottom — scroll to bottom
-      container.scrollTop = container.scrollHeight;
-      shouldAutoScrollRef.current = true;
-    }
-
-    // Mark as initialized IMMEDIATELY
-    scrollInitializedRef.current = true;
-    isInitializingScrollRef.current = false;
-
-    // ResizeObserver on content wrapper to detect any height change
-    // (markdown rendering, syntax highlighting, image loads, content-visibility reflows, etc.)
-    // This is more reliable than MutationObserver which only catches childList changes.
-    const contentWrapper = contentWrapperRef.current;
-    let lastContentHeight = contentWrapper?.getBoundingClientRect().height ?? 0;
-    // Track the previous scrollHeight so we can adjust restored positions proportionally
-    let prevScrollHeight = container.scrollHeight;
-
-    const resizeObserver = new ResizeObserver(() => {
-      // Skip if not active (keep-alive: don't scroll hidden tabs)
-      if (!isVisiblePaneRef.current) return;
-
-      const newContentHeight = contentWrapper?.getBoundingClientRect().height ?? 0;
-      if (newContentHeight === lastContentHeight) return;
-      lastContentHeight = newContentHeight;
-
-      if (shouldAutoScrollRef.current) {
-        // Auto-scroll to bottom as content grows
-        requestAnimationFrame(() => {
-          isAutoScrollingRef.current = true;
-          container.scrollTop = container.scrollHeight;
-          requestAnimationFrame(() => {
-            isAutoScrollingRef.current = false;
-          });
-        });
-      } else {
-        // User is scrolled up — maintain their relative position as content height changes
-        // (e.g., syntax highlighting expanding code blocks above the viewport)
-        const newScrollHeight = container.scrollHeight;
-        if (newScrollHeight !== prevScrollHeight && prevScrollHeight > 0) {
-          const delta = newScrollHeight - prevScrollHeight;
-          container.scrollTop = container.scrollTop + delta;
-        }
-      }
-      prevScrollHeight = container.scrollHeight;
-    });
-
-    if (contentWrapper) {
-      resizeObserver.observe(contentWrapper);
-    }
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subChatId, isVisiblePane]);
+  // Strategy: always scroll to bottom. The panel is unmounted on hide (memory trade-off),
+  // so saved-position restore is not possible without reintroducing keep-alive sluggishness.
+  // Logic extracted to `useChatScrollInit` so the regression test can exercise it
+  // without spinning up the full ChatViewInner harness.
+  useChatScrollInit({
+    containerRef: chatContainerRef,
+    contentWrapperRef,
+    isVisiblePane,
+    isVisiblePaneRef,
+    shouldAutoScrollRef,
+    scrollInitializedRef,
+    isInitializingScrollRef,
+    isAutoScrollingRef
+  });
 
   // Attach scroll listener (separate effect)
   useEffect(() => {
