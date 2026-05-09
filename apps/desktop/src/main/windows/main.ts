@@ -45,6 +45,20 @@ function getWindowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow |
 // custom position after some renderer-side layout transitions (e.g. system
 // views like Settings unmounting), and the renderer pings us to fix it.
 const MAC_TRAFFIC_LIGHT_POSITION = { x: 21, y: 21 } as const;
+const SHOULD_FORWARD_RENDERER_CONSOLE = !app.isPackaged || process.env.CHURRO_FORWARD_RENDERER_CONSOLE === '1';
+
+function formatConsoleLevel(level: number): 'log' | 'warn' | 'error' | 'debug' {
+  switch (level) {
+    case 1:
+      return 'warn';
+    case 2:
+      return 'error';
+    case 3:
+      return 'debug';
+    default:
+      return 'log';
+  }
+}
 
 // Register IPC handlers for window operations (only once)
 let ipcHandlersRegistered = false;
@@ -635,6 +649,21 @@ export function createWindow(options?: { chatId?: string; subChatId?: string; pr
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  if (SHOULD_FORWARD_RENDERER_CONSOLE) {
+    window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      const levelName = formatConsoleLevel(level);
+      const suffix = sourceId ? ` source=${sourceId}:${line}` : line > 0 ? ` line=${line}` : '';
+      const text = `[RendererConsole] window=${window.id} level=${levelName}${suffix} ${message}`;
+      if (levelName === 'error') {
+        console.error(text);
+      } else if (levelName === 'warn') {
+        console.warn(text);
+      } else {
+        console.log(text);
+      }
+    });
+  }
 
   // Prevent window close if there are active streaming sessions
   window.on('close', (event) => {

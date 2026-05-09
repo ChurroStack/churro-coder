@@ -41,6 +41,20 @@ initAnalytics();
 // under heavy multi-chat workloads. Must be set before app readiness/window creation.
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192');
 
+const remoteDebuggingPortEnv = process.env.CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT;
+const remoteDebuggingPort = (() => {
+  if (remoteDebuggingPortEnv === '0') return null;
+  if (!remoteDebuggingPortEnv) return IS_DEV ? '9222' : null;
+  return /^\d+$/.test(remoteDebuggingPortEnv) ? remoteDebuggingPortEnv : null;
+})();
+
+if (remoteDebuggingPort) {
+  app.commandLine.appendSwitch('remote-debugging-port', remoteDebuggingPort);
+  console.log(`[DevTools] Chromium remote debugging enabled on http://127.0.0.1:${remoteDebuggingPort}`);
+} else if (remoteDebuggingPortEnv) {
+  console.warn(`[DevTools] Ignoring invalid CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=${remoteDebuggingPortEnv}`);
+}
+
 // URL configuration — kept as empty string since remote calls are removed
 export function getBaseUrl(): string {
   return '';
