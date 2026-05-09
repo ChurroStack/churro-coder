@@ -643,9 +643,18 @@ export const AgentsMentionsEditor = memo(
         node = walker.nextNode();
       }
 
-      // Fallback: move to end
-      sel.selectAllChildren(editorRef.current);
-      sel.collapseToEnd();
+      // Fallback: move to end. Same guard as `focus`/`setContent` —
+      // selectAllChildren on a detached editor leaves rangeCount at 0 and
+      // collapseToEnd then throws "there is no selection".
+      if (!editorRef.current.isConnected) return;
+      try {
+        sel.selectAllChildren(editorRef.current);
+        if (sel.rangeCount > 0) {
+          sel.collapseToEnd();
+        }
+      } catch {
+        // Best-effort cursor placement.
+      }
     }, []);
 
     // Cleanup debounce timer on unmount
@@ -1070,11 +1079,22 @@ export const AgentsMentionsEditor = memo(
 
           editor.focus();
 
-          // Always ensure cursor is visible at end
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount === 0) {
-            sel.selectAllChildren(editor);
-            sel.collapseToEnd();
+          // Always ensure cursor is visible at end. The editor may not be
+          // attached to the live document (e.g. when re-focusing a chat that
+          // mounts inside an inactive dockview panel), in which case
+          // selectAllChildren doesn't produce a Range and collapseToEnd
+          // throws "there is no selection". Guard both.
+          if (!editor.isConnected) return;
+          try {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount === 0) {
+              sel.selectAllChildren(editor);
+              if (sel.rangeCount > 0) {
+                sel.collapseToEnd();
+              }
+            }
+          } catch {
+            // Best-effort cursor placement; never let this take down the chat.
           }
         },
 
