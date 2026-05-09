@@ -1,0 +1,8 @@
+# Project-local Codex CLI config. Newer Codex versions read this file
+# automatically; older versions only read ~/.codex/config.toml — copy the
+# [mcp_servers.playwright] block below into that file if your Codex version
+# does not pick this one up.
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest", "--cdp-endpoint", "http://127.0.0.1:9222"]

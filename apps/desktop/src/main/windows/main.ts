@@ -47,17 +47,28 @@ function getWindowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow |
 const MAC_TRAFFIC_LIGHT_POSITION = { x: 21, y: 21 } as const;
 const SHOULD_FORWARD_RENDERER_CONSOLE = !app.isPackaged || process.env.CHURRO_FORWARD_RENDERER_CONSOLE === '1';
 
-function formatConsoleLevel(level: number): 'log' | 'warn' | 'error' | 'debug' {
+// Electron's MessageDetails.level: 0=verbose, 1=info, 2=warning, 3=error
+// (see Electron docs / electron.d.ts). Earlier versions of this file used the
+// deprecated positional-arg overload and a Chromium-style mapping that swapped
+// warn/error/debug — keep this aligned with the documented enum.
+function formatConsoleLevel(level: number): 'debug' | 'log' | 'warn' | 'error' {
   switch (level) {
-    case 1:
-      return 'warn';
-    case 2:
-      return 'error';
-    case 3:
+    case 0:
       return 'debug';
+    case 2:
+      return 'warn';
+    case 3:
+      return 'error';
+    case 1:
     default:
       return 'log';
   }
+}
+
+function formatConsoleSuffix(sourceUrl: string, lineNumber: number): string {
+  if (sourceUrl) return ` source=${sourceUrl}:${lineNumber}`;
+  if (lineNumber > 0) return ` line=${lineNumber}`;
+  return '';
 }
 
 // Register IPC handlers for window operations (only once)
@@ -651,18 +662,34 @@ export function createWindow(options?: { chatId?: string; subChatId?: string; pr
   });
 
   if (SHOULD_FORWARD_RENDERER_CONSOLE) {
-    window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-      const levelName = formatConsoleLevel(level);
-      const suffix = sourceId ? ` source=${sourceId}:${line}` : line > 0 ? ` line=${line}` : '';
-      const text = `[RendererConsole] window=${window.id} level=${levelName}${suffix} ${message}`;
-      if (levelName === 'error') {
-        console.error(text);
-      } else if (levelName === 'warn') {
-        console.warn(text);
-      } else {
-        console.log(text);
+    (window.webContents as unknown as NodeJS.EventEmitter).on(
+      'console-message',
+      (...rawArgs: unknown[]) => {
+        const second = rawArgs[1];
+        let levelNum: number;
+        let message: string;
+        let sourceUrl: string;
+        let lineNumber: number;
+        if (second && typeof second === 'object' && 'message' in (second as Record<string, unknown>)) {
+          const d = second as { message: string; level: number; sourceUrl?: string; lineNumber?: number };
+          levelNum = d.level;
+          message = d.message;
+          sourceUrl = d.sourceUrl ?? '';
+          lineNumber = d.lineNumber ?? 0;
+        } else {
+          levelNum = (second as number) ?? 1;
+          message = (rawArgs[2] as string) ?? '';
+          lineNumber = (rawArgs[3] as number) ?? 0;
+          sourceUrl = (rawArgs[4] as string) ?? '';
+        }
+        const levelName = formatConsoleLevel(levelNum);
+        const suffix = formatConsoleSuffix(sourceUrl, lineNumber);
+        const text = `[RendererConsole] window=${window.id} level=${levelName}${suffix} ${message}`;
+        if (levelName === 'error') console.error(text);
+        else if (levelName === 'warn') console.warn(text);
+        else console.log(text);
       }
-    });
+    );
   }
 
   // Prevent window close if there are active streaming sessions

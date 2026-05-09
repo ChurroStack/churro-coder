@@ -12,6 +12,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:debug": "CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=1 electron-vite dev",
     "build": "NODE_OPTIONS='--max-old-space-size=8192' electron-vite build",
     "preview": "electron-vite preview",
     "package": "electron-builder --dir",

@@ -6,30 +6,31 @@ Use a provider-neutral stack. The goal is the same whether the agent is Claude o
 
 ## Recommended stack
 
-1. `bun run dev` in `apps/desktop`
-2. Playwright's Electron support for real app automation
-3. The in-app `Browser` capability only for localhost/web content, not for the Electron shell
+1. `bun run dev:debug` in `apps/desktop` (or plain `bun run dev` if you do not need agent UI driving)
+2. The repo-registered `playwright` MCP server (drives the renderer over CDP) for ad-hoc UI clicks, snapshots, screenshots, and `evaluate`
+3. Playwright's Electron support (`_electron.launch`) when you need to write a repeatable spec that also spans main-process behavior or multi-window flows
 4. The structured debug log server when you need targeted instrumentation beyond normal console output
 
-Do not make Playwright MCP or browser-only tooling the primary solution for this app. They can help with webviews or a localhost preview, but the app surface is Electron, not a normal browser tab.
+The Browser plugin / capability is for localhost-only or webview content — it does not see the Electron shell, so do not rely on it alone to validate Electron-only bugs (window management, preload, IPC, native dialogs).
 
-## What the app exposes in dev now
+## What the app exposes in dev
 
-- `bun run dev` starts `electron-vite dev`.
-- Chromium remote debugging is enabled by default on `http://127.0.0.1:9222` in dev mode.
-- Renderer `console.log` / `console.warn` / `console.error` messages are forwarded into the main-process terminal output with a `[RendererConsole]` prefix in dev mode.
+- `bun run dev` starts `electron-vite dev`. CDP is **off** by default — leaving it on would let any local process attach and run JS in the renderer (and from there reach the IPC handlers).
+- `bun run dev:debug` is the same thing with `CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=1`, exposing Chromium remote debugging on `http://127.0.0.1:9222`.
+- Renderer `console.*` messages are forwarded into the main-process terminal output with a `[RendererConsole]` prefix in any non-packaged build (`window=<id> level=<debug|log|warn|error> source=<url>:<line>`).
 - Main-process logs already go to stdout.
 - DevTools still open for the first window in dev mode.
 
 Environment switches:
 
 ```bash
-CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=9333 bun run dev
-CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=0 bun run dev
-CHURRO_FORWARD_RENDERER_CONSOLE=1 bun run dev
+CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=1     bun run dev   # default port 9222
+CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=9333  bun run dev   # custom port
+CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=0     bun run dev   # explicit off (same as unset)
+CHURRO_FORWARD_RENDERER_CONSOLE=1           bun run dev   # force renderer-console forwarding in packaged builds
 ```
 
-`CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=0` disables the CDP port. `CHURRO_FORWARD_RENDERER_CONSOLE=1` forces renderer-console forwarding outside normal dev mode.
+Invalid values (non-integer, port out of 1..65535) are rejected with a `[DevTools] Ignoring invalid …` warning at startup.
 
 ## Cross-provider workflow
 
@@ -37,39 +38,46 @@ CHURRO_FORWARD_RENDERER_CONSOLE=1 bun run dev
 
 ```bash
 cd apps/desktop
-bun run dev
+bun run dev:debug
 ```
 
 Watch the terminal for:
 
 - main-process logs like `[Main]`, `[App]`, `[Auth Server]`
-- forwarded renderer logs like `[RendererConsole] window=1 level=log ...`
+- forwarded renderer logs like `[RendererConsole] window=1 level=log source=…`
+- the startup line `[DevTools] Chromium remote debugging enabled on http://127.0.0.1:9222`
 
-### 2. Drive the real Electron UI
-
-Use Playwright Electron as the primary automation surface. That keeps the validation flow portable across Claude and Codex because both can operate against the same Electron test harness and screenshots.
-
-Recommended install inside `apps/desktop`:
+Sanity check the CDP endpoint from another shell:
 
 ```bash
-bun add -d playwright
+curl -s http://127.0.0.1:9222/json/version | head
 ```
 
-Recommended usage:
+### 2. Drive the UI from your agent
 
-- add Electron smoke tests under `apps/desktop/e2e/`
-- use them for deterministic post-change validation
-- keep the checks short: app boots, workspace opens, target UI action works, expected visible state appears
+Both Claude Code (via repo-root `.mcp.json`) and Codex (via `.codex/config.toml`, falling back to `~/.codex/config.toml` on older Codex versions) get a `playwright` MCP server registered for this repo. It launches `npx -y @playwright/mcp@latest --cdp-endpoint http://127.0.0.1:9222`, attaching to the running Electron renderer.
 
-### 3. Use Browser only where it fits
+From the agent loop you can then:
 
-Use the `Browser` plugin/capability for:
+- `browser_snapshot` — accessibility-tree snapshot of the renderer (preferred over screenshots for clicking decisions)
+- `browser_click` / `browser_type` / `browser_select_option` — drive the UI
+- `browser_evaluate` — run JS inside the renderer (useful for reading jotai/zustand state)
+- `browser_take_screenshot` — capture evidence for the PR description
+- `browser_console_messages` / `browser_network_requests` — observe in-flight behavior
 
-- localhost previews opened by the desktop app
-- embedded auth pages
-- web-only flows that do not require the Electron chrome or preload bridge
+The first run may download Chromium for Playwright if no compatible browser is cached. If you see a Playwright "browsers are not installed" error, run `npx playwright install chromium` once.
 
-Do not rely on Browser alone to validate Electron-only bugs such as window management, preload wiring, IPC bridges, native dialogs, or desktop layout issues.
+### 3. When to write a Playwright Electron spec instead
+
+For repeatable post-change validation (regression coverage, multi-window orchestration, anything that needs to assert main-process side effects), add a spec under `apps/desktop/e2e/` using Playwright's Electron support:
+
+```bash
+cd apps/desktop
+bun add -d playwright
+npx playwright install chromium
+```
+
+Use `_electron.launch({ args: ['.'] })` to launch the real built app — that gives you the main process, all `BrowserWindow`s, and the preload bridge in scope, which CDP attach alone does not. Keep specs short (boots → opens workspace → exercises one path → asserts visible state) and check them in next to the feature they cover.
 
 ## Structured debug logging
 

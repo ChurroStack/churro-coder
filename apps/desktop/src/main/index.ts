@@ -41,17 +41,24 @@ initAnalytics();
 // under heavy multi-chat workloads. Must be set before app readiness/window creation.
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192');
 
+// Chromium remote-debugging (CDP) is opt-in: leaving it on by default would let
+// any local process attach and execute JS in the renderer (and from there reach
+// our IPC handlers). Set CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=1 to enable on
+// the default port (9222), or set it to a specific port (e.g. 9333) to override.
+// Use `bun run dev:debug` from apps/desktop for the typical agent loop.
+const DEFAULT_REMOTE_DEBUGGING_PORT = 9222;
 const remoteDebuggingPortEnv = process.env.CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT;
 const remoteDebuggingPort = (() => {
-  if (remoteDebuggingPortEnv === '0') return null;
-  if (!remoteDebuggingPortEnv) return IS_DEV ? '9222' : null;
-  return /^\d+$/.test(remoteDebuggingPortEnv) ? remoteDebuggingPortEnv : null;
+  if (!remoteDebuggingPortEnv || remoteDebuggingPortEnv === '0') return null;
+  if (remoteDebuggingPortEnv === '1') return DEFAULT_REMOTE_DEBUGGING_PORT;
+  const n = Number(remoteDebuggingPortEnv);
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : null;
 })();
 
-if (remoteDebuggingPort) {
-  app.commandLine.appendSwitch('remote-debugging-port', remoteDebuggingPort);
+if (remoteDebuggingPort !== null) {
+  app.commandLine.appendSwitch('remote-debugging-port', String(remoteDebuggingPort));
   console.log(`[DevTools] Chromium remote debugging enabled on http://127.0.0.1:${remoteDebuggingPort}`);
-} else if (remoteDebuggingPortEnv) {
+} else if (remoteDebuggingPortEnv && remoteDebuggingPortEnv !== '0') {
   console.warn(`[DevTools] Ignoring invalid CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=${remoteDebuggingPortEnv}`);
 }
 
