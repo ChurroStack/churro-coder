@@ -67,6 +67,12 @@ import { writeCurrentPlan, hasPlan, extractPlanTitleFromContent } from '../../pl
 import { createMcpServerForSubChat } from '../../mcp/server';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
+import {
+  classifyClaudeFailure,
+  delayWithAbort,
+  CLAUDE_MAX_ATTEMPTS,
+  type ClaudeFailureClassification
+} from '../../claude/recovery';
 
 /**
  * Parse @[agent:name], @[skill:name], and @[tool:servername] mentions from prompt text
@@ -2132,22 +2138,18 @@ ${prompt}
                   // a brand new session ignoring any stale on-disk .jsonl.
                 };
 
-                // Auto-retry for transient API errors (e.g., false-positive USAGE_POLICY_VIOLATION)
-                const MAX_POLICY_RETRIES = 2;
-                let policyRetryCount = 0;
-                let policyRetryNeeded = false;
-                // Auto-retry once when the SDK reports the resumed session ID is gone.
-                // Anthropic expires sessions server-side; one silent retry with a fresh
-                // session keeps the chat from going visibly empty. A second SESSION_EXPIRED
-                // is treated as a real failure and surfaces normally.
-                const MAX_SESSION_RETRIES = 1;
-                let sessionRetryCount = 0;
+                // Unified retry state — counts every failed attempt across all failure
+                // categories. The classifier uses this 1-based counter to decide whether
+                // to allow another retry and which delay to apply.
+                const isOAuthMode = !Boolean(finalCustomConfig || hasExistingApiConfig);
+                let retryAttempts = 0;
+                let retryDecision: ClaudeFailureClassification | null = null;
                 let messageCount = 0;
                 let pendingFinishChunk: UIMessageChunk | null = null;
 
                 // eslint-disable-next-line no-constant-condition
                 while (true) {
-                  policyRetryNeeded = false;
+                  retryDecision = null;
                   messageCount = 0;
                   pendingFinishChunk = null;
 
@@ -2290,73 +2292,85 @@ ${prompt}
                         console.error(`[CLAUDE SDK ERROR] Full message:`, JSON.stringify(msgAny, null, 2));
                         console.error(`[CLAUDE SDK ERROR] ========================================`);
 
-                        // Categorize SDK-level errors
-                        // Use the raw error code (e.g., "invalid_request") for category matching
+                        // Route the SDK-level failure through the unified recovery classifier.
                         const rawErrorCode = msgAny.error || '';
-                        let errorCategory = 'SDK_ERROR';
-                        // Default errorContext to the full error text (which may include detailed message)
-                        let errorContext = sdkError;
 
-                        if (rawErrorCode === 'authentication_failed' || sdkError.includes('authentication')) {
-                          // Show OAuth reconnect only when OAuth auth is actually in use.
-                          // If API-key auth is active, treat as API auth failure instead.
-                          const isApiKeyAuthMode = Boolean(finalCustomConfig || hasExistingApiConfig);
-                          if (isApiKeyAuthMode) {
-                            errorCategory = 'AUTH_FAILURE';
-                            errorContext = 'Authentication failed - check your API key';
-                          } else {
-                            errorCategory = 'AUTH_FAILED_SDK';
-                            errorContext = 'Authentication failed - not logged into Claude Code CLI';
-                          }
-                        } else if (
+                        // MCP token errors surface immediately — retrying won't fix a bad token.
+                        if (
                           String(sdkError).includes('invalid_token') ||
                           String(sdkError).includes('Invalid access token')
                         ) {
-                          errorCategory = 'MCP_INVALID_TOKEN';
-                          errorContext = 'Invalid access token. Update MCP settings';
-                        } else if (rawErrorCode === 'invalid_api_key' || sdkError.includes('api_key')) {
-                          errorCategory = 'INVALID_API_KEY_SDK';
-                          errorContext = sdkError;
-                        } else if (rawErrorCode === 'rate_limit_exceeded' || sdkError.includes('rate')) {
-                          errorCategory = 'RATE_LIMIT_SDK';
-                          errorContext = 'Session limit reached';
-                        } else if (rawErrorCode === 'overloaded' || sdkError.includes('overload')) {
-                          errorCategory = 'OVERLOADED_SDK';
-                          errorContext = 'Claude is overloaded, try again later';
-                        } else if (
-                          rawErrorCode === 'invalid_request' ||
-                          sdkError.includes('Usage Policy') ||
-                          sdkError.includes('violate')
-                        ) {
-                          errorCategory = 'USAGE_POLICY_VIOLATION';
-                        }
-
-                        // Auto-retry on false-positive policy violations (gateway-level rejections)
-                        if (
-                          errorCategory === 'USAGE_POLICY_VIOLATION' &&
-                          policyRetryCount < MAX_POLICY_RETRIES &&
-                          !abortController.signal.aborted
-                        ) {
-                          policyRetryCount++;
-                          policyRetryNeeded = true;
-                          console.log(
-                            `[claude] USAGE_POLICY_VIOLATION - silent retry (attempt ${policyRetryCount}/${MAX_POLICY_RETRIES})`
+                          safeEmit({
+                            type: 'error',
+                            errorText: 'Invalid access token. Update MCP settings',
+                            debugInfo: {
+                              category: 'MCP_INVALID_TOKEN',
+                              rawErrorCode,
+                              sessionId: msgAny.session_id,
+                              messageId: msgAny.message?.id,
+                              model: rawResolvedModel
+                            }
+                          } as UIMessageChunk);
+                          console.log(`[SD] M:END sub=${subId} reason=sdk_error cat=MCP_INVALID_TOKEN n=${chunkCount}`);
+                          safeEmit({ type: 'finish' } as UIMessageChunk);
+                          safeComplete();
+                          recordChatEvent({
+                            ts: Date.now(),
+                            phase: 'error',
+                            sub: subId,
+                            workspace_id: input.chatId,
+                            mode: input.mode,
+                            session_id: msgAny.session_id ?? currentSessionId ?? input.sessionId,
+                            stream_id: streamId.slice(-8),
+                            note: 'MCP_INVALID_TOKEN'
+                          });
+                          Sentry.logger.info(
+                            `stream error sub=${subId}`,
+                            logAttributes({ reason: 'MCP_INVALID_TOKEN' })
                           );
-                          break; // break for-await loop to retry
+                          finishStreamSpan('sdk_error', {
+                            session_id: msgAny.session_id ?? currentSessionId ?? input.sessionId ?? 'new'
+                          });
+                          return;
                         }
 
-                        // Emit auth-error for authentication failures, regular error otherwise
-                        if (errorCategory === 'AUTH_FAILED_SDK') {
+                        const sdkClassification = classifyClaudeFailure(
+                          { code: rawErrorCode, message: sdkError },
+                          {
+                            observedSideEffects: parts.length > 0 || !!currentText.trim(),
+                            attempt: retryAttempts + 1,
+                            aborted: abortController.signal.aborted,
+                            isOAuthMode
+                          }
+                        );
+
+                        console.log(
+                          `[claude] retry attempt=${retryAttempts + 1}/${CLAUDE_MAX_ATTEMPTS} ` +
+                            `category=${sdkClassification.category} retry=${sdkClassification.retry} ` +
+                            `resume=${!!currentSessionId} sub=${subId}`
+                        );
+
+                        if (sdkClassification.retry && !abortController.signal.aborted) {
+                          safeEmit({
+                            type: 'retry-notification',
+                            message: sdkClassification.userMessage
+                          } as UIMessageChunk);
+                          retryDecision = sdkClassification;
+                          break; // break for-await loop; delay + retry handled at bottom of policyRetryLoop
+                        }
+
+                        // Terminal failure — surface the error to the renderer.
+                        if (sdkClassification.needsAuthModal) {
                           safeEmit({
                             type: 'auth-error',
-                            errorText: errorContext
+                            errorText: sdkClassification.userMessage
                           } as UIMessageChunk);
                         } else {
                           safeEmit({
                             type: 'error',
-                            errorText: errorContext,
+                            errorText: sdkClassification.userMessage,
                             debugInfo: {
-                              category: errorCategory,
+                              category: sdkClassification.category,
                               rawErrorCode,
                               sessionId: msgAny.session_id,
                               messageId: msgAny.message?.id,
@@ -2365,10 +2379,12 @@ ${prompt}
                           } as UIMessageChunk);
                         }
 
-                        console.log(`[SD] M:END sub=${subId} reason=sdk_error cat=${errorCategory} n=${chunkCount}`);
+                        console.log(
+                          `[SD] M:END sub=${subId} reason=sdk_error cat=${sdkClassification.category} n=${chunkCount}`
+                        );
                         console.error(`[SD] SDK Error details:`, {
-                          errorCategory,
-                          errorContext: errorContext.slice(0, 200), // Truncate for log readability
+                          category: sdkClassification.category,
+                          sdkError: sdkError.slice(0, 200),
                           rawErrorCode,
                           sessionId: msgAny.session_id,
                           messageId: msgAny.message?.id,
@@ -2384,9 +2400,12 @@ ${prompt}
                           mode: input.mode,
                           session_id: msgAny.session_id ?? currentSessionId ?? input.sessionId,
                           stream_id: streamId.slice(-8),
-                          note: errorCategory
+                          note: sdkClassification.category
                         });
-                        Sentry.logger.info(`stream error sub=${subId}`, logAttributes({ reason: errorCategory }));
+                        Sentry.logger.info(
+                          `stream error sub=${subId}`,
+                          logAttributes({ reason: sdkClassification.category })
+                        );
                         finishStreamSpan('sdk_error', {
                           session_id: msgAny.session_id ?? currentSessionId ?? input.sessionId ?? 'new'
                         });
@@ -2637,106 +2656,79 @@ ${prompt}
                       }
                     }
 
-                    // Build detailed error message with category
-                    let errorContext = 'Claude streaming error';
-                    let errorCategory = 'UNKNOWN';
-
-                    // Check for session-not-found error in stderr
+                    // Check for session-not-found error in stderr.
                     const isSessionNotFound = stderrOutput?.includes('No conversation found with session ID');
 
-                    if (streamWedged) {
-                      errorContext = `Claude stream wedged — no data received in ${WEDGE_TIMEOUT_MS / 1000}s. Try again.`;
-                      errorCategory = 'STREAM_WEDGE';
-                    } else if (isSessionNotFound) {
-                      // Clear the invalid session ID from database so next attempt starts fresh
-                      console.log(`[claude] Session not found - clearing invalid sessionId from database`);
-                      db.update(subChats).set({ sessionId: null }).where(eq(subChats.id, input.subChatId)).run();
+                    // Pre-classify ENOENT: distinguish missing binary from other path errors.
+                    const binaryMissing = err.message?.includes('ENOENT') && !existsSync(claudeBinaryPath);
+                    const classifyError = binaryMissing ? new Error('claude binary not found') : streamError;
 
-                      // Silent retry: re-run the same prompt on a fresh session so
-                      // the renderer never sees the SESSION_EXPIRED error chunk
-                      // (which clears the AI SDK Chat's message buffer and triggers
-                      // a spurious title regeneration on the next user send).
-                      // Guarded on messageCount === 0 / parts empty: SESSION_EXPIRED
-                      // normally fails at session lookup before any chunks arrive,
-                      // and we don't want to silently retry mid-stream and risk
-                      // duplicating an in-progress assistant turn.
-                      if (
-                        !abortController.signal.aborted &&
-                        sessionRetryCount < MAX_SESSION_RETRIES &&
-                        messageCount === 0 &&
-                        parts.length === 0 &&
-                        !currentText.trim()
-                      ) {
-                        sessionRetryCount++;
+                    const streamClassification = classifyClaudeFailure(classifyError, {
+                      observedSideEffects: parts.length > 0 || !!currentText.trim(),
+                      attempt: retryAttempts + 1,
+                      // Wedge-triggered aborts are NOT user cancellations.
+                      aborted: abortController.signal.aborted && !streamWedged,
+                      isOAuthMode,
+                      streamWedged,
+                      isSessionNotFound
+                    });
+
+                    console.log(
+                      `[claude] retry attempt=${retryAttempts + 1}/${CLAUDE_MAX_ATTEMPTS} ` +
+                        `category=${streamClassification.category} retry=${streamClassification.retry} ` +
+                        `resume=${!!currentSessionId} sub=${subId}`
+                    );
+
+                    if (streamClassification.retry && !abortController.signal.aborted) {
+                      // Safe to retry — no user-visible output was produced.
+                      if (streamClassification.forceFreshSession) {
+                        console.log(`[claude] Session not found - clearing invalid sessionId from database`);
+                        db.update(subChats).set({ sessionId: null }).where(eq(subChats.id, input.subChatId)).run();
                         currentSessionId = undefined;
                         forceFreshSession = true;
-                        // Reset stderr capture so the next iteration's error analysis
-                        // doesn't see the stale "No conversation found" line.
-                        stderrLines.length = 0;
-                        console.log(
-                          `[claude] Session expired - silent retry (attempt ${sessionRetryCount}/${MAX_SESSION_RETRIES})`
-                        );
-                        safeEmit({
-                          type: 'retry-notification',
-                          message: 'Reconnecting…'
-                        } as UIMessageChunk);
-                        continue;
                       }
-
-                      errorContext = 'Previous session expired. Please try again.';
-                      errorCategory = 'SESSION_EXPIRED';
-                    } else if (err.message?.includes('exited with code')) {
-                      errorContext = 'Claude Code process crashed';
-                      errorCategory = 'PROCESS_CRASH';
-                    } else if (err.message?.includes('ENOENT')) {
-                      // If the bundled Claude binary is missing, surface a clear
-                      // recovery path instead of a generic PATH error.
-                      if (!existsSync(claudeBinaryPath)) {
-                        errorContext = `Claude binary not found at ${claudeBinaryPath}. Run \`bun run claude:download\` and restart the app.`;
-                        errorCategory = 'CLAUDE_BINARY_MISSING';
-                      } else {
-                        errorContext = 'Required executable not found in PATH';
-                        errorCategory = 'EXECUTABLE_NOT_FOUND';
+                      // Reset stderr so the next iteration's error analysis is clean.
+                      stderrLines.length = 0;
+                      safeEmit({
+                        type: 'retry-notification',
+                        message: streamClassification.userMessage
+                      } as UIMessageChunk);
+                      retryAttempts++;
+                      await delayWithAbort(streamClassification.delayMs, abortController.signal);
+                      if (abortController.signal.aborted) {
+                        safeEmit({ type: 'finish' } as UIMessageChunk);
+                        safeComplete();
+                        return;
                       }
-                    } else if (err.message?.includes('authentication') || err.message?.includes('401')) {
-                      errorContext = 'Authentication failed - check your API key';
-                      errorCategory = 'AUTH_FAILURE';
-                    } else if (
-                      err.message?.includes('invalid_api_key') ||
-                      err.message?.includes('Invalid API Key') ||
-                      stderrOutput?.includes('invalid_api_key')
-                    ) {
-                      errorContext = 'Invalid API key';
-                      errorCategory = 'INVALID_API_KEY';
-                    } else if (err.message?.includes('rate_limit') || err.message?.includes('429')) {
-                      errorContext = 'Session limit reached';
-                      errorCategory = 'RATE_LIMIT';
-                    } else if (
-                      err.message?.includes('network') ||
-                      err.message?.includes('ECONNREFUSED') ||
-                      err.message?.includes('fetch failed')
-                    ) {
-                      errorContext = 'Network error - check your connection';
-                      errorCategory = 'NETWORK_ERROR';
+                      continue;
                     }
 
-                    // Send error with stderr output to frontend (only if not aborted by user).
-                    // Wedge-triggered aborts are NOT user aborts — surface them.
+                    // Terminal failure — surface the error to the renderer.
+                    // Wedge-triggered aborts are NOT user cancellations — surface them.
                     if (!abortController.signal.aborted || streamWedged) {
-                      safeEmit({
-                        type: 'error',
-                        errorText: stderrOutput
-                          ? `${errorContext}: ${err.message}\n\nProcess output:\n${stderrOutput}`
-                          : `${errorContext}: ${err.message}`,
-                        debugInfo: {
-                          context: errorContext,
-                          category: errorCategory,
-                          cwd: input.cwd,
-                          mode: input.mode,
-                          stderr: stderrOutput || '(no stderr captured)',
-                          model: rawResolvedModel
-                        }
-                      } as UIMessageChunk);
+                      if (streamClassification.needsAuthModal) {
+                        safeEmit({
+                          type: 'auth-error',
+                          errorText: streamClassification.userMessage
+                        } as UIMessageChunk);
+                      } else {
+                        const errorText = binaryMissing
+                          ? `Claude binary not found at ${claudeBinaryPath}. Run \`bun run claude:download\` and restart the app.`
+                          : stderrOutput
+                            ? `${streamClassification.userMessage}: ${err.message}\n\nProcess output:\n${stderrOutput}`
+                            : `${streamClassification.userMessage}: ${err.message}`;
+                        safeEmit({
+                          type: 'error',
+                          errorText,
+                          debugInfo: {
+                            category: streamClassification.category,
+                            cwd: input.cwd,
+                            mode: input.mode,
+                            stderr: stderrOutput || '(no stderr captured)',
+                            model: rawResolvedModel
+                          }
+                        } as UIMessageChunk);
+                      }
                     }
 
                     // ALWAYS save accumulated parts before returning (even on abort/error)
@@ -2776,7 +2768,7 @@ ${prompt}
                     }
 
                     console.log(
-                      `[SD] M:END sub=${subId} reason=stream_error cat=${errorCategory} n=${chunkCount} last=${lastChunkType}`
+                      `[SD] M:END sub=${subId} reason=stream_error cat=${streamClassification.category} n=${chunkCount} last=${lastChunkType}`
                     );
                     recordChatEvent({
                       ts: Date.now(),
@@ -2786,23 +2778,31 @@ ${prompt}
                       mode: input.mode,
                       session_id: currentSessionId ?? input.sessionId,
                       stream_id: streamId.slice(-8),
-                      note: errorCategory
+                      note: streamClassification.category
                     });
-                    Sentry.logger.info(`stream error sub=${subId}`, logAttributes({ reason: errorCategory }));
+                    Sentry.logger.info(
+                      `stream error sub=${subId}`,
+                      logAttributes({ reason: streamClassification.category })
+                    );
                     safeEmit({ type: 'finish' } as UIMessageChunk);
                     safeComplete();
                     finishStreamSpan('stream_error');
                     return;
                   }
 
-                  // Retry if policy violation detected (transient false positive)
-                  // Escalating delay: 3s first retry, 6s second retry
-                  if (policyRetryNeeded) {
-                    const delayMs = policyRetryCount <= 1 ? 3000 : 6000;
+                  // Retry if a SDK-level error set retryDecision (broke out of the for-await).
+                  if (retryDecision) {
+                    retryAttempts++;
                     console.log(
-                      `[claude] Policy retry ${policyRetryCount}/${MAX_POLICY_RETRIES} - waiting ${delayMs / 1000}s`
+                      `[claude] waiting ${retryDecision.delayMs}ms before retry ${retryAttempts}/${CLAUDE_MAX_ATTEMPTS} sub=${subId}`
                     );
-                    await new Promise((resolve) => setTimeout(resolve, delayMs));
+                    await delayWithAbort(retryDecision.delayMs, abortController.signal);
+                    retryDecision = null;
+                    if (abortController.signal.aborted) {
+                      safeEmit({ type: 'finish' } as UIMessageChunk);
+                      safeComplete();
+                      return;
+                    }
                     continue;
                   }
                   break;
