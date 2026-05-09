@@ -59,9 +59,10 @@ export const KanbanBoard = memo(function KanbanBoard({
   }, [cards]);
 
   return (
-    <div className="h-full overflow-x-auto">
-      {/* Centered container with max-width; six columns scroll horizontally if viewport is narrow */}
-      <div className="flex gap-3 h-full px-4 py-2 mx-auto max-w-5xl min-w-min">
+    <div className="h-full overflow-hidden">
+      {/* Full-width responsive container: columns share viewport via flex-1 + min-w-0,
+          shrinking together as the window narrows. No horizontal scroll. */}
+      <div className="flex gap-3 h-full px-4 py-2 w-full">
         {COLUMNS.map((column) => (
           <KanbanColumn
             key={column.status}

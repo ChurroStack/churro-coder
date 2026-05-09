@@ -19,7 +19,7 @@ interface KanbanColumnProps {
   onCopyChat: (params: { chatId: string; format: 'markdown' | 'json' | 'text' }) => void;
 }
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 15;
 
 const STATUS_COLORS: Record<KanbanStatus, string> = {
   draft: 'bg-muted-foreground/20',
@@ -93,7 +93,7 @@ export const KanbanColumn = memo(function KanbanColumn({
   );
 
   return (
-    <div className="flex flex-col min-w-[140px] max-w-[240px] flex-1 h-full">
+    <div className="flex flex-col flex-1 min-w-0 h-full">
       {/* Column header */}
       <div className="flex items-center gap-2 px-2 py-2 mb-2">
         <span className={cn('w-2 h-2 rounded-full flex-shrink-0', STATUS_COLORS[status])} />
