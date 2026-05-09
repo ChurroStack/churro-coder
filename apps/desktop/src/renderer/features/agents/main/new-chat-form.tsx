@@ -641,9 +641,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
 
   // Pasted text files - use a stable temp ID for new chat
   const tempPastedIdRef = useRef(`new-chat-${Date.now()}`);
-  const { pastedTexts, addPastedText, removePastedText, clearPastedTexts } = usePastedTextFiles(
-    tempPastedIdRef.current
-  );
+  const { pastedTexts, addPastedText, removePastedText, clearPastedTexts, setPastedTextsFromDraft } =
+    usePastedTextFiles(tempPastedIdRef.current);
 
   const wizardState = deriveWizardState({
     agentMode,
@@ -1113,6 +1112,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         }
         clearImages();
         clearFiles();
+        clearPastedTexts();
 
         // Fetch remote branches in background when starting new workspace
         if (validatedProject?.path) {
@@ -1134,6 +1134,9 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       if (fullDraft.files.length > 0) {
         setFilesFromDraft(fullDraft.files);
       }
+      if (fullDraft.pastedTexts.length > 0) {
+        setPastedTextsFromDraft(fullDraft.pastedTexts);
+      }
 
       // Try to set value immediately if editor is ready
       if (editorRef.current) {
@@ -1148,7 +1151,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         return () => clearTimeout(timeoutId);
       }
     }
-  }, [selectedDraftId, validatedProject?.path, setImagesFromDraft, setFilesFromDraft]);
+  }, [selectedDraftId, validatedProject?.path, setImagesFromDraft, setFilesFromDraft, setPastedTextsFromDraft]);
 
   // Mark draft as visible when component unmounts (user navigates away)
   // This ensures the draft only appears in the sidebar after leaving the form
@@ -1653,16 +1656,20 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
           gitRepo: validatedProject.gitRepo,
           gitProvider: validatedProject.gitProvider
         };
-        saveNewChatDraftWithAttachments(currentDraftIdRef.current, text, project, { images });
+        saveNewChatDraftWithAttachments(currentDraftIdRef.current, text, project, {
+          images,
+          files,
+          pastedTexts
+        });
       } else if (currentDraftIdRef.current) {
         deleteNewChatDraft(currentDraftIdRef.current);
         currentDraftIdRef.current = null;
       }
     },
-    [cancelRecording, hasContent, images, isVoiceRecording, validatedProject]
+    [cancelRecording, hasContent, images, files, pastedTexts, isVoiceRecording, validatedProject]
   );
 
-  // Re-save draft when images change (text may not have changed)
+  // Re-save draft when attachments change (text may not have changed)
   useEffect(() => {
     const draftId = currentDraftIdRef.current;
     if (!draftId || !validatedProject) return;
@@ -1676,8 +1683,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       gitRepo: validatedProject.gitRepo,
       gitProvider: validatedProject.gitProvider
     };
-    saveNewChatDraftWithAttachments(draftId, text, project, { images });
-  }, [images, validatedProject]);
+    saveNewChatDraftWithAttachments(draftId, text, project, { images, files, pastedTexts });
+  }, [images, files, pastedTexts, validatedProject]);
 
   // Clear current draft when chat is created
   const clearCurrentDraft = useCallback(() => {

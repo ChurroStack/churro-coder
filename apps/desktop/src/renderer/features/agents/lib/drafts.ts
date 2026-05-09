@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { UploadedImage, UploadedFile } from '../hooks/use-agents-file-upload';
+import type { PastedTextFile } from '../hooks/use-pasted-text-files';
 import type { SelectedTextContext } from './queue-utils';
 
 // Constants
@@ -35,6 +36,16 @@ export interface DraftTextContext {
   createdAt: string; // ISO string instead of Date
 }
 
+export interface DraftPastedText {
+  id: string;
+  filePath: string;
+  filename: string;
+  size: number;
+  preview: string;
+  createdAt: string; // ISO string instead of Date
+  kind?: 'pasted' | 'chatHistory';
+}
+
 // Types
 export interface DraftContent {
   text: string;
@@ -62,6 +73,7 @@ export interface NewChatDraft {
   images?: DraftImage[];
   files?: DraftFile[];
   textContexts?: DraftTextContext[];
+  pastedTexts?: DraftPastedText[];
 }
 
 // SubChatDraft uses key format: "chatId:subChatId"
@@ -160,7 +172,8 @@ export function getNewChatDraftFull(draftId: string): FullDraftData | null {
     text: draft.text || null,
     images: draft.images?.map(fromDraftImage).filter((img): img is UploadedImage => img !== null) ?? [],
     files: draft.files?.map(fromDraftFile).filter((f): f is UploadedFile => f !== null) ?? [],
-    textContexts: draft.textContexts?.map(fromDraftTextContext) ?? []
+    textContexts: draft.textContexts?.map(fromDraftTextContext) ?? [],
+    pastedTexts: draft.pastedTexts?.map(fromDraftPastedText) ?? []
   };
 }
 
@@ -173,6 +186,7 @@ export async function saveNewChatDraftWithAttachments(
     images?: UploadedImage[];
     files?: UploadedFile[];
     textContexts?: SelectedTextContext[];
+    pastedTexts?: PastedTextFile[];
   }
 ): Promise<{ success: boolean; error?: string }> {
   const globalDrafts = loadGlobalDrafts();
@@ -181,7 +195,8 @@ export async function saveNewChatDraftWithAttachments(
     text.trim() ||
     (options?.images?.length ?? 0) > 0 ||
     (options?.files?.length ?? 0) > 0 ||
-    (options?.textContexts?.length ?? 0) > 0;
+    (options?.textContexts?.length ?? 0) > 0 ||
+    (options?.pastedTexts?.length ?? 0) > 0;
 
   if (!hasContent) {
     delete globalDrafts[draftId];
@@ -199,6 +214,8 @@ export async function saveNewChatDraftWithAttachments(
 
   const draftTextContexts = options?.textContexts?.map(toDraftTextContext) ?? [];
 
+  const draftPastedTexts = options?.pastedTexts?.map(toDraftPastedText) ?? [];
+
   const draft: NewChatDraft = {
     id: draftId,
     text,
@@ -206,7 +223,8 @@ export async function saveNewChatDraftWithAttachments(
     ...(project && { project }),
     ...(draftImages.length > 0 && { images: draftImages }),
     ...(draftFiles.length > 0 && { files: draftFiles }),
-    ...(draftTextContexts.length > 0 && { textContexts: draftTextContexts })
+    ...(draftTextContexts.length > 0 && { textContexts: draftTextContexts }),
+    ...(draftPastedTexts.length > 0 && { pastedTexts: draftPastedTexts })
   };
 
   if (wouldExceedStorageLimit(globalDrafts, draft)) {
@@ -588,6 +606,41 @@ export function fromDraftTextContext(draft: DraftTextContext): SelectedTextConte
 }
 
 /**
+ * Convert PastedTextFile to DraftPastedText (Date → ISO string)
+ */
+export function toDraftPastedText(p: PastedTextFile): DraftPastedText {
+  return {
+    id: p.id,
+    filePath: p.filePath,
+    filename: p.filename,
+    size: p.size,
+    preview: p.preview,
+    createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : String(p.createdAt),
+    ...(p.kind && { kind: p.kind })
+  };
+}
+
+/**
+ * Restore PastedTextFile from DraftPastedText (ISO string → Date)
+ *
+ * Note: the on-disk file at draft.filePath is written under
+ * `{userData}/claude-sessions/{tempId}/pasted/` and persists across restarts.
+ * If the file has been removed externally, downstream consumers must handle
+ * the missing-file case at submit time — restoration here is metadata only.
+ */
+export function fromDraftPastedText(draft: DraftPastedText): PastedTextFile {
+  return {
+    id: draft.id,
+    filePath: draft.filePath,
+    filename: draft.filename,
+    size: draft.size,
+    preview: draft.preview,
+    createdAt: new Date(draft.createdAt),
+    ...(draft.kind && { kind: draft.kind })
+  };
+}
+
+/**
  * Full draft data including attachments
  */
 export interface FullDraftData {
@@ -595,6 +648,7 @@ export interface FullDraftData {
   images: UploadedImage[];
   files: UploadedFile[];
   textContexts: SelectedTextContext[];
+  pastedTexts: PastedTextFile[];
 }
 
 /**
