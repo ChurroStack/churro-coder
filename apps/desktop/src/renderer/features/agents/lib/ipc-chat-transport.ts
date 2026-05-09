@@ -344,6 +344,12 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 });
               }
 
+              if (chunk.type === undefined) {
+                console.warn('[ipc-chat-transport] chunk with undefined type', {
+                  sub: this.config.subChatId.slice(-8)
+                });
+              }
+
               // Clear pending questions ONLY when agent has moved on
               // Don't clear on tool-input-* chunks (still building the question input)
               // Clear when we get tool-output-* (answer received) or text-delta (agent moved on)
@@ -351,7 +357,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 chunk.type !== 'ask-user-question' &&
                 chunk.type !== 'ask-user-question-timeout' &&
                 chunk.type !== 'ask-user-question-result' &&
-                !chunk.type.startsWith('tool-input') && // Don't clear while input is being built
+                !chunk.type?.startsWith('tool-input') && // Don't clear while input is being built
                 chunk.type !== 'start' &&
                 chunk.type !== 'start-step';
 
