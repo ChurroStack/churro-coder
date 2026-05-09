@@ -662,34 +662,31 @@ export function createWindow(options?: { chatId?: string; subChatId?: string; pr
   });
 
   if (SHOULD_FORWARD_RENDERER_CONSOLE) {
-    (window.webContents as unknown as NodeJS.EventEmitter).on(
-      'console-message',
-      (...rawArgs: unknown[]) => {
-        const second = rawArgs[1];
-        let levelNum: number;
-        let message: string;
-        let sourceUrl: string;
-        let lineNumber: number;
-        if (second && typeof second === 'object' && 'message' in (second as Record<string, unknown>)) {
-          const d = second as { message: string; level: number; sourceUrl?: string; lineNumber?: number };
-          levelNum = d.level;
-          message = d.message;
-          sourceUrl = d.sourceUrl ?? '';
-          lineNumber = d.lineNumber ?? 0;
-        } else {
-          levelNum = (second as number) ?? 1;
-          message = (rawArgs[2] as string) ?? '';
-          lineNumber = (rawArgs[3] as number) ?? 0;
-          sourceUrl = (rawArgs[4] as string) ?? '';
-        }
-        const levelName = formatConsoleLevel(levelNum);
-        const suffix = formatConsoleSuffix(sourceUrl, lineNumber);
-        const text = `[RendererConsole] window=${window.id} level=${levelName}${suffix} ${message}`;
-        if (levelName === 'error') console.error(text);
-        else if (levelName === 'warn') console.warn(text);
-        else console.log(text);
+    (window.webContents as unknown as NodeJS.EventEmitter).on('console-message', (...rawArgs: unknown[]) => {
+      const second = rawArgs[1];
+      let levelNum: number;
+      let message: string;
+      let sourceUrl: string;
+      let lineNumber: number;
+      if (second && typeof second === 'object' && 'message' in (second as Record<string, unknown>)) {
+        const d = second as { message: string; level: number; sourceUrl?: string; lineNumber?: number };
+        levelNum = d.level;
+        message = d.message;
+        sourceUrl = d.sourceUrl ?? '';
+        lineNumber = d.lineNumber ?? 0;
+      } else {
+        levelNum = (second as number) ?? 1;
+        message = (rawArgs[2] as string) ?? '';
+        lineNumber = (rawArgs[3] as number) ?? 0;
+        sourceUrl = (rawArgs[4] as string) ?? '';
       }
-    );
+      const levelName = formatConsoleLevel(levelNum);
+      const suffix = formatConsoleSuffix(sourceUrl, lineNumber);
+      const text = `[RendererConsole] window=${window.id} level=${levelName}${suffix} ${message}`;
+      if (levelName === 'error') console.error(text);
+      else if (levelName === 'warn') console.warn(text);
+      else console.log(text);
+    });
   }
 
   // Prevent window close if there are active streaming sessions
