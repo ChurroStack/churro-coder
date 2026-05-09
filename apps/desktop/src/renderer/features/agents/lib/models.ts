@@ -51,13 +51,13 @@ export const CODEX_MODELS = [
   {
     id: 'gpt-5.5',
     name: 'GPT-5.5',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.4',
     name: 'GPT-5.4',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
@@ -75,7 +75,7 @@ export const CODEX_MODELS = [
   {
     id: 'gpt-5.3-codex-spark',
     name: 'Codex 5.3 Spark',
-    contextWindow: 400_000,
+    contextWindow: 128_000,
     thinkings: ['low', 'medium', 'high'] as CodexThinkingLevel[]
   },
   {

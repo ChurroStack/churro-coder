@@ -8,9 +8,9 @@ export type CodexUsageMetadata = {
 };
 
 // Prices per 1M tokens (USD). Strip the "/thinking" suffix to get the base model ID.
-// Sources: OpenAI API pricing page (April 2026).
+// Sources: OpenAI API pricing page (May 2026).
 const CODEX_MODEL_PRICING: Record<string, { inputPer1M: number; cachedInputPer1M: number; outputPer1M: number }> = {
-  'gpt-5.5': { inputPer1M: 5.0, cachedInputPer1M: 0.4, outputPer1M: 30.0 },
+  'gpt-5.5': { inputPer1M: 5.0, cachedInputPer1M: 0.5, outputPer1M: 30.0 },
   'gpt-5.4': { inputPer1M: 2.5, cachedInputPer1M: 0.25, outputPer1M: 15.0 },
   'gpt-5.4-mini': { inputPer1M: 0.75, cachedInputPer1M: 0.075, outputPer1M: 4.5 },
   'gpt-5.3-codex': { inputPer1M: 1.75, cachedInputPer1M: 0.175, outputPer1M: 14.0 },

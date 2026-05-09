@@ -1,7 +1,7 @@
 /**
  * Bundled model pricing snapshot (USD per 1M tokens).
  * Snapshotted from https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
- * on 2026-04-17. Update this file when new models ship.
+ * on 2026-05-09. Update this file when new models ship.
  *
  * Matching is prefix-based so that dated variants like "claude-opus-4-6-20250929"
  * resolve to the base model entry.

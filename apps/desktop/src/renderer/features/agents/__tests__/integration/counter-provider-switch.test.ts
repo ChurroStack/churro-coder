@@ -78,7 +78,7 @@ describe('L4 integration — context counter provider/model switch', () => {
 
     const codexView = resolveContextUsage({ messages, ...readResolverInputs(subChatId, 'codex') });
     expect(codexView.totalInputTokens).toBe(0);
-    expect(codexView.contextWindow).toBe(400_000);
+    expect(codexView.contextWindow).toBe(1_050_000);
   });
 
   test('flipping back to Claude restores the Claude tokens', () => {
