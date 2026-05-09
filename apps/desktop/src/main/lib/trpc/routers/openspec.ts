@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { stat } from 'node:fs/promises';
 import { router, publicProcedure } from '../index';
-import { chats, getDatabase, projects } from '../../db';
+import { chats, getDatabase, projects, subChats } from '../../db';
 import {
   createChange,
   deleteChange,
@@ -276,5 +276,79 @@ export const openspecRouter = router({
 
   readProjectContext: publicProcedure.input(ROOT_INPUT).query(async ({ input }) => {
     return readProjectContext(await resolveRootDir(input));
-  })
+  }),
+
+  // ============ sub-chat per change ============
+
+  /**
+   * Find or create a sub-chat bound to an OpenSpec change.
+   * One sub-chat per (chatId, changeId) pair — reopening the same change
+   * reuses the existing transcript.
+   */
+  openSubChatForChange: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string().min(1),
+        projectId: z.string().min(1),
+        changeId: z.string().min(1)
+      })
+    )
+    .mutation(async ({ input }) => {
+      const rootDir = await resolveRootDir({ chatId: input.chatId, projectId: input.projectId });
+      const change = await readChange(rootDir, input.changeId);
+      if (!change) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `Change not found: ${input.changeId}` });
+      }
+
+      const db = getDatabase();
+
+      const existing = db
+        .select()
+        .from(subChats)
+        .where(and(eq(subChats.chatId, input.chatId), eq(subChats.openspecChangeId, input.changeId)))
+        .get();
+
+      if (existing) {
+        console.log(
+          `[openspec/router] openSubChatForChange changeId=${input.changeId} outcome=reused subChatId=${existing.id}`
+        );
+        return existing;
+      }
+
+      const name = change.proposal?.title ?? input.changeId;
+      try {
+        const created = db
+          .insert(subChats)
+          .values({
+            chatId: input.chatId,
+            name,
+            mode: 'plan',
+            openspecChangeId: input.changeId,
+            messages: '[]'
+          })
+          .returning()
+          .get();
+
+        console.log(
+          `[openspec/router] openSubChatForChange changeId=${input.changeId} outcome=created subChatId=${created.id}`
+        );
+        return created;
+      } catch (err) {
+        // Concurrent insert lost the race against the partial unique index on
+        // (chat_id, openspec_change_id). Re-select and return the winner so
+        // the caller still gets a stable sub-chat for this change.
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/UNIQUE constraint failed/i.test(message)) throw err;
+        const winner = db
+          .select()
+          .from(subChats)
+          .where(and(eq(subChats.chatId, input.chatId), eq(subChats.openspecChangeId, input.changeId)))
+          .get();
+        if (!winner) throw err;
+        console.log(
+          `[openspec/router] openSubChatForChange changeId=${input.changeId} outcome=race-reused subChatId=${winner.id}`
+        );
+        return winner;
+      }
+    })
 });

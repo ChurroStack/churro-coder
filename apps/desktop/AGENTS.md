@@ -103,6 +103,7 @@ For the full annotated tree (renderer features, dock subsystem, agent layers), s
 > Authoritative design tokens, typography, layout primitives, and component conventions live in [DESIGN.md](DESIGN.md). Read it before building any new UI. The screen-specific notes below are addenda, not replacements.
 
 - New-workspace content should use the same readable width as the main chat surface (`max-w-5xl`), not a narrower one-off container.
+- OpenSpec document content (proposal, design, tasks views) must also use `max-w-5xl mx-auto` — do not use narrower fixed widths like `max-w-[720px]`.
 - For selection cards and similar form surfaces on this screen, prefer the tighter shared radius (`rounded-md`) over oversized `rounded-2xl` / `rounded-3xl` shells unless a component already has a stronger established visual treatment elsewhere.
 - The agent mode chooser is a segmented control with a detail panel below it, not a grid of large cards. Keep the selected icon, title, and description in the dedicated panel.
 - For the `Type of work` and `Harness` cards, keep the icon and title on the same top row, with the description underneath.

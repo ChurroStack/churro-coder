@@ -97,7 +97,8 @@ export function AgentsContent({
   subChatIdOverride,
   dockWorkspaceActive = true,
   dockPanelVisible = true,
-  dockPanelActive = true
+  dockPanelActive = true,
+  chrome = 'full'
 }: {
   /** When provided, the ChatView mounted below renders this specific
    *  sub-chat regardless of the store's `activeSubChatId`. ChatPanel
@@ -111,6 +112,13 @@ export function AgentsContent({
   dockPanelVisible?: boolean;
   /** True when this panel is the focused dockview panel. */
   dockPanelActive?: boolean;
+  /**
+   * 'full' (default) — renders with full sidebar chrome (agents-sidebar,
+   *   sub-chats sidebar, terminal, etc.).
+   * 'embedded' — renders only the chat core (ChatView) with no surrounding
+   *   chrome. Used by OpenSpecChangePanel to embed chat in the right pane.
+   */
+  chrome?: 'full' | 'embedded';
 } = {}) {
   const [selectedChatId, setSelectedChatId] = useAtom(selectedAgentChatIdAtom);
   const desktopView = useAtomValue(desktopViewAtom);
@@ -813,6 +821,26 @@ export function AgentsContent({
       id: selectedChatId
     });
   }, [(chatData as any)?.branch, worktreePath, selectedChatId]);
+
+  // Embedded chrome: no sidebar, no mobile handling — just the ChatView core.
+  if (chrome === 'embedded') {
+    return (
+      <div className="h-full w-full flex flex-col overflow-hidden">
+        {selectedChatId ? (
+          <ChatView
+            key={`${chatSourceMode}-${selectedChatId}-${subChatIdOverride ?? 'active'}`}
+            chatId={selectedChatId}
+            isSidebarOpen={false}
+            onToggleSidebar={() => {}}
+            subChatIdOverride={subChatIdOverride}
+            dockWorkspaceActive={dockWorkspaceActive}
+            dockPanelVisible={dockPanelVisible}
+            dockPanelActive={dockPanelActive}
+          />
+        ) : null}
+      </div>
+    );
+  }
 
   // Mobile layout - completely different structure
   if (isMobile) {

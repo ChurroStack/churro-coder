@@ -44,24 +44,14 @@ describe('getWizardStepMap', () => {
 });
 
 describe('deriveWizardState', () => {
-  it('requiresText is false when no spec selected', () => {
-    const result = deriveWizardState({ ...base, selectedSpecId: null });
-    expect(result.requiresText).toBe(false);
-  });
-
-  it('requiresText is true when spec is selected', () => {
-    const result = deriveWizardState({ ...base, selectedSpecId: 'change-abc' });
-    expect(result.requiresText).toBe(true);
-  });
-
   it('canSubmit false when no project regardless of text', () => {
     const result = deriveWizardState({ ...base, hasProject: false, hasText: true });
     expect(result.canSubmit).toBe(false);
   });
 
-  it('canSubmit false when spec selected and no text and no attachments', () => {
+  it('canSubmit true when spec selected and no text (opens change panel to view)', () => {
     const result = deriveWizardState({ ...base, selectedSpecId: 'change-abc', hasText: false, hasAttachments: false });
-    expect(result.canSubmit).toBe(false);
+    expect(result.canSubmit).toBe(true);
   });
 
   it('canSubmit true when spec selected and hasAttachments even with no text', () => {
@@ -79,6 +69,11 @@ describe('deriveWizardState', () => {
     const withoutSpec = deriveWizardState({ ...base, selectedSpecId: null, hasText: true });
     expect(withSpec.canSubmit).toBe(true);
     expect(withoutSpec.canSubmit).toBe(true);
+  });
+
+  it('uses spec-aware placeholder when a spec is selected', () => {
+    const result = deriveWizardState({ ...base, selectedSpecId: 'change-abc' });
+    expect(result.promptPlaceholder).toMatch(/this change/i);
   });
 
   it('explore mode visible sections are mode + prompt only', () => {

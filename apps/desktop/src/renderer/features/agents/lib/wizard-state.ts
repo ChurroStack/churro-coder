@@ -18,7 +18,6 @@ export type WizardDerived = {
   visibleSections: WizardSectionKey[];
   promptLabel: string;
   promptPlaceholder: string;
-  requiresText: boolean;
   canSubmit: boolean;
   sendLabel: string;
 };
@@ -51,10 +50,9 @@ export function getWizardStepMap(visibleSections: WizardSectionKey[]): Record<Wi
 }
 
 export function deriveWizardState(input: WizardInput): WizardDerived {
-  const { agentMode, selectedSpecId, hasProject, hasText, hasAttachments } = input;
+  const { agentMode, selectedSpecId, hasProject } = input;
   const visibleSections = getVisibleWizardSections(agentMode);
-  const requiresText = selectedSpecId !== null;
-  const hasContent = hasText || hasAttachments;
+  const hasSpecSelected = selectedSpecId !== null;
 
   return {
     visibleSections,
@@ -62,11 +60,10 @@ export function deriveWizardState(input: WizardInput): WizardDerived {
     promptPlaceholder:
       agentMode === 'explore'
         ? 'Ask anything about the codebase…'
-        : requiresText
-          ? 'Tell the agent what to do with the selected OpenSpec change…'
+        : hasSpecSelected
+          ? 'Optionally tell the agent what to do with this change…'
           : 'Describe your task — press Cmd+Enter to start',
-    requiresText,
-    canSubmit: hasProject && (!requiresText || hasContent),
+    canSubmit: hasProject,
     sendLabel: 'Start workspace'
   };
 }

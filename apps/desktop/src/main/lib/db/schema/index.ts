@@ -1,5 +1,5 @@
-import { index, sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
-import { relations } from 'drizzle-orm';
+import { index, sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { relations, sql } from 'drizzle-orm';
 import { createId } from '../utils';
 
 // ============ PROJECTS ============
@@ -80,6 +80,7 @@ export const subChats = sqliteTable(
     sessionMode: text('session_mode'), // "plan" | "execute" | "explore" — mode the active sessionId was started with
     streamId: text('stream_id'), // Track in-progress streams
     mode: text('mode').notNull().default('plan'), // "plan" | "execute" | "explore"
+    openspecChangeId: text('openspec_change_id'), // OpenSpec change folder name this sub-chat is bound to
     messages: text('messages').notNull().default('[]'), // JSON array
     // Cached file stats — kept in sync by writers, read by getFileStats to avoid JSON parse on every query
     fileStatsAdditions: integer('file_stats_additions').notNull().default(0),
@@ -88,7 +89,13 @@ export const subChats = sqliteTable(
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
   },
-  (table) => [index('sub_chats_chat_id_idx').on(table.chatId), index('sub_chats_stream_id_idx').on(table.streamId)]
+  (table) => [
+    index('sub_chats_chat_id_idx').on(table.chatId),
+    index('sub_chats_stream_id_idx').on(table.streamId),
+    uniqueIndex('sub_chats_chat_id_openspec_change_id_unique')
+      .on(table.chatId, table.openspecChangeId)
+      .where(sql`${table.openspecChangeId} IS NOT NULL`)
+  ]
 );
 
 export const subChatsRelations = relations(subChats, ({ one }) => ({

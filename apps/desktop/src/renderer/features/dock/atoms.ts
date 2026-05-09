@@ -2,7 +2,16 @@ import { atom } from 'jotai';
 import { atomWithWindowStorage } from '../../lib/window-storage';
 import type { WidgetId } from '../details-sidebar/atoms';
 
-export type PanelKind = 'chat' | 'chat-new' | 'terminal' | 'file' | 'plan' | 'diff' | 'search' | 'files-tree';
+export type PanelKind =
+  | 'chat'
+  | 'chat-new'
+  | 'terminal'
+  | 'file'
+  | 'plan'
+  | 'diff'
+  | 'search'
+  | 'files-tree'
+  | 'openspec-change';
 
 /**
  * Snapshot of a single dockview panel — kept in sync by `DockHotkeysHost`
@@ -70,6 +79,15 @@ export interface FilesTreePanelEntity {
   projectId: string;
 }
 
+export interface OpenSpecChangePanelEntity {
+  subChatId: string;
+  chatId: string;
+  projectId: string;
+  changeId: string;
+  changePath: string;
+  name?: string;
+}
+
 export type PanelEntity =
   | { kind: 'chat'; data: ChatPanelEntity }
   | { kind: 'chat-new'; data: NewChatPanelEntity }
@@ -78,7 +96,8 @@ export type PanelEntity =
   | { kind: 'plan'; data: PlanPanelEntity }
   | { kind: 'diff'; data: DiffPanelEntity }
   | { kind: 'search'; data: SearchPanelEntity }
-  | { kind: 'files-tree'; data: FilesTreePanelEntity };
+  | { kind: 'files-tree'; data: FilesTreePanelEntity }
+  | { kind: 'openspec-change'; data: OpenSpecChangePanelEntity };
 
 export function panelIdFor(entity: PanelEntity): string {
   switch (entity.kind) {
@@ -98,6 +117,8 @@ export function panelIdFor(entity: PanelEntity): string {
       return `search:${entity.data.projectId}`;
     case 'files-tree':
       return `files-tree:${entity.data.projectId}`;
+    case 'openspec-change':
+      return `openspec-change:${entity.data.changeId}`;
   }
 }
 
@@ -121,6 +142,8 @@ export function panelTitleFor(entity: PanelEntity): string {
       return 'Search';
     case 'files-tree':
       return 'Files';
+    case 'openspec-change':
+      return entity.data.name ?? entity.data.changeId;
   }
 }
 

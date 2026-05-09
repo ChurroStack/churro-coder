@@ -3,8 +3,10 @@
 // vi.hoisted exposes these refs inside the vi.mock factory (which is also hoisted)
 const mocks = vi.hoisted(() => ({
   createChatMutate: vi.fn(),
+  createChatMutateAsync: vi.fn(async () => ({ id: 'new-chat-1' })),
   openspecQuery: vi.fn(),
-  projectsListQuery: vi.fn()
+  projectsListQuery: vi.fn(),
+  openSubChatForChangeMutateAsync: vi.fn(async () => ({ id: 'sc-1', name: 'Spec', mode: 'plan' }))
 }));
 
 // Stub the file-viewer component that transitively imports monaco-editor,
@@ -32,9 +34,24 @@ vi.mock('../../../lib/trpc', () => {
       },
       chats: {
         list: { useQuery: q([]) },
-        create: { useMutation: vi.fn(() => ({ mutate: mocks.createChatMutate, isPending: false })) }
+        create: {
+          useMutation: vi.fn(() => ({
+            mutate: mocks.createChatMutate,
+            mutateAsync: mocks.createChatMutateAsync,
+            isPending: false
+          }))
+        }
       },
-      openspec: { listChanges: { useQuery: mocks.openspecQuery } },
+      openspec: {
+        listChanges: { useQuery: mocks.openspecQuery },
+        openSubChatForChange: {
+          useMutation: vi.fn(() => ({
+            mutate: vi.fn(),
+            mutateAsync: mocks.openSubChatForChangeMutateAsync,
+            isPending: false
+          }))
+        }
+      },
       ollama: { getStatus: { useQuery: q(null) } },
       voice: {
         transcribe: { useMutation: m() },
@@ -80,6 +97,8 @@ function makeChange(id: string): ChangeSummary {
 beforeEach(() => {
   localStorage.clear();
   mocks.createChatMutate.mockClear();
+  mocks.createChatMutateAsync.mockClear();
+  mocks.openSubChatForChangeMutateAsync.mockClear();
   // Default: no project in projects list
   mocks.projectsListQuery.mockReturnValue({ data: [], isLoading: false, isError: false });
   // Default: no openspec changes
@@ -135,7 +154,7 @@ describe('NewChatForm — with project', () => {
     expect(btn?.disabled).toBe(false);
   });
 
-  it('send button is disabled when a spec is selected but prompt is blank', async () => {
+  it('send button is enabled when a spec is selected but prompt is blank (view-only open)', async () => {
     const change = makeChange('c1');
     const { container, getByText } = renderWithProject([change]);
 
@@ -146,7 +165,7 @@ describe('NewChatForm — with project', () => {
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
     expect(btn).not.toBeNull();
-    expect(btn?.disabled).toBe(true);
+    expect(btn?.disabled).toBe(false);
   });
 
   it('send button is enabled when a spec is selected and text is present', async () => {
@@ -184,6 +203,36 @@ describe('NewChatForm — with project', () => {
       expect.objectContaining({ initialMessageParts: [] }),
       expect.anything()
     );
+  });
+
+  it('clicking a spec card opens the OpenSpec sub-chat exactly once', async () => {
+    const change = makeChange('c5');
+    const { getByText } = renderWithProject([change]);
+
+    await act(async () => {
+      fireEvent.click(getByText('Spec c5'));
+    });
+
+    expect(mocks.openSubChatForChangeMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.openSubChatForChangeMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ changeId: 'c5' }));
+  });
+
+  it('clicking a spec card twice (toggle deselect) does NOT call openSubChatForChange the second time', async () => {
+    const change = makeChange('c6');
+    const { getAllByText } = renderWithProject([change]);
+
+    // First click on the spec card (always the first occurrence in the picker)
+    await act(async () => {
+      fireEvent.click(getAllByText('Spec c6')[0]!);
+    });
+    expect(mocks.openSubChatForChangeMutateAsync).toHaveBeenCalledTimes(1);
+
+    // Second click: deselect → must be a no-op (no extra mutate call, no
+    // duplicate workspace creation)
+    await act(async () => {
+      fireEvent.click(getAllByText('Spec c6')[0]!);
+    });
+    expect(mocks.openSubChatForChangeMutateAsync).toHaveBeenCalledTimes(1);
   });
 
   it('clicking send after typing text calls mutate with a text message part', async () => {

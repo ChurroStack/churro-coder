@@ -1,6 +1,9 @@
 import { useEffect } from 'react';
+import { useAtom } from 'jotai';
 import type { DockviewApi } from 'dockview-react';
 import { useAgentSubChatStore, type SubChatMeta } from '../agents/stores/sub-chat-store';
+import { pendingOpenSpecPanelAtom } from '../openspec/atoms';
+import { addOrFocus } from './add-or-focus';
 
 /**
  * ChatPanelSync — keeps a workspace's dockview chat panels (`chat:*`) in
@@ -189,6 +192,19 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
     const panel = dockApi.getPanel(`chat:${activeSubChatId}`);
     if (panel && !panel.api.isActive) panel.api.setActive();
   }, [active, dockApi, workspaceId, storeChatId, activeSubChatId]);
+
+  // Effect (4) — pending OpenSpec panel → open once this workspace's dockview is ready.
+  // Written by handleSelectSpec/handleSend in new-chat-form.tsx via pendingOpenSpecPanelAtom.
+  // Using the atom instead of calling addOrFocus directly avoids the stale captured-dockApi
+  // problem: the form callback captures the null-workspace dock, but this effect runs inside
+  // the target workspace's WorkspaceDockShell with the correct live dockApi.
+  const [pendingPanel, setPendingPanel] = useAtom(pendingOpenSpecPanelAtom);
+  useEffect(() => {
+    if (!active || !dockApi || !pendingPanel) return;
+    if (pendingPanel.chatId !== workspaceId) return;
+    addOrFocus(dockApi, { kind: 'openspec-change', data: pendingPanel });
+    setPendingPanel(null);
+  }, [active, dockApi, pendingPanel, workspaceId, setPendingPanel]);
 
   return null;
 }
