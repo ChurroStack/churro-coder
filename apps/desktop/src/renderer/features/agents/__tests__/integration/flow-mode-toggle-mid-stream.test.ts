@@ -137,6 +137,32 @@ describe('L4 integration — mode toggle mid-stream is rejected', () => {
     expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
   });
 
+  test('user model pick preserved when toggle rejected mid-stream', async () => {
+    const subChatId = newSubChatId();
+    appStore.set(subChatModeAtomFamily(subChatId), 'execute');
+    appStore.set(subChatModelIdAtomFamily(subChatId), 'sonnet');
+
+    const { deps } = makeDeps(subChatId);
+
+    noteSendRequested(subChatId, deps);
+    noteStreamStarted(subChatId, deps);
+
+    // User picks a non-default model while streaming.
+    appStore.set(subChatModelIdAtomFamily(subChatId), 'haiku');
+
+    // Toggle to plan while streaming → FSM rejects.
+    const result = await toggleMode(subChatId, 'plan', deps);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('busy');
+
+    // Mode unchanged.
+    expect(appStore.get(subChatModeAtomFamily(subChatId))).toBe('execute');
+    // User's haiku pick is preserved — NOT overwritten with the plan default (opus[1m]).
+    // Before the fix: updateMode's trailing applyModeDefaultModel call would stamp opus[1m] here
+    // even though the FSM rejected the toggle.
+    expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('haiku');
+  });
+
   test('toggle accepted between consecutive turns (complete → toggle → send → complete)', async () => {
     const subChatId = newSubChatId();
     appStore.set(subChatModeAtomFamily(subChatId), 'execute');

@@ -652,12 +652,17 @@ export const ChatInputArea = memo(function ChatInputArea({
   const updateMode = useCallback(
     (newMode: AgentMode) => {
       if (onModeChange) {
+        // toggleModeService (called via onModeChange → handleModeChange) already
+        // applies the mode-default model when the FSM accepts the toggle. A second
+        // model-default write here would overwrite any manual model pick the user
+        // made after the last mode switch — the duplicate write is the root cause of
+        // the "recap bar shows wrong model" bug. Let the service own this write.
         onModeChange(newMode);
       } else {
         setSubChatMode(newMode);
         useAgentSubChatStore.getState().updateSubChatMode(subChatId, newMode);
+        applyModeDefaultModel(subChatId, newMode);
       }
-      applyModeDefaultModel(subChatId, newMode);
     },
     [onModeChange, setSubChatMode, subChatId]
   );

@@ -500,3 +500,6 @@ Thumbs.db
 .nx/polygraph
 
 .nx/self-healing
+
+# Playwright MCP debug artifacts (console logs, page snapshots)
+.playwright-mcp/

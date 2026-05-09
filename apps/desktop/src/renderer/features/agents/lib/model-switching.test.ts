@@ -524,3 +524,35 @@ describe('new-chat-form — applyFormSelectionToSubChat call-ordering regression
     ).toBe(true);
   });
 });
+
+// Source-inspection guard for the updateMode double-write fix.
+// toggleModeService already applies the mode-default model when a toggle succeeds
+// (mode-switch-service.ts, deps.applyDefaultModel). A second call to
+// applyModeDefaultModel in updateMode's onModeChange branch would overwrite any
+// manual model pick the user made after the last mode switch — the root cause of
+// the "recap bar shows wrong model" bug.
+describe('updateMode — applyModeDefaultModel must not fire in the onModeChange branch', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const chatInputPath = resolve(here, '../main/chat-input-area.tsx');
+
+  test('applyModeDefaultModel absent from the if(onModeChange) branch of updateMode', () => {
+    const src = readFileSync(chatInputPath, 'utf-8');
+
+    const updateModeStart = src.indexOf('const updateMode = useCallback(');
+    expect(updateModeStart, 'updateMode not found in chat-input-area.tsx').toBeGreaterThan(-1);
+
+    const ifStart = src.indexOf('if (onModeChange) {', updateModeStart);
+    expect(ifStart, 'if (onModeChange) branch not found in updateMode').toBeGreaterThan(-1);
+
+    const elseStart = src.indexOf('} else {', ifStart);
+    expect(elseStart, '} else { not found after if (onModeChange) in updateMode').toBeGreaterThan(-1);
+
+    const ifBranch = src.slice(ifStart, elseStart);
+    expect(
+      ifBranch.includes('applyModeDefaultModel'),
+      'applyModeDefaultModel must not be called in the onModeChange branch of updateMode — ' +
+        'toggleModeService already applies the mode-default model when the FSM accepts the toggle, ' +
+        'and a second call here overwrites any manual model pick the user made after the last mode switch.'
+    ).toBe(false);
+  });
+});
