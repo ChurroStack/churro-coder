@@ -4,6 +4,15 @@ This file is the single source of truth for AI coding agents working in this rep
 
 > Note for Windows contributors: git symlinks may need `core.symlinks=true` and Developer Mode. If `CLAUDE.md` shows up as a text file containing the string `AGENTS.md`, run `git config core.symlinks true && git checkout -- CLAUDE.md` after enabling symlink support.
 
+## Core Invariants
+
+These rules take precedence over all other guidance in this file.
+
+1. **Don't assume. Don't hide confusion. Surface tradeoffs.** If something is ambiguous or has meaningful alternatives, say so before proceeding. Never silently pick one path.
+2. **Minimum code that solves the problem. Nothing speculative.** Write only what the task requires. No extra abstractions, no future-proofing, no "while I'm here" cleanup.
+3. **Touch only what you must. Clean up only your own mess.** Scope changes tightly to the problem. Don't refactor surrounding code unless you broke it.
+4. **Define success criteria. Loop until verified.** Before starting, state what "done" looks like. After changes, verify that criterion is met — build, test, or observable behavior — before reporting complete.
+
 ## Worktree Discipline
 - Always verify `pwd` before editing; this repo uses git worktrees and edits must land in the active worktree, not the main repo path.
 - If a worktree directory appears missing or stale, stop and ask before retrying exploration.
