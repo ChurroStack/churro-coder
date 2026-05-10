@@ -80,11 +80,18 @@ function PathList({
 export function AgentsSandboxTab() {
   const { data: settings, refetch: refetchSettings } = trpc.sandbox.getSettings.useQuery();
   const { data: capabilities } = trpc.sandbox.getCapabilities.useQuery();
-  const setSettings = trpc.sandbox.setSettings.useMutation({ onSuccess: () => refetchSettings() });
+  const { data: bypass, refetch: refetchBypass } = trpc.sandbox.getBypassReasons.useQuery();
+  const setSettings = trpc.sandbox.setSettings.useMutation({
+    onSuccess: () => {
+      void refetchSettings();
+      void refetchBypass();
+    }
+  });
 
   const globalEnabled = settings?.sandboxEnabled ?? true;
   const allowToolchainCaches = settings?.allowToolchainCaches ?? true;
   const osSandboxAvailable = capabilities?.osSandboxAvailable ?? false;
+  const bypassReasons = bypass?.reasons ?? [];
 
   const extraWritable: string[] = (() => {
     try {
@@ -131,6 +138,19 @@ export function AgentsSandboxTab() {
             OS-level sandbox is unavailable on this machine. SDK-level path enforcement is still active — writes outside
             the worktree are blocked, but Bash subprocesses are unrestricted.
           </p>
+        )}
+        {bypassReasons.length > 0 && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+              <ShieldAlertIcon className="h-4 w-4" />
+              Sandbox is not being applied
+            </div>
+            <ul className="mt-1.5 list-disc list-inside space-y-1 text-xs text-amber-600/90 dark:text-amber-400/90">
+              {bypassReasons.map((reason, index) => (
+                <li key={index}>{reason}</li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
 
