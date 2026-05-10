@@ -33,6 +33,20 @@ function formatTokens(tokens: number): string {
   return tokens.toString();
 }
 
+export function contextStaleHint(args: {
+  staleReason?: MessageTokenData['staleReason'];
+  contextWindow: number;
+  selectedContextWindow: number;
+}): string | null {
+  if (args.staleReason === 'cross-provider-fallback') {
+    return `Showing the last completed turn while the selected model has no usage yet. Selected window: ${formatTokens(args.selectedContextWindow)}.`;
+  }
+  if (args.staleReason === 'selected-model-mismatch') {
+    return `Last completed turn used ${formatTokens(args.contextWindow)} context. Selected model window: ${formatTokens(args.selectedContextWindow)}.`;
+  }
+  return null;
+}
+
 // Circular progress component
 function CircularProgress({
   percent,
@@ -87,12 +101,18 @@ export const AgentContextIndicator = memo(function AgentContextIndicator({
   disabled
 }: AgentContextIndicatorProps) {
   const contextTokens = tokenData.totalInputTokens;
-  const contextWindow = resolveContextWindow({
+  const selectedContextWindow = resolveContextWindow({
     modelId,
-    metadataWindow: tokenData.contextWindow
+    metadataWindow: tokenData.selectedContextWindow
   });
+  const contextWindow = tokenData.contextWindow ?? selectedContextWindow;
   const percentUsed = Math.min(100, (contextTokens / contextWindow) * 100);
   const isEmpty = contextTokens === 0;
+  const staleHint = contextStaleHint({
+    staleReason: tokenData.staleReason,
+    contextWindow,
+    selectedContextWindow
+  });
 
   const isClickable = onCompact && !disabled && !isCompacting;
 
@@ -129,6 +149,7 @@ export const AgentContextIndicator = memo(function AgentContextIndicator({
             </>
           )}
         </p>
+        {staleHint ? <p className="mt-1 max-w-64 text-[11px] text-muted-foreground">{staleHint}</p> : null}
       </TooltipContent>
     </Tooltip>
   );

@@ -109,7 +109,7 @@ describe('resolveContextUsage', () => {
     expect(codexResult.contextWindow).toBe(1_050_000);
   });
 
-  it('uses selected model for the denominator, not the last message model', () => {
+  it('uses the last matched message model for the denominator, not the currently selected model', () => {
     const result = resolveContextUsage({
       messages: [assistantMessage('claude-sonnet-4-6', { inputTokens: 150_000, modelContextWindow: 200_000 })],
       selectedProvider: 'claude-code',
@@ -119,11 +119,20 @@ describe('resolveContextUsage', () => {
 
     expect(result.totalInputTokens).toBe(150_000);
     expect(result.contextWindow).toBe(200_000);
-    expect(resolveContextWindow({ modelId: 'opus[1m]', metadataWindow: result.contextWindow })).toBe(1_000_000);
+    expect(result.isStale).toBe(true);
+    expect(result.staleReason).toBe('selected-model-mismatch');
   });
 
-  it('prefers the catalog window over a metadata fallback for the selected model', () => {
-    expect(resolveContextWindow({ modelId: 'gpt-5.5', metadataWindow: 200_000 })).toBe(1_050_000);
+  it('uses Claude metadataWindow for SDK model ids that are not in the renderer catalog', () => {
+    const result = resolve('claude-code', [
+      assistantMessage('claude-opus-4-7', {
+        inputTokens: 514_200,
+        modelContextWindow: 1_000_000
+      })
+    ]);
+
+    expect(result.contextWindow).toBe(1_000_000);
+    expect(result.selectedContextWindow).toBe(200_000);
   });
 
   it('sums Claude inputTokens, cacheReadInputTokens, and cacheCreationInputTokens', () => {
@@ -212,5 +221,40 @@ describe('resolveContextUsage', () => {
 
     expect(claudeAfterReset.totalInputTokens).toBe(0);
     expect(codexUnchanged.totalInputTokens).toBe(90_000);
+  });
+
+  it('falls back to the latest real usage-bearing assistant turn when the selected provider has none', () => {
+    const result = resolveContextUsage({
+      messages: [assistantMessage('claude-sonnet-4-6', { inputTokens: 50_000, cacheReadInputTokens: 10_000 })],
+      selectedProvider: 'codex',
+      selectedModelId: 'gpt-5.5',
+      sessionEpochs: {
+        'claude-code': 0,
+        codex: 0
+      }
+    });
+
+    expect(result.totalInputTokens).toBe(60_000);
+    expect(result.contextWindow).toBe(1_050_000);
+    expect(result.isStale).toBe(true);
+    expect(result.staleReason).toBe('cross-provider-fallback');
+  });
+
+  it('does not cross providers when the selected provider has stale history after a reset', () => {
+    const result = resolveContextUsage({
+      messages: [
+        assistantMessage('claude-sonnet-4-6', { inputTokens: 50_000, sessionEpoch: 1 }),
+        assistantMessage('gpt-5.5', { inputTokens: 90_000, sessionEpoch: 1 })
+      ],
+      selectedProvider: 'claude-code',
+      selectedModelId: 'sonnet',
+      sessionEpochs: {
+        'claude-code': 2,
+        codex: 1
+      }
+    });
+
+    expect(result.totalInputTokens).toBe(0);
+    expect(result.contextWindow).toBe(200_000);
   });
 });
