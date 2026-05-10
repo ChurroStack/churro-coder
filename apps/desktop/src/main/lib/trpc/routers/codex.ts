@@ -33,6 +33,7 @@ import { cleanupCodexThreadSubscription, trackCodexThreadSubscription } from '..
 import { getClaudeShellEnvironment } from '../../claude/env';
 import { resolveProjectPathFromWorktree } from '../../claude-config';
 import { getDatabase, projects as projectsTable, subChats } from '../../db';
+import { syncSubChatMessages } from '../../db/backfill-messages';
 import { computeFileStatsFromMessages } from '../../file-stats';
 import { fetchMcpTools, fetchMcpToolsStdio, type McpToolInfo } from '../../mcp-auth';
 import { publicProcedure, router } from '../index';
@@ -3159,12 +3160,12 @@ export const codexRouter = router({
                   return !currentStream || currentStream.runId === input.runId;
                 };
 
-                const persistSubChatMessages = (messages: any[]) => {
+                const persistSubChatMessages = (msgs: any[]) => {
                   if (!isAuthoritativeRun()) {
                     return false;
                   }
 
-                  const json = JSON.stringify(messages);
+                  const json = JSON.stringify(msgs);
                   db.update(subChats)
                     .set({
                       messages: json,
@@ -3173,6 +3174,7 @@ export const codexRouter = router({
                     })
                     .where(eq(subChats.id, input.subChatId))
                     .run();
+                  syncSubChatMessages(db, input.subChatId, msgs);
                   return true;
                 };
 
@@ -3216,6 +3218,7 @@ export const codexRouter = router({
                       })
                       .where(eq(subChats.id, input.subChatId))
                       .run();
+                    syncSubChatMessages(db, input.subChatId, messagesForStream);
                   }
                 }
 

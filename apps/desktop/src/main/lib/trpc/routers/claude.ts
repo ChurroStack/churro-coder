@@ -39,6 +39,7 @@ import {
   projects as projectsTable,
   subChats
 } from '../../db';
+import { syncSubChatMessages } from '../../db/backfill-messages';
 import { computeFileStatsFromMessages } from '../../file-stats';
 import { computeCatchupBlock } from '../../multi-provider/catchup';
 import { createRollbackStash } from '../../git/stash';
@@ -1064,6 +1065,7 @@ export const claudeRouter = router({
                       })
                       .where(eq(subChats.id, input.subChatId))
                       .run();
+                    syncSubChatMessages(db, input.subChatId, messagesToSave);
                   }
                 }
 
@@ -2737,6 +2739,7 @@ ${prompt}
                           })
                           .where(eq(subChats.id, input.subChatId))
                           .run();
+                        syncSubChatMessages(db, input.subChatId, finalMessages);
                       }
                       db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, input.chatId)).run();
 
@@ -2842,6 +2845,7 @@ ${prompt}
                       })
                       .where(eq(subChats.id, input.subChatId))
                       .run();
+                    syncSubChatMessages(db, input.subChatId, finalMessages);
                   }
                 } else {
                   // No assistant response - just clear streamId

@@ -17,6 +17,7 @@ import {
   projects,
   subChats
 } from '../../db';
+import { syncSubChatMessages, invalidateSubChatMessages } from '../../db/backfill-messages';
 import { computeFileStatsFromMessages } from '../../file-stats';
 import { createWorktreeForChat, getWorktreeDiff, removeWorktree, sanitizeProjectName } from '../../git';
 import { fetchPRStatus, fetchPRComments, invalidatePRCache, mergePR, updatePRTitle } from '../../git/providers';
@@ -1176,6 +1177,9 @@ export const chatsRouter = router({
         .returning()
         .get();
 
+      // Populate messages table for the new sub-chat immediately
+      syncSubChatMessages(db, newSubChat.id, forkedMessages);
+
       // 8. Copy .jsonl session files to the new isolated config dir
       if (sourceSubChat.sessionId) {
         try {
@@ -1207,6 +1211,9 @@ export const chatsRouter = router({
               .where(eq(subChats.id, newSubChat.id))
               .run();
           }
+          // Re-sync messages table since forkedMessages was mutated above
+          invalidateSubChatMessages(db, newSubChat.id);
+          syncSubChatMessages(db, newSubChat.id, forkedMessages);
         }
       }
 
@@ -1226,7 +1233,7 @@ export const chatsRouter = router({
     .input(z.object({ id: z.string(), messages: z.string() }))
     .mutation(({ input }) => {
       const db = getDatabase();
-      return db
+      const result = db
         .update(subChats)
         .set({
           messages: input.messages,
@@ -1236,6 +1243,16 @@ export const chatsRouter = router({
         .where(eq(subChats.id, input.id))
         .returning()
         .get();
+
+      // Sync new contents to the messages table (invalidate first since this is a full replace)
+      let parsed: any[] = [];
+      try {
+        parsed = JSON.parse(input.messages) || [];
+      } catch {}
+      invalidateSubChatMessages(db, input.id);
+      syncSubChatMessages(db, input.id, parsed);
+
+      return result;
     }),
 
   /**
@@ -1311,6 +1328,10 @@ export const chatsRouter = router({
           .returning()
           .get();
       }
+
+      // Rebuild messages table from truncated set
+      invalidateSubChatMessages(db, input.subChatId);
+      syncSubChatMessages(db, input.subChatId, truncatedMessages);
 
       return {
         success: true,

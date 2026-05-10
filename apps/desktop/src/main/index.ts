@@ -6,7 +6,7 @@ import { join } from 'path';
 import { AuthManager, initAuthManager, getAuthManager as getAuthManagerFromModule } from './auth-manager';
 import { initAnalytics, shutdown as shutdownAnalytics, trackAppOpened, captureError } from './lib/analytics';
 import { checkForUpdates, downloadUpdate, initAutoUpdater, setupFocusUpdateCheck } from './lib/auto-updater';
-import { closeDatabase, initDatabase } from './lib/db';
+import { closeDatabase, initDatabase, runMessagesBackfill } from './lib/db';
 import { getLaunchDirectory, isCliInstalled, installCli, uninstallCli, parseLaunchDirectory } from './lib/cli';
 import { cleanupGitWatchers } from './lib/git/watcher';
 import { cancelAllPendingOAuth, handleMcpOAuthCallback } from './lib/mcp-auth';
@@ -652,6 +652,13 @@ if (gotTheLock) {
 
     // Create main window
     createMainWindow();
+
+    // Backfill legacy sub_chats.messages blob → per-row messages table.
+    // Runs async with setImmediate yields between sub_chats so it doesn't
+    // block the event loop. Non-fatal: failures are logged and retried on next launch.
+    runMessagesBackfill().catch((err) => {
+      console.error('[App] Messages backfill error:', err);
+    });
 
     // UPDATES-DISABLED: re-enable to restore auto-updater startup
     /*
