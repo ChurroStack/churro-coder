@@ -34,7 +34,8 @@
     "db:studio": "drizzle-kit studio",
     "test": "vitest run",
     "test:watch": "vitest",
-    "ts:check": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
+    "ts:check": "bun run typecheck",
     "format": "prettier --write --ignore-unknown ./src",
     "postinstall": "node -e \"if(!process.env.VERCEL && !process.env.SKIP_ELECTRON_REBUILD){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\" && node scripts/patch-electron-dev.mjs && node scripts/patch-radix-slot.mjs"
   },

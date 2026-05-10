@@ -48,7 +48,7 @@ This is the **slim hub**. It carries the always-needed context (what the app is,
 
 This app is bun-managed; do not run `pnpm install` here. From the monorepo root the same flows are also available via Nx (`pnpm exec nx run desktop:dev` / `:build` / `:dist` / `:package`), which shells back into these scripts.
 
-**Do not run typechecking from agents.** There is no `typecheck` script, and `ts:check` shells out to `tsgo` (`@typescript/native-preview`) which is not installed in this checkout — it exits 127. `bunx tsc --noEmit` "works" but the project has many pre-existing unrelated errors (third-party SDK incompatibilities, drizzle/tRPC narrowing) that drown out anything new, so the signal isn't useful. Verify changes by running the app (`bun run dev`) and exercising the affected feature in the UI instead.
+**Typechecking:** `bun run ts:check` (or `bun run typecheck`) runs `tsc --noEmit`. The project has pre-existing errors from third-party SDK incompatibilities and drizzle/tRPC narrowing that are unrelated to any given change, so treat new errors as signal but ignore the pre-existing noise. Prefer `bun run build` for a full correctness check, or run the app with `bun run dev` and exercise the affected feature.
 
 ```bash
 # Development
