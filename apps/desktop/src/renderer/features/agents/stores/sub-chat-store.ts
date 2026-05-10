@@ -51,9 +51,9 @@ interface AgentSubChatStore {
 
   // Actions
   setChatId: (chatId: string | null) => void;
-  setActiveSubChat: (subChatId: string) => void;
+  setActiveSubChat: (subChatId: string, expectedChatId?: string) => void;
   setOpenSubChats: (subChatIds: string[]) => void;
-  addToOpenSubChats: (subChatId: string) => void;
+  addToOpenSubChats: (subChatId: string, expectedChatId?: string) => void;
   removeFromOpenSubChats: (subChatId: string) => void;
   togglePinSubChat: (subChatId: string) => void;
   setAllSubChats: (subChats: SubChatMeta[]) => void;
@@ -217,8 +217,17 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
     set({ chatId, openSubChatIds, activeSubChatId, pinnedSubChatIds, splitPaneIds, splitRatios, allSubChats: [] });
   },
 
-  setActiveSubChat: (subChatId) => {
+  setActiveSubChat: (subChatId, expectedChatId) => {
     const { chatId } = get();
+    if (expectedChatId !== undefined && expectedChatId !== chatId) {
+      console.warn('[SubChatStore] cross-workspace mutation refused', {
+        action: 'setActiveSubChat',
+        expectedChatId: expectedChatId.slice(-8),
+        currentChatId: chatId?.slice(-8) ?? null,
+        subChatId: subChatId.slice(-8)
+      });
+      return;
+    }
     // Split group is independent — navigating tabs never touches it.
     // Split view shows automatically when active tab is part of the group.
     set({ activeSubChatId: subChatId });
@@ -231,8 +240,17 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
     if (chatId) saveToLS(chatId, 'open', subChatIds);
   },
 
-  addToOpenSubChats: (subChatId) => {
+  addToOpenSubChats: (subChatId, expectedChatId) => {
     const { openSubChatIds, chatId } = get();
+    if (expectedChatId !== undefined && expectedChatId !== chatId) {
+      console.warn('[SubChatStore] cross-workspace mutation refused', {
+        action: 'addToOpenSubChats',
+        expectedChatId: expectedChatId.slice(-8),
+        currentChatId: chatId?.slice(-8) ?? null,
+        subChatId: subChatId.slice(-8)
+      });
+      return;
+    }
     if (openSubChatIds.includes(subChatId)) return;
     const newIds = [...openSubChatIds, subChatId];
     set({ openSubChatIds: newIds });
