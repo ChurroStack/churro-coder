@@ -175,7 +175,17 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
     { worktreePath: worktreePath ?? '' },
     { enabled: !!worktreePath, staleTime: 30000 }
   );
-  const hasUpstream = gitStatus?.hasUpstream ?? false;
+  // Dedup'd against useWorkflowState's getPrStatus subscription — used purely
+  // as a cold-load fallback for hasUpstream below.
+  const { data: prStatusDataForUpstream } = trpc.chats.getPrStatus.useQuery(
+    { chatId: safeChatId },
+    { enabled: !!chatId, refetchInterval: 30000 }
+  );
+  // A PR (live or DB-backed) proves the branch was pushed. Fall back to it so
+  // a Push click during the cold-load window doesn't pass `setUpstream: true`
+  // for a branch that already has tracking configured. Mirrors the same
+  // asymmetric-fallback fix applied in use-workflow-snapshot.ts.
+  const hasUpstream = gitStatus?.hasUpstream ?? (!!prStatusDataForUpstream?.pr || !!chat?.prNumber);
 
   const {
     push: pushBranch,

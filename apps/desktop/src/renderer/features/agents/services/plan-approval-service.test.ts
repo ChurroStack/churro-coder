@@ -410,6 +410,27 @@ describe('approvePlan — DB persist with exitPlan: true (PR #45)', () => {
   });
 });
 
+describe('approvePlan — ensurePlanPersisted captures plan payload (approvedAt pipeline)', () => {
+  test('ensurePlanPersisted is called with plan content when resolvePlanContent returns it', async () => {
+    const planContent = { content: '## Plan\n1. Step', source: 'claude:ExitPlanMode' };
+    const { deps } = makeDeps({
+      resolvePlanContent: vi.fn(async () => planContent)
+    });
+    await approvePlan('sub-1', deps);
+    expect(deps.ensurePlanPersisted).toHaveBeenCalledWith(
+      expect.objectContaining({ subChatId: 'sub-1', plan: planContent })
+    );
+  });
+
+  test('ensurePlanPersisted is NOT called when resolvePlanContent returns null', async () => {
+    const { deps } = makeDeps({
+      resolvePlanContent: vi.fn(async () => null)
+    });
+    await approvePlan('sub-1', deps);
+    expect(deps.ensurePlanPersisted).not.toHaveBeenCalled();
+  });
+});
+
 describe('approvePlan — same-provider transport KEEP (PR #44)', () => {
   test('notifyProviderChange is NOT called for Claude→Claude', async () => {
     const { deps } = makeDeps();

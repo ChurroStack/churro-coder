@@ -92,8 +92,7 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
             type: 'text' as const,
             text: header + plan.content
           }
-        ],
-        structuredContent: plan.meta
+        ]
       };
     }
   );

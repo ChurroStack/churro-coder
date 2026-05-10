@@ -78,7 +78,8 @@ export function useModeSwitchDeps(updateSubChatModeMutation: ModeSwitchMutationL
         if (id.startsWith('temp-')) return;
         await updateSubChatModeMutation.mutateAsync({
           subChatId: id,
-          mode
+          mode,
+          ...(mode === 'execute' ? { exitPlan: true } : {})
         });
       },
       log: (msg) => {

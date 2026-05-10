@@ -218,7 +218,8 @@ describe('useChatController — composer', () => {
 
     expect(config.updateSubChatModeMutation.mutateAsync).toHaveBeenCalledWith({
       subChatId: 'abc-real',
-      mode: 'execute'
+      mode: 'execute',
+      exitPlan: true
     });
   });
 });

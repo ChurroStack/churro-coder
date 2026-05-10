@@ -112,6 +112,34 @@ describe('plan-store', () => {
     expect((await readCurrentPlan('sub-7'))?.content).toBe('# Plan\n\nbody');
   });
 
+  test('writeCurrentPlan persists supplied approvedAt in meta', async () => {
+    const approvedAt = '2026-05-10T12:00:00.000Z';
+    await writeCurrentPlan({
+      subChatId: 'sub-ap',
+      content: '# Plan\nbody',
+      source: 'fallback:approve',
+      title: 'Plan',
+      approvedAt
+    });
+
+    const result = await readCurrentPlan('sub-ap');
+    expect(result!.meta.approvedAt).toBe(approvedAt);
+  });
+
+  test('ensurePlanWritten passes approvedAt through when writing', async () => {
+    const approvedAt = '2026-05-10T13:00:00.000Z';
+    await ensurePlanWritten({
+      subChatId: 'sub-ep',
+      content: '# Plan\nbody',
+      source: 'fallback:approve',
+      title: 'Plan',
+      approvedAt
+    });
+
+    const result = await readCurrentPlan('sub-ep');
+    expect(result!.meta.approvedAt).toBe(approvedAt);
+  });
+
   test('ensurePlanWritten no-ops when a plan already exists', async () => {
     await writeCurrentPlan({ subChatId: 'sub-8', content: 'first', source: 's1', title: 't1' });
 

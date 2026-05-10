@@ -59,7 +59,17 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
       (gitStatus?.staged?.length ?? 0) + (gitStatus?.unstaged?.length ?? 0) + (gitStatus?.untracked?.length ?? 0);
 
     const pr = prStatusData?.pr;
-    const prState = pr ? (pr.state as WorkflowSnapshot['pr']['state']) : 'none';
+    // Fall back to the DB-backed prNumber whenever the live query has no data
+    // (either still loading on startup, or returned null because gh CLI is slow /
+    // the query just re-fired after streaming ended). chat.prNumber is written the
+    // moment a PR is created via the app and is cheap to read, so it avoids a
+    // gray badge during the 5-15 s gh CLI round-trip. Once the live query
+    // resolves it takes over with the authoritative state (open/merged/closed).
+    const prState: WorkflowSnapshot['pr']['state'] = pr
+      ? (pr.state as WorkflowSnapshot['pr']['state'])
+      : chat?.prNumber
+        ? 'open'
+        : 'none';
     const reviewDecision = (pr?.reviewDecision ?? 'none') as WorkflowSnapshot['pr']['reviewDecision'];
 
     const normalizedMode: WorkflowSnapshot['mode'] =
@@ -78,13 +88,33 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
         changedFiles,
         // headSha not yet in getStatus — placeholder for PR 5 review-staleness check.
         headSha: '',
-        hasRemote: gitStatus?.hasRemote ?? false
+        // A PR (live or DB) is definitive proof a remote exists. OR rather than
+        // ?? to override both the loading case (undefined) and false negatives
+        // from getStatus. prStatusData?.pr covers when getPrStatus has live data
+        // but chats.get cache is still stale (prNumber not yet re-fetched).
+        hasRemote: !!gitStatus?.hasRemote || !!prStatusData?.pr || !!chat?.prNumber
       },
       pushCount: gitStatus?.pushCount ?? 0,
-      hasUpstream: gitStatus?.hasUpstream ?? false,
+      // A PR (live or DB) proves the branch was pushed — you can't open a PR without
+      // pushing first. Use it as a fallback so the Code pill doesn't flash amber
+      // "Push branch to origin" during the window while getStatus is still in-flight
+      // but prStatusData already resolved from cache.
+      hasUpstream: gitStatus?.hasUpstream ?? (!!prStatusData?.pr || !!chat?.prNumber),
       baseBranchBehind: prStatusData?.baseBranchBehind ?? 0,
       pr: { state: prState, reviewDecision, creating: prCreating },
       hasHistory: aiEverResponded
     };
-  }, [chatId, subChatId, mode, activity, planData, reviewExists, gitStatus, prStatusData, prCreating, aiEverResponded]);
+  }, [
+    chatId,
+    subChatId,
+    mode,
+    activity,
+    planData,
+    reviewExists,
+    gitStatus,
+    prStatusData,
+    prCreating,
+    aiEverResponded,
+    chat
+  ]);
 }

@@ -36,6 +36,7 @@ export async function writeCurrentPlan(opts: {
   content: string;
   source: string;
   title: string;
+  approvedAt?: string;
 }): Promise<void> {
   const dir = getPlanDir(opts.subChatId);
   await mkdir(dir, { recursive: true });
@@ -43,7 +44,8 @@ export async function writeCurrentPlan(opts: {
   const meta: PlanMeta = {
     source: opts.source,
     title: opts.title,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...(opts.approvedAt ? { approvedAt: opts.approvedAt } : {})
   };
 
   // Each rename is atomic; the pair isn't. A crash between the two renames leaves
@@ -111,6 +113,7 @@ export async function ensurePlanWritten(opts: {
   content: string;
   source: string;
   title: string;
+  approvedAt?: string;
 }): Promise<{ written: boolean }> {
   if (await hasPlan(opts.subChatId)) {
     return { written: false };

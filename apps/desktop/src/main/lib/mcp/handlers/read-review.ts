@@ -87,8 +87,7 @@ export function registerReadReviewTool(server: McpServer, opts: { boundSubChatId
             type: 'text' as const,
             text: header + review.content
           }
-        ],
-        structuredContent: review.meta
+        ]
       };
     }
   );

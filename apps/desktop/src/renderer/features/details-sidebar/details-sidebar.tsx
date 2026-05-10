@@ -15,7 +15,8 @@ import {
   PlayCircle,
   Workflow,
   ClipboardList,
-  Terminal as TerminalIcon
+  Terminal as TerminalIcon,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -284,9 +285,41 @@ export function DetailsSidebar({
     setSettingsOpen(true);
   }, [setSettingsTab, setSettingsOpen]);
 
+  const utils = trpc.useUtils();
+
   // Fetch chat to derive projectId + terminal scope for the Scripts widget
   const { data: chatData } = trpc.chats.get.useQuery({ id: chatId });
   const projectIdForScripts = chatData?.projectId ?? null;
+
+  const refreshCachesMutation = trpc.chats.refreshWorkflowCaches.useMutation();
+  const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
+  // Hard reset: bust server-side caches, then invalidate every renderer-side
+  // query that feeds the Status widget — without filtering by the closed-over
+  // worktreePath/activeSubChatId props, which can be transiently null while
+  // chats.get is still loading. A null prop used to gate-out the React Query
+  // invalidation, leaving observers stuck reading the disabled empty-path
+  // query (data: undefined → snapshot computed `!hasUpstream` → amber pill).
+  const handleRefreshStatus = useCallback(async () => {
+    setIsRefreshingStatus(true);
+    try {
+      await refreshCachesMutation.mutateAsync({ chatId });
+      await Promise.allSettled([
+        // Re-fetch chats.get so a stale chat row (e.g. one cached before the
+        // worktree was provisioned and worktreePath was still null) is updated.
+        utils.chats.get.invalidate({ id: chatId }),
+        // No-input invalidate matches every cache-key variant of the procedure
+        // (with/without defaultBranch, with/without worktreePath). Disabled
+        // observers are no-ops, so the only real cost is one extra fetch when
+        // many workspaces are mounted — acceptable for an explicit user click.
+        utils.changes.getStatus.invalidate(),
+        utils.chats.getPrStatus.invalidate(),
+        utils.chats.getCurrentPlan.invalidate(),
+        utils.chats.getCurrentReview.invalidate()
+      ]);
+    } finally {
+      setIsRefreshingStatus(false);
+    }
+  }, [refreshCachesMutation, utils, chatId]);
   const scriptsScopeKey = useMemo(
     () =>
       getTerminalScopeKey({
@@ -509,7 +542,27 @@ export function DetailsSidebar({
               case 'status':
                 if (!workflow || !onWorkflowAction) return null;
                 return (
-                  <WidgetCard key="status" widgetId="status" title="Status" hideExpand>
+                  <WidgetCard
+                    key="status"
+                    widgetId="status"
+                    title="Status"
+                    hideExpand
+                    badge={
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleRefreshStatus}
+                            disabled={isRefreshingStatus}
+                            className="h-5 w-5 p-0 hover:bg-foreground/10 text-muted-foreground hover:text-foreground rounded-md opacity-0 group-hover:opacity-100 transition-[background-color,opacity,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0"
+                            aria-label="Refresh status">
+                            <RefreshCw className={cn('h-3 w-3', isRefreshingStatus && 'animate-spin')} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">Refresh status</TooltipContent>
+                      </Tooltip>
+                    }>
                     <StatusWidget workflow={workflow} onAction={onWorkflowAction} />
                   </WidgetCard>
                 );

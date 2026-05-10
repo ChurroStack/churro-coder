@@ -33,6 +33,7 @@ export function TRPCProvider({ children }: TRPCProviderProps) {
       }
     });
     globalQueryClient = client;
+    (window as unknown as { __qc: QueryClient }).__qc = client;
     return client;
   });
 

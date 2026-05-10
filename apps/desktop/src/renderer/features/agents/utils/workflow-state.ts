@@ -121,8 +121,10 @@ export function computeWorkflowState(s: WorkflowSnapshot): WorkflowState {
 
 function computePlan(s: WorkflowSnapshot): MilestoneState {
   if (s.mode !== 'plan') {
-    // Artifact-driven: done only when the plan file was written AND approved.
-    if (s.plan?.exists && s.plan.meta?.approvedAt) {
+    // Artifact-driven: done when the plan file exists and we've left plan mode.
+    // approvedAt is set by the approval flow for new plans; older plans that lack
+    // it are still considered done because exiting plan mode is the approval act.
+    if (s.plan?.exists) {
       return { id: 'plan', status: 'done', label: 'Plan', hint: 'Plan approved' };
     }
     return { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (execute mode)' };

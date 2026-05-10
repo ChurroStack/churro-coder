@@ -92,7 +92,12 @@ export const createStatusRouter = () => {
           stagedCount: result.staged.length,
           unstagedCount: result.unstaged.length,
           untrackedCount: result.untracked.length,
-          commitsCount: result.commits.length
+          commitsCount: result.commits.length,
+          pushCount: result.pushCount,
+          hasUpstream: result.hasUpstream,
+          hasRemote: result.hasRemote,
+          ahead: result.ahead,
+          behind: result.behind
         });
         return result;
       }),

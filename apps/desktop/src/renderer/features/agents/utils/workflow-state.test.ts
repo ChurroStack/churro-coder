@@ -99,10 +99,10 @@ describe('computeWorkflowState — plan milestone', () => {
     expect(s.plan.hint).toContain('Skipped');
   });
 
-  test('execute mode + plan exists but no approvedAt → plan idle (not yet approved)', () => {
+  test('execute mode + plan exists but no approvedAt → plan done (legacy plans without timestamp)', () => {
     const s = computeWorkflowState({ ...base, plan: { exists: true, meta: {} } });
-    expect(s.plan.status).toBe('idle');
-    expect(s.plan.hint).toContain('Skipped');
+    expect(s.plan.status).toBe('done');
+    expect(s.plan.hint).toBe('Plan approved');
   });
 });
 

@@ -345,9 +345,10 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               }
 
               if (chunk.type === undefined) {
-                console.warn('[ipc-chat-transport] chunk with undefined type', {
+                console.warn('[ipc-chat-transport] chunk with undefined type — dropping', {
                   sub: this.config.subChatId.slice(-8)
                 });
+                return;
               }
 
               // Clear pending questions ONLY when agent has moved on

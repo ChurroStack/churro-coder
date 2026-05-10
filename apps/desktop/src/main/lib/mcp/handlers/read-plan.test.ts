@@ -110,7 +110,7 @@ describe('read_plan tool', () => {
     expect(content[0].text).not.toContain('OTHER');
   });
 
-  test('exposes plan meta as structuredContent', async () => {
+  test('embeds plan meta in content text (no structuredContent)', async () => {
     await writeCurrentPlan({
       subChatId: 's-meta',
       content: 'body',
@@ -121,9 +121,9 @@ describe('read_plan tool', () => {
     const { client } = await makeClientServer('s-meta');
     const result = await client.callTool({ name: 'read_plan', arguments: {} });
 
-    expect(result.structuredContent).toMatchObject({
-      source: 'codex:PlanWrite',
-      title: 'Meta Title'
-    });
+    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+    expect(text).toContain('Meta Title');
+    expect(text).toContain('codex:PlanWrite');
+    expect(result.structuredContent).toBeUndefined();
   });
 });
