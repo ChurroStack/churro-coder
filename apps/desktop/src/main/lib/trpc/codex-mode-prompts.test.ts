@@ -36,10 +36,10 @@ describe('buildCodexModeInstruction', () => {
 
 describe('buildCodexApprovedPlanHint', () => {
   test('keeps exact read_plan call shape for implement-plan turns', () => {
-    const hint = buildCodexApprovedPlanHint('sub-123');
+    const hint = buildCodexApprovedPlanHint('sub-123', 'mcp__churro-coder-dev__read_plan');
 
-    expect(hint).toContain('For an implement-plan turn, call `read_plan` before editing');
+    expect(hint).toContain('call `mcp__churro-coder-dev__read_plan` before editing');
     expect(hint).toContain('{ "subChatId": "sub-123" }');
-    expect(hint).toContain('do not call read_plan without it');
+    expect(hint).toContain('do not call the tool without it');
   });
 });

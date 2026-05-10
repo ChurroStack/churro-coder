@@ -7,9 +7,9 @@ vi.mock('../../../prompts/index', () => ({
     'workflow/merge-base':
       'Merge latest from {{ baseBranch }} into the current branch and resolve any conflicts. Run `git fetch origin {{ baseBranch }}` first, then `git merge origin/{{ baseBranch }}`. Resolve any conflicts and commit the merge.',
     'workflow/implement-plan':
-      'Implement plan. First, call the `read_plan` tool from the `churro-coder` MCP server to retrieve the approved plan. If the tool requires a `subChatId` argument, pass { "subChatId": "{{ subChatId }}" }. Then implement it. Track progress through each plan step using your built-in task-management tool: open a task list at the start and update each item\'s status (pending → in_progress → completed) as you work.',
+      'Implement plan. First, call the app-owned `read_plan` MCP tool to retrieve the approved plan. In Codex sessions this tool is exposed as `{{ mcpToolName | default("mcp__churro-coder__read_plan") }}`. Use EXACTLY this argument object when a sub-chat id is required: { "subChatId": "{{ subChatId }}" }. Then implement it. Track progress through each plan step using your built-in task-management tool: open a task list at the start and update each item\'s status (pending → in_progress → completed) as you work.',
     'mode/codex-approved-plan-hint':
-      '[CONTEXT] Sub-chat id: {{ subChatId }}. An approved plan governs this sub-chat. For an implement-plan turn, call `read_plan` before editing and use Codex-native task tools to track progress. Call `read_plan` on the app-owned churro-coder MCP server with EXACTLY this argument object: { "subChatId": "{{ subChatId }}" }. The subChatId argument is required — do not call read_plan without it.',
+      '[CONTEXT] Sub-chat id: {{ subChatId }}. An approved plan governs this sub-chat. For an implement-plan turn, call `{{ mcpToolName }}` before editing and use Codex-native task tools to track progress. Call `{{ mcpToolName }}` with EXACTLY this argument object: { "subChatId": "{{ subChatId }}" }. The subChatId argument is required — do not call the tool without it.',
     'workflow/commit-to-pr':
       '{% if uncommittedCount == 0 %}All changes are already committed. The branch {{ branch }} is up to date.{% else %}There are {{ uncommittedCount }} uncommitted changes on branch {{ branch }}.\nThe PR already exists and targets origin/{{ baseBranch }}.\n\nPlease commit and push these changes to update the PR:\n\n1. Run git diff to review uncommitted changes\n2. Commit them with a clear, concise commit message\n3. Push to origin to update the PR\n4. If any of these steps fail, ask the user for help.{% endif %}'
   }
@@ -39,16 +39,23 @@ describe('getPrompt – variable substitution', () => {
   });
 
   it('renders implement-plan with subChatId', async () => {
-    const result = await getPrompt({ key: 'workflow/implement-plan', vars: { subChatId: 'abc-123' } });
+    const result = await getPrompt({
+      key: 'workflow/implement-plan',
+      vars: { subChatId: 'abc-123', mcpToolName: 'mcp__churro-coder-dev__read_plan' }
+    });
     expect(result).toContain('"subChatId": "abc-123"');
-    expect(result).toContain('read_plan');
+    expect(result).toContain('mcp__churro-coder-dev__read_plan');
     expect(result).not.toContain('{{');
   });
 
   it('renders codex-approved-plan-hint with subChatId', async () => {
-    const result = await getPrompt({ key: 'mode/codex-approved-plan-hint', vars: { subChatId: 'xyz-789' } });
+    const result = await getPrompt({
+      key: 'mode/codex-approved-plan-hint',
+      vars: { subChatId: 'xyz-789', mcpToolName: 'mcp__churro-coder__read_plan' }
+    });
     expect(result).toContain('Sub-chat id: xyz-789');
     expect(result).toContain('"subChatId": "xyz-789"');
+    expect(result).toContain('mcp__churro-coder__read_plan');
     expect(result).not.toContain('{{');
   });
 

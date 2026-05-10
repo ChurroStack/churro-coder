@@ -1305,8 +1305,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
           changeId: change.changeId
         });
         console.log(`[openspec/panel] open changeId=${change.changeId} subChatId=${subChat.id}`);
-        addToOpenSubChats(subChat.id);
-        setActiveSubChatInStore(subChat.id);
+        addToOpenSubChats(subChat.id, chatId!);
+        setActiveSubChatInStore(subChat.id, chatId!);
         // Use pending atom so ChatPanelSync opens the panel once the target
         // workspace's dockview is ready (avoids stale captured-dockApi bug).
         appStore.set(pendingOpenSpecPanelAtom, {
@@ -1382,8 +1382,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
           await saveSubChatDraftWithAttachments(chatId, subChat.id, message.trim());
           editorRef.current?.clear();
         }
-        addToOpenSubChats(subChat.id);
-        setActiveSubChatInStore(subChat.id);
+        addToOpenSubChats(subChat.id, chatId!);
+        setActiveSubChatInStore(subChat.id, chatId!);
         appStore.set(pendingOpenSpecPanelAtom, {
           subChatId: subChat.id,
           chatId,
