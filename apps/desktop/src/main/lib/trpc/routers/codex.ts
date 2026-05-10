@@ -3323,9 +3323,19 @@ export const codexRouter = router({
                   );
                 const builtInTools =
                   input.mode === 'plan'
-                    ? ['Read', 'Glob', 'Grep', 'Thinking', 'PlanWrite', 'AskUserQuestion']
+                    ? [
+                        'Bash',
+                        'Read',
+                        'Glob',
+                        'Grep',
+                        'Thinking',
+                        'WebSearch',
+                        'WebFetch',
+                        'PlanWrite',
+                        'AskUserQuestion'
+                      ]
                     : input.mode === 'explore'
-                      ? ['Read', 'Glob', 'Grep', 'Thinking', 'WebSearch', 'WebFetch', 'AskUserQuestion']
+                      ? ['Bash', 'Read', 'Glob', 'Grep', 'Thinking', 'WebSearch', 'WebFetch', 'AskUserQuestion']
                       : [
                           'Bash',
                           'Edit',
