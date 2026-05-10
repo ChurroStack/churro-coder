@@ -145,6 +145,10 @@ export function resolveContextUsage(args: {
     contextWindow,
     selectedContextWindow,
     isStale: isCrossProviderFallback || isSelectedModelMismatch,
-    staleReason: isCrossProviderFallback ? 'cross-provider-fallback' : isSelectedModelMismatch ? 'selected-model-mismatch' : undefined
+    staleReason: isCrossProviderFallback
+      ? 'cross-provider-fallback'
+      : isSelectedModelMismatch
+        ? 'selected-model-mismatch'
+        : undefined
   };
 }

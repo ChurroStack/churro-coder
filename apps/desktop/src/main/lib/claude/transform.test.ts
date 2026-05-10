@@ -7,8 +7,9 @@ function collectChunks(transformer: ReturnType<typeof createTransformer>, messag
 }
 
 function readMetadata(chunks: UIMessageChunk[]): MessageMetadata | undefined {
-  return chunks.find((chunk): chunk is Extract<UIMessageChunk, { type: 'message-metadata' }> => chunk.type === 'message-metadata')
-    ?.messageMetadata;
+  return chunks.find(
+    (chunk): chunk is Extract<UIMessageChunk, { type: 'message-metadata' }> => chunk.type === 'message-metadata'
+  )?.messageMetadata;
 }
 
 describe('createTransformer', () => {

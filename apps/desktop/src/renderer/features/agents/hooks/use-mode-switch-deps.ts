@@ -34,10 +34,12 @@
 
 import { useMemo } from 'react';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
+import { agentChatStore } from '../stores/agent-chat-store';
+import { CodexChatTransport } from '../lib/codex-chat-transport';
 import { applyModeDefaultModel } from '../lib/model-switching';
 import { appStore } from '../../../lib/jotai-store';
 import { trpc } from '../../../lib/trpc';
-import { chatModeFsmStateAtomFamily } from '../atoms';
+import { chatModeFsmStateAtomFamily, subChatProviderOverridesAtom } from '../atoms';
 import type { ModeSwitchDeps } from '../services/mode-switch-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
 
@@ -84,6 +86,20 @@ export function useModeSwitchDeps(
           mode,
           ...(mode === 'execute' ? { exitPlan: true } : {})
         });
+      },
+      // Snapshot the currently-wired provider so the service can decide
+      // whether `notifyProviderChange` actually needs to fire. Mirrors
+      // `useApprovePlanDeps.readPreviousProvider`: prefer the live
+      // transport instance, fall back to the override atom, default to
+      // `'claude-code'`.
+      readPreviousProvider: (id) => {
+        const existing = agentChatStore.get(id);
+        if (existing) {
+          return (
+            (existing as { transport?: unknown })?.transport instanceof CodexChatTransport ? 'codex' : 'claude-code'
+          ) as ProviderId;
+        }
+        return (appStore.get(subChatProviderOverridesAtom)[id] ?? 'claude-code') as ProviderId;
       },
       notifyProviderChange,
       log: (msg) => {

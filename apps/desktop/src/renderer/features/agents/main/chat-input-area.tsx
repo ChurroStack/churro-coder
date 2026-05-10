@@ -1457,6 +1457,11 @@ export const ChatInputArea = memo(function ChatInputArea({
                   <DropdownMenu
                     open={modeDropdownOpen}
                     onOpenChange={(open) => {
+                      // Streaming gate: the mode-switch FSM rejects user
+                      // toggles while activity != idle (PR #51), so block
+                      // opening the menu mid-stream rather than letting
+                      // the user click and observe a silent rejection.
+                      if (open && isStreaming) return;
                       setModeDropdownOpen(open);
                       if (!open) {
                         if (tooltipTimeoutRef.current) {
@@ -1468,7 +1473,12 @@ export const ChatInputArea = memo(function ChatInputArea({
                       }
                     }}>
                     <DropdownMenuTrigger asChild>
-                      <button className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
+                      <button
+                        disabled={isStreaming}
+                        className={cn(
+                          'flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70',
+                          isStreaming && 'opacity-50 cursor-not-allowed pointer-events-none'
+                        )}>
                         {subChatMode === 'plan' ? (
                           <PlanIcon className="h-3.5 w-3.5 shrink-0" />
                         ) : subChatMode === 'explore' ? (

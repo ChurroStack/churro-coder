@@ -849,15 +849,31 @@ export const ChatViewInner = memo(function ChatViewInner({
   //   - PR #38: per-mode default model + thinking gets applied (legacy
   //     code didn't do this on user toggle — only on plan approval).
   //   - PR #51: FSM activity gate rejects toggles while streaming/sending.
-  //     Silent rejection here — the toggle UI in chat-input-area should
-  //     also be gated on `isStreaming` so the user doesn't see the
-  //     rejection at all. Keeping a console.warn for debugging.
+  //     Silent rejection here — the toggle UI in chat-input-area is
+  //     additionally gated on `isStreaming` so the user can't trigger one.
+  //     Keeping a console.warn for debugging.
   //   - PR #44 / #52: cross-provider mode defaults must recreate the
-  //     underlying transport immediately. User toggles can cross providers
-  //     too, so we wire `notifyProviderChange` here.
+  //     underlying transport immediately. Previously omitted because
+  //     Plan↔Execute was assumed same-provider; user-configurable mode
+  //     defaults broke that assumption. Plan-approval still wires
+  //     `notifyProviderChange` separately via `useApprovePlanDeps` — the
+  //     service short-circuits when `readPreviousProvider` reports no
+  //     actual provider change, so double-wiring is safe.
+  //
+  // We pass `currentMode: subChatModeForToggleRef.current` so the service
+  // reconciles the FSM mode against the dropdown's source of truth before
+  // the no-change comparison. Without this, a direct Plan→Execute click
+  // can be silently rejected as `no-change` when the FSM atom still holds
+  // its `'execute'` default (the chat-level hydration loop hasn't run yet).
+  // See "selector see lazy nebula" postmortem.
+  const subChatModeForToggleRef = useRef(subChatMode);
+  subChatModeForToggleRef.current = subChatMode;
+
   const handleModeChange = useCallback(
     async (newMode: AgentMode) => {
-      const result = await toggleModeService(subChatId, newMode, modeDeps);
+      const result = await toggleModeService(subChatId, newMode, modeDeps, {
+        currentMode: subChatModeForToggleRef.current
+      });
       if (!result.ok && result.reason === 'busy') {
         console.warn(`[mode-toggle] rejected: chat is busy (activity=${result.finalState.activity})`);
       }

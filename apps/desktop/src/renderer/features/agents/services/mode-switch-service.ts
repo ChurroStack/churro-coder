@@ -79,9 +79,29 @@ export interface ModeSwitchDeps {
   persistMode?: (input: { subChatId: string; mode: ChatMode }) => Promise<void>;
 
   /**
+   * Optional snapshot of the currently-wired provider for the sub-chat,
+   * captured BEFORE `applyDefaultModel` writes the override atom. Used by
+   * the service to decide whether `notifyProviderChange` should actually
+   * fire — when the resolved provider matches what is already wired up,
+   * the transport-recreate notification is wasteful churn.
+   *
+   * If undefined, the service falls back to legacy "always-fire" semantics
+   * so existing callers/tests keep working without code changes.
+   *
+   * Pattern mirrors `useApprovePlanDeps.readPreviousProvider`: prefer the
+   * live transport instance, fall back to the override atom, default to
+   * `'claude-code'`.
+   */
+  readPreviousProvider?: (subChatId: string) => ProviderId;
+
+  /**
    * Optional: notify the renderer that the provider has changed (so the
    * transport can be torn down + recreated). Wires to `setSubChatProviderOverrides`.
-   * Only fires when the resolved provider differs from `previousProvider`.
+   *
+   * The service only invokes this when the resolved provider differs from
+   * `readPreviousProvider(subChatId)`. If `readPreviousProvider` is not
+   * wired, the service fires unconditionally on every committed flip
+   * (legacy behavior).
    */
   notifyProviderChange?: (subChatId: string, provider: ProviderId) => void;
 
@@ -97,8 +117,37 @@ export interface ToggleResult {
   reason?: 'busy' | 'no-change' | 'persist-failed';
   /** Resolved provider after applyDefaultModel — only set when ok=true. */
   provider?: ProviderId;
-  /** True if the flow caused a cross-provider switch (notifyProviderChange fired). */
+  /**
+   * True if the flow actually crossed providers AND `notifyProviderChange`
+   * was wired. With `readPreviousProvider` wired this reflects a real
+   * transport-recreate event; without it, falls back to "true on every
+   * committed flip when `notifyProviderChange` is wired" (legacy).
+   */
   crossProvider?: boolean;
+}
+
+/**
+ * Options bag for {@link toggleMode}.
+ */
+export interface ToggleOptions {
+  /**
+   * UI-observed current mode (the value the user sees in the dropdown,
+   * sourced from `useSubChatMode`/`chats.getSubChat`). Used to reconcile
+   * the FSM mode if it has lagged behind the source of truth.
+   *
+   * The FSM atom defaults to `'execute'`; if the chat-level hydration
+   * loop has not yet run, the FSM may report stale data while the
+   * dropdown already shows the persisted DB-backed mode. Treating the
+   * user-observed value as authoritative for the no-change comparison
+   * ensures every click is honored — without this, a Plan→Execute click
+   * is silently rejected as `no-change` because the FSM thinks it is
+   * already in Execute. Tracked under the "selector see lazy nebula"
+   * postmortem.
+   *
+   * The caller MUST source this from the same query the dropdown reads
+   * (`useSubChatMode`) so the reconciled state matches the user's intent.
+   */
+  currentMode?: ChatMode;
 }
 
 /**
@@ -107,31 +156,42 @@ export interface ToggleResult {
  * Rejected mid-stream by the FSM. The caller MUST gate the UI control on
  * `state.activity === "idle"` to avoid surfacing the rejection to the user.
  */
-export async function toggleMode(subChatId: string, to: ChatMode, deps: ModeSwitchDeps): Promise<ToggleResult> {
+export async function toggleMode(
+  subChatId: string,
+  to: ChatMode,
+  deps: ModeSwitchDeps,
+  opts?: ToggleOptions
+): Promise<ToggleResult> {
   const log = deps.log ?? (() => {});
   const previousState = deps.readState(subChatId);
 
-  // Capture previousProvider BEFORE applyDefaultModel writes the override atom.
-  // toggleMode doesn't have direct access to the existing transport like
-  // approvePlan does, so the caller is expected to read the current
-  // `subChatProviderOverrideAtomFamily` and pass it in via deps if it
-  // wants cross-provider notification. Here we just compare via the
-  // applyDefaultModel return value — `crossProvider` is set when the
-  // resolved provider differs from the FSM's last-applied provider, which
-  // we can't observe directly. Fall back to: notifyProviderChange always
-  // fires when defined; the caller can no-op if same-provider.
+  // Reconcile FSM mode with the UI-observed source of truth. The FSM atom
+  // defaults to `'execute'`; if the chat-level hydration loop has not yet
+  // run for this sub-chat, the FSM may hold its default while the
+  // dropdown shows the persisted DB mode. Without this, a direct
+  // Plan→Execute click is silently rejected as `no-change` because the
+  // FSM thinks it is already in Execute.
+  const effectivePrev: ChatModeState =
+    opts?.currentMode !== undefined && opts.currentMode !== previousState.mode
+      ? { ...previousState, mode: opts.currentMode, mustApplyDefaults: false }
+      : previousState;
 
-  // Drive the FSM with the user toggle event.
-  const candidate = reduceChatMode(previousState, { type: 'USER_TOGGLED_MODE', to });
+  // Capture previousProvider BEFORE applyDefaultModel writes the override
+  // atom. When `readPreviousProvider` is not wired, leave `undefined`;
+  // the conditional below falls back to legacy always-fire semantics.
+  const previousProvider = deps.readPreviousProvider?.(subChatId);
 
-  if (candidate.mode === previousState.mode && previousState.activity === 'idle') {
-    // No-op (already in target mode).
+  // Drive the FSM with the user toggle event, against the reconciled state.
+  const candidate = reduceChatMode(effectivePrev, { type: 'USER_TOGGLED_MODE', to });
+
+  if (candidate.mode === effectivePrev.mode && effectivePrev.activity === 'idle') {
+    // No-op (already in target mode, per the UI-observed source of truth).
     return { ok: false, finalState: candidate, reason: 'no-change' };
   }
 
-  if (candidate.mode === previousState.mode && previousState.activity !== 'idle') {
+  if (candidate.mode === effectivePrev.mode && effectivePrev.activity !== 'idle') {
     // FSM rejected the toggle (busy).
-    log(`[MODE] toggle:rejected sub=${subChatId.slice(-8)} ` + `to=${to} activity=${previousState.activity}`);
+    log(`[MODE] toggle:rejected sub=${subChatId.slice(-8)} ` + `to=${to} activity=${effectivePrev.activity}`);
     return { ok: false, finalState: candidate, reason: 'busy' };
   }
 
@@ -142,8 +202,14 @@ export async function toggleMode(subChatId: string, to: ChatMode, deps: ModeSwit
   const { provider } = deps.applyDefaultModel(subChatId, to);
   log(`[MODE] toggle:applied sub=${subChatId.slice(-8)} mode=${to} provider=${provider}`);
 
-  // 3. Cross-provider notification — caller decides via the optional dep.
-  if (deps.notifyProviderChange) {
+  // 3. Cross-provider notification — only fire when the resolved provider
+  //    actually differs from the previously-wired provider. Same-provider
+  //    flips don't need transport recreation (`agentChatStore.delete` +
+  //    `forceUpdate`) and the wasted churn would lose any in-memory
+  //    transport state. If `readPreviousProvider` is not wired, fall back
+  //    to legacy always-fire semantics.
+  const providerChanged = previousProvider === undefined ? true : previousProvider !== provider;
+  if (providerChanged && deps.notifyProviderChange) {
     deps.notifyProviderChange(subChatId, provider);
   }
 
@@ -177,7 +243,7 @@ export async function toggleMode(subChatId: string, to: ChatMode, deps: ModeSwit
     ok: true,
     finalState: candidate,
     provider,
-    crossProvider: !!deps.notifyProviderChange
+    crossProvider: providerChanged && !!deps.notifyProviderChange
   };
 }
 
@@ -204,9 +270,17 @@ export async function forceMode(
   // FORCE_MODE always commits; mustApplyDefaults is true unless the target
   // already matches.
   if (candidate.mustApplyDefaults) {
+    // Capture previousProvider BEFORE applyDefaultModel writes the override.
+    const previousProvider = deps.readPreviousProvider?.(subChatId);
+
     deps.setMode(subChatId, to);
     const { provider } = deps.applyDefaultModel(subChatId, to);
-    if (deps.notifyProviderChange) {
+
+    // Same conditional as `toggleMode` — only fire notifyProviderChange
+    // when the provider actually changed (or when readPreviousProvider is
+    // not wired, for legacy callers).
+    const providerChanged = previousProvider === undefined ? true : previousProvider !== provider;
+    if (providerChanged && deps.notifyProviderChange) {
       deps.notifyProviderChange(subChatId, provider);
     }
     log(`[MODE] force:applied sub=${subChatId.slice(-8)} ` + `mode=${to} reason=${reason} provider=${provider}`);
@@ -234,7 +308,7 @@ export async function forceMode(
       ok: true,
       finalState: candidate,
       provider,
-      crossProvider: !!deps.notifyProviderChange
+      crossProvider: providerChanged && !!deps.notifyProviderChange
     };
   }
 
