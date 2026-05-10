@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
 import { ensurePlanWritten, extractPlanTitleFromContent, markApproved, readCurrentPlan } from '../../plans/plan-store';
 import { readCurrentReview } from '../../reviews/review-store';
@@ -2062,6 +2062,16 @@ export const chatsRouter = router({
       }
 
       // Query only the specified sub-chats, including mode for filtering
+      // Push the cheap "could this row possibly have a pending approval?"
+      // check into SQL so we don't pay JSON.parse on every open sub-chat
+      // every 5s. The handler walks `messages` looking for one of:
+      //   - tool-ExitPlanMode (Claude path)
+      //   - tool-PlanWrite (Codex widget path)
+      //   - a legacy text plan from a Codex/gpt-* model
+      // Filtering by `mode = 'plan'` AND at least one of these markers
+      // typically eliminates the vast majority of rows before any JSON
+      // touches V8's heap. The substring patterns mirror the assistant
+      // message structure produced by the AI SDK / Codex transports.
       const allSubChats = db
         .select({
           chatId: subChats.chatId,
@@ -2070,18 +2080,26 @@ export const chatsRouter = router({
           messages: subChats.messages
         })
         .from(subChats)
-        .where(inArray(subChats.id, input.openSubChatIds))
+        .where(
+          and(
+            inArray(subChats.id, input.openSubChatIds),
+            eq(subChats.mode, 'plan'),
+            isNotNull(subChats.messages),
+            or(
+              like(subChats.messages, '%tool-ExitPlanMode%'),
+              like(subChats.messages, '%tool-PlanWrite%'),
+              like(subChats.messages, '%"model":"codex%'),
+              like(subChats.messages, '%"model":"gpt-%')
+            )
+          )
+        )
         .all();
 
       const pendingApprovals: Array<{ subChatId: string; chatId: string }> = [];
 
       for (const row of allSubChats) {
         if (!row.subChatId || !row.chatId) continue;
-
-        // Plan-approval-pending check only applies to rows still in plan mode.
-        if (row.mode !== 'plan') continue;
-
-        // Only check for ExitPlanMode in plan mode sub-chats
+        // mode + non-null messages already guaranteed by the WHERE above.
         if (!row.messages) continue;
 
         try {

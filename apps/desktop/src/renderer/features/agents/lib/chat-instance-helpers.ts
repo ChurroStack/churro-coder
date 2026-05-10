@@ -11,6 +11,35 @@ import type { Chat } from '@ai-sdk/react';
 
 const EMPTY_PERSISTED_MESSAGES: unknown[] = [];
 
+// Bounded LRU keyed by raw JSON string. Long Claude transcripts contain
+// UTF-16 tool output that V8 stores as TwoByteStrings; re-running JSON.parse
+// on the same multi-MB string from multiple components per render and across
+// React Query refetches was a documented OOM trigger (renderer EXC_BREAKPOINT
+// inside JsonParser::ParseJsonObject → FatalProcessOutOfMemory). The LRU lets
+// every caller share one parse without unbounded growth — eviction handles
+// stale strings as new sub-chat updates flow in.
+const PARSE_CACHE = new Map<string, unknown[]>();
+const PARSE_CACHE_MAX = 32;
+
+function readCached(key: string): unknown[] | undefined {
+  const value = PARSE_CACHE.get(key);
+  if (value !== undefined) {
+    PARSE_CACHE.delete(key);
+    PARSE_CACHE.set(key, value);
+  }
+  return value;
+}
+
+function writeCached(key: string, value: unknown[]): void {
+  if (PARSE_CACHE.has(key)) PARSE_CACHE.delete(key);
+  PARSE_CACHE.set(key, value);
+  while (PARSE_CACHE.size > PARSE_CACHE_MAX) {
+    const oldestKey = PARSE_CACHE.keys().next().value;
+    if (oldestKey === undefined) break;
+    PARSE_CACHE.delete(oldestKey);
+  }
+}
+
 /**
  * Parse the `messages` field on a sub-chat row. The DB stores it as a
  * JSON string in some code paths and as an array in others (cache vs
@@ -19,17 +48,27 @@ const EMPTY_PERSISTED_MESSAGES: unknown[] = [];
  * Returns a stable empty-array reference (`EMPTY_PERSISTED_MESSAGES`) when
  * the input is missing or unparseable, so referential-equality checks
  * downstream don't churn on every empty fetch.
+ *
+ * String inputs share a process-wide LRU keyed on the raw string content,
+ * so multiple callers parsing the same persisted blob in one render — or
+ * across short refetch ticks — only pay the JSON.parse cost once.
  */
 export function parseStoredMessages(rawMessages: unknown): unknown[] {
   if (Array.isArray(rawMessages)) return rawMessages;
   if (typeof rawMessages !== 'string') return EMPTY_PERSISTED_MESSAGES;
 
+  const cached = readCached(rawMessages);
+  if (cached !== undefined) return cached;
+
+  let parsed: unknown[];
   try {
-    const parsed = JSON.parse(rawMessages);
-    return Array.isArray(parsed) ? parsed : EMPTY_PERSISTED_MESSAGES;
+    const result = JSON.parse(rawMessages);
+    parsed = Array.isArray(result) ? result : EMPTY_PERSISTED_MESSAGES;
   } catch {
-    return EMPTY_PERSISTED_MESSAGES;
+    parsed = EMPTY_PERSISTED_MESSAGES;
   }
+  writeCached(rawMessages, parsed);
+  return parsed;
 }
 
 /**

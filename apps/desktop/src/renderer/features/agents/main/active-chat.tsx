@@ -5023,19 +5023,7 @@ export function ChatView({
       const subChat = ((agentChat as any)?.subChats || []).find((sc: any) => sc?.id === subChatId) as
         | { messages?: any }
         | undefined;
-      const rawMessages = subChat?.messages;
-
-      let messages: any[] = [];
-      if (Array.isArray(rawMessages)) {
-        messages = rawMessages;
-      } else if (typeof rawMessages === 'string') {
-        try {
-          const parsed = JSON.parse(rawMessages);
-          messages = Array.isArray(parsed) ? parsed : [];
-        } catch {
-          messages = [];
-        }
-      }
+      const messages = parseStoredMessages(subChat?.messages) as any[];
 
       for (const message of messages) {
         const model = (message as any)?.metadata?.model;

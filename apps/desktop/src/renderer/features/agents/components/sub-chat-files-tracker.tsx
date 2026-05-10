@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo } from 'react';
 import { useSetAtom } from 'jotai';
 import { subChatFilesAtom, subChatToChatMapAtom, type SubChatFileChange } from '../atoms';
 import { computeSubChatFiles } from '../hooks/use-changed-files-tracking';
+import { parseStoredMessages } from '../lib/chat-instance-helpers';
 
 interface SubChatRow {
   id: string;
@@ -15,19 +16,15 @@ interface Props {
 }
 
 function parseMessages(raw: unknown): any[] {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw !== 'string') return [];
-  // Cheap pre-filter mirroring file-stats.ts — skip JSON.parse if there's
-  // nothing for the algorithm to find.
-  if (!raw.includes('tool-Edit') && !raw.includes('tool-Write') && !raw.includes('changedFiles')) {
-    return [];
+  // Cheap pre-filter mirroring file-stats.ts — skip JSON.parse entirely if
+  // there's nothing for `computeSubChatFiles` to find. Avoids polluting the
+  // shared parse cache with strings the file tracker has no use for.
+  if (typeof raw === 'string') {
+    if (!raw.includes('tool-Edit') && !raw.includes('tool-Write') && !raw.includes('changedFiles')) {
+      return [];
+    }
   }
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return parseStoredMessages(raw) as any[];
 }
 
 /**

@@ -24,6 +24,7 @@ import { useReviewAction } from '../../agents/hooks/use-review-action';
 import { usePRStatus } from '../../../hooks/usePRStatus';
 import { trpc, trpcClient } from '../../../lib/trpc';
 import { computeSubChatFiles } from '../../agents/hooks/use-changed-files-tracking';
+import { parseStoredMessages } from '../../agents/lib/chat-instance-helpers';
 import type { ChangeCategory, ChangedFile } from '../../../../shared/changes-types';
 import type { DiffPanelEntity } from '../atoms';
 import type { DockviewApi } from 'dockview-react';
@@ -129,22 +130,17 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
           };
         }
         // Atom not yet seeded — parse messages from DB directly.
+        // Cheap pre-filter mirrors sub-chat-files-tracker / file-stats: skip
+        // the parse entirely (and avoid polluting the shared LRU) if no
+        // file-touching tool ran in this transcript.
         const rawMessages = sc.messages;
-        const messages: unknown[] = (() => {
-          if (Array.isArray(rawMessages)) return rawMessages;
-          if (typeof rawMessages !== 'string') return [];
-          if (
-            !rawMessages.includes('tool-Edit') &&
-            !rawMessages.includes('tool-Write') &&
-            !rawMessages.includes('changedFiles')
-          )
-            return [];
-          try {
-            return JSON.parse(rawMessages);
-          } catch {
-            return [];
-          }
-        })();
+        const messages: unknown[] =
+          typeof rawMessages === 'string' &&
+          !rawMessages.includes('tool-Edit') &&
+          !rawMessages.includes('tool-Write') &&
+          !rawMessages.includes('changedFiles')
+            ? []
+            : parseStoredMessages(rawMessages);
         const files = computeSubChatFiles(messages as any[], worktreePath ?? undefined);
         return {
           id: sc.id,
