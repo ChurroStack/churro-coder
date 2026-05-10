@@ -133,14 +133,5 @@ export function closeDatabase(): void {
 
 // Re-export schema for convenience
 export * from './schema';
-
-/**
- * Run the messages-table backfill in the background after startup.
- * Call once after the main window is created so the event loop is free.
- * Per-sub_chat failures are logged and retried on next launch.
- */
-export async function runMessagesBackfill(): Promise<void> {
-  const { backfillMessages } = await import('./backfill-messages');
-  const database = getDatabase();
-  await backfillMessages(database);
-}
+// Re-export message-table helpers for callers that import from db/index
+export { readMessagesFromTable, readMessagesForSubChats, writeMessagesToTable, replaceMessagesInTable } from './messages-table';

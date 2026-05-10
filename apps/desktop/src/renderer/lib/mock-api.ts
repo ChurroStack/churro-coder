@@ -82,7 +82,7 @@ export const api = {
             subChats: sourceData.subChats?.map((sc: AnyObj) => {
               let parsedMessages = [];
               try {
-                parsedMessages = sc.messages ? JSON.parse(sc.messages) : [];
+                parsedMessages = Array.isArray(sc.messages) ? sc.messages : (sc.messages ? JSON.parse(sc.messages) : []);
                 // Transform old tool-invocation parts to new tool-{toolName} format
                 parsedMessages = parsedMessages.map((msg: AnyObj) => {
                   if (!msg.parts) return msg;

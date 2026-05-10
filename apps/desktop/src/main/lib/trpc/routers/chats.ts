@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
 import { ensurePlanWritten, extractPlanTitleFromContent, markApproved, readCurrentPlan } from '../../plans/plan-store';
 import { readCurrentReview } from '../../reviews/review-store';
@@ -14,10 +14,11 @@ import {
   chats,
   claudeCodeCredentials,
   getDatabase,
+  messages,
   projects,
   subChats
 } from '../../db';
-import { syncSubChatMessages, invalidateSubChatMessages } from '../../db/backfill-messages';
+import { readMessagesFromTable, readMessagesForSubChats, replaceMessagesInTable } from '../../db/messages-table';
 import { computeFileStatsFromMessages } from '../../file-stats';
 import { createWorktreeForChat, getWorktreeDiff, removeWorktree, sanitizeProjectName } from '../../git';
 import { fetchPRStatus, fetchPRComments, invalidatePRCache, mergePR, updatePRTitle } from '../../git/providers';
@@ -320,33 +321,32 @@ function getActiveOAuthToken(): string | null {
 
 function buildChatContextFromMessages(db: ReturnType<typeof getDatabase>, chatId: string): string | undefined {
   try {
-    const rows = db.select({ messages: subChats.messages }).from(subChats).where(eq(subChats.chatId, chatId)).all();
+    const userRows = db
+      .select({ parts: messages.parts })
+      .from(messages)
+      .innerJoin(subChats, eq(messages.subChatId, subChats.id))
+      .where(and(eq(subChats.chatId, chatId), eq(messages.role, 'user')))
+      .orderBy(desc(messages.idx))
+      .limit(4)
+      .all();
 
     const userTexts: string[] = [];
-    for (const row of rows) {
-      let msgs: Array<{ role: string; parts?: Array<{ type: string; text?: string }> }>;
+    for (const row of userRows.reverse()) {
       try {
-        msgs = JSON.parse(row.messages);
-      } catch {
-        continue;
-      }
-      for (const msg of msgs) {
-        if (msg.role !== 'user') continue;
-        const text = msg.parts
-          ?.filter((p) => p.type === 'text' && p.text)
+        const parts = JSON.parse(row.parts) as Array<{ type: string; text?: string }>;
+        const text = parts
+          .filter((p) => p.type === 'text' && p.text)
           .map((p) => p.text!)
           .join(' ')
           .trim();
         if (text) userTexts.push(text);
+      } catch {
+        continue;
       }
     }
 
     if (userTexts.length === 0) return undefined;
-    // Take the last 4 user messages, cap each at 300 chars to stay concise
-    return userTexts
-      .slice(-4)
-      .map((t) => t.slice(0, 300))
-      .join('\n');
+    return userTexts.map((t) => t.slice(0, 300)).join('\n');
   } catch {
     return undefined;
   }
@@ -537,13 +537,17 @@ export const chatsRouter = router({
     const chat = db.select().from(chats).where(eq(chats.id, input.id)).get();
     if (!chat) return null;
 
-    const chatSubChats = db
+    const rawSubChats = db
       .select()
       .from(subChats)
       .where(eq(subChats.chatId, input.id))
       .orderBy(subChats.createdAt)
-      .all()
-      .map((row) => repairSubChatModeForHydration(db, row));
+      .all();
+
+    const msgsBySubChat = readMessagesForSubChats(db, rawSubChats.map((sc) => sc.id));
+    const chatSubChats = rawSubChats.map((row) =>
+      repairSubChatModeForHydration(db, { ...row, messages: msgsBySubChat.get(row.id) ?? [] })
+    );
 
     const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 
@@ -626,42 +630,44 @@ export const chatsRouter = router({
       console.log('[chats.create] created chat:', chat);
 
       // Create initial sub-chat with user message (AI SDK format)
-      // If initialMessageParts is provided, use it; otherwise fallback to text-only message
-      let initialMessages = '[]';
       const initialMetadata = input.model ? { model: input.model } : undefined;
+      let initialMsgs: any[] = [];
 
       if (input.initialMessageParts && input.initialMessageParts.length > 0) {
-        initialMessages = JSON.stringify([
+        initialMsgs = [
           {
             id: `msg-${Date.now()}`,
             role: 'user',
             parts: input.initialMessageParts,
             ...(initialMetadata ? { metadata: initialMetadata } : {})
           }
-        ]);
+        ];
       } else if (input.initialMessage) {
-        initialMessages = JSON.stringify([
+        initialMsgs = [
           {
             id: `msg-${Date.now()}`,
             role: 'user',
             parts: [{ type: 'text', text: input.initialMessage }],
             ...(initialMetadata ? { metadata: initialMetadata } : {})
           }
-        ]);
+        ];
       }
 
       const subChat = db
         .insert(subChats)
         .values({
           chatId: chat.id,
-          mode: input.mode,
-          messages: initialMessages
+          mode: input.mode
         })
         .returning()
         .get();
       console.log('[chats.create] created subChat:', subChat);
 
-      let claimedSubChat = subChat;
+      if (initialMsgs.length > 0) {
+        replaceMessagesInTable(db, subChat.id, initialMsgs);
+      }
+
+      let claimedMessages: any[] = initialMsgs;
 
       if (input.tempPastedSubChatId && input.tempPastedSubChatId !== subChat.id) {
         try {
@@ -684,21 +690,16 @@ export const chatsRouter = router({
             await fs.rename(tempPastedDir, realPastedDir);
             await fs.rmdir(tempDir).catch(() => {});
 
-            const parsedMessages = JSON.parse(subChat.messages) as Array<{
-              parts?: Array<{ type?: string; text?: string }>;
-            }>;
-            const updatedMessages = parsedMessages.map((message) => ({
+            const updatedMessages = claimedMessages.map((message) => ({
               ...message,
-              parts: message.parts?.map((part) =>
+              parts: message.parts?.map((part: any) =>
                 part.type === 'text' && typeof part.text === 'string'
                   ? { ...part, text: part.text.split(tempDir).join(realDir) }
                   : part
               )
             }));
-            const updatedMessagesJson = JSON.stringify(updatedMessages);
-
-            db.update(subChats).set({ messages: updatedMessagesJson }).where(eq(subChats.id, subChat.id)).run();
-            claimedSubChat = { ...subChat, messages: updatedMessagesJson };
+            replaceMessagesInTable(db, subChat.id, updatedMessages);
+            claimedMessages = updatedMessages;
           }
         } catch (error) {
           console.warn('[chats.create] Failed to claim pasted dir for new chat', {
@@ -708,6 +709,8 @@ export const chatsRouter = router({
           });
         }
       }
+
+      const claimedSubChat = { ...subChat, messages: claimedMessages };
 
       // Worktree creation result (will be set if useWorktree is true)
       let worktreeResult: {
@@ -1050,10 +1053,10 @@ export const chatsRouter = router({
     if (!subChat) return null;
 
     const chat = db.select().from(chats).where(eq(chats.id, subChat.chatId)).get();
-
     const project = chat ? db.select().from(projects).where(eq(projects.id, chat.projectId)).get() : null;
+    const subChatMessages = readMessagesFromTable(db, input.id);
 
-    return { ...subChat, chat: chat ? { ...chat, project } : null };
+    return { ...subChat, messages: subChatMessages, chat: chat ? { ...chat, project } : null };
   }),
 
   /**
@@ -1079,8 +1082,7 @@ export const chatsRouter = router({
           ...(input.id ? { id: input.id } : {}),
           chatId: input.chatId,
           name: input.name,
-          mode: input.mode,
-          messages: '[]'
+          mode: input.mode
         })
         .returning()
         .get();
@@ -1107,8 +1109,8 @@ export const chatsRouter = router({
       const sourceSubChat = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
       if (!sourceSubChat) throw new Error('Source sub-chat not found');
 
-      // 2. Parse messages and find the cutoff point
-      const allMessages = JSON.parse(sourceSubChat.messages || '[]');
+      // 2. Read messages from table and find the cutoff point
+      const allMessages = readMessagesFromTable(db, input.subChatId);
       let cutoffIndex = allMessages.findIndex((m: any) => m.id === input.messageId);
       // Fallback: AI SDK generates its own message IDs on the client which differ
       // from the server-generated UUIDs stored in the DB. Use the message index
@@ -1171,14 +1173,13 @@ export const chatsRouter = router({
           chatId: sourceSubChat.chatId,
           name: forkName,
           mode: sourceSubChat.mode,
-          messages: JSON.stringify(forkedMessages),
           sessionId: sourceSubChat.sessionId
         })
         .returning()
         .get();
 
-      // Populate messages table for the new sub-chat immediately
-      syncSubChatMessages(db, newSubChat.id, forkedMessages);
+      // Write forked messages to the messages table
+      replaceMessagesInTable(db, newSubChat.id, forkedMessages);
 
       // 8. Copy .jsonl session files to the new isolated config dir
       if (sourceSubChat.sessionId) {
@@ -1204,16 +1205,8 @@ export const chatsRouter = router({
               delete m.metadata.shouldForkResume;
             }
           }
-          {
-            const forkedJson = JSON.stringify(forkedMessages);
-            db.update(subChats)
-              .set({ messages: forkedJson, ...computeFileStatsFromMessages(forkedJson) })
-              .where(eq(subChats.id, newSubChat.id))
-              .run();
-          }
-          // Re-sync messages table since forkedMessages was mutated above
-          invalidateSubChatMessages(db, newSubChat.id);
-          syncSubChatMessages(db, newSubChat.id, forkedMessages);
+          // Re-replace since forkedMessages was mutated above
+          replaceMessagesInTable(db, newSubChat.id, forkedMessages);
         }
       }
 
@@ -1233,26 +1226,17 @@ export const chatsRouter = router({
     .input(z.object({ id: z.string(), messages: z.string() }))
     .mutation(({ input }) => {
       const db = getDatabase();
-      const result = db
+      let parsed: any[] = [];
+      try { parsed = JSON.parse(input.messages) || []; } catch {}
+
+      replaceMessagesInTable(db, input.id, parsed);
+
+      return db
         .update(subChats)
-        .set({
-          messages: input.messages,
-          ...computeFileStatsFromMessages(input.messages),
-          updatedAt: new Date()
-        })
+        .set({ updatedAt: new Date() })
         .where(eq(subChats.id, input.id))
         .returning()
         .get();
-
-      // Sync new contents to the messages table (invalidate first since this is a full replace)
-      let parsed: any[] = [];
-      try {
-        parsed = JSON.parse(input.messages) || [];
-      } catch {}
-      invalidateSubChatMessages(db, input.id);
-      syncSubChatMessages(db, input.id, parsed);
-
-      return result;
     }),
 
   /**
@@ -1276,8 +1260,8 @@ export const chatsRouter = router({
         return { success: false, error: 'Sub-chat not found' };
       }
 
-      // 2. Parse messages and find the target message by sdkMessageUuid
-      const messages = JSON.parse(subChat.messages || '[]');
+      // 2. Read messages from table and find the target message by sdkMessageUuid
+      const messages = readMessagesFromTable(db, input.subChatId);
       const targetIndex = messages.findIndex((m: any) => m.metadata?.sdkMessageUuid === input.sdkMessageUuid);
 
       if (targetIndex === -1) {
@@ -1315,23 +1299,9 @@ export const chatsRouter = router({
         };
       });
 
-      // 6. Update the sub-chat with truncated messages
-      {
-        const truncatedJson = JSON.stringify(truncatedMessages);
-        db.update(subChats)
-          .set({
-            messages: truncatedJson,
-            ...computeFileStatsFromMessages(truncatedJson),
-            updatedAt: new Date()
-          })
-          .where(eq(subChats.id, input.subChatId))
-          .returning()
-          .get();
-      }
-
-      // Rebuild messages table from truncated set
-      invalidateSubChatMessages(db, input.subChatId);
-      syncSubChatMessages(db, input.subChatId, truncatedMessages);
+      // 6. Replace messages table with truncated set and update timestamp
+      replaceMessagesInTable(db, input.subChatId, truncatedMessages);
+      db.update(subChats).set({ updatedAt: new Date() }).where(eq(subChats.id, input.subChatId)).run();
 
       return {
         success: true,
@@ -1456,7 +1426,7 @@ export const chatsRouter = router({
     return (
       db
         .delete(subChats)
-        .where(and(eq(subChats.id, input.id), eq(subChats.messages, '[]'), isNull(subChats.name)))
+        .where(and(eq(subChats.id, input.id), eq(subChats.messageCount, 0), isNull(subChats.name)))
         .returning()
         .get() ?? null
     );
@@ -1475,7 +1445,7 @@ export const chatsRouter = router({
     // message-bearing.
     const result = db
       .delete(subChats)
-      .where(and(inArray(subChats.id, input.ids), eq(subChats.messages, '[]'), isNull(subChats.name)))
+      .where(and(inArray(subChats.id, input.ids), eq(subChats.messageCount, 0), isNull(subChats.name)))
       .returning()
       .all();
     return { deleted: result.length };
@@ -2076,127 +2046,82 @@ export const chatsRouter = router({
     .input(z.object({ openSubChatIds: z.array(z.string()) }))
     .query(({ input }) => {
       const db = getDatabase();
+      if (input.openSubChatIds.length === 0) return [];
 
-      // Early return if no sub-chats to check
-      if (input.openSubChatIds.length === 0) {
-        return [];
-      }
-
-      // Query only the specified sub-chats, including mode for filtering
-      // Push the cheap "could this row possibly have a pending approval?"
-      // check into SQL so we don't pay JSON.parse on every open sub-chat
-      // every 5s. The handler walks `messages` looking for one of:
-      //   - tool-ExitPlanMode (Claude path)
-      //   - tool-PlanWrite (Codex widget path)
-      //   - a legacy text plan from a Codex/gpt-* model
-      // Filtering by `mode = 'plan'` AND at least one of these markers
-      // typically eliminates the vast majority of rows before any JSON
-      // touches V8's heap. The substring patterns mirror the assistant
-      // message structure produced by the AI SDK / Codex transports.
-      const allSubChats = db
-        .select({
-          chatId: subChats.chatId,
-          subChatId: subChats.id,
-          mode: subChats.mode,
-          messages: subChats.messages
-        })
+      // Filter to plan-mode sub_chats only — most won't have pending approvals
+      const planSubChats = db
+        .select({ chatId: subChats.chatId, subChatId: subChats.id })
         .from(subChats)
-        .where(
-          and(
-            inArray(subChats.id, input.openSubChatIds),
-            eq(subChats.mode, 'plan'),
-            isNotNull(subChats.messages),
-            or(
-              like(subChats.messages, '%tool-ExitPlanMode%'),
-              like(subChats.messages, '%tool-PlanWrite%'),
-              like(subChats.messages, '%"model":"codex%'),
-              like(subChats.messages, '%"model":"gpt-%')
-            )
-          )
-        )
+        .where(and(inArray(subChats.id, input.openSubChatIds), eq(subChats.mode, 'plan')))
         .all();
 
-      const pendingApprovals: Array<{ subChatId: string; chatId: string }> = [];
+      if (planSubChats.length === 0) return [];
 
-      for (const row of allSubChats) {
-        if (!row.subChatId || !row.chatId) continue;
-        // mode + non-null messages already guaranteed by the WHERE above.
-        if (!row.messages) continue;
+      const planSubChatIds = planSubChats.map((sc) => sc.subChatId).filter(Boolean) as string[];
 
+      // Load all messages for these sub_chats in one query
+      const allRows = db
+        .select()
+        .from(messages)
+        .where(inArray(messages.subChatId, planSubChatIds))
+        .orderBy(messages.subChatId, asc(messages.idx))
+        .all();
+
+      const msgsBySubChat = new Map<string, Array<{ role: string; parts: any[]; metadata?: any }>>();
+      for (const row of allRows) {
+        if (!msgsBySubChat.has(row.subChatId)) msgsBySubChat.set(row.subChatId, []);
         try {
-          const messages = JSON.parse(row.messages) as Array<{
-            role: string;
-            content?: string;
-            parts?: Array<{
-              type: string;
-              text?: string;
-              output?: unknown;
-            }>;
-          }>;
-
-          // Check if there's a completed ExitPlanMode (Claude), PlanWrite awaiting_approval (Codex widget),
-          // or a legacy Codex text response in plan mode.
-          const hasPendingPlanApproval = (): boolean => {
-            for (let i = messages.length - 1; i >= 0; i--) {
-              const msg = messages[i];
-              if (!msg) continue;
-
-              if (msg.role === 'assistant' && msg.parts) {
-                const exitPlanPart = msg.parts.find((p) => p.type === 'tool-ExitPlanMode');
-                if (exitPlanPart && exitPlanPart.output !== undefined) {
-                  return true;
-                }
-
-                const planWritePart = msg.parts.find((p: any) => {
-                  if (p.type !== 'tool-PlanWrite') return false;
-                  if (p.output === undefined && p.result === undefined) return false;
-                  const plan = getPlanFromPlanWritePart(p);
-                  return Boolean(plan) && (plan.status ?? 'awaiting_approval') === 'awaiting_approval';
-                });
-                if (planWritePart) {
-                  return true;
-                }
-
-                const hasAnyPlanWrite = msg.parts.some((p: any) => p.type === 'tool-PlanWrite');
-                if (hasAnyPlanWrite) {
-                  return false;
-                }
-
-                const hasPendingAskUserQuestion = msg.parts.some(
-                  (p: any) =>
-                    p.type === 'tool-AskUserQuestion' &&
-                    p.input?.questions &&
-                    p.state !== 'output-available' &&
-                    p.state !== 'output-error' &&
-                    p.state !== 'result'
-                );
-                if (hasPendingAskUserQuestion) {
-                  return false;
-                }
-
-                // Legacy Codex plans were text-only. Keep supporting those, but
-                // do not treat a live AskUserQuestion turn as plan approval.
-                const msgModel = (msg as any).metadata?.model;
-                const hasTextPlan = msg.parts.some((p: any) => p.type === 'text' && p.text?.trim());
-                if (msgModel && getProviderForModelId(String(msgModel)) === 'codex' && hasTextPlan) {
-                  return true;
-                }
-              }
-            }
-            return false;
-          };
-
-          if (hasPendingPlanApproval()) {
-            pendingApprovals.push({
-              subChatId: row.subChatId,
-              chatId: row.chatId
-            });
-          }
+          const parts = JSON.parse(row.parts);
+          const metadata = row.metadata ? JSON.parse(row.metadata) : undefined;
+          msgsBySubChat.get(row.subChatId)!.push({ role: row.role, parts, ...(metadata !== undefined ? { metadata } : {}) });
         } catch {
-          // Skip invalid JSON
+          // skip unparseable rows
         }
       }
 
+      const hasPendingPlanApproval = (msgs: Array<{ role: string; parts: any[]; metadata?: any }>): boolean => {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const msg = msgs[i];
+          if (!msg || msg.role !== 'assistant' || !msg.parts) continue;
+
+          const exitPlanPart = msg.parts.find((p: any) => p.type === 'tool-ExitPlanMode');
+          if (exitPlanPart && exitPlanPart.output !== undefined) return true;
+
+          const planWritePart = msg.parts.find((p: any) => {
+            if (p.type !== 'tool-PlanWrite') return false;
+            if (p.output === undefined && p.result === undefined) return false;
+            const plan = getPlanFromPlanWritePart(p);
+            return Boolean(plan) && (plan.status ?? 'awaiting_approval') === 'awaiting_approval';
+          });
+          if (planWritePart) return true;
+
+          if (msg.parts.some((p: any) => p.type === 'tool-PlanWrite')) return false;
+
+          const hasPendingAskUserQuestion = msg.parts.some(
+            (p: any) =>
+              p.type === 'tool-AskUserQuestion' &&
+              p.input?.questions &&
+              p.state !== 'output-available' &&
+              p.state !== 'output-error' &&
+              p.state !== 'result'
+          );
+          if (hasPendingAskUserQuestion) return false;
+
+          const msgModel = msg.metadata?.model;
+          if (msgModel && getProviderForModelId(String(msgModel)) === 'codex' && msg.parts.some((p: any) => p.type === 'text' && p.text?.trim())) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const pendingApprovals: Array<{ subChatId: string; chatId: string }> = [];
+      for (const sc of planSubChats) {
+        if (!sc.subChatId || !sc.chatId) continue;
+        if (hasPendingPlanApproval(msgsBySubChat.get(sc.subChatId) ?? [])) {
+          pendingApprovals.push({ subChatId: sc.subChatId, chatId: sc.chatId });
+        }
+      }
       return pendingApprovals;
     }),
 
@@ -2280,7 +2205,10 @@ export const chatsRouter = router({
           .all();
       }
 
-      // parse messages from sub-chats
+      // load messages from normalized table
+      const subChatIds = chatSubChats.map((sc) => sc.id);
+      const messagesBySubChat = readMessagesForSubChats(db, subChatIds);
+
       const allMessages: Array<{
         subChatId: string;
         subChatName: string | null;
@@ -2290,20 +2218,11 @@ export const chatsRouter = router({
           parts: Array<{ type: string; text?: string; [key: string]: any }>;
           metadata?: any;
         }>;
-      }> = [];
-
-      for (const subChat of chatSubChats) {
-        try {
-          const messages = JSON.parse(subChat.messages || '[]');
-          allMessages.push({
-            subChatId: subChat.id,
-            subChatName: subChat.name,
-            messages
-          });
-        } catch {
-          // skip invalid json
-        }
-      }
+      }> = chatSubChats.map((sc) => ({
+        subChatId: sc.id,
+        subChatName: sc.name,
+        messages: messagesBySubChat.get(sc.id) ?? []
+      }));
 
       // Sanitize filename - remove characters that are invalid on Windows/macOS/Linux
       const sanitizeFilename = (name: string): string => {
@@ -2478,38 +2397,33 @@ export const chatsRouter = router({
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
 
+      const statsBySubChat = readMessagesForSubChats(db, chatSubChats.map((sc) => sc.id));
+
       for (const subChat of chatSubChats) {
-        try {
-          const messages = JSON.parse(subChat.messages || '[]') as Array<{
-            role: string;
-            parts?: Array<{ type: string; toolName?: string }>;
-            metadata?: { usage?: { inputTokens?: number; outputTokens?: number } };
-          }>;
+        const msgs = statsBySubChat.get(subChat.id) ?? [];
+        for (const msg of msgs as Array<{
+          role: string;
+          parts?: Array<{ type: string; toolName?: string }>;
+          metadata?: { usage?: { inputTokens?: number; outputTokens?: number } };
+        }>) {
+          messageCount++;
+          if (msg.role === 'user') {
+            userMessageCount++;
+          } else if (msg.role === 'assistant') {
+            assistantMessageCount++;
 
-          for (const msg of messages) {
-            messageCount++;
-            if (msg.role === 'user') {
-              userMessageCount++;
-            } else if (msg.role === 'assistant') {
-              assistantMessageCount++;
-
-              // count tool calls
-              for (const part of msg.parts || []) {
-                if (part.type?.startsWith('tool-') && part.toolName) {
-                  toolCalls++;
-                  toolUsage[part.toolName] = (toolUsage[part.toolName] || 0) + 1;
-                }
-              }
-
-              // aggregate token usage
-              if (msg.metadata?.usage) {
-                totalInputTokens += msg.metadata.usage.inputTokens || 0;
-                totalOutputTokens += msg.metadata.usage.outputTokens || 0;
+            for (const part of msg.parts || []) {
+              if (part.type?.startsWith('tool-') && part.toolName) {
+                toolCalls++;
+                toolUsage[part.toolName] = (toolUsage[part.toolName] || 0) + 1;
               }
             }
+
+            if (msg.metadata?.usage) {
+              totalInputTokens += msg.metadata.usage.inputTokens || 0;
+              totalOutputTokens += msg.metadata.usage.outputTokens || 0;
+            }
           }
-        } catch {
-          // skip invalid json
         }
       }
 

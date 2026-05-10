@@ -39,8 +39,7 @@ import {
   projects as projectsTable,
   subChats
 } from '../../db';
-import { syncSubChatMessages } from '../../db/backfill-messages';
-import { computeFileStatsFromMessages } from '../../file-stats';
+import { readMessagesFromTable, writeMessagesToTable, replaceMessagesInTable } from '../../db/messages-table';
 import { computeCatchupBlock } from '../../multi-provider/catchup';
 import { createRollbackStash } from '../../git/stash';
 import {
@@ -976,8 +975,7 @@ export const claudeRouter = router({
                     .values({
                       id: input.subChatId,
                       chatId: input.chatId,
-                      mode: input.mode,
-                      messages: '[]'
+                      mode: input.mode
                     })
                     .run();
                   existing = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
@@ -990,7 +988,7 @@ export const claudeRouter = router({
                   inputMode: input.mode
                 });
 
-                const existingMessages = JSON.parse(existing?.messages || '[]');
+                const existingMessages = readMessagesFromTable(db, input.subChatId);
                 const existingSessionId = existing?.sessionId || null;
                 const existingSessionMode = existing?.sessionMode || null;
 
@@ -1011,13 +1009,7 @@ export const claudeRouter = router({
                       delete m.metadata.shouldForkResume;
                     }
                   }
-                  {
-                    const existingJson = JSON.stringify(existingMessages);
-                    db.update(subChats)
-                      .set({ messages: existingJson, ...computeFileStatsFromMessages(existingJson) })
-                      .where(eq(subChats.id, input.subChatId))
-                      .run();
-                  }
+                  replaceMessagesInTable(db, input.subChatId, existingMessages);
                 }
 
                 // Check if last message is already this user message (avoid duplicate)
@@ -1054,19 +1046,11 @@ export const claudeRouter = router({
                   };
                   messagesToSave = [...existingMessages, userMessage];
 
-                  {
-                    const messagesToSaveJson = JSON.stringify(messagesToSave);
-                    db.update(subChats)
-                      .set({
-                        messages: messagesToSaveJson,
-                        ...computeFileStatsFromMessages(messagesToSaveJson),
-                        streamId,
-                        updatedAt: new Date()
-                      })
-                      .where(eq(subChats.id, input.subChatId))
-                      .run();
-                    syncSubChatMessages(db, input.subChatId, messagesToSave);
-                  }
+                  writeMessagesToTable(db, input.subChatId, messagesToSave);
+                  db.update(subChats)
+                    .set({ streamId, updatedAt: new Date() })
+                    .where(eq(subChats.id, input.subChatId))
+                    .run();
                 }
 
                 // 2.5. AUTO-FALLBACK: Check internet and switch to Ollama if offline
@@ -2727,20 +2711,11 @@ ${prompt}
                         metadata
                       };
                       const finalMessages = [...messagesToSave, assistantMessage];
-                      {
-                        const finalJson = JSON.stringify(finalMessages);
-                        db.update(subChats)
-                          .set({
-                            messages: finalJson,
-                            ...computeFileStatsFromMessages(finalJson),
-                            sessionId: metadata.sessionId,
-                            streamId: null,
-                            updatedAt: new Date()
-                          })
-                          .where(eq(subChats.id, input.subChatId))
-                          .run();
-                        syncSubChatMessages(db, input.subChatId, finalMessages);
-                      }
+                      replaceMessagesInTable(db, input.subChatId, finalMessages);
+                      db.update(subChats)
+                        .set({ sessionId: metadata.sessionId, streamId: null, updatedAt: new Date() })
+                        .where(eq(subChats.id, input.subChatId))
+                        .run();
                       db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, input.chatId)).run();
 
                       // Create snapshot stash for rollback support (on error)
@@ -2832,21 +2807,16 @@ ${prompt}
 
                   const finalMessages = [...messagesToSave, assistantMessage];
 
-                  {
-                    const finalJson = JSON.stringify(finalMessages);
-                    db.update(subChats)
-                      .set({
-                        messages: finalJson,
-                        ...computeFileStatsFromMessages(finalJson),
-                        sessionId: savedSessionId,
-                        sessionMode: savedSessionId ? input.mode : null,
-                        streamId: null,
-                        updatedAt: new Date()
-                      })
-                      .where(eq(subChats.id, input.subChatId))
-                      .run();
-                    syncSubChatMessages(db, input.subChatId, finalMessages);
-                  }
+                  replaceMessagesInTable(db, input.subChatId, finalMessages);
+                  db.update(subChats)
+                    .set({
+                      sessionId: savedSessionId,
+                      sessionMode: savedSessionId ? input.mode : null,
+                      streamId: null,
+                      updatedAt: new Date()
+                    })
+                    .where(eq(subChats.id, input.subChatId))
+                    .run();
                 } else {
                   // No assistant response - just clear streamId
                   db.update(subChats)

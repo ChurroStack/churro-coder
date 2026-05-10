@@ -81,15 +81,13 @@ export const subChats = sqliteTable(
     streamId: text('stream_id'), // Track in-progress streams
     mode: text('mode').notNull().default('plan'), // "plan" | "execute" | "explore"
     openspecChangeId: text('openspec_change_id'), // OpenSpec change folder name this sub-chat is bound to
-    messages: text('messages').notNull().default('[]'), // JSON array (kept for R1 rollback safety; see messages table)
     // Cached file stats — kept in sync by writers, read by getFileStats to avoid JSON parse on every query
     fileStatsAdditions: integer('file_stats_additions').notNull().default(0),
     fileStatsDeletions: integer('file_stats_deletions').notNull().default(0),
     fileStatsFileCount: integer('file_stats_file_count').notNull().default(0),
-    // Per-message table counters (populated by backfill + syncSubChatMessages)
+    // Denormalized counters kept in sync by all message write paths
     messageCount: integer('message_count').notNull().default(0),
     lastMessageIdx: integer('last_message_idx'), // NULL when empty
-    messagesMigratedAt: integer('messages_migrated_at', { mode: 'timestamp' }), // NULL = not yet migrated
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
   },

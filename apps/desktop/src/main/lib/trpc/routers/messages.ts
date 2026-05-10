@@ -4,7 +4,6 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { z } from 'zod';
 import { getDatabase, messages, subChats } from '../../db';
-import { syncSubChatMessages, invalidateSubChatMessages } from '../../db/backfill-messages';
 import { spillPath, writePartIfLargeSync } from '../../db/part-spill';
 import { publicProcedure, router } from '../index';
 
@@ -150,9 +149,6 @@ export const messagesRouter = router({
   /**
    * Append a single message to the messages table for a sub_chat.
    * Returns the assigned idx.
-   * NOTE: In R1, prefer writing to sub_chats.messages first (existing blob path)
-   * and then calling syncSubChatMessages from the main-process write path.
-   * This route is available for direct use in R2+.
    */
   append: publicProcedure
     .input(
@@ -200,8 +196,7 @@ export const messagesRouter = router({
       db.update(subChats)
         .set({
           messageCount: sql`${subChats.messageCount} + 1`,
-          lastMessageIdx: nextIdx,
-          messagesMigratedAt: new Date()
+          lastMessageIdx: nextIdx
         })
         .where(eq(subChats.id, input.subChatId))
         .run();
@@ -210,7 +205,3 @@ export const messagesRouter = router({
     }),
 
 });
-
-// Re-export sync helpers so callers that already import this module can reach them
-// without an additional import of backfill-messages.
-export { syncSubChatMessages, invalidateSubChatMessages };

@@ -9,49 +9,41 @@ export function normalizePersistedRunMode(mode: string | null | undefined): Pers
   return 'plan';
 }
 
-// Treat only the canonical plan-store paths as plan files. Project files like
-// `release-plan.md` or `migration-plan.md` belong to the user, not the
-// plan-store, so an agent edit there should still count as agent activity.
-//   • Current store: `<userData>/sub-chats/<id>/plans/current.md(.meta.json)`
-//   • Legacy store : `…/claude-sessions/.../plans/...`
+// Treat only the canonical plan-store paths as plan files.
 function isPlanFile(filePath: string): boolean {
   return (
     /\/sub-chats\/[^/]+\/plans\//.test(filePath) || /(?:claude-sessions|agent-sessions)\/.*\/plans\//.test(filePath)
   );
 }
 
-// Tool-part types that signify a real file write. Mirrors the allowlist used
-// in claude.ts (`new Set(['Edit','Write','NotebookEdit','MultiEdit'])`).
 const WRITE_TOOL_TYPES = new Set(['tool-Edit', 'tool-Write', 'tool-MultiEdit', 'tool-NotebookEdit']);
 
-function hasNonPlanFileEdit(messagesJson: string | null | undefined): boolean {
-  if (!messagesJson) return false;
-
-  try {
-    const messages = JSON.parse(messagesJson);
+function hasNonPlanFileEdit(msgs: any[] | string | null | undefined): boolean {
+  let messages: any[];
+  if (Array.isArray(msgs)) {
+    messages = msgs;
+  } else if (typeof msgs === 'string') {
+    if (!msgs) return false;
+    try { messages = JSON.parse(msgs); } catch { return false; }
     if (!Array.isArray(messages)) return false;
-
-    return messages.some((message: any) => {
-      if (message?.role !== 'assistant' || !Array.isArray(message.parts)) return false;
-
-      return message.parts.some((part: any) => {
-        if (!WRITE_TOOL_TYPES.has(part?.type)) {
-          return false;
-        }
-
-        const filePath = part?.input?.file_path || part?.input?.path || '';
-        return typeof filePath === 'string' && filePath.length > 0 && !isPlanFile(filePath);
-      });
-    });
-  } catch {
+  } else {
     return false;
   }
+
+  return messages.some((message: any) => {
+    if (message?.role !== 'assistant' || !Array.isArray(message.parts)) return false;
+    return message.parts.some((part: any) => {
+      if (!WRITE_TOOL_TYPES.has(part?.type)) return false;
+      const filePath = part?.input?.file_path || part?.input?.path || '';
+      return typeof filePath === 'string' && filePath.length > 0 && !isPlanFile(filePath);
+    });
+  });
 }
 
 export function inferSubChatModeForHydration(row: {
   mode: string | null | undefined;
   sessionMode?: string | null;
-  messages?: string | null;
+  messages?: any[] | string | null;
 }): PersistedRunMode {
   const mode = normalizePersistedRunMode(row.mode);
   const sessionMode = normalizePersistedRunMode(row.sessionMode);
@@ -63,15 +55,9 @@ export function inferSubChatModeForHydration(row: {
   return mode;
 }
 
-/**
- * Keep the persisted sub-chat mode aligned with the mode actually used to
- * start a stream. Renderer mode atoms can be fresher than the DB during
- * startup/new-chat races; restart hydration reads the DB.
- */
 export function persistSubChatRunMode(params: {
   db: { update: (table: typeof subChats) => any };
   subChatId: string;
-  // `null`/`undefined` means caller didn't find the row (yet) — skip the write.
   existingMode: string | null | undefined;
   inputMode: PersistedRunMode;
 }): boolean {
@@ -84,7 +70,7 @@ export function persistSubChatRunMode(params: {
 }
 
 export function repairSubChatModeForHydration<
-  T extends { id: string; mode: string | null; sessionMode?: string | null; messages?: string | null }
+  T extends { id: string; mode: string | null; sessionMode?: string | null; messages?: any[] | string | null }
 >(db: { update: (table: typeof subChats) => any }, row: T): T & { mode: PersistedRunMode } {
   const effectiveMode = inferSubChatModeForHydration(row);
   if (effectiveMode === normalizePersistedRunMode(row.mode)) {

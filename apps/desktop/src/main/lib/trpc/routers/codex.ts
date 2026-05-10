@@ -33,8 +33,7 @@ import { cleanupCodexThreadSubscription, trackCodexThreadSubscription } from '..
 import { getClaudeShellEnvironment } from '../../claude/env';
 import { resolveProjectPathFromWorktree } from '../../claude-config';
 import { getDatabase, projects as projectsTable, subChats } from '../../db';
-import { syncSubChatMessages } from '../../db/backfill-messages';
-import { computeFileStatsFromMessages } from '../../file-stats';
+import { readMessagesFromTable, writeMessagesToTable, replaceMessagesInTable } from '../../db/messages-table';
 import { fetchMcpTools, fetchMcpToolsStdio, type McpToolInfo } from '../../mcp-auth';
 import { publicProcedure, router } from '../index';
 import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
@@ -981,16 +980,6 @@ function normalizeCodexIntegrationState(rawOutput: string): CodexIntegrationStat
   }
 
   return 'unknown';
-}
-
-function parseStoredMessages(raw: string | null | undefined): any[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
 }
 
 function extractPromptFromStoredMessage(message: any): string {
@@ -3142,7 +3131,7 @@ export const codexRouter = router({
                   inputMode: input.mode
                 });
 
-                const existingMessages = parseStoredMessages(existingSubChat.messages);
+                const existingMessages = readMessagesFromTable(db, input.subChatId);
                 const requestedModelId = extractCodexModelId(input.model) || DEFAULT_CODEX_MODEL;
                 const selectedModelId = preprocessCodexModelName({
                   modelId: requestedModelId,
@@ -3165,16 +3154,11 @@ export const codexRouter = router({
                     return false;
                   }
 
-                  const json = JSON.stringify(msgs);
+                  replaceMessagesInTable(db, input.subChatId, msgs);
                   db.update(subChats)
-                    .set({
-                      messages: json,
-                      ...computeFileStatsFromMessages(json),
-                      updatedAt: new Date()
-                    })
+                    .set({ updatedAt: new Date() })
                     .where(eq(subChats.id, input.subChatId))
                     .run();
-                  syncSubChatMessages(db, input.subChatId, msgs);
                   return true;
                 };
 
@@ -3208,18 +3192,11 @@ export const codexRouter = router({
 
                   messagesForStream = [...existingMessages, userMessage];
 
-                  {
-                    const messagesForStreamJson = JSON.stringify(messagesForStream);
-                    db.update(subChats)
-                      .set({
-                        messages: messagesForStreamJson,
-                        ...computeFileStatsFromMessages(messagesForStreamJson),
-                        updatedAt: new Date()
-                      })
-                      .where(eq(subChats.id, input.subChatId))
-                      .run();
-                    syncSubChatMessages(db, input.subChatId, messagesForStream);
-                  }
+                  writeMessagesToTable(db, input.subChatId, messagesForStream);
+                  db.update(subChats)
+                    .set({ updatedAt: new Date() })
+                    .where(eq(subChats.id, input.subChatId))
+                    .run();
                 }
 
                 if (input.forceNewSession) {
