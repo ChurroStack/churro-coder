@@ -655,6 +655,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   );
 
   const msgMetadata = message?.metadata as AgentMessageMetadata;
+  const messageCreatedAt = message?.createdAt ? new Date(message.createdAt).getTime() : undefined;
 
   const renderPart = useCallback(
     (part: any, idx: number, isFinal = false) => {
@@ -686,6 +687,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
               nestedTools={group.parts}
               chatStatus={status}
               subagentInfo={msgMetadata?.subagentInfo}
+              messageCreatedAt={messageCreatedAt}
             />
           );
         }
@@ -719,6 +721,7 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
             nestedTools={nestedTools}
             chatStatus={status}
             subagentInfo={msgMetadata?.subagentInfo}
+            messageCreatedAt={messageCreatedAt}
           />
         );
       }
@@ -729,7 +732,11 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
         );
       if (part.type === 'reasoning' || part.type === 'tool-Thinking') {
         return withSearchHighlight(
-          <AgentThinkingTool part={toThinkingToolPart(part, message?.id, idx)} chatStatus={status} />
+          <AgentThinkingTool
+            part={toThinkingToolPart(part, message?.id, idx)}
+            chatStatus={status}
+            messageCreatedAt={messageCreatedAt}
+          />
         );
       }
 
