@@ -40,9 +40,16 @@ import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-
 import { getMcpHttpEndpoint, initMcpHttpServer } from '../../mcp/http-transport';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
-import { resolveAppOwnedMcpHeaders, shouldRemoveStaleAppOwnedMcpEntry } from '../codex-mcp-auth';
+import {
+  buildApprovedPlanReadPlanUnavailableMessage,
+  getAppOwnedChurroCoderMcpServerName,
+  getAppOwnedChurroCoderReadPlanToolName,
+  resolveAppOwnedMcpHeaders,
+  shouldRemoveStaleAppOwnedMcpEntry
+} from '../codex-mcp-auth';
 import { decideCodexMcpElicitation } from '../codex-mcp-elicitation';
 import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from '../codex-mode-prompts';
+import { sanitizeCodexPlanSummary } from '../codex-plan-write';
 import { buildCodexSandboxPolicy } from '../codex-sandbox-policy';
 import { createTaskListPartFromPlan } from '../codex-plan-task-part';
 
@@ -1120,6 +1127,7 @@ function normalizeCodexPlan(plan: z.infer<typeof codexPlanSchema>) {
   return {
     ...plan,
     id: plan.id || `plan-${Date.now()}`,
+    summary: sanitizeCodexPlanSummary(plan.summary),
     status: 'awaiting_approval' as const,
     steps: plan.steps.map((step, index) => ({
       ...step,
@@ -1251,7 +1259,7 @@ function buildFallbackPlanWritePart(params: { prompt: string; text: string; plan
       : {
           id: `plan-${now}`,
           title: shortRequest ? `Plan: ${shortRequest}` : 'Implementation plan',
-          summary: params.text.trim() || `Plan for: ${requestSummary || 'the requested change'}`,
+          summary: sanitizeCodexPlanSummary(params.text) || `Plan for: ${requestSummary || 'the requested change'}`,
           status: 'awaiting_approval',
           steps: fallbackStepTitles.map((title) => ({
             title,
@@ -2008,7 +2016,7 @@ function createPlanWritePartFromPlan(params: { itemId: string; prompt: string; t
     ? normalizeCodexPlan({
         id: `plan-${Date.now()}`,
         title: 'Implementation plan',
-        summary: params.text || '',
+        summary: params.text,
         status: 'awaiting_approval',
         steps: planLike.map((step: any, index: number) => ({
           title:
@@ -2026,7 +2034,7 @@ function createPlanWritePartFromPlan(params: { itemId: string; prompt: string; t
       : normalizeCodexPlan({
           id: `plan-${Date.now()}`,
           title: 'Implementation plan',
-          summary: params.text || '',
+          summary: params.text,
           status: 'awaiting_approval',
           steps: extractPlanStepTitles(params.text || '').map((title) => ({
             title,
@@ -2568,7 +2576,7 @@ async function bootstrapChurroCoderMcpInternal(): Promise<void> {
   const { url, bearer } = await initMcpHttpServer();
   process.env.CHURRO_MCP_BEARER = bearer;
 
-  const serverName = `churro-coder${process.env.ELECTRON_RENDERER_URL ? '-dev' : ''}`;
+  const serverName = getAppOwnedChurroCoderMcpServerName();
   let existing: any[] = [];
   try {
     const listResult = await runCodexCli(['mcp', 'list', '--json']);
@@ -2672,7 +2680,7 @@ export async function bootstrapChurroCoderMcp(): Promise<void> {
     setChurroCoderMcpStatus(
       {
         state: 'failed',
-        serverName: `churro-coder${process.env.ELECTRON_RENDERER_URL ? '-dev' : ''}`,
+        serverName: getAppOwnedChurroCoderMcpServerName(),
         error: errorMessage
       },
       'startup-exception'
@@ -3163,6 +3171,7 @@ export const codexRouter = router({
                   fetchedAt: Date.now(),
                   toolsResolved: false
                 };
+                const approvedPlanRequired = input.mode === 'execute' && (await hasPlan(input.subChatId));
                 try {
                   await ensureChurroCoderMcpReady({ subChatId: input.subChatId });
                 } catch (mcpBootstrapError) {
@@ -3170,6 +3179,19 @@ export const codexRouter = router({
                     `[churro-coder] MCP bootstrap preflight failed subChatId=${input.subChatId}:`,
                     mcpBootstrapError
                   );
+                }
+                const mcpStatus = getChurroCoderMcpStatus();
+                const mcpServerName =
+                  mcpStatus.state === 'ready' || mcpStatus.state === 'failed'
+                    ? mcpStatus.serverName
+                    : getAppOwnedChurroCoderMcpServerName();
+                if (approvedPlanRequired && mcpStatus.state !== 'ready') {
+                  const mcpToolName = getAppOwnedChurroCoderReadPlanToolName(mcpServerName);
+                  const message = buildApprovedPlanReadPlanUnavailableMessage({
+                    mcpToolName,
+                    status: mcpStatus
+                  });
+                  throw new Error(message);
                 }
                 try {
                   const resolvedProjectPathFromCwd = resolveProjectPathFromWorktree(input.cwd);
@@ -3184,10 +3206,9 @@ export const codexRouter = router({
                 const startedAt = Date.now();
                 const catchup = computeCatchupBlock(messagesForStream, 'codex');
                 const planInstruction = buildCodexModeInstruction(input.mode);
-                const subChatPlanHint =
-                  input.mode === 'execute' && (await hasPlan(input.subChatId))
-                    ? buildCodexApprovedPlanHint(input.subChatId)
-                    : '';
+                const subChatPlanHint = approvedPlanRequired
+                  ? buildCodexApprovedPlanHint(input.subChatId, getAppOwnedChurroCoderReadPlanToolName(mcpServerName))
+                  : '';
                 const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
                   .filter((segment): segment is string => Boolean(segment))
                   .join('\n\n');
