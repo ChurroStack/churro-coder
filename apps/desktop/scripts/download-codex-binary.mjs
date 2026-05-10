@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url"
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT_DIR = path.join(__dirname, "..")
 const BIN_DIR = path.join(ROOT_DIR, "resources", "bin")
+const SCHEMA_DIR = path.join(ROOT_DIR, "src", "shared", "codex-app-server-schema")
 
 const RELEASE_REPO = "openai/codex"
 const RELEASE_TAG_PREFIX = "rust-v"
@@ -203,6 +204,32 @@ function extractTarGz(archivePath, targetDir) {
   if (result.status !== 0) {
     throw new Error(`tar extraction failed with code ${result.status ?? "unknown"}`)
   }
+}
+
+function getCurrentPlatformBinaryPath() {
+  const currentPlatform = `${process.platform}-${process.arch}`
+  const platform = PLATFORMS[currentPlatform]
+  if (!platform) {
+    return null
+  }
+  return path.join(BIN_DIR, currentPlatform, platform.outputBinaryName)
+}
+
+function generateAppServerTypes(binaryPath) {
+  console.log(`\nGenerating app-server TypeScript bindings...`)
+  fs.rmSync(SCHEMA_DIR, { recursive: true, force: true })
+
+  const result = spawnSync(
+    binaryPath,
+    ["app-server", "generate-ts", "--out", SCHEMA_DIR, "--experimental"],
+    { stdio: "inherit" },
+  )
+
+  if (result.status !== 0) {
+    throw new Error(`app-server generate-ts failed with code ${result.status ?? "unknown"}`)
+  }
+
+  console.log(`  Saved to: ${SCHEMA_DIR}`)
 }
 
 function getVersionArg(args) {
@@ -398,6 +425,13 @@ async function main() {
     path.join(BIN_DIR, "CODEX_VERSION"),
     `${version}\n${new Date().toISOString()}\n`,
   )
+
+  const currentBinaryPath = getCurrentPlatformBinaryPath()
+  if (currentBinaryPath && fs.existsSync(currentBinaryPath)) {
+    generateAppServerTypes(currentBinaryPath)
+  } else {
+    console.warn("Skipping app-server TypeScript generation: current platform binary is unavailable")
+  }
 
   console.log("\n✓ All downloads completed successfully!")
 }

@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
+import type { InitializeParams, ServerNotification, ServerRequest } from '../../../shared/codex-app-server-schema';
+import { CODEX_APP_SERVER_OPT_OUT_NOTIFICATION_METHODS } from './notification-opt-out';
 
 type JsonRpcId = number;
 
@@ -18,18 +20,19 @@ type JsonRpcMessage = {
 };
 
 export type CodexAppServerNotification = {
-  method: string;
+  method: ServerNotification['method'];
   params: unknown;
 };
 
 export type CodexAppServerServerRequest = {
   id: JsonRpcId;
-  method: string;
+  method: ServerRequest['method'];
   params: unknown;
 };
 
 export type CodexAppServerClientOptions = {
   command: string;
+  clientInfoVersion: string;
   args?: string[];
   env?: Record<string, string>;
   onActivity?: () => void;
@@ -39,6 +42,20 @@ export type CodexAppServerClientOptions = {
 };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+
+export function buildCodexAppServerInitializeParams(clientInfoVersion: string): InitializeParams {
+  return {
+    clientInfo: {
+      name: 'churro-coder',
+      title: 'Churro Coder',
+      version: clientInfoVersion
+    },
+    capabilities: {
+      experimentalApi: true,
+      optOutNotificationMethods: CODEX_APP_SERVER_OPT_OUT_NOTIFICATION_METHODS
+    }
+  };
+}
 
 /**
  * Typed error used when JSON-RPC requests are rejected because the underlying
@@ -164,16 +181,7 @@ export class CodexAppServerClient {
     this.readline = createInterface({ input: this.process.stdout! });
     this.readline.on('line', (line) => this.handleLine(line));
 
-    await this.requestWithoutInitialize('initialize', {
-      clientInfo: {
-        name: 'churro-coder',
-        title: 'Churro Coder',
-        version: '1.0.0'
-      },
-      capabilities: {
-        experimentalApi: true
-      }
-    });
+    await this.requestWithoutInitialize('initialize', buildCodexAppServerInitializeParams(this.options.clientInfoVersion));
     this.notify('initialized', {});
     console.log('[codex app-server] lifecycle=ready');
   }
@@ -249,7 +257,7 @@ export class CodexAppServerClient {
     if (message.id !== undefined && message.method) {
       void this.handleServerRequest({
         id: message.id,
-        method: message.method,
+        method: message.method as ServerRequest['method'],
         params: message.params
       });
       return;
@@ -257,7 +265,7 @@ export class CodexAppServerClient {
 
     if (message.method) {
       this.options.onNotification?.({
-        method: message.method,
+        method: message.method as ServerNotification['method'],
         params: message.params
       });
     }

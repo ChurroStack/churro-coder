@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
-import { CodexAppServerClient } from './app-server-client';
+import { CodexAppServerClient, buildCodexAppServerInitializeParams } from './app-server-client';
+import { CODEX_APP_SERVER_OPT_OUT_NOTIFICATION_METHODS } from './notification-opt-out';
 
 describe('CodexAppServerClient activity hook', () => {
   test('fires for notifications, server requests, and responses', async () => {
@@ -8,6 +9,7 @@ describe('CodexAppServerClient activity hook', () => {
     const onServerRequest = vi.fn().mockResolvedValue({});
     const client = new CodexAppServerClient({
       command: 'codex',
+      clientInfoVersion: '9.9.9-test',
       onActivity,
       onNotification,
       onServerRequest
@@ -32,5 +34,19 @@ describe('CodexAppServerClient activity hook', () => {
     expect(onActivity).toHaveBeenCalledTimes(3);
     expect(resolve).toHaveBeenCalledWith({ ok: true });
     clearTimeout(timeout);
+  });
+
+  test('builds initialize params with the app version and curated opt-outs', () => {
+    expect(buildCodexAppServerInitializeParams('9.9.9-test')).toEqual({
+      clientInfo: {
+        name: 'churro-coder',
+        title: 'Churro Coder',
+        version: '9.9.9-test'
+      },
+      capabilities: {
+        experimentalApi: true,
+        optOutNotificationMethods: CODEX_APP_SERVER_OPT_OUT_NOTIFICATION_METHODS
+      }
+    });
   });
 });
