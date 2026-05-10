@@ -5,6 +5,7 @@ import { cleanup, render } from '@testing-library/react';
 import { Provider as JotaiProvider } from 'jotai';
 import { createTestStore, type TestStore } from '../../test-utils/create-test-store';
 import { toast } from 'sonner';
+import type { OpenExternalFailurePayload } from '../shared/open-external-types';
 import {
   anthropicOnboardingCompletedAtom,
   apiKeyOnboardingCompletedAtom,
@@ -18,9 +19,7 @@ const projectsListMock = vi.fn();
 const refetchProjectsMock = vi.fn();
 const chatsGetProjectIdByIdMock = vi.fn();
 let churroMcpStatusResult: { data: unknown } = { data: undefined };
-let openExternalFailedHandler:
-  | ((data: { reason: 'empty' | 'invalid' | 'unsupported-protocol' | 'open-failed'; url: string }) => void)
-  | undefined;
+let openExternalFailedHandler: ((data: OpenExternalFailurePayload) => void) | undefined;
 
 vi.mock('./lib/trpc', () => ({
   trpc: {
@@ -288,16 +287,19 @@ describe('AppContent — project-page decision', () => {
     expect(toast.error).toHaveBeenCalledTimes(2);
   });
 
-  it('shows a toast when the main process rejects an external url', async () => {
+  it.each([
+    ['empty', 'The link was empty.'],
+    ['invalid', 'The link was not a valid URL.'],
+    ['unsupported-protocol', 'Only http, https, and mailto links can be opened.'],
+    ['open-failed', 'The operating system could not open the link.']
+  ] as const)('shows a toast when the main process reports reason=%s', async (reason, description) => {
     const store = createTestStore();
     seedOnboarding(store);
     projectsListMock.mockReturnValue(projectsResult({ data: [], isLoading: false }));
 
     mountAppContent(store);
-    openExternalFailedHandler?.({ reason: 'invalid', url: 'not a url' });
+    openExternalFailedHandler?.({ reason, url: '[preview]' });
 
-    expect(toast.error).toHaveBeenCalledWith('Failed to open link', {
-      description: 'The link was not a valid URL.'
-    });
+    expect(toast.error).toHaveBeenCalledWith('Failed to open link', { description });
   });
 });

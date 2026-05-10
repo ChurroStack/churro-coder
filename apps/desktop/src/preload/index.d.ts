@@ -1,3 +1,5 @@
+import type { OpenExternalFailurePayload } from '../shared/open-external-types';
+
 export interface UpdateInfo {
   version: string;
   releaseDate?: string;
@@ -69,9 +71,7 @@ export interface DesktopApi {
   setBadge: (count: number | null) => Promise<void>;
   showNotification: (options: { title: string; body: string }) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
-  onOpenExternalFailed: (
-    callback: (data: { reason: 'empty' | 'invalid' | 'unsupported-protocol' | 'open-failed'; url: string }) => void
-  ) => () => void;
+  onOpenExternalFailed: (callback: (data: OpenExternalFailurePayload) => void) => () => void;
   getApiBaseUrl: () => Promise<string>;
 
   // Clipboard

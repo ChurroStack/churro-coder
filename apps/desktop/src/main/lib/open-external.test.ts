@@ -9,6 +9,18 @@ describe('validateExternalUrl', () => {
     });
   });
 
+  test('accepts mailto urls', () => {
+    expect(validateExternalUrl('mailto:foo@bar.com')).toEqual({
+      ok: true,
+      url: 'mailto:foo@bar.com'
+    });
+  });
+
+  test('rejects non-string input', () => {
+    expect(validateExternalUrl(undefined as unknown as string)).toEqual({ ok: false, reason: 'empty' });
+    expect(validateExternalUrl(null as unknown as string)).toEqual({ ok: false, reason: 'empty' });
+  });
+
   test('rejects empty urls', () => {
     expect(validateExternalUrl('   ')).toEqual({ ok: false, reason: 'empty' });
   });

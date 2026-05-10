@@ -25,6 +25,7 @@ import {
   codexOnboardingCompletedAtom
 } from './lib/atoms';
 import { debugSessionEnabledAtom } from './lib/debug-session';
+import type { OpenExternalFailureReason } from '../shared/open-external-types';
 import { appStore } from './lib/jotai-store';
 import { pickProject, type PickProjectOutput } from './lib/auto-select-project';
 import { VSCodeThemeProvider } from './lib/themes/theme-provider';
@@ -48,7 +49,7 @@ function ThemedToaster() {
   return <Toaster position="bottom-right" theme={resolvedTheme as 'light' | 'dark' | 'system'} closeButton />;
 }
 
-function describeOpenExternalFailure(reason: 'empty' | 'invalid' | 'unsupported-protocol' | 'open-failed'): string {
+function describeOpenExternalFailure(reason: OpenExternalFailureReason): string {
   switch (reason) {
     case 'empty':
       return 'The link was empty.';
@@ -57,7 +58,6 @@ function describeOpenExternalFailure(reason: 'empty' | 'invalid' | 'unsupported-
     case 'unsupported-protocol':
       return 'Only http, https, and mailto links can be opened.';
     case 'open-failed':
-    default:
       return 'The operating system could not open the link.';
   }
 }

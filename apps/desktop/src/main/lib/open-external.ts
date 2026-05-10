@@ -1,9 +1,5 @@
-export type OpenExternalFailureReason = 'empty' | 'invalid' | 'unsupported-protocol' | 'open-failed';
-
-export interface OpenExternalFailurePayload {
-  reason: OpenExternalFailureReason;
-  url: string;
-}
+export type { OpenExternalFailureReason, OpenExternalFailurePayload } from '../../shared/open-external-types';
+import type { OpenExternalFailureReason } from '../../shared/open-external-types';
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
 
@@ -16,7 +12,7 @@ export function previewExternalUrl(rawUrl: string, maxLength = 200): string {
 export function validateExternalUrl(
   rawUrl: string
 ): { ok: true; url: string } | { ok: false; reason: Exclude<OpenExternalFailureReason, 'open-failed'> } {
-  const trimmed = rawUrl.trim();
+  const trimmed = typeof rawUrl === 'string' ? rawUrl.trim() : '';
   if (!trimmed) {
     return { ok: false, reason: 'empty' };
   }
