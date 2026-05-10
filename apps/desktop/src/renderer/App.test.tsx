@@ -18,6 +18,9 @@ const projectsListMock = vi.fn();
 const refetchProjectsMock = vi.fn();
 const chatsGetProjectIdByIdMock = vi.fn();
 let churroMcpStatusResult: { data: unknown } = { data: undefined };
+let openExternalFailedHandler:
+  | ((data: { reason: 'empty' | 'invalid' | 'unsupported-protocol' | 'open-failed'; url: string }) => void)
+  | undefined;
 
 vi.mock('./lib/trpc', () => ({
   trpc: {
@@ -101,6 +104,7 @@ function mountAppContent(store: TestStore) {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  delete (window as typeof window & { desktopApi?: unknown }).desktopApi;
 });
 
 describe('AppContent — project-page decision', () => {
@@ -111,6 +115,13 @@ describe('AppContent — project-page decision', () => {
     chatsGetProjectIdByIdMock.mockReturnValue({ data: undefined });
     churroMcpStatusResult = { data: undefined };
     vi.mocked(toast.error).mockClear();
+    openExternalFailedHandler = undefined;
+    (window as typeof window & { desktopApi: any }).desktopApi = {
+      onOpenExternalFailed: vi.fn((callback) => {
+        openExternalFailedHandler = callback;
+        return vi.fn();
+      })
+    };
   });
 
   function projectsResult(override: { data: unknown; isLoading: boolean }) {
@@ -275,5 +286,18 @@ describe('AppContent — project-page decision', () => {
       </JotaiProvider>
     );
     expect(toast.error).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows a toast when the main process rejects an external url', async () => {
+    const store = createTestStore();
+    seedOnboarding(store);
+    projectsListMock.mockReturnValue(projectsResult({ data: [], isLoading: false }));
+
+    mountAppContent(store);
+    openExternalFailedHandler?.({ reason: 'invalid', url: 'not a url' });
+
+    expect(toast.error).toHaveBeenCalledWith('Failed to open link', {
+      description: 'The link was not a valid URL.'
+    });
   });
 });

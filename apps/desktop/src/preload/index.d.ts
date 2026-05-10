@@ -69,6 +69,9 @@ export interface DesktopApi {
   setBadge: (count: number | null) => Promise<void>;
   showNotification: (options: { title: string; body: string }) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  onOpenExternalFailed: (
+    callback: (data: { reason: 'empty' | 'invalid' | 'unsupported-protocol' | 'open-failed'; url: string }) => void
+  ) => () => void;
   getApiBaseUrl: () => Promise<string>;
 
   // Clipboard

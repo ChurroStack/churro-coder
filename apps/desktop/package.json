@@ -291,5 +291,8 @@
     "trailingComma": "none",
     "singleQuote": true,
     "bracketSpacing": true
+  },
+  "patchedDependencies": {
+    "@radix-ui/react-select@2.2.6": "patches/@radix-ui%2Freact-select@2.2.6.patch"
   }
 }

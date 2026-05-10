@@ -28,7 +28,7 @@ export function SearchPanel({ params }: IDockviewPanelProps<SearchPanelEntity>) 
   );
 
   return (
-    <div className="h-full w-full overflow-hidden flex flex-col bg-background">
+    <div className="h-full w-full overflow-hidden flex flex-col bg-background border-t border-border">
       <SearchTab worktreePath={worktreePath} onSelectFile={handleSelectFile} isActive />
     </div>
   );

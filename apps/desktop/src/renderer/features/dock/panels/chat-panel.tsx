@@ -110,7 +110,7 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
 
   return (
     <div
-      className="h-full w-full overflow-hidden bg-background"
+      className="h-full w-full overflow-hidden bg-background border-t border-border"
       style={{
         contain: 'layout style paint'
       }}>

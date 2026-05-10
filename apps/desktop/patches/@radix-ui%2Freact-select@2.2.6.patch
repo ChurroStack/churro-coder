@@ -1,0 +1,44 @@
+diff --git a/dist/index.js b/dist/index.js
+index dc37ac4a018a086c4244a09a67215dbaa9b4de65..d7a042345b5be18ae64ae351d844ec4dece17559 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -366,7 +366,7 @@ var SelectContentImpl = React.forwardRef(
+     const context = useSelectContext(CONTENT_NAME, __scopeSelect);
+     const [content, setContent] = React.useState(null);
+     const [viewport, setViewport] = React.useState(null);
+-    const composedRefs = (0, import_react_compose_refs.useComposedRefs)(forwardedRef, (node) => setContent(node));
++    const composedRefs = (0, import_react_compose_refs.useComposedRefs)(forwardedRef, setContent);
+     const [selectedItem, setSelectedItem] = React.useState(null);
+     const [selectedItemText, setSelectedItemText] = React.useState(
+       null
+@@ -580,7 +580,7 @@ var SelectItemAlignedPosition = React.forwardRef((props, forwardedRef) => {
+   const contentContext = useSelectContentContext(CONTENT_NAME, __scopeSelect);
+   const [contentWrapper, setContentWrapper] = React.useState(null);
+   const [content, setContent] = React.useState(null);
+-  const composedRefs = (0, import_react_compose_refs.useComposedRefs)(forwardedRef, (node) => setContent(node));
++  const composedRefs = (0, import_react_compose_refs.useComposedRefs)(forwardedRef, setContent);
+   const getItems = useCollection(__scopeSelect);
+   const shouldExpandOnScrollRef = React.useRef(false);
+   const shouldRepositionRef = React.useRef(true);
+diff --git a/dist/index.mjs b/dist/index.mjs
+index f9b94f39dfddef678ef3086354f8d7413ae27e52..636bee6567edd54e9827795b0b2d82dd6f0b5e10 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -299,7 +299,7 @@ var SelectContentImpl = React.forwardRef(
+     const context = useSelectContext(CONTENT_NAME, __scopeSelect);
+     const [content, setContent] = React.useState(null);
+     const [viewport, setViewport] = React.useState(null);
+-    const composedRefs = useComposedRefs(forwardedRef, (node) => setContent(node));
++    const composedRefs = useComposedRefs(forwardedRef, setContent);
+     const [selectedItem, setSelectedItem] = React.useState(null);
+     const [selectedItemText, setSelectedItemText] = React.useState(
+       null
+@@ -513,7 +513,7 @@ var SelectItemAlignedPosition = React.forwardRef((props, forwardedRef) => {
+   const contentContext = useSelectContentContext(CONTENT_NAME, __scopeSelect);
+   const [contentWrapper, setContentWrapper] = React.useState(null);
+   const [content, setContent] = React.useState(null);
+-  const composedRefs = useComposedRefs(forwardedRef, (node) => setContent(node));
++  const composedRefs = useComposedRefs(forwardedRef, setContent);
+   const getItems = useCollection(__scopeSelect);
+   const shouldExpandOnScrollRef = React.useRef(false);
+   const shouldRepositionRef = React.useRef(true);

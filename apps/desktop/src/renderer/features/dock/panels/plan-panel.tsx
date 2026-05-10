@@ -36,7 +36,7 @@ export function PlanPanel({ params, api, containerApi }: IDockviewPanelProps<Pla
   };
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden">
+    <div className="flex flex-col h-full w-full overflow-hidden border-t border-border">
       {mode === 'plan' && (
         <div className="flex items-center justify-end gap-2 px-3 h-9 border-b border-border bg-muted/30 flex-shrink-0">
           <Button

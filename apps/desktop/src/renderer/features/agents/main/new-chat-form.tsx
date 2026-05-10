@@ -204,10 +204,10 @@ const modeOptions = [
   },
   {
     value: 'execute',
-    label: 'Agent',
+    label: 'Execute',
     description: 'Apply changes directly and keep momentum.',
     icon: AgentIcon,
-    detailTitle: 'Agent — Implement directly',
+    detailTitle: 'Execute — Implement directly',
     detailDescription: 'Best for clear tasks. Applies changes immediately and keeps moving without a planning gate.'
   },
   {

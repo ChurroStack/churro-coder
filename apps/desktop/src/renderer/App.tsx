@@ -48,6 +48,20 @@ function ThemedToaster() {
   return <Toaster position="bottom-right" theme={resolvedTheme as 'light' | 'dark' | 'system'} closeButton />;
 }
 
+function describeOpenExternalFailure(reason: 'empty' | 'invalid' | 'unsupported-protocol' | 'open-failed'): string {
+  switch (reason) {
+    case 'empty':
+      return 'The link was empty.';
+    case 'invalid':
+      return 'The link was not a valid URL.';
+    case 'unsupported-protocol':
+      return 'Only http, https, and mailto links can be opened.';
+    case 'open-failed':
+    default:
+      return 'The operating system could not open the link.';
+  }
+}
+
 function AnalyticsBindings() {
   useSentryWorkspaceTags();
   const debugSessionEnabled = useAtomValue(debugSessionEnabledAtom);
@@ -108,6 +122,16 @@ export function AppContent() {
     });
     // Only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!window.desktopApi?.onOpenExternalFailed) return;
+    return window.desktopApi.onOpenExternalFailed(({ reason, url }) => {
+      console.warn(`[shell:open-external] renderer toast reason=${reason} url=${url}`);
+      toast.error('Failed to open link', {
+        description: describeOpenExternalFailure(reason)
+      });
+    });
   }, []);
 
   // Surface churro-coder MCP bootstrap failures (e.g. Codex CLI rejected
