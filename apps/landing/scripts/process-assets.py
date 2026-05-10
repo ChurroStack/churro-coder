@@ -30,6 +30,10 @@ def crop_with_radius(fname, pad, radius, out_name=None):
 for f in ["plan.png", "code.png", "review.png", "usage.png", "design.png"]:
     crop_with_radius(f, 120, 24)
 
+# Landing-specific crops sourced from desktop exports (57px colored border).
+crop_with_radius("hero-candidate-with-border.png", 57, 24, "hero-candidate.png")
+crop_with_radius("finish-pr-with-border.png", 57, 24, "finish-pr.png")
+
 # multi-window (57px padding, 22px corner radius)
 crop_with_radius("multi-window.png", 57, 22)
 

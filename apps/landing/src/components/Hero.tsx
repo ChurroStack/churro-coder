@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import { Github, Star, Download, ArrowRight } from "lucide-react";
 import Image from "next/image";
+import { Lightbox } from "./Lightbox";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -16,6 +18,7 @@ const fadeUp = {
 
 export function Hero({ stars }: { stars: number | null }) {
   const t = useTranslations("hero");
+  const [open, setOpen] = useState(false);
 
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center pt-16 pb-24">
@@ -120,17 +123,34 @@ export function Hero({ stars }: { stars: number | null }) {
         transition={{ delay: 0.5, duration: 0.9, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }}
         className="relative z-10 mt-16 w-full max-w-5xl mx-auto px-4 sm:px-6"
       >
-        <div style={{ borderRadius: 24, boxShadow: "0 20px 50px -8px rgba(0,0,0,0.28)" }}>
-          <Image
-            src="/images/usage.png"
-            alt="Churro Coder app screenshot"
-            width={1400}
-            height={900}
-            className="w-full block"
-            priority
-          />
-        </div>
+        <button
+          className="w-full cursor-zoom-in text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+          style={{ borderRadius: 24, boxShadow: "0 20px 50px -8px rgba(0,0,0,0.28)" }}
+          onClick={() => setOpen(true)}
+          aria-label="Expand app screenshot"
+        >
+          <div className="overflow-hidden" style={{ borderRadius: 24, maxHeight: 620 }}>
+            <Image
+              src="/images/hero-candidate.png"
+              alt="Churro Coder app screenshot"
+              width={1917}
+              height={1285}
+              className="w-full block"
+              style={{ objectPosition: "top center" }}
+              priority
+            />
+          </div>
+        </button>
       </motion.div>
+
+      <Lightbox
+        src="/images/hero-candidate.png"
+        alt="Churro Coder app screenshot"
+        width={1917}
+        height={1285}
+        open={open}
+        onClose={() => setOpen(false)}
+      />
     </section>
   );
 }

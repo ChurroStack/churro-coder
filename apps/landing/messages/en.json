@@ -85,7 +85,7 @@
     "plan": "Plan",
     "code": "Code",
     "review": "Review",
-    "design": "Design",
+    "pr": "PR",
     "usage": "Usage"
   },
   "cta": {

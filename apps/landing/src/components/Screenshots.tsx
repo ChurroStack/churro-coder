@@ -8,18 +8,18 @@ import { cn } from "@/lib/utils";
 import { Lightbox } from "./Lightbox";
 
 const tabs = [
-  { key: "usage", src: "/images/usage.png" },
-  { key: "plan", src: "/images/plan.png" },
-  { key: "code", src: "/images/code.png" },
-  { key: "review", src: "/images/review.png" },
-  { key: "design", src: "/images/design.png" },
+  { key: "usage", src: "/images/usage.png", width: 1791, height: 1159, maxHeight: 900 },
+  { key: "plan", src: "/images/plan.png", width: 1791, height: 1159, maxHeight: 900 },
+  { key: "code", src: "/images/code.png", width: 1791, height: 1159, maxHeight: 900 },
+  { key: "review", src: "/images/review.png", width: 1791, height: 1159, maxHeight: 900 },
+  { key: "pr", src: "/images/finish-pr.png", width: 1917, height: 1285, maxHeight: 840 },
 ] as const;
 
 type LightboxData = { src: string; alt: string; width: number; height: number };
 
 export function Screenshots() {
   const t = useTranslations("screenshots");
-  const [active, setActive] = useState<(typeof tabs)[number]["key"]>("review");
+  const [active, setActive] = useState<(typeof tabs)[number]["key"]>("usage");
   const [lightbox, setLightbox] = useState<LightboxData | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -98,21 +98,22 @@ export function Screenshots() {
                     setLightbox({
                       src: activeTab.src,
                       alt: `Churro Coder ${t(active)} view`,
-                      width: 1400,
-                      height: 900,
+                      width: activeTab.width,
+                      height: activeTab.height,
                     });
                     setOpen(true);
                   }}
                   aria-label={`Expand ${t(active)} screenshot`}
                 >
-                  <Image
-                    src={activeTab.src}
-                    alt={`Churro Coder ${t(active)} view`}
-                    width={1400}
-                    height={900}
-                    className="w-full block"
-                    style={{ borderRadius: 24 }}
-                  />
+                  <div className="overflow-hidden" style={{ borderRadius: 24, maxHeight: activeTab.maxHeight }}>
+                    <Image
+                      src={activeTab.src}
+                      alt={`Churro Coder ${t(active)} view`}
+                      width={activeTab.width}
+                      height={activeTab.height}
+                      className="w-full block"
+                    />
+                  </div>
                 </motion.button>
               </AnimatePresence>
             </div>

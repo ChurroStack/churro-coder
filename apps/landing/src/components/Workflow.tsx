@@ -14,7 +14,7 @@ const steps: { key: string; icon: LucideIcon; image: string; width: number; heig
   { key: "plan", icon: Map, image: "/images/plan.png", width: 1400, height: 900 },
   { key: "code", icon: Code2, image: "/images/code.png", width: 1400, height: 900 },
   { key: "review", icon: GitPullRequestDraft, image: "/images/review.png", width: 1400, height: 900 },
-  { key: "pr", icon: Rocket, image: "/images/multi-window.png", width: 1875, height: 1151 },
+  { key: "pr", icon: Rocket, image: "/images/finish-pr.png", width: 1917, height: 1285 },
 ];
 
 export function Workflow() {
