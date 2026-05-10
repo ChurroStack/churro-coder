@@ -181,7 +181,10 @@ export class CodexAppServerClient {
     this.readline = createInterface({ input: this.process.stdout! });
     this.readline.on('line', (line) => this.handleLine(line));
 
-    await this.requestWithoutInitialize('initialize', buildCodexAppServerInitializeParams(this.options.clientInfoVersion));
+    await this.requestWithoutInitialize(
+      'initialize',
+      buildCodexAppServerInitializeParams(this.options.clientInfoVersion)
+    );
     this.notify('initialized', {});
     console.log('[codex app-server] lifecycle=ready');
   }

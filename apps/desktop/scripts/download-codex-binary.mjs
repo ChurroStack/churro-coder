@@ -217,17 +217,32 @@ function getCurrentPlatformBinaryPath() {
 
 function generateAppServerTypes(binaryPath) {
   console.log(`\nGenerating app-server TypeScript bindings...`)
-  fs.rmSync(SCHEMA_DIR, { recursive: true, force: true })
+
+  // Generate into a sibling temp dir and atomically swap on success so a
+  // mid-generation failure (CLI panic, SIGTERM, etc.) leaves the previous
+  // schemas in place — otherwise the next `tsc` / `bun install` would error
+  // on missing imports until the script is rerun.
+  const tmpDir = `${SCHEMA_DIR}.tmp`
+  const trashDir = `${SCHEMA_DIR}.trash`
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+  fs.rmSync(trashDir, { recursive: true, force: true })
 
   const result = spawnSync(
     binaryPath,
-    ["app-server", "generate-ts", "--out", SCHEMA_DIR, "--experimental"],
+    ["app-server", "generate-ts", "--out", tmpDir, "--experimental"],
     { stdio: "inherit" },
   )
 
   if (result.status !== 0) {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
     throw new Error(`app-server generate-ts failed with code ${result.status ?? "unknown"}`)
   }
+
+  if (fs.existsSync(SCHEMA_DIR)) {
+    fs.renameSync(SCHEMA_DIR, trashDir)
+  }
+  fs.renameSync(tmpDir, SCHEMA_DIR)
+  fs.rmSync(trashDir, { recursive: true, force: true })
 
   console.log(`  Saved to: ${SCHEMA_DIR}`)
 }

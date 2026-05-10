@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import type { ServerRequest } from '../../../shared/codex-app-server-schema';
 import { getCodexAppServerApprovalResponse } from './codex-app-server-approval-policy';
 import type { CodexSandboxPolicy } from './codex-sandbox-policy';
 
@@ -13,6 +14,10 @@ const workspaceWritePolicy: CodexSandboxPolicy = {
 const dangerFullAccessPolicy: CodexSandboxPolicy = { type: 'dangerFullAccess' };
 
 describe('getCodexAppServerApprovalResponse', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test('declines managed-network approvals in read-only mode', () => {
     expect(
       getCodexAppServerApprovalResponse(
@@ -53,5 +58,50 @@ describe('getCodexAppServerApprovalResponse', () => {
     expect(getCodexAppServerApprovalResponse('item/fileChange/requestApproval', {}, workspaceWritePolicy)).toEqual({
       decision: 'acceptForSession'
     });
+  });
+
+  test('accepts the legacy execCommandApproval method', () => {
+    expect(getCodexAppServerApprovalResponse('execCommandApproval', {}, workspaceWritePolicy)).toEqual({
+      decision: 'accept'
+    });
+  });
+
+  test('accepts the legacy applyPatchApproval method', () => {
+    expect(getCodexAppServerApprovalResponse('applyPatchApproval', {}, workspaceWritePolicy)).toEqual({
+      decision: 'accept'
+    });
+  });
+
+  test('returns null for non-approval methods so the dispatcher can route them elsewhere', () => {
+    expect(getCodexAppServerApprovalResponse('mcpServer/elicitation/request', {}, workspaceWritePolicy)).toBeNull();
+    expect(getCodexAppServerApprovalResponse('item/permissions/requestApproval', {}, workspaceWritePolicy)).toBeNull();
+    expect(getCodexAppServerApprovalResponse('item/tool/call', {}, workspaceWritePolicy)).toBeNull();
+  });
+
+  test('declines unknown *requestApproval methods outside dangerFullAccess and warns once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = getCodexAppServerApprovalResponse(
+      'item/processSpawn/requestApproval' as ServerRequest['method'],
+      {},
+      workspaceWritePolicy
+    );
+
+    expect(result).toEqual({ decision: 'decline' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toMatch(/unknown approval method=item\/processSpawn\/requestApproval/);
+  });
+
+  test('accepts unknown *requestApproval methods for the session under dangerFullAccess', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = getCodexAppServerApprovalResponse(
+      'item/processSpawn/requestApproval' as ServerRequest['method'],
+      {},
+      dangerFullAccessPolicy
+    );
+
+    expect(result).toEqual({ decision: 'acceptForSession' });
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

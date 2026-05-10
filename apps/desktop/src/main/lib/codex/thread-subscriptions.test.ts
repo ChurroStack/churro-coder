@@ -2,11 +2,14 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   cleanupCodexThreadSubscription,
   trackCodexThreadSubscription,
-  unsubscribeCodexSessionThreads,
   type CodexThreadSubscriptionMaps
 } from './thread-subscriptions';
 
-function createMaps(): CodexThreadSubscriptionMaps {
+type TestMaps = CodexThreadSubscriptionMaps & {
+  activeAppServerTurns: Map<string, unknown>;
+};
+
+function createMaps(): TestMaps {
   return {
     subChatThreadIds: new Map(),
     subChatSessionKeys: new Map(),
@@ -43,33 +46,19 @@ describe('codex thread subscriptions', () => {
     expect(maps.activeThreadIdsByTurnId.size).toBe(0);
   });
 
-  test('session unsubscribe deduplicates repeated threads across tracked sub-chats', () => {
+  test('cleanup is a no-op (and skips notify) when the sub-chat has no tracked thread', () => {
     const maps = createMaps();
     const notifyThreadUnsubscribe = vi.fn();
+    maps.subChatSessionKeys.set('orphan-sub', 'session-a');
 
-    trackCodexThreadSubscription(maps, {
-      subChatId: 'sub-1',
-      threadId: 'thread-1',
-      sessionKey: 'session-a'
-    });
-    trackCodexThreadSubscription(maps, {
-      subChatId: 'sub-2',
-      threadId: 'thread-1',
-      sessionKey: 'session-a'
-    });
-    trackCodexThreadSubscription(maps, {
-      subChatId: 'sub-3',
-      threadId: 'thread-3',
-      sessionKey: 'session-b'
-    });
-
-    const threadIds = unsubscribeCodexSessionThreads(maps, {
-      sessionKey: 'session-a',
+    const threadId = cleanupCodexThreadSubscription(maps, {
+      subChatId: 'orphan-sub',
       notifyThreadUnsubscribe
     });
 
-    expect(threadIds).toEqual(['thread-1']);
-    expect(notifyThreadUnsubscribe).toHaveBeenCalledTimes(1);
-    expect(notifyThreadUnsubscribe).toHaveBeenCalledWith('thread-1');
+    expect(threadId).toBeUndefined();
+    expect(notifyThreadUnsubscribe).not.toHaveBeenCalled();
+    // Stale session-key pointer is still cleared so the registry doesn't leak.
+    expect(maps.subChatSessionKeys.has('orphan-sub')).toBe(false);
   });
 });

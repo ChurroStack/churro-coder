@@ -29,11 +29,7 @@ import {
 } from '../../codex/recovery';
 import { waitForAppServerTurn } from '../../codex/wait-for-app-server-turn';
 import { mapAppServerUsageToMetadata, type CodexUsageMetadata } from '../../codex/usage-metadata';
-import {
-  cleanupCodexThreadSubscription,
-  trackCodexThreadSubscription,
-  unsubscribeCodexSessionThreads
-} from '../../codex/thread-subscriptions';
+import { cleanupCodexThreadSubscription, trackCodexThreadSubscription } from '../../codex/thread-subscriptions';
 import { getClaudeShellEnvironment } from '../../claude/env';
 import { resolveProjectPathFromWorktree } from '../../claude-config';
 import { getDatabase, projects as projectsTable, subChats } from '../../db';
@@ -1512,10 +1508,13 @@ async function getOrCreateAppServerSession(params: {
     );
   }
 
-  if (existing) {
-    unsubscribeTrackedThreadsForSession(sessionKey, existing.client, 'session-invalidated');
-    existing.client.dispose();
-  }
+  // We intentionally do NOT issue per-thread `thread/unsubscribe` requests when
+  // tearing down the shared session: `client.dispose()` SIGTERMs the process
+  // and the server frees subscribed threads on connection drop. Sending RPCs
+  // here would just race the SIGTERM and log misleading "succeeded" lines.
+  // The per-sub-chat unsubscribe in `cleanupCodexAppServerSubChat` is the path
+  // that keeps a live session lean.
+  existing?.client.dispose();
   appServerSessions.delete(sessionKey);
 
   let session: CodexAppServerSession | null = null;
@@ -1583,7 +1582,8 @@ function disposeAppServerSessionForAuth(
   }
 
   console.log(`[codex] app-server force restart sessionKey=${sessionKey.slice(0, 8)} reason=${reason}`);
-  unsubscribeTrackedThreadsForSession(sessionKey, existing.client, reason);
+  // No per-thread `thread/unsubscribe` here either — see the explanation in
+  // `getOrCreateAppServerSession`. Connection drop frees server memory.
   existing.client.dispose(reason);
   appServerSessions.delete(sessionKey);
 }
@@ -1602,49 +1602,39 @@ export function cleanupCodexAppServerSubChat(subChatId: string): void {
     },
     {
       subChatId,
-      notifyThreadUnsubscribe: client ? (threadId) => notifyThreadUnsubscribe(client, { threadId }, 'subchat-cleanup') : undefined
+      notifyThreadUnsubscribe: client
+        ? (threadId) => notifyThreadUnsubscribe(client, { threadId }, 'subchat-cleanup')
+        : undefined
     }
   );
 }
 
 function getSandboxPolicyForAppServerRequest(params: Record<string, unknown>): CodexSandboxPolicy | undefined {
-  const threadId = getAppServerThreadId(params) || getStringField(params, ['conversationId']);
+  const threadId = getAppServerThreadId(params);
   if (!threadId) return undefined;
   const subChatId = activeStreamsByThreadId.get(threadId);
   if (!subChatId) return undefined;
   return activeStreams.get(subChatId)?.sandboxPolicy;
 }
 
-function notifyThreadUnsubscribe(
-  client: CodexAppServerClient,
-  params: ThreadUnsubscribeParams,
-  reason: string
-): void {
-  try {
-    console.log(`[codex app-server] notify method=thread/unsubscribe reason=${reason} threadId=${params.threadId}`);
-    client.notify('thread/unsubscribe', params);
-  } catch (error) {
-    console.warn(
-      `[codex app-server] notify failed method=thread/unsubscribe reason=${reason} threadId=${params.threadId}`,
-      error
-    );
-  }
-}
+const THREAD_UNSUBSCRIBE_TIMEOUT_MS = 5_000;
 
-function unsubscribeTrackedThreadsForSession(sessionKey: string, client: CodexAppServerClient, reason: string): void {
-  unsubscribeCodexSessionThreads(
-    {
-      subChatThreadIds,
-      subChatSessionKeys,
-      activeStreamsByThreadId,
-      activeAppServerTurns,
-      activeThreadIdsByTurnId
-    },
-    {
-      sessionKey,
-      notifyThreadUnsubscribe: (threadId) => notifyThreadUnsubscribe(client, { threadId }, reason)
-    }
-  );
+/**
+ * `thread/unsubscribe` is a `ClientRequest` in the app-server schema (it has a
+ * `ThreadUnsubscribeResponse`), so it must be sent as a JSON-RPC request, not
+ * a notification — a strict server may discard a method-as-notification. We
+ * still don't care about the response, so the promise is fire-and-forget; we
+ * only log if the request itself fails.
+ */
+function notifyThreadUnsubscribe(client: CodexAppServerClient, params: ThreadUnsubscribeParams, reason: string): void {
+  console.log(`[codex app-server] request method=thread/unsubscribe reason=${reason} threadId=${params.threadId}`);
+  client.request('thread/unsubscribe', params, THREAD_UNSUBSCRIBE_TIMEOUT_MS).catch((error: unknown) => {
+    if (error instanceof CodexAppServerClosedError) return;
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[codex app-server] request failed method=thread/unsubscribe reason=${reason} threadId=${params.threadId} error=${message}`
+    );
+  });
 }
 
 function extractThreadIdFromStartResult(result: unknown): string | undefined {
@@ -2571,12 +2561,17 @@ async function handleAppServerServerRequest(request: CodexAppServerServerRequest
     };
   }
 
-  const approvalResponse = getCodexAppServerApprovalResponse(method as ServerRequest['method'], params, getSandboxPolicyForAppServerRequest(params));
+  const approvalResponse = getCodexAppServerApprovalResponse(
+    method as ServerRequest['method'],
+    params,
+    getSandboxPolicyForAppServerRequest(params)
+  );
   if (approvalResponse) {
     const decision = approvalResponse.decision;
+    const decisionLabel = typeof decision === 'string' ? decision : JSON.stringify(decision);
     const summary = summarizeCodexServerRequestParams(params);
     const log =
-      `[codex app-server] server-request decision=${decision} method=${method}` + (summary ? ` ${summary}` : '');
+      `[codex app-server] server-request decision=${decisionLabel} method=${method}` + (summary ? ` ${summary}` : '');
     if (decision === 'decline') {
       console.warn(log);
     } else {

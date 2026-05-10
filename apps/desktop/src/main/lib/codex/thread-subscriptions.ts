@@ -1,8 +1,14 @@
+/**
+ * Holds only the sub-chat ↔ thread bookkeeping needed by the helpers below.
+ * `activeAppServerTurns` is intentionally narrowed to the `delete` surface so
+ * future contributors can't accidentally `.get()` it through the helper and
+ * lose the real accumulator type that the call site stores.
+ */
 export type CodexThreadSubscriptionMaps = {
   subChatThreadIds: Map<string, string>;
   subChatSessionKeys: Map<string, string>;
   activeStreamsByThreadId: Map<string, string>;
-  activeAppServerTurns: Map<string, unknown>;
+  activeAppServerTurns: Pick<Map<string, unknown>, 'delete'>;
   activeThreadIdsByTurnId: Map<string, string>;
 };
 
@@ -38,25 +44,4 @@ export function cleanupCodexThreadSubscription(
   }
 
   return threadId;
-}
-
-export function unsubscribeCodexSessionThreads(
-  maps: CodexThreadSubscriptionMaps,
-  params: { sessionKey: string; notifyThreadUnsubscribe: (threadId: string) => void }
-): string[] {
-  const threadIds = new Set<string>();
-
-  for (const [subChatId, mappedSessionKey] of maps.subChatSessionKeys) {
-    if (mappedSessionKey !== params.sessionKey) continue;
-    const threadId = maps.subChatThreadIds.get(subChatId);
-    if (threadId) {
-      threadIds.add(threadId);
-    }
-  }
-
-  for (const threadId of threadIds) {
-    params.notifyThreadUnsubscribe(threadId);
-  }
-
-  return [...threadIds];
 }
