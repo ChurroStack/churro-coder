@@ -53,7 +53,10 @@ export interface ModeSwitchMutationLike {
  * @param updateSubChatModeMutation - tRPC mutation for persisting mode to DB.
  *   `mutateAsync` is awaited inside `persistMode`.
  */
-export function useModeSwitchDeps(updateSubChatModeMutation: ModeSwitchMutationLike): ModeSwitchDeps {
+export function useModeSwitchDeps(
+  updateSubChatModeMutation: ModeSwitchMutationLike,
+  notifyProviderChange?: (subChatId: string, provider: ProviderId) => void
+): ModeSwitchDeps {
   const utils = trpc.useUtils();
   return useMemo<ModeSwitchDeps>(
     () => ({
@@ -82,12 +85,13 @@ export function useModeSwitchDeps(updateSubChatModeMutation: ModeSwitchMutationL
           ...(mode === 'execute' ? { exitPlan: true } : {})
         });
       },
+      notifyProviderChange,
       log: (msg) => {
         if (process.env.NODE_ENV === 'development') {
           console.log(msg);
         }
       }
     }),
-    [updateSubChatModeMutation, utils]
+    [notifyProviderChange, updateSubChatModeMutation, utils]
   );
 }

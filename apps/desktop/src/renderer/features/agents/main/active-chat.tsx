@@ -766,7 +766,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   // by `mode-switch-service`, the activity-tracking effect, and (via
   // re-derivation) `plan-approval-service`. See the hook's docstring
   // for the full contract; this is a one-line wire-in.
-  const modeDeps = useModeSwitchDeps(updateSubChatModeMutation);
+  const modeDeps = useModeSwitchDeps(updateSubChatModeMutation, onProviderChange);
 
   // (`hydratedSubChatIdsRef` and the chat-level hydration deps live in
   // `ChatView`, not here — the hydration loop iterates dbSubChats which
@@ -852,12 +852,9 @@ export const ChatViewInner = memo(function ChatViewInner({
   //     Silent rejection here — the toggle UI in chat-input-area should
   //     also be gated on `isStreaming` so the user doesn't see the
   //     rejection at all. Keeping a console.warn for debugging.
-  //   - PR #44 / #52: cross-provider switches that change the underlying
-  //     transport are signaled via `notifyProviderChange`. We don't wire
-  //     that callback here because user-driven toggles within a single
-  //     provider (plan ↔ agent in the same Claude or Codex session) don't
-  //     change the transport. Plan approval (which CAN change provider)
-  //     uses the plan-approval service which DOES wire the callback.
+  //   - PR #44 / #52: cross-provider mode defaults must recreate the
+  //     underlying transport immediately. User toggles can cross providers
+  //     too, so we wire `notifyProviderChange` here.
   const handleModeChange = useCallback(
     async (newMode: AgentMode) => {
       const result = await toggleModeService(subChatId, newMode, modeDeps);
