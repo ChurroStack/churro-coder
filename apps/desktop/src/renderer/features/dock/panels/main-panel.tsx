@@ -38,7 +38,7 @@ export function MainPanel({ api }: IDockviewPanelProps) {
   }, [api]);
 
   return (
-    <div className="h-full w-full overflow-hidden">
+    <div className="h-full w-full overflow-hidden border-t border-border">
       <AgentsContent dockWorkspaceActive={isWorkspaceActive} dockPanelVisible={isVisible} dockPanelActive={isActive} />
     </div>
   );

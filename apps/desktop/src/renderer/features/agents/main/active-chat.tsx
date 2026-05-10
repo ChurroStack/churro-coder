@@ -6171,7 +6171,7 @@ export function ChatView({
                                 disabled
                                 className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground rounded-md cursor-not-allowed">
                                 <AgentIcon className="h-3.5 w-3.5" />
-                                <span>Agent</span>
+                                <span>Execute</span>
                                 <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
                               </button>
 

@@ -30,7 +30,7 @@ export function FilesTreePanel({ params }: IDockviewPanelProps<FilesTreePanelEnt
   );
 
   return (
-    <div className="h-full w-full overflow-hidden flex flex-col bg-background">
+    <div className="h-full w-full overflow-hidden flex flex-col bg-background border-t border-border">
       <FilesTab ref={filesTabRef} worktreePath={worktreePath} onSelectFile={handleSelectFile} />
     </div>
   );

@@ -123,6 +123,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@radix-ui/react-select@2.2.6": "patches/@radix-ui%2Freact-select@2.2.6.patch",
+  },
   "overrides": {
     "@opentelemetry/api": "1.9.1",
   },

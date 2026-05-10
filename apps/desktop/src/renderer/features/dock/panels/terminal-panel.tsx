@@ -68,7 +68,7 @@ export function TerminalPanel({ params, api }: IDockviewPanelProps<TerminalPanel
   }, [isDark, fullThemeData]);
 
   return (
-    <div className="h-full w-full overflow-hidden" style={{ backgroundColor: terminalBg }}>
+    <div className="h-full w-full overflow-hidden border-t border-border" style={{ backgroundColor: terminalBg }}>
       <motion.div
         key={params.paneId}
         className="h-full"

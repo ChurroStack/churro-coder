@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { hookupIpc as hookupSentryIpc } from '@sentry/electron/preload-namespaced';
 import { exposeElectronTRPC } from 'trpc-electron/main';
+import type { OpenExternalFailurePayload } from '../shared/open-external-types';
 
 hookupSentryIpc();
 
@@ -260,6 +261,11 @@ contextBridge.exposeInMainWorld('desktopApi', {
     ipcRenderer.on('worktree:setup-failed', handler);
     return () => ipcRenderer.removeListener('worktree:setup-failed', handler);
   },
+  onOpenExternalFailed: (callback: (data: OpenExternalFailurePayload) => void) => {
+    const handler = (_event: unknown, data: OpenExternalFailurePayload) => callback(data);
+    ipcRenderer.on('shell:open-external-failed', handler);
+    return () => ipcRenderer.removeListener('shell:open-external-failed', handler);
+  },
 
   // Subscribe to git watcher for a worktree (from renderer)
   subscribeToGitWatcher: (worktreePath: string) => ipcRenderer.invoke('git:subscribe-watcher', worktreePath),
@@ -362,6 +368,7 @@ export interface DesktopApi {
   setBadgeIcon: (imageData: string | null) => Promise<void>;
   showNotification: (options: { title: string; body: string }) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  onOpenExternalFailed: (callback: (data: OpenExternalFailurePayload) => void) => () => void;
   getApiBaseUrl: () => Promise<string>;
   clipboardWrite: (text: string) => Promise<void>;
   clipboardRead: () => Promise<string>;

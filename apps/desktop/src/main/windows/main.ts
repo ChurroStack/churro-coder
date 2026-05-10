@@ -22,6 +22,12 @@ import { registerGitWatcherIPC } from '../lib/git/watcher';
 import { hasActiveClaudeSessions, abortAllClaudeSessions } from '../lib/trpc/routers/claude';
 import { hasActiveCodexStreams, abortAllCodexStreams } from '../lib/trpc/routers/codex';
 import { registerThemeScannerIPC } from '../lib/vscode-theme-scanner';
+import {
+  previewExternalUrl,
+  validateExternalUrl,
+  type OpenExternalFailurePayload,
+  type OpenExternalFailureReason
+} from '../lib/open-external';
 import { windowManager } from './window-manager';
 
 // Flag to bypass close confirmation when app.quit() has already been confirmed
@@ -357,7 +363,28 @@ function registerIpcHandlers(): void {
   });
 
   // Shell
-  ipcMain.handle('shell:open-external', (_event, url: string) => shell.openExternal(url));
+  ipcMain.handle('shell:open-external', async (event, url: string) => {
+    const win = getWindowFromEvent(event);
+    const previewUrl = previewExternalUrl(url);
+    const notifyRenderer = (reason: OpenExternalFailureReason) => {
+      const payload: OpenExternalFailurePayload = { reason, url: previewUrl };
+      win?.webContents.send('shell:open-external-failed', payload);
+    };
+    const validated = validateExternalUrl(url);
+
+    if (!validated.ok) {
+      console.warn(`[shell:open-external] rejected reason=${validated.reason} url=${previewUrl}`);
+      notifyRenderer(validated.reason);
+      return;
+    }
+
+    try {
+      await shell.openExternal(validated.url);
+    } catch (error) {
+      console.error(`[shell:open-external] failed url=${previewUrl}`, error);
+      notifyRenderer('open-failed');
+    }
+  });
 
   // Clipboard
   ipcMain.handle('clipboard:write', (_event, text: string) => clipboard.writeText(text));

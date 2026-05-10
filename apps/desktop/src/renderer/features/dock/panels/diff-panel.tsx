@@ -398,14 +398,14 @@ Make sure to preserve all functionality from both branches when resolving confli
 
   if (!worktreePath || !chatId) {
     return (
-      <div className="h-full w-full flex items-center justify-center text-muted-foreground text-sm">
+      <div className="h-full w-full flex items-center justify-center text-muted-foreground text-sm border-t border-border">
         No worktree available
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden bg-background">
+    <div className="flex flex-col h-full w-full overflow-hidden bg-background border-t border-border">
       <DiffSidebarHeader
         worktreePath={worktreePath}
         currentBranch={branchData?.current ?? ''}
