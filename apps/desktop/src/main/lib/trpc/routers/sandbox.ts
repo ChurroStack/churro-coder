@@ -32,7 +32,9 @@ async function readJsoncFile(filePath: string): Promise<JsonMap | null> {
   }
 }
 
-export async function readCodexBypassReason(configPath = path.join(os.homedir(), '.codex', 'config.toml')): Promise<string | null> {
+export async function readCodexBypassReason(
+  configPath = path.join(os.homedir(), '.codex', 'config.toml')
+): Promise<string | null> {
   try {
     const toml = await fs.readFile(configPath, 'utf8');
     const topLevelOnly = toml.split(/^\s*\[/m, 1)[0] ?? '';

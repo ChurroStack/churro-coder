@@ -40,7 +40,7 @@ initAnalytics();
 
 // Increase V8 old-space limit for renderer/main processes to reduce OOM frequency
 // under heavy multi-chat workloads. Must be set before app readiness/window creation.
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192');
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=16384 --max-semi-space-size=128');
 
 // Chromium remote-debugging (CDP) is opt-in: leaving it on by default would let
 // any local process attach and execute JS in the renderer (and from there reach

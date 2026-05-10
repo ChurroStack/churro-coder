@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index 72836c7042fc9d2f3fef10a410ed1c4dc0a90b0c..adae7b87f26258b112dc202ca3ae736047dc2a55 100644
+--- a/package.json
++++ b/package.json
+@@ -44,7 +44,7 @@
+     }
+   },
+   "dependencies": {
+-    "@opentelemetry/api": "1.9.0",
++    "@opentelemetry/api": "^1.9.0",
+     "@ai-sdk/gateway": "3.0.112",
+     "@ai-sdk/provider": "3.0.10",
+     "@ai-sdk/provider-utils": "4.0.27"
