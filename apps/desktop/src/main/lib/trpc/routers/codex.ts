@@ -25,6 +25,7 @@ import {
   getCodexRetryDelay,
   type CodexFailureClassification
 } from '../../codex/recovery';
+import { waitForAppServerTurn } from '../../codex/wait-for-app-server-turn';
 import { mapAppServerUsageToMetadata, type CodexUsageMetadata } from '../../codex/usage-metadata';
 import { getClaudeShellEnvironment } from '../../claude/env';
 import { resolveProjectPathFromWorktree } from '../../claude-config';
@@ -90,6 +91,7 @@ type CodexAppServerSession = {
   client: CodexAppServerClient;
   authFingerprint: string | null;
   mcpBearer: string | null;
+  lastActivityAt: number;
 };
 
 type CodexLoginSessionState = 'running' | 'success' | 'error' | 'cancelled';
@@ -1470,7 +1472,9 @@ function getAppServerSessionKey(authConfig?: { apiKey: string }): string {
   return getAuthFingerprint(authConfig) || 'codex-chatgpt';
 }
 
-async function getOrCreateAppServerClient(params: { authConfig?: { apiKey: string } }): Promise<CodexAppServerClient> {
+async function getOrCreateAppServerSession(params: {
+  authConfig?: { apiKey: string };
+}): Promise<CodexAppServerSession> {
   const sessionKey = getAppServerSessionKey(params.authConfig);
   const authFingerprint = getAuthFingerprint(params.authConfig);
   const currentMcpBearer = getMcpHttpEndpoint()?.bearer || process.env.CHURRO_MCP_BEARER || null;
@@ -1478,7 +1482,7 @@ async function getOrCreateAppServerClient(params: { authConfig?: { apiKey: strin
 
   if (existing && existing.authFingerprint === authFingerprint && existing.mcpBearer === currentMcpBearer) {
     await existing.client.ensureInitialized();
-    return existing.client;
+    return existing;
   }
 
   if (existing) {
@@ -1493,10 +1497,14 @@ async function getOrCreateAppServerClient(params: { authConfig?: { apiKey: strin
   existing?.client.dispose();
   appServerSessions.delete(sessionKey);
 
+  let session: CodexAppServerSession | null = null;
   const client = new CodexAppServerClient({
     command: resolveBundledCodexCliPath(),
     args: ['app-server'],
     env: buildCodexProviderEnv(params.authConfig),
+    onActivity: () => {
+      session!.lastActivityAt = Date.now();
+    },
     onNotification: handleAppServerNotification,
     onServerRequest: handleAppServerServerRequest,
     onExit: () => {
@@ -1507,13 +1515,15 @@ async function getOrCreateAppServerClient(params: { authConfig?: { apiKey: strin
     }
   });
 
-  appServerSessions.set(sessionKey, {
+  session = {
     client,
     authFingerprint,
-    mcpBearer: currentMcpBearer
-  });
+    mcpBearer: currentMcpBearer,
+    lastActivityAt: Date.now()
+  };
+  appServerSessions.set(sessionKey, session);
   await client.ensureInitialized();
-  return client;
+  return session;
 }
 
 /**
@@ -2523,50 +2533,6 @@ async function handleAppServerServerRequest(request: CodexAppServerServerRequest
   return {};
 }
 
-function waitForAppServerTurn(params: {
-  accumulator: AppServerTurnAccumulator;
-  signal: AbortSignal;
-  idleTimeoutMs: number;
-  maxRuntimeMs: number;
-}): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const startedAt = Date.now();
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    const cleanup = () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-      params.signal.removeEventListener('abort', onAbort);
-    };
-    const onAbort = () => {
-      cleanup();
-      resolve();
-    };
-
-    params.signal.addEventListener('abort', onAbort, { once: true });
-    intervalId = setInterval(() => {
-      if (params.accumulator.completed) {
-        cleanup();
-        resolve();
-        return;
-      }
-
-      if (Date.now() - params.accumulator.lastEventAt > params.idleTimeoutMs) {
-        cleanup();
-        reject(new Error(`Codex app-server stream idle for ${params.idleTimeoutMs / 1000}s`));
-        return;
-      }
-
-      if (Date.now() - startedAt > params.maxRuntimeMs) {
-        cleanup();
-        reject(new Error('Codex app-server turn timed out'));
-      }
-    }, 250);
-  });
-}
-
 /**
  * Status of the Codex MCP bootstrap, exposed via `getChurroCoderMcpStatus` so the
  * renderer can surface a user-visible toast when registration fails (otherwise the
@@ -3389,9 +3355,10 @@ export const codexRouter = router({
                 // exactly once. Throws on any failure so the surrounding retry loop can
                 // classify it and decide whether to restart and try again.
                 const runChatAttempt = async (): Promise<void> => {
-                  const client = await getOrCreateAppServerClient({
+                  const appServerSession = await getOrCreateAppServerSession({
                     authConfig: input.authConfig
                   });
+                  const client = appServerSession.client;
                   const activeStream = activeStreams.get(input.subChatId);
                   if (activeStream?.runId === input.runId) {
                     activeStream.client = client;
@@ -3494,6 +3461,7 @@ export const codexRouter = router({
 
                   await waitForAppServerTurn({
                     accumulator: turnAccumulator,
+                    getTransportLastActivityAt: () => appServerSession.lastActivityAt,
                     signal: abortController.signal,
                     idleTimeoutMs: 60_000,
                     maxRuntimeMs: 60 * 60 * 1000

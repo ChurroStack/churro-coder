@@ -32,6 +32,7 @@ export type CodexAppServerClientOptions = {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  onActivity?: () => void;
   onNotification?: (notification: CodexAppServerNotification) => void;
   onServerRequest?: (request: CodexAppServerServerRequest) => Promise<unknown> | unknown;
   onExit?: (error?: Error) => void;
@@ -228,6 +229,8 @@ export class CodexAppServerClient {
       console.warn('[codex app-server] Failed to parse JSON-RPC line', error);
       return;
     }
+
+    this.options.onActivity?.();
 
     if (message.id !== undefined && !message.method) {
       const pending = this.pending.get(message.id);
