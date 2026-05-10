@@ -12,7 +12,7 @@ import {
   type Message
 } from '@/features/agents/stores/message-store';
 import { useStreamingStatusStore } from '@/features/agents/stores/streaming-status-store';
-import { summarizeToolInput } from '@/features/agents/ui/agent-tool-utils';
+import { resolvePartStartedAt, summarizeToolInput } from '@/features/agents/ui/agent-tool-utils';
 
 interface TasksWidgetProps {
   subChatId: string | null;
@@ -77,6 +77,7 @@ export const TasksWidget = memo(function TasksWidget({ subChatId }: TasksWidgetP
 
     const parts = lastAssistant.parts || [];
     const byId = new Map<string, RunningTask>();
+    const messageCreatedAt = lastAssistant.createdAt ? new Date(lastAssistant.createdAt).getTime() : undefined;
 
     for (const part of parts) {
       if (!part?.type || typeof part.type !== 'string') continue;
@@ -93,13 +94,7 @@ export const TasksWidget = memo(function TasksWidget({ subChatId }: TasksWidgetP
       const colonIdx = part.toolCallId.indexOf(':');
       const parentId = colonIdx > -1 ? part.toolCallId.slice(0, colonIdx) : null;
 
-      // AI SDK exposes transform-provided startedAt on `callProviderMetadata`;
-      // fall back to `providerMetadata` and then to first-sighting time.
-      const metaStart =
-        (part.callProviderMetadata?.custom?.startedAt as number | undefined) ??
-        (part.providerMetadata?.custom?.startedAt as number | undefined) ??
-        (part.startedAt as number | undefined);
-      let startedAt = typeof metaStart === 'number' ? metaStart : startedAtRef.current.get(part.toolCallId);
+      let startedAt = resolvePartStartedAt(part, messageCreatedAt) ?? startedAtRef.current.get(part.toolCallId);
       if (typeof startedAt !== 'number') {
         startedAt = Date.now();
       }

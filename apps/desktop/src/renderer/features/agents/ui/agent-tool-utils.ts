@@ -234,6 +234,15 @@ export function summarizeToolInput(input: unknown): string {
   return '';
 }
 
+export function resolvePartStartedAt(part: any, messageCreatedAt?: number): number | undefined {
+  return (
+    (part.callProviderMetadata?.custom?.startedAt as number | undefined) ??
+    (part.providerMetadata?.custom?.startedAt as number | undefined) ??
+    (typeof part.startedAt === 'number' ? part.startedAt : undefined) ??
+    messageCreatedAt
+  );
+}
+
 /**
  * Shape-based check for the Claude Agent SDK's subagent-dispatch tool.
  * Historically emitted as `tool-Task`; with CLI-parity built-in subagents the

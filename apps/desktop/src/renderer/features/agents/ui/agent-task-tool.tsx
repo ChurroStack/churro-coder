@@ -8,7 +8,7 @@ import { selectedProjectAtom } from '../atoms';
 import { AgentToolRegistry, getToolStatus } from './agent-tool-registry';
 import { AgentToolCall } from './agent-tool-call';
 import { AgentToolInterrupted } from './agent-tool-interrupted';
-import { areTaskToolPropsEqual } from './agent-tool-utils';
+import { areTaskToolPropsEqual, resolvePartStartedAt } from './agent-tool-utils';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { cn } from '../../../lib/utils';
@@ -21,6 +21,7 @@ interface AgentTaskToolProps {
   nestedTools: any[];
   chatStatus?: string;
   subagentInfo?: Record<string, AgentSubagentInfo>;
+  messageCreatedAt?: number;
 }
 
 // Constants for rendering
@@ -42,7 +43,8 @@ export const AgentTaskTool = memo(function AgentTaskTool({
   part,
   nestedTools,
   chatStatus,
-  subagentInfo
+  subagentInfo,
+  messageCreatedAt
 }: AgentTaskToolProps) {
   const info = subagentInfo?.[part.toolCallId as string];
   const selectedProject = useAtomValue(selectedProjectAtom);
@@ -68,9 +70,7 @@ export const AgentTaskTool = memo(function AgentTaskTool({
 
   const description = part.input?.description || '';
 
-  // Get startedAt from providerMetadata (passed through AI SDK)
-  const startedAt =
-    (part.callProviderMetadata?.custom?.startedAt as number | undefined) ?? (part.startedAt as number | undefined);
+  const startedAt = resolvePartStartedAt(part, messageCreatedAt);
 
   // Tick elapsed time while task is running
   useEffect(() => {
