@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../../components/ui/tooltip';
-import { AgentContextIndicator, progressColorClass } from './agent-context-indicator';
+import { AgentContextIndicator, contextStaleHint, progressColorClass } from './agent-context-indicator';
 
 afterEach(cleanup);
 
@@ -65,5 +65,22 @@ describe('AgentContextIndicator', () => {
     const trigger = container.querySelector('div.h-4.w-4');
     if (trigger) fireEvent.click(trigger);
     expect(onCompact).not.toHaveBeenCalled();
+  });
+
+  it('formats a stale hint when the selected model window differs from the last completed turn', () => {
+    expect(
+      contextStaleHint({
+        staleReason: 'cross-provider-fallback',
+        contextWindow: 200_000,
+        selectedContextWindow: 1_050_000
+      })
+    ).toContain('selected model has no usage yet');
+    expect(
+      contextStaleHint({
+        staleReason: 'cross-provider-fallback',
+        contextWindow: 200_000,
+        selectedContextWindow: 1_050_000
+      })
+    ).toContain('1.1M');
   });
 });

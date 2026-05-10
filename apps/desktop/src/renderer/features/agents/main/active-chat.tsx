@@ -1402,7 +1402,10 @@ export const ChatViewInner = memo(function ChatViewInner({
       messages: messagesForSync,
       selectedProvider: provider,
       selectedModelId: provider === 'codex' ? selectedCodexModelId : selectedClaudeModelId,
-      sessionEpoch: provider === 'codex' ? codexSessionEpoch : claudeSessionEpoch
+      sessionEpochs: {
+        'claude-code': claudeSessionEpoch,
+        codex: codexSessionEpoch
+      }
     });
   }, [claudeSessionEpoch, codexSessionEpoch, messagesForSync, provider, selectedClaudeModelId, selectedCodexModelId]);
 

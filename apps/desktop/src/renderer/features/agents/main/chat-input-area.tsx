@@ -313,7 +313,10 @@ function arePropsEqual(prevProps: ChatInputAreaProps, nextProps: ChatInputAreaPr
     prevProps.messageTokenData.totalInputTokens !== nextProps.messageTokenData.totalInputTokens ||
     prevProps.messageTokenData.totalOutputTokens !== nextProps.messageTokenData.totalOutputTokens ||
     prevProps.messageTokenData.contextWindow !== nextProps.messageTokenData.contextWindow ||
-    prevProps.messageTokenData.messageCount !== nextProps.messageTokenData.messageCount
+    prevProps.messageTokenData.selectedContextWindow !== nextProps.messageTokenData.selectedContextWindow ||
+    prevProps.messageTokenData.messageCount !== nextProps.messageTokenData.messageCount ||
+    prevProps.messageTokenData.isStale !== nextProps.messageTokenData.isStale ||
+    prevProps.messageTokenData.staleReason !== nextProps.messageTokenData.staleReason
   ) {
     return false;
   }
@@ -1751,7 +1754,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                       <AgentContextIndicator
                         tokenData={messageTokenData}
                         modelId={provider === 'codex' ? selectedCodexModel?.id : selectedModel?.id}
-                        // onCompact={onCompact}
+                        onCompact={onCompact}
                         isCompacting={isCompacting}
                         disabled={isStreaming}
                       />
