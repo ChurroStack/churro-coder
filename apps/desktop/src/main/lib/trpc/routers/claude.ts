@@ -39,7 +39,7 @@ import {
   projects as projectsTable,
   subChats
 } from '../../db';
-import { readMessagesFromTable, writeMessagesToTable, replaceMessagesInTable } from '../../db/messages-table';
+import { readMessagesFromTable, writeMessagesToTable, replaceMessagesInTable, clearMessageMetadataFlag } from '../../db/messages-table';
 import { computeCatchupBlock } from '../../multi-provider/catchup';
 import { createRollbackStash } from '../../git/stash';
 import {
@@ -1002,14 +1002,11 @@ export const claudeRouter = router({
                 const forkResumeAtUuid = shouldForkResume ? lastAssistantMsg?.metadata?.sdkMessageUuid || null : null;
                 const historyEnabled = input.historyEnabled === true;
 
-                // Clear shouldForkResume flag after reading (consumed once) and persist to DB
-                if (shouldForkResume) {
-                  for (const m of existingMessages) {
-                    if (m.metadata?.shouldForkResume) {
-                      delete m.metadata.shouldForkResume;
-                    }
-                  }
-                  replaceMessagesInTable(db, input.subChatId, existingMessages);
+                // Clear shouldForkResume flag after reading (consumed once).
+                // Targeted single-row update — no need to replace the whole message set.
+                if (shouldForkResume && lastAssistantMsg?.id) {
+                  clearMessageMetadataFlag(db, input.subChatId, lastAssistantMsg.id, 'shouldForkResume');
+                  delete lastAssistantMsg.metadata.shouldForkResume;
                 }
 
                 // Check if last message is already this user message (avoid duplicate)
@@ -2711,7 +2708,8 @@ ${prompt}
                         metadata
                       };
                       const finalMessages = [...messagesToSave, assistantMessage];
-                      replaceMessagesInTable(db, input.subChatId, finalMessages);
+                      // Append-only: user message already in table, only the partial assistant message is new.
+                      writeMessagesToTable(db, input.subChatId, finalMessages);
                       db.update(subChats)
                         .set({ sessionId: metadata.sessionId, streamId: null, updatedAt: new Date() })
                         .where(eq(subChats.id, input.subChatId))
@@ -2807,7 +2805,8 @@ ${prompt}
 
                   const finalMessages = [...messagesToSave, assistantMessage];
 
-                  replaceMessagesInTable(db, input.subChatId, finalMessages);
+                  // Append-only: user message already in table, only the assistant message is new.
+                  writeMessagesToTable(db, input.subChatId, finalMessages);
                   db.update(subChats)
                     .set({
                       sessionId: savedSessionId,

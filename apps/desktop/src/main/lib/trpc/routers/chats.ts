@@ -326,7 +326,7 @@ function buildChatContextFromMessages(db: ReturnType<typeof getDatabase>, chatId
       .from(messages)
       .innerJoin(subChats, eq(messages.subChatId, subChats.id))
       .where(and(eq(subChats.chatId, chatId), eq(messages.role, 'user')))
-      .orderBy(desc(messages.idx))
+      .orderBy(desc(messages.createdAt))
       .limit(4)
       .all();
 

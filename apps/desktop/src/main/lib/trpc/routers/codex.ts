@@ -3154,7 +3154,8 @@ export const codexRouter = router({
                     return false;
                   }
 
-                  replaceMessagesInTable(db, input.subChatId, msgs);
+                  // Append-only: user message is already in the table; only new assistant content is written.
+                  writeMessagesToTable(db, input.subChatId, msgs);
                   db.update(subChats)
                     .set({ updatedAt: new Date() })
                     .where(eq(subChats.id, input.subChatId))

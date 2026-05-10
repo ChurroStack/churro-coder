@@ -193,6 +193,9 @@ export const messagesRouter = router({
         .onConflictDoNothing()
         .run();
 
+      // fileStats* columns are intentionally not updated here — they require the full
+      // message array (computeFileStatsFromMessages) which is only available in the
+      // main write paths (writeMessagesToTable / replaceMessagesInTable).
       db.update(subChats)
         .set({
           messageCount: sql`${subChats.messageCount} + 1`,

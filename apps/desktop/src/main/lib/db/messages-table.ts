@@ -1,4 +1,4 @@
-import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { asc, and, eq, inArray, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type * as schema from './schema';
 import { messages, subChats } from './schema';
@@ -26,6 +26,31 @@ function rowToMessage(row: typeof messages.$inferSelect): any {
   return { id: row.id, role: row.role, parts, ...(metadata !== undefined ? { metadata } : {}) };
 }
 
+/**
+ * Remove a single key from a message's metadata JSON without touching any other rows.
+ * Avoids a full delete+reinsert when clearing a one-shot flag (e.g. shouldForkResume).
+ */
+export function clearMessageMetadataFlag(db: DB, subChatId: string, messageId: string, flag: string): void {
+  try {
+    const row = db
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(and(eq(messages.subChatId, subChatId), eq(messages.id, messageId)))
+      .get();
+    if (!row) return;
+    let meta: Record<string, unknown> = {};
+    if (row.metadata) { try { meta = JSON.parse(row.metadata); } catch {} }
+    if (!(flag in meta)) return;
+    delete meta[flag];
+    db.update(messages)
+      .set({ metadata: JSON.stringify(meta) })
+      .where(and(eq(messages.subChatId, subChatId), eq(messages.id, messageId)))
+      .run();
+  } catch (err) {
+    console.warn(`[messages-table] clearMessageMetadataFlag failed sub=${subChatId} msg=${messageId}`, err);
+  }
+}
+
 /** Read all messages for a sub_chat in chronological order. */
 export function readMessagesFromTable(db: DB, subChatId: string): any[] {
   return db
@@ -47,7 +72,7 @@ export function readMessagesForSubChats(db: DB, subChatIds: string[]): Map<strin
     .select()
     .from(messages)
     .where(inArray(messages.subChatId, subChatIds))
-    .orderBy(messages.subChatId, asc(messages.idx))
+    .orderBy(asc(messages.subChatId), asc(messages.idx))
     .all();
 
   const result = new Map<string, any[]>();
@@ -90,11 +115,13 @@ export function writeMessagesToTable(db: DB, subChatId: string, allMessages: any
         .run();
     }
 
+    const statsJson = JSON.stringify(allMessages);
     db.update(subChats)
       .set({
         messageCount: allMessages.length,
+        // idx === array position (invariant: we always assign idx = i), so length - 1 is correct.
         lastMessageIdx: allMessages.length > 0 ? allMessages.length - 1 : null,
-        ...computeFileStatsFromMessages(JSON.stringify(allMessages))
+        ...computeFileStatsFromMessages(statsJson)
       })
       .where(eq(subChats.id, subChatId))
       .run();
@@ -129,11 +156,13 @@ export function replaceMessagesInTable(db: DB, subChatId: string, allMessages: a
         .run();
     }
 
+    const statsJson = JSON.stringify(allMessages);
     db.update(subChats)
       .set({
         messageCount: allMessages.length,
+        // idx === array position (invariant: we always assign idx = i), so length - 1 is correct.
         lastMessageIdx: allMessages.length > 0 ? allMessages.length - 1 : null,
-        ...computeFileStatsFromMessages(JSON.stringify(allMessages))
+        ...computeFileStatsFromMessages(statsJson)
       })
       .where(eq(subChats.id, subChatId))
       .run();
