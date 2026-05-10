@@ -15,9 +15,24 @@ function modelMatchesRequested(observed: string | undefined, requested: string |
   return observedLower === requestedLower || observedLower.includes(requestedLower);
 }
 
+function getRequestedModelContextWindow(modelId: string | undefined): number | undefined {
+  switch (modelId?.trim().toLowerCase()) {
+    case 'opus':
+    case 'sonnet':
+    case 'haiku':
+      return 200_000;
+    case 'opus[1m]':
+    case 'sonnet[1m]':
+      return 1_000_000;
+    default:
+      return undefined;
+  }
+}
+
 export function createTransformer(options?: TransformerOptions) {
   const isUsingOllama = options?.isUsingOllama === true;
   const requestedModel = options?.requestedModel;
+  const requestedModelContextWindow = getRequestedModelContextWindow(requestedModel);
   const permissionMode = options?.permissionMode;
   const subChatIdShort = options?.subChatIdShort ?? 'unknown';
   let textId: string | null = null;
@@ -560,6 +575,7 @@ export function createTransformer(options?: TransformerOptions) {
         cacheReadInputTokens: usage.cache_read_input_tokens,
         cacheCreationInputTokens: usage.cache_creation_input_tokens,
         outputTokens: resolvedOutputTokens,
+        modelContextWindow: requestedModelContextWindow,
         totalTokens:
           resolvedInputTokens != null && resolvedOutputTokens != null
             ? resolvedInputTokens + resolvedOutputTokens

@@ -77,8 +77,9 @@ describe('L4 integration — context counter provider/model switch', () => {
     expect(claudeView.contextWindow).toBe(200_000);
 
     const codexView = resolveContextUsage({ messages, ...readResolverInputs(subChatId, 'codex') });
-    expect(codexView.totalInputTokens).toBe(0);
+    expect(codexView.totalInputTokens).toBe(60_000);
     expect(codexView.contextWindow).toBe(1_050_000);
+    expect(codexView.staleReason).toBe('cross-provider-fallback');
   });
 
   test('flipping back to Claude restores the Claude tokens', () => {
@@ -91,7 +92,7 @@ describe('L4 integration — context counter provider/model switch', () => {
     const after = resolveContextUsage({ messages, ...readResolverInputs(subChatId, 'claude-code') });
 
     expect(before.totalInputTokens).toBe(70_000);
-    expect(codex.totalInputTokens).toBe(0);
+    expect(codex.totalInputTokens).toBe(70_000);
     expect(after.totalInputTokens).toBe(70_000);
   });
 
@@ -111,7 +112,7 @@ describe('L4 integration — context counter provider/model switch', () => {
     expect(codexView.totalInputTokens).toBe(80_000);
   });
 
-  test('switching the Claude model within the same provider rebases the denominator without losing tokens', () => {
+  test('switching the Claude model within the same provider keeps the last turn window until a new turn lands', () => {
     const subChatId = newSubChatId();
     seed(subChatId, 'sonnet', 'gpt-5.5');
     const messages: Message[] = [{ role: 'assistant', metadata: { model: 'claude-sonnet-4-6', inputTokens: 150_000 } }];
@@ -124,6 +125,23 @@ describe('L4 integration — context counter provider/model switch', () => {
 
     const opus1mView = resolveContextUsage({ messages, ...readResolverInputs(subChatId, 'claude-code') });
     expect(opus1mView.totalInputTokens).toBe(150_000);
-    expect(opus1mView.contextWindow).toBe(1_000_000);
+    expect(opus1mView.contextWindow).toBe(200_000);
+    expect(opus1mView.staleReason).toBe('selected-model-mismatch');
+  });
+
+  test('Claude 1M turns keep their stamped window even though the SDK model id is claude-opus-4-7', () => {
+    const subChatId = newSubChatId();
+    seed(subChatId, 'opus[1m]', 'gpt-5.5');
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        metadata: { model: 'claude-opus-4-7', inputTokens: 514_200, modelContextWindow: 1_000_000 }
+      }
+    ];
+
+    const view = resolveContextUsage({ messages, ...readResolverInputs(subChatId, 'claude-code') });
+    expect(view.totalInputTokens).toBe(514_200);
+    expect(view.contextWindow).toBe(1_000_000);
+    expect(view.isStale).toBe(false);
   });
 });
