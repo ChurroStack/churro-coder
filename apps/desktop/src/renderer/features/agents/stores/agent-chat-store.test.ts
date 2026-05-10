@@ -44,4 +44,17 @@ describe('agentChatStore', () => {
     expect(agentChatStore.getStreamId('sub-evict')).toBeUndefined();
     expect(agentChatStore.wasManuallyAborted('sub-evict')).toBe(false);
   });
+
+  test('nextChatInstanceId bumps per recreate and resets on full clear', () => {
+    expect(agentChatStore.nextChatInstanceId('sub-gen', 3)).toBe('sub-gen::n3g1');
+    expect(agentChatStore.nextChatInstanceId('sub-gen', 3)).toBe('sub-gen::n3g2');
+
+    agentChatStore.set('sub-gen', makeChat(), 'parent-a');
+    agentChatStore.delete('sub-gen');
+    expect(agentChatStore.nextChatInstanceId('sub-gen', 4)).toBe('sub-gen::n4g3');
+
+    agentChatStore.clear();
+
+    expect(agentChatStore.nextChatInstanceId('sub-gen', 4)).toBe('sub-gen::n4g1');
+  });
 });

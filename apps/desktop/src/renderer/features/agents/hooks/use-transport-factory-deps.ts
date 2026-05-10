@@ -173,6 +173,7 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
       createChat: ({ subChatId: id, provider, isRemote }, persistedMessages) => {
         const sc = agentSubChats.find((s) => s.id === id);
         const messages = persistedMessages as ReturnType<typeof parseStoredMessages>;
+        const chatInstanceId = agentChatStore.nextChatInstanceId(id, messages.length);
 
         let transport: IPCChatTransport | RemoteChatTransport | CodexChatTransport | null = null;
 
@@ -224,7 +225,7 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
         // eslint-disable-next-line prefer-const
         let newChat: Chat<any>;
         newChat = new Chat<any>({
-          id,
+          id: chatInstanceId,
           messages,
           transport,
           onError: () => {

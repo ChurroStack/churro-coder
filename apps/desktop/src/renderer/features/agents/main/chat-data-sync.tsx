@@ -48,7 +48,6 @@ interface ChatDataSyncProps {
 export function ChatDataSync({ chat, subChatId, streamId, children }: ChatDataSyncProps) {
   // Call useChat - this causes re-renders on every chunk
   const { messages, sendMessage, status, stop, regenerate } = useChat({
-    id: subChatId,
     chat,
     resume: !!streamId,
     experimental_throttle: 50

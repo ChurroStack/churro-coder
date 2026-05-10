@@ -9,6 +9,7 @@ const chats = new Map<string, Chat<any>>();
 const streamIds = new Map<string, string | null>();
 const parentChatIds = new Map<string, string>(); // subChatId → parentChatId (stored at creation time)
 const manuallyAborted = new Map<string, boolean>(); // Track if chat was manually stopped
+const chatInstanceGenerations = new Map<string, number>(); // subChatId → monotonic Chat.id tiebreaker
 
 export const agentChatStore = {
   get: (id: string) => chats.get(id),
@@ -18,6 +19,12 @@ export const agentChatStore = {
   set: (id: string, chat: Chat<any>, parentChatId: string) => {
     chats.set(id, chat);
     parentChatIds.set(id, parentChatId);
+  },
+
+  nextChatInstanceId: (subChatId: string, persistedMessageCount: number) => {
+    const gen = (chatInstanceGenerations.get(subChatId) ?? 0) + 1;
+    chatInstanceGenerations.set(subChatId, gen);
+    return `${subChatId}::n${persistedMessageCount}g${gen}`;
   },
 
   has: (id: string) => chats.has(id),
@@ -61,5 +68,6 @@ export const agentChatStore = {
     streamIds.clear();
     parentChatIds.clear();
     manuallyAborted.clear();
+    chatInstanceGenerations.clear();
   }
 };

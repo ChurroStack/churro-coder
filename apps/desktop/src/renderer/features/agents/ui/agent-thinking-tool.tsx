@@ -1,12 +1,12 @@
 'use client';
 
-import { memo, useState, useEffect, useRef } from 'react';
+import { memo, useState, useEffect, useMemo, useRef } from 'react';
 import { Brain, ChevronRight } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { ChatMarkdownRenderer } from '../../../components/chat-markdown-renderer';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { AgentToolInterrupted } from './agent-tool-interrupted';
-import { areToolPropsEqual } from './agent-tool-utils';
+import { areToolPropsEqual, resolvePartStartedAt } from './agent-tool-utils';
 
 interface ThinkingToolPart {
   type: string;
@@ -23,6 +23,7 @@ interface ThinkingToolPart {
 interface AgentThinkingToolProps {
   part: ThinkingToolPart;
   chatStatus?: string;
+  messageCreatedAt?: number;
 }
 
 const PREVIEW_LENGTH = 60;
@@ -37,7 +38,11 @@ function formatElapsedTime(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
-export const AgentThinkingTool = memo(function AgentThinkingTool({ part, chatStatus }: AgentThinkingToolProps) {
+export const AgentThinkingTool = memo(function AgentThinkingTool({
+  part,
+  chatStatus,
+  messageCreatedAt
+}: AgentThinkingToolProps) {
   const isPending = part.state !== 'output-available' && part.state !== 'output-error';
   const isActivelyStreaming = chatStatus === 'streaming' || chatStatus === 'submitted';
   const isStreaming = isPending && isActivelyStreaming;
@@ -57,16 +62,24 @@ export const AgentThinkingTool = memo(function AgentThinkingTool({ part, chatSta
   }, [isStreaming]);
 
   // Elapsed time — ticks every second while streaming
-  const startedAtRef = useRef(part.startedAt || Date.now());
+  const startedAt = useMemo(
+    () => resolvePartStartedAt(part, messageCreatedAt) ?? Date.now(),
+    [
+      part.startedAt,
+      part.callProviderMetadata?.custom?.startedAt,
+      part.providerMetadata?.custom?.startedAt,
+      messageCreatedAt
+    ]
+  );
   const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
     if (!isStreaming) return;
-    const tick = () => setElapsedMs(Date.now() - startedAtRef.current);
+    const tick = () => setElapsedMs(Date.now() - startedAt);
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [isStreaming]);
+  }, [isStreaming, startedAt]);
 
   // Track whether content overflows the scroll container
   const [isOverflowing, setIsOverflowing] = useState(false);
