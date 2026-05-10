@@ -17,6 +17,7 @@ import { createAppRouter } from '../lib/trpc/routers';
 import { eq } from 'drizzle-orm';
 import { getAuthManager, getBaseUrl } from '../index';
 import { getDatabase, chats, projects, subChats } from '../lib/db';
+import { readMessagesForSubChats } from '../lib/db/messages-table';
 import { repairSubChatModeForHydration } from '../lib/sub-chat-mode';
 import { registerGitWatcherIPC } from '../lib/git/watcher';
 import { hasActiveClaudeSessions, abortAllClaudeSessions } from '../lib/trpc/routers/claude';
@@ -308,7 +309,10 @@ function registerIpcHandlers(): void {
       .all();
     const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 
-    const repairedSubChats = chatSubChats.map((row) => repairSubChatModeForHydration(db, row));
+    const msgsBySubChat = readMessagesForSubChats(db, chatSubChats.map((sc) => sc.id));
+    const repairedSubChats = chatSubChats.map((row) =>
+      repairSubChatModeForHydration(db, { ...row, messages: msgsBySubChat.get(row.id) ?? [] })
+    );
 
     return {
       ...chat,
@@ -317,6 +321,7 @@ function registerIpcHandlers(): void {
       archivedAt: chat.archivedAt ? chat.archivedAt.toISOString() : null,
       subChats: repairedSubChats.map((row) => ({
         ...row,
+        messages: msgsBySubChat.get(row.id) ?? [],
         createdAt: row.createdAt ? row.createdAt.toISOString() : null,
         updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null
       })),
