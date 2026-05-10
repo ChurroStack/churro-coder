@@ -1030,7 +1030,6 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Use subChatId as stable key to prevent HMR-induced duplicate resume requests
   // resume: !!streamId to reconnect to active streams (background streaming support)
   const { messages, sendMessage, status, stop, regenerate, setMessages } = useChat({
-    id: subChatId,
     chat,
     resume: !!streamId,
     experimental_throttle: 50 // Throttle updates to reduce re-renders during streaming
@@ -5438,9 +5437,10 @@ export function ChatView({
 
     if (newSubChatTransport) {
       const transport = newSubChatTransport;
+      const chatInstanceId = agentChatStore.nextChatInstanceId(newId, 0);
 
       const newChat = new Chat<any>({
-        id: newId,
+        id: chatInstanceId,
         messages: [],
         transport,
         onError: () => {
