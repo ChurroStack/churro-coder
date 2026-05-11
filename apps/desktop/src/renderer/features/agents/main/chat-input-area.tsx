@@ -685,7 +685,7 @@ export const ChatInputArea = memo(function ChatInputArea({
     isAvailable: isVoiceAvailable
   } = useVoiceInput({
     onTranscript: (text) => {
-      const current = editorRef.current?.getValue() || '';
+      const current = (editorRef.current?.getValue() || '').trim();
       const needsSpace = current.length > 0 && !/\s$/.test(current);
       const newValue = current + (needsSpace ? ' ' : '') + text;
       editorRef.current?.setValue(newValue);

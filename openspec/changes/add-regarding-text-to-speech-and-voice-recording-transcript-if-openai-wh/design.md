@@ -129,7 +129,7 @@ async function handleVoiceMouseUp() {
 
 ## Migration Plan
 
-No database migrations. The `isAvailable` tRPC payload becomes additive so existing callers can continue reading `available` while updated callers also use OpenAI/native method metadata. The renderer-side feature detection remains additive.
+No database migrations. The `isAvailable` tRPC payload mostly grows additively (new `openAiAvailable` and `nativeExpected` flags) so existing callers can continue reading `available`. The `method` literal does change in one place: the OpenAI path now reports `method: 'openai'` instead of the previous `method: 'local'`, and the new native path reports `method: 'native'`. The only consumer of `method` in this repo is the new shared voice facade; renderer-side feature detection remains additive.
 
 Rollout is a standard desktop app release. No feature flag needed — the native path is activated only when OpenAI is absent, native support is expected by the query contract, and `SpeechRecognition` is actually detected in the renderer.
 

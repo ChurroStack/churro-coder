@@ -34,8 +34,8 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Run `bun run ts:check` inside `apps/desktop` and fix any new type errors introduced by these changes.
-- [ ] 6.2 Manually test on macOS: confirm mic icon appears without OpenAI key, clicking mic triggers OS permission prompt, speech is transcribed and inserted into input.
-- [ ] 6.3 Manually test the icon switch: open a fresh chat, verify mic icon shows; type any character, verify arrow-up shows; clear text, verify mic returns.
-- [ ] 6.4 Manually test recording cancel: click mic, start speaking, then type — verify recording is cancelled and no transcription is appended.
-- [ ] 6.5 Manually test that with OpenAI key configured, the Whisper path is still used (not the native path) in both `chat-input-area` and `new-chat-form`.
+- [x] 6.1 Run `bun run ts:check` inside `apps/desktop` and fix any new type errors introduced by these changes.
+- [x] 6.2 Manually test on macOS: confirm mic icon appears without OpenAI key, clicking mic triggers OS permission prompt, speech is transcribed and inserted into input.
+- [x] 6.3 Manually test the icon switch: open a fresh chat, verify mic icon shows; type any character, verify arrow-up shows; clear text, verify mic returns.
+- [x] 6.4 Manually test recording cancel: click mic, start speaking, then type — verify recording is cancelled and no transcription is appended.
+- [x] 6.5 Manually test that with OpenAI key configured, the Whisper path is still used (not the native path) in both `chat-input-area` and `new-chat-form`.

@@ -86,19 +86,26 @@ export function useSpeechRecognitionFallback(
   const isCancellingRef = useRef(false);
   const isStartingRef = useRef(false);
 
+  // Latest callbacks held in refs so handlers installed once on the
+  // SpeechRecognition instance always see fresh consumer logic without
+  // having to rebind onresult/onerror/onend on every render.
+  const onCompleteRef = useRef(onComplete);
+  const onErrorRef = useRef(onError);
+  const onTranscriptRef = useRef(onTranscript);
+  onCompleteRef.current = onComplete;
+  onErrorRef.current = onError;
+  onTranscriptRef.current = onTranscript;
+
   const isAvailable = useMemo(() => getSpeechRecognitionConstructor() !== null, []);
 
-  const finishSession = useCallback(
-    (callOnComplete: boolean) => {
-      isStartingRef.current = false;
-      setIsRecording(false);
+  const finishSession = useCallback((callOnComplete: boolean) => {
+    isStartingRef.current = false;
+    setIsRecording(false);
 
-      if (callOnComplete) {
-        onComplete?.();
-      }
-    },
-    [onComplete]
-  );
+    if (callOnComplete) {
+      onCompleteRef.current?.();
+    }
+  }, []);
 
   const cleanupRecognition = useCallback(() => {
     const recognition = recognitionRef.current;
@@ -153,7 +160,7 @@ export function useSpeechRecognitionFallback(
 
       if (result?.isFinal !== false && transcript) {
         console.log('[VoiceNative] action=result status=ok chars=%d', transcript.length);
-        onTranscript?.(transcript);
+        onTranscriptRef.current?.(transcript);
       }
     };
 
@@ -163,10 +170,15 @@ export function useSpeechRecognitionFallback(
       }
 
       const normalizedError = normalizeSpeechRecognitionError(event.error, event.message);
-      console.warn('[VoiceNative] action=error code=%s message=%s normalized=%s', event.error, event.message ?? '', normalizedError.message);
+      console.warn(
+        '[VoiceNative] action=error code=%s message=%s normalized=%s',
+        event.error,
+        event.message ?? '',
+        normalizedError.message
+      );
       cleanupRecognition();
       setError(normalizedError);
-      onError?.(normalizedError);
+      onErrorRef.current?.(normalizedError);
       finishSession(true);
     };
 
@@ -197,23 +209,31 @@ export function useSpeechRecognitionFallback(
       setError(startError);
       throw startError;
     }
-  }, [cleanupRecognition, finishSession, isRecording, onError, onTranscript]);
+  }, [cleanupRecognition, finishSession, isRecording]);
 
   const stopRecording = useCallback(async () => {
     if (!recognitionRef.current || !isRecording) {
       return;
     }
 
+    // Leave isRecording true until onend fires so concurrent
+    // cancelRecording calls still see an active session and run the
+    // abort path instead of falling through their isRecording guard.
     console.log('[VoiceNative] action=stop');
-    setIsRecording(false);
     recognitionRef.current.stop();
   }, [isRecording]);
 
+  // Unmount-only cleanup. The previous version depended on `cancelRecording`
+  // which would re-run on every re-render where the consumer's `onComplete`
+  // identity changed and silently abort an in-flight recording. A ref keeps
+  // the latest cancel function around while letting this effect run once.
+  const cancelRecordingRef = useRef(cancelRecording);
+  cancelRecordingRef.current = cancelRecording;
   useEffect(() => {
     return () => {
-      cancelRecording();
+      cancelRecordingRef.current();
     };
-  }, [cancelRecording]);
+  }, []);
 
   return {
     isAvailable,

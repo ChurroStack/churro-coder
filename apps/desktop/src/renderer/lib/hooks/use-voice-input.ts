@@ -32,21 +32,33 @@ interface UseVoiceInputReturn {
 }
 
 function normalizeTranscript(text: string): string {
-  return text.replace(/[\r\n\t]+/g, ' ').replace(/ +/g, ' ').trim();
+  return text
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/ +/g, ' ')
+    .trim();
 }
 
 function resolveSpeechRecognitionAvailability(): boolean {
   if (typeof window === 'undefined') return false;
-  return Boolean((window as Window & { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }).SpeechRecognition)
-    || Boolean((window as Window & { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }).webkitSpeechRecognition);
+  return (
+    Boolean(
+      (window as Window & { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }).SpeechRecognition
+    ) ||
+    Boolean(
+      (window as Window & { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
+    )
+  );
 }
 
 export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputReturn {
   const { onError, onTranscript } = options;
   const mountedRef = useRef(true);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [nativeTranscriptSuppressed, setNativeTranscriptSuppressed] = useState(false);
-  const [nativeHasPendingResult, setNativeHasPendingResult] = useState(false);
+  // Refs (not state) so the SpeechRecognition.onresult handler — which is
+  // installed once at start time — observes the latest value when a late
+  // result lands between stopRecording and cancelRecording.
+  const nativeTranscriptSuppressedRef = useRef(false);
+  const nativeHasPendingResultRef = useRef(false);
 
   const { data: voiceAvailability } = trpc.voice.isAvailable.useQuery();
   const transcribeMutation = trpc.voice.transcribe.useMutation();
@@ -83,9 +95,12 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputRetur
 
   const isAvailable = backend !== 'unavailable';
 
+  // Clears UI-side transcription state only. The suppression flag is
+  // intentionally NOT reset here so a late onresult that races a
+  // cancel still observes suppression=true. It is reset on the next
+  // startRecording — the natural "clean slate" boundary.
   const finishNativeTranscription = useCallback(() => {
-    setNativeHasPendingResult(false);
-    setNativeTranscriptSuppressed(false);
+    nativeHasPendingResultRef.current = false;
     if (mountedRef.current) {
       setIsTranscribing(false);
     }
@@ -94,7 +109,7 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputRetur
   const nativeRecording = useSpeechRecognitionFallback({
     onTranscript: (text) => {
       const normalized = normalizeTranscript(text);
-      if (normalized && !nativeTranscriptSuppressed) {
+      if (normalized && !nativeTranscriptSuppressedRef.current) {
         onTranscript?.(normalized);
       }
     },
@@ -124,8 +139,8 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputRetur
       return;
     }
 
-    setNativeTranscriptSuppressed(false);
-    setNativeHasPendingResult(false);
+    nativeTranscriptSuppressedRef.current = false;
+    nativeHasPendingResultRef.current = false;
     console.log('[VoiceInput] action=start backend=native');
     try {
       await nativeRecording.startRecording();
@@ -143,8 +158,8 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputRetur
     if (backend === 'native') {
       console.log('[VoiceInput] action=stop backend=native');
       if (!nativeRecording.isRecording) return;
-      setNativeHasPendingResult(true);
-      setNativeTranscriptSuppressed(false);
+      nativeHasPendingResultRef.current = true;
+      nativeTranscriptSuppressedRef.current = false;
       if (mountedRef.current) {
         setIsTranscribing(true);
       }
@@ -185,8 +200,15 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputRetur
 
   const cancelRecording = useCallback(() => {
     if (backend === 'native') {
-      console.log('[VoiceInput] action=cancel backend=native pending=%s recording=%s', String(nativeHasPendingResult), String(nativeRecording.isRecording));
-      setNativeTranscriptSuppressed(nativeHasPendingResult || nativeRecording.isRecording);
+      const pending = nativeHasPendingResultRef.current;
+      const recording = nativeRecording.isRecording;
+      console.log(
+        '[VoiceInput] action=cancel backend=native pending=%s recording=%s',
+        String(pending),
+        String(recording)
+      );
+      // Set synchronously so an in-flight onresult ref-check sees suppression.
+      nativeTranscriptSuppressedRef.current = pending || recording;
       nativeRecording.cancelRecording();
       finishNativeTranscription();
       return;
@@ -197,7 +219,7 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputRetur
     if (mountedRef.current) {
       setIsTranscribing(false);
     }
-  }, [backend, finishNativeTranscription, nativeHasPendingResult, nativeRecording, openAiRecording]);
+  }, [backend, finishNativeTranscription, nativeRecording, openAiRecording]);
 
   const error = backend === 'native' ? nativeRecording.error : openAiRecording.error;
   const isRecording = backend === 'native' ? nativeRecording.isRecording : openAiRecording.isRecording;
