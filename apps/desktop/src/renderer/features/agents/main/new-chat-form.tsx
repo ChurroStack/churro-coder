@@ -93,7 +93,7 @@ import { useAgentsFileUpload } from '../hooks/use-agents-file-upload';
 import { usePastedTextFiles } from '../hooks/use-pasted-text-files';
 import { useFocusInputOnEnter } from '../hooks/use-focus-input-on-enter';
 import { useToggleFocusOnCmdEsc } from '../hooks/use-toggle-focus-on-cmd-esc';
-import { useVoiceRecording, blobToBase64, getAudioFormat } from '../../../lib/hooks/use-voice-recording';
+import { useVoiceInput } from '../../../lib/hooks/use-voice-input';
 import { getResolvedHotkey } from '../../../lib/hotkeys';
 import {
   AgentsFileMention,
@@ -706,65 +706,56 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const customHotkeys = useAtomValue(customHotkeysAtom);
   const {
     isRecording: isVoiceRecording,
+    isTranscribing,
     audioLevel: voiceAudioLevel,
     startRecording,
     stopRecording,
-    cancelRecording
-  } = useVoiceRecording();
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const transcribeMutation = trpc.voice.transcribe.useMutation();
-
-  // Check if voice input is available (authenticated OR has OPENAI_API_KEY)
-  const { data: voiceAvailability } = trpc.voice.isAvailable.useQuery();
-  const isVoiceAvailable = voiceAvailability?.available ?? false;
+    cancelRecording,
+    isAvailable: isVoiceAvailable
+  } = useVoiceInput({
+    onTranscript: (text) => {
+      const currentValue = editorRef.current?.getValue() || '';
+      const needsSpace = currentValue.length > 0 && !/\s$/.test(currentValue);
+      const newValue = currentValue + (needsSpace ? ' ' : '') + text;
+      editorRef.current?.setValue(newValue);
+      setHasContent(true);
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    }
+  });
 
   // Voice input handlers
   const handleVoiceMouseDown = useCallback(async () => {
-    if (isUploading || isTranscribing || isVoiceRecording) return;
+    if (!isVoiceAvailable || isUploading || isTranscribing || isVoiceRecording) return;
     try {
       await startRecording();
     } catch (err) {
       console.error('[NewChatForm] Failed to start recording:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to start recording');
     }
-  }, [isUploading, isTranscribing, isVoiceRecording, startRecording]);
+  }, [isUploading, isTranscribing, isVoiceAvailable, isVoiceRecording, startRecording]);
 
   const handleVoiceMouseUp = useCallback(async () => {
     if (!isVoiceRecording) return;
     try {
-      const blob = await stopRecording();
-      if (blob.size < 1000) {
-        console.log('[NewChatForm] Recording too short, ignoring');
-        return;
-      }
-      setIsTranscribing(true);
-      const base64 = await blobToBase64(blob);
-      const format = getAudioFormat(blob.type);
-      const result = await transcribeMutation.mutateAsync({ audio: base64, format });
-      if (result.text && result.text.trim()) {
-        const currentValue = editorRef.current?.getValue() || '';
-        // Clean transcribed text - remove any remaining whitespace issues
-        const transcribed = result.text
-          .replace(/[\r\n\t]+/g, ' ')
-          .replace(/ +/g, ' ')
-          .trim();
-        // Add space separator only if current text exists and doesn't end with whitespace
-        const needsSpace = currentValue.length > 0 && !/\s$/.test(currentValue);
-        const newValue = currentValue + (needsSpace ? ' ' : '') + transcribed;
-        editorRef.current?.setValue(newValue);
-        setHasContent(true);
-      }
+      await stopRecording();
     } catch (err) {
       console.error('[NewChatForm] Transcription failed:', err);
-    } finally {
-      setIsTranscribing(false);
+      toast.error('Voice transcription failed');
     }
-  }, [isVoiceRecording, stopRecording, transcribeMutation]);
+  }, [isVoiceRecording, stopRecording]);
 
   const handleVoiceMouseLeave = useCallback(() => {
     if (isVoiceRecording) {
       cancelRecording();
     }
   }, [isVoiceRecording, cancelRecording]);
+
+  useEffect(() => {
+    if (!hasContent || !isVoiceRecording) return;
+    cancelRecording();
+  }, [cancelRecording, hasContent, isVoiceRecording]);
 
   // Voice hotkey listener (push-to-talk: hold to record, release to transcribe)
   useEffect(() => {
