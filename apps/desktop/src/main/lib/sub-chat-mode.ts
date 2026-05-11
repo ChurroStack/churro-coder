@@ -24,7 +24,11 @@ function hasNonPlanFileEdit(msgs: any[] | string | null | undefined): boolean {
     messages = msgs;
   } else if (typeof msgs === 'string') {
     if (!msgs) return false;
-    try { messages = JSON.parse(msgs); } catch { return false; }
+    try {
+      messages = JSON.parse(msgs);
+    } catch {
+      return false;
+    }
     if (!Array.isArray(messages)) return false;
   } else {
     return false;

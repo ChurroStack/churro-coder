@@ -1,8 +1,7 @@
 import { useCallback } from 'react';
-import { useAtomValue } from 'jotai';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { FileViewerSidebar } from '../../file-viewer/components/file-viewer-sidebar';
-import { selectedProjectAtom } from '../../agents/atoms';
+import { useActiveWorktreePath } from '../../agents/hooks/use-active-worktree-path';
 import type { FilePanelEntity } from '../atoms';
 
 /**
@@ -12,8 +11,7 @@ import type { FilePanelEntity } from '../atoms';
  * onDidRemovePanel listener.
  */
 export function FilePanel({ params, api }: IDockviewPanelProps<FilePanelEntity>) {
-  const project = useAtomValue(selectedProjectAtom);
-  const projectPath = project?.path ?? '';
+  const projectPath = useActiveWorktreePath() ?? '';
 
   const handleClose = useCallback(() => {
     api.close();

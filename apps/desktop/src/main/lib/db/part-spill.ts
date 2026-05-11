@@ -23,12 +23,7 @@ export function spillPath(subChatId: string, messageId: string, partIdx: number)
  * Used synchronously inside better-sqlite3 transactions and the backfill loop.
  * Caller should wrap in try/catch and fall back to the original part on error.
  */
-export function writePartIfLargeSync(
-  subChatId: string,
-  messageId: string,
-  partIdx: number,
-  part: unknown
-): unknown {
+export function writePartIfLargeSync(subChatId: string, messageId: string, partIdx: number, part: unknown): unknown {
   const json = JSON.stringify(part);
   const byteLen = Buffer.byteLength(json, 'utf8');
   if (byteLen < SPILL_THRESHOLD) return part;

@@ -1,8 +1,7 @@
 import { useCallback, useRef } from 'react';
-import { useAtomValue } from 'jotai';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { FilesTab, type FilesTabHandle } from '../../details-sidebar/sections/files-tab';
-import { selectedProjectAtom } from '../../agents/atoms';
+import { useActiveWorktreePath } from '../../agents/hooks/use-active-worktree-path';
 import { useDockApi } from '../dock-context';
 import { addOrFocus } from '../add-or-focus';
 import type { FilesTreePanelEntity } from '../atoms';
@@ -13,8 +12,7 @@ import type { FilesTreePanelEntity } from '../atoms';
  * file panel's params lets the editor scroll to it on mount.
  */
 export function FilesTreePanel({ params }: IDockviewPanelProps<FilesTreePanelEntity>) {
-  const project = useAtomValue(selectedProjectAtom);
-  const worktreePath = project?.path ?? null;
+  const worktreePath = useActiveWorktreePath();
   const dockApi = useDockApi();
   const filesTabRef = useRef<FilesTabHandle>(null);
 

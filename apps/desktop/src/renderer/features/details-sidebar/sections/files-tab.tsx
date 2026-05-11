@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, memo, forwardRef, us
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { atom } from 'jotai';
 import { HiChevronRight } from 'react-icons/hi2';
+import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
@@ -380,10 +381,15 @@ export const FilesTab = memo(
     const openInFinderMutation = trpc.external.openInFinder.useMutation();
     const renameMutation = trpc.files.renameFile.useMutation();
     const deleteMutation = trpc.files.deleteFile.useMutation();
+    const clearCacheMutation = trpc.files.clearCache.useMutation();
     const trpcUtils = trpc.useUtils();
 
     // ---- Data ----
-    const { data: allFiles } = trpc.files.search.useQuery(
+    const {
+      data: allFiles,
+      refetch: refetchFiles,
+      isFetching: isFilesFetching
+    } = trpc.files.search.useQuery(
       { projectPath: worktreePath || '', query: '', limit: 5000, typeFilter: 'file' },
       { enabled: !!worktreePath, staleTime: 10000 }
     );
@@ -475,6 +481,30 @@ export const FilesTab = memo(
       onExpandedStateChange?.(isAllExpanded);
     }, [isAllExpanded, onExpandedStateChange]);
 
+    const toAbsolute = useCallback(
+      (relativePath: string) => {
+        return worktreePath ? worktreePath + '/' + relativePath : relativePath;
+      },
+      [worktreePath]
+    );
+
+    const invalidateFiles = useCallback(() => {
+      trpcUtils.files.search.invalidate();
+    }, [trpcUtils]);
+
+    const handleRefresh = useCallback(async () => {
+      if (!worktreePath) return;
+
+      try {
+        await clearCacheMutation.mutateAsync({ projectPath: worktreePath });
+        const result = await refetchFiles({ throwOnError: true });
+        if (result.error) throw result.error;
+      } catch (error) {
+        const description = error instanceof Error ? error.message : 'Unknown error';
+        toast.error('Failed to refresh files', { description });
+      }
+    }, [worktreePath, clearCacheMutation, refetchFiles]);
+
     // Expose actions to parent
     useImperativeHandle(
       ref,
@@ -487,17 +517,6 @@ export const FilesTab = memo(
     );
 
     // ---- Context Menu Actions ----
-
-    const toAbsolute = useCallback(
-      (relativePath: string) => {
-        return worktreePath ? worktreePath + '/' + relativePath : relativePath;
-      },
-      [worktreePath]
-    );
-
-    const invalidateFiles = useCallback(() => {
-      trpcUtils.files.search.invalidate();
-    }, [trpcUtils]);
 
     const handleContextAction = useCallback(
       (action: string, node: FileTreeNode) => {
@@ -768,26 +787,38 @@ export const FilesTab = memo(
       <div className={cn('flex flex-col h-full min-w-0 overflow-hidden', className)}>
         {showFilterInput && (
           <div className="flex-shrink-0 px-2 pt-1.5">
-            <div className="relative">
-              <input
-                type="text"
-                value={filterQuery}
-                onChange={(e) => setFilterQuery(e.target.value)}
-                placeholder="Filter files..."
-                aria-label="Filter files by name"
-                className="w-full h-6 pl-2 pr-7 text-xs rounded-md bg-muted/40 border border-border/50 outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 placeholder:text-muted-foreground"
-              />
-              {filterQuery && (
-                <button
-                  type="button"
-                  onClick={() => setFilterQuery('')}
-                  aria-label="Clear filter"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-foreground/10">
-                  <span aria-hidden className="text-xs leading-none">
-                    ×
-                  </span>
-                </button>
-              )}
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1 min-w-0">
+                <input
+                  type="text"
+                  value={filterQuery}
+                  onChange={(e) => setFilterQuery(e.target.value)}
+                  placeholder="Filter files..."
+                  aria-label="Filter files by name"
+                  className="w-full h-6 pl-2 pr-7 text-xs rounded-md bg-muted/40 border border-border/50 outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 placeholder:text-muted-foreground"
+                />
+                {filterQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterQuery('')}
+                    aria-label="Clear filter"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-foreground/10">
+                    <span aria-hidden className="text-xs leading-none">
+                      ×
+                    </span>
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleRefresh()}
+                aria-label="Refresh files"
+                disabled={clearCacheMutation.isPending || isFilesFetching}
+                className="h-6 w-6 shrink-0 rounded-md border border-border/50 bg-muted/40 flex items-center justify-center text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:opacity-60 disabled:hover:bg-muted/40">
+                <RefreshCw
+                  className={cn('h-3.5 w-3.5', (clearCacheMutation.isPending || isFilesFetching) && 'animate-spin')}
+                />
+              </button>
             </div>
           </div>
         )}

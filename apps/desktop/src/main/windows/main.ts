@@ -309,7 +309,10 @@ function registerIpcHandlers(): void {
       .all();
     const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 
-    const msgsBySubChat = readMessagesForSubChats(db, chatSubChats.map((sc) => sc.id));
+    const msgsBySubChat = readMessagesForSubChats(
+      db,
+      chatSubChats.map((sc) => sc.id)
+    );
     const repairedSubChats = chatSubChats.map((row) =>
       repairSubChatModeForHydration(db, { ...row, messages: msgsBySubChat.get(row.id) ?? [] })
     );

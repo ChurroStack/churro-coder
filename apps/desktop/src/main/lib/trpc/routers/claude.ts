@@ -39,7 +39,12 @@ import {
   projects as projectsTable,
   subChats
 } from '../../db';
-import { readMessagesFromTable, writeMessagesToTable, replaceMessagesInTable, clearMessageMetadataFlag } from '../../db/messages-table';
+import {
+  readMessagesFromTable,
+  writeMessagesToTable,
+  replaceMessagesInTable,
+  clearMessageMetadataFlag
+} from '../../db/messages-table';
 import { computeCatchupBlock } from '../../multi-provider/catchup';
 import { createRollbackStash } from '../../git/stash';
 import {

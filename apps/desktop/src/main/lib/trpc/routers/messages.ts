@@ -86,16 +86,16 @@ export const messagesRouter = router({
    * Fetch a single message by its original message id (not idx).
    * Used for fork-resume and rollback-by-id flows.
    */
-  getById: publicProcedure
-    .input(z.object({ subChatId: z.string(), messageId: z.string() }))
-    .query(({ input }) => {
-      const db = getDatabase();
-      return db
+  getById: publicProcedure.input(z.object({ subChatId: z.string(), messageId: z.string() })).query(({ input }) => {
+    const db = getDatabase();
+    return (
+      db
         .select()
         .from(messages)
         .where(and(eq(messages.subChatId, input.subChatId), eq(messages.id, input.messageId)))
-        .get() ?? null;
-    }),
+        .get() ?? null
+    );
+  }),
 
   /**
    * Read a full spilled part from disk.
@@ -125,7 +125,11 @@ export const messagesRouter = router({
         messageId: z.string(),
         partIdx: z.number().int().nonnegative(),
         start: z.number().int().nonnegative(),
-        length: z.number().int().min(1).max(4 * 1024 * 1024) // 4 MB max chunk
+        length: z
+          .number()
+          .int()
+          .min(1)
+          .max(4 * 1024 * 1024) // 4 MB max chunk
       })
     )
     .query(async ({ input }) => {
@@ -205,6 +209,5 @@ export const messagesRouter = router({
         .run();
 
       return nextIdx;
-    }),
-
+    })
 });

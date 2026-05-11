@@ -21,8 +21,14 @@ function processPartsForStorage(subChatId: string, messageId: string, parts: unk
 function rowToMessage(row: typeof messages.$inferSelect): any {
   let parts: unknown[] = [];
   let metadata: unknown = undefined;
-  try { parts = JSON.parse(row.parts); } catch {}
-  if (row.metadata) { try { metadata = JSON.parse(row.metadata); } catch {} }
+  try {
+    parts = JSON.parse(row.parts);
+  } catch {}
+  if (row.metadata) {
+    try {
+      metadata = JSON.parse(row.metadata);
+    } catch {}
+  }
   return { id: row.id, role: row.role, parts, ...(metadata !== undefined ? { metadata } : {}) };
 }
 
@@ -39,7 +45,11 @@ export function clearMessageMetadataFlag(db: DB, subChatId: string, messageId: s
       .get();
     if (!row) return;
     let meta: Record<string, unknown> = {};
-    if (row.metadata) { try { meta = JSON.parse(row.metadata); } catch {} }
+    if (row.metadata) {
+      try {
+        meta = JSON.parse(row.metadata);
+      } catch {}
+    }
     if (!(flag in meta)) return;
     delete meta[flag];
     db.update(messages)

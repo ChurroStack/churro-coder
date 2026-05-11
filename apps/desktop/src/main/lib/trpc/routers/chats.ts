@@ -544,7 +544,10 @@ export const chatsRouter = router({
       .orderBy(subChats.createdAt)
       .all();
 
-    const msgsBySubChat = readMessagesForSubChats(db, rawSubChats.map((sc) => sc.id));
+    const msgsBySubChat = readMessagesForSubChats(
+      db,
+      rawSubChats.map((sc) => sc.id)
+    );
     const chatSubChats = rawSubChats.map((row) =>
       repairSubChatModeForHydration(db, { ...row, messages: msgsBySubChat.get(row.id) ?? [] })
     );
@@ -1227,16 +1230,13 @@ export const chatsRouter = router({
     .mutation(({ input }) => {
       const db = getDatabase();
       let parsed: any[] = [];
-      try { parsed = JSON.parse(input.messages) || []; } catch {}
+      try {
+        parsed = JSON.parse(input.messages) || [];
+      } catch {}
 
       replaceMessagesInTable(db, input.id, parsed);
 
-      return db
-        .update(subChats)
-        .set({ updatedAt: new Date() })
-        .where(eq(subChats.id, input.id))
-        .returning()
-        .get();
+      return db.update(subChats).set({ updatedAt: new Date() }).where(eq(subChats.id, input.id)).returning().get();
     }),
 
   /**
@@ -2073,7 +2073,9 @@ export const chatsRouter = router({
         try {
           const parts = JSON.parse(row.parts);
           const metadata = row.metadata ? JSON.parse(row.metadata) : undefined;
-          msgsBySubChat.get(row.subChatId)!.push({ role: row.role, parts, ...(metadata !== undefined ? { metadata } : {}) });
+          msgsBySubChat
+            .get(row.subChatId)!
+            .push({ role: row.role, parts, ...(metadata !== undefined ? { metadata } : {}) });
         } catch {
           // skip unparseable rows
         }
@@ -2108,7 +2110,11 @@ export const chatsRouter = router({
           if (hasPendingAskUserQuestion) return false;
 
           const msgModel = msg.metadata?.model;
-          if (msgModel && getProviderForModelId(String(msgModel)) === 'codex' && msg.parts.some((p: any) => p.type === 'text' && p.text?.trim())) {
+          if (
+            msgModel &&
+            getProviderForModelId(String(msgModel)) === 'codex' &&
+            msg.parts.some((p: any) => p.type === 'text' && p.text?.trim())
+          ) {
             return true;
           }
         }
@@ -2397,7 +2403,10 @@ export const chatsRouter = router({
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
 
-      const statsBySubChat = readMessagesForSubChats(db, chatSubChats.map((sc) => sc.id));
+      const statsBySubChat = readMessagesForSubChats(
+        db,
+        chatSubChats.map((sc) => sc.id)
+      );
 
       for (const subChat of chatSubChats) {
         const msgs = statsBySubChat.get(subChat.id) ?? [];

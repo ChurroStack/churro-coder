@@ -1,8 +1,7 @@
 import { useCallback } from 'react';
-import { useAtomValue } from 'jotai';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { SearchTab } from '../../details-sidebar/sections/search-tab';
-import { selectedProjectAtom } from '../../agents/atoms';
+import { useActiveWorktreePath } from '../../agents/hooks/use-active-worktree-path';
 import { useDockApi } from '../dock-context';
 import { addOrFocus } from '../add-or-focus';
 import type { SearchPanelEntity } from '../atoms';
@@ -12,8 +11,7 @@ import type { SearchPanelEntity } from '../atoms';
  * opens the matching file as a dockview file panel via addOrFocus.
  */
 export function SearchPanel({ params }: IDockviewPanelProps<SearchPanelEntity>) {
-  const project = useAtomValue(selectedProjectAtom);
-  const worktreePath = project?.path ?? null;
+  const worktreePath = useActiveWorktreePath();
   const dockApi = useDockApi();
 
   const handleSelectFile = useCallback(
