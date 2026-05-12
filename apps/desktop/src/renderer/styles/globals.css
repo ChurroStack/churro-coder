@@ -454,6 +454,19 @@
   background-color: hsl(var(--accent) / 0.5);
 }
 
+/* Freeze the tab strip horizontally. Dockview's setActivePanel writes
+ * scrollLeft to bring the active tab into view, which slides leftmost tabs
+ * partially under the prefix-actions area (their leading icon disappears).
+ * overflow: clip is non-scrollable (unlike overflow: hidden), so dockview's
+ * scrollLeft writes become no-ops and the first tab stays anchored at the
+ * left edge. Trailing tabs that don't fit are picked up by dockview's
+ * overflow observer (isChildEntirelyVisibleWithinParent) and appear in the
+ * chevron dropdown. */
+.cs-theme-light .dv-tabs-container,
+.cs-theme-dark .dv-tabs-container {
+  overflow: clip;
+}
+
 /* The overflow menu is not a tab strip, so give its container a subtle
  * outline even though --dv-tab-divider-color stays transparent for pill tabs. */
 .cs-theme-light .dv-tabs-overflow-container,

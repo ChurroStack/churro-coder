@@ -379,6 +379,43 @@ export const claudeCodeRouter = router({
     return { success: true };
   }),
 
+  tryAutoReconnect: publicProcedure.mutation(() => {
+    const keychainToken = getExistingClaudeToken()?.trim();
+    if (!keychainToken) {
+      logClaudeAuth('auto-reconnect: skipped, no keychain token');
+      return { imported: false, reason: 'no-keychain-token' as const };
+    }
+
+    const db = getDatabase();
+    let activePlainText: string | null = null;
+    try {
+      const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, 'singleton')).get();
+      if (settings?.activeAccountId) {
+        const account = db
+          .select()
+          .from(anthropicAccounts)
+          .where(eq(anthropicAccounts.id, settings.activeAccountId))
+          .get();
+        if (account) activePlainText = decryptToken(account.oauthToken);
+      }
+      if (!activePlainText) {
+        const cred = db.select().from(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, 'default')).get();
+        if (cred?.oauthToken) activePlainText = decryptToken(cred.oauthToken);
+      }
+    } catch (err) {
+      console.error('[ClaudeAuth] auto-reconnect: failed to read active token', err);
+    }
+
+    if (activePlainText && activePlainText === keychainToken) {
+      logClaudeAuth('auto-reconnect: skipped, keychain matches active token');
+      return { imported: false, reason: 'same-token' as const };
+    }
+
+    storeOAuthToken(keychainToken);
+    logClaudeAuth('auto-reconnect: imported keychain token');
+    return { imported: true, reason: 'imported' as const };
+  }),
+
   /**
    * Get decrypted OAuth token (local)
    * Now uses multi-account system - gets token from active account

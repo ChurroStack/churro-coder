@@ -184,7 +184,7 @@ export function useVoiceRecording(): UseVoiceRecordingReturn {
       let error: Error;
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          error = new Error('Microphone access denied. Please allow microphone access in System Preferences.');
+          error = new Error('Microphone access denied. Update permissions in System Settings.');
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
           error = new Error('No microphone found. Please connect a microphone.');
         } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {

@@ -80,7 +80,7 @@ import { VoiceWaveIndicator } from '../ui/voice-wave-indicator';
 import { McpStatusDot } from '../../../components/dialogs/settings-tabs/agents-mcp-tab';
 import { handlePasteEvent } from '../utils/paste-text';
 import type { PastedTextFile } from '../hooks/use-pasted-text-files';
-import { useVoiceRecording, blobToBase64, getAudioFormat } from '../../../lib/hooks/use-voice-recording';
+import { useVoiceInput } from '../../../lib/hooks/use-voice-input';
 import { getResolvedHotkey } from '../../../lib/hotkeys';
 import { customHotkeysAtom } from '../../../lib/atoms';
 import { toast } from 'sonner';
@@ -677,26 +677,24 @@ export const ChatInputArea = memo(function ChatInputArea({
   // Voice input state
   const {
     isRecording: isVoiceRecording,
+    isTranscribing,
     audioLevel: voiceAudioLevel,
     startRecording: startVoiceRecording,
     stopRecording: stopVoiceRecording,
-    cancelRecording: cancelVoiceRecording
-  } = useVoiceRecording();
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const voiceMountedRef = useRef(true);
-
-  useEffect(() => {
-    voiceMountedRef.current = true;
-    return () => {
-      voiceMountedRef.current = false;
-    };
-  }, []);
-
-  const transcribeMutation = trpc.voice.transcribe.useMutation();
-
-  // Check if voice input is available (authenticated OR has OPENAI_API_KEY)
-  const { data: voiceAvailability } = trpc.voice.isAvailable.useQuery();
-  const isVoiceAvailable = voiceAvailability?.available ?? false;
+    cancelRecording: cancelVoiceRecording,
+    isAvailable: isVoiceAvailable
+  } = useVoiceInput({
+    onTranscript: (text) => {
+      const current = (editorRef.current?.getValue() || '').trim();
+      const needsSpace = current.length > 0 && !/\s$/.test(current);
+      const newValue = current + (needsSpace ? ' ' : '') + text;
+      editorRef.current?.setValue(newValue);
+      editorRef.current?.focus();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    }
+  });
 
   // Get resolved voice input hotkey
   const customHotkeys = useAtomValue(customHotkeysAtom);
@@ -730,62 +728,25 @@ export const ChatInputArea = memo(function ChatInputArea({
 
   // Voice input handlers
   const handleVoiceMouseDown = useCallback(async () => {
-    if (isStreaming || isTranscribing || isVoiceRecording) return;
+    if (!isVoiceAvailable || isStreaming || isTranscribing || isVoiceRecording) return;
     try {
       await startVoiceRecording();
     } catch (err) {
       console.error('[VoiceInput] Failed to start recording:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to start recording');
     }
-  }, [isStreaming, isTranscribing, isVoiceRecording, startVoiceRecording]);
+  }, [isStreaming, isTranscribing, isVoiceAvailable, isVoiceRecording, startVoiceRecording]);
 
   const handleVoiceMouseUp = useCallback(async () => {
     if (!isVoiceRecording) return;
 
-    // Set transcribing immediately to avoid visual flash between recording and transcribing states
-    setIsTranscribing(true);
-
     try {
-      const blob = await stopVoiceRecording();
-
-      // Don't transcribe very short recordings (likely accidental clicks)
-      if (blob.size < 1000) {
-        console.log('[VoiceInput] Recording too short, ignoring');
-        if (voiceMountedRef.current) setIsTranscribing(false);
-        return;
-      }
-
-      if (!voiceMountedRef.current) return;
-
-      const base64 = await blobToBase64(blob);
-      const format = getAudioFormat(blob.type);
-
-      const result = await transcribeMutation.mutateAsync({
-        audio: base64,
-        format
-      });
-
-      if (!voiceMountedRef.current) return;
-
-      if (result.text && result.text.trim()) {
-        const current = (editorRef.current?.getValue() || '').trim();
-        const transcribed = result.text.trim();
-        const needsSpace = current.length > 0 && !/\s$/.test(current);
-        const newValue = current + (needsSpace ? ' ' : '') + transcribed;
-        editorRef.current?.setValue(newValue);
-        editorRef.current?.focus();
-      } else {
-        toast.info('No speech detected');
-      }
+      await stopVoiceRecording();
     } catch (err) {
       console.error('[VoiceInput] Transcription failed:', err);
       toast.error('Voice transcription failed');
-    } finally {
-      if (voiceMountedRef.current) {
-        setIsTranscribing(false);
-      }
     }
-  }, [isVoiceRecording, stopVoiceRecording, transcribeMutation, editorRef]);
+  }, [isVoiceRecording, stopVoiceRecording]);
 
   const handleVoiceMouseLeave = useCallback(() => {
     if (isVoiceRecording) {
@@ -813,6 +774,11 @@ export const ChatInputArea = memo(function ChatInputArea({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isVoiceRecording, cancelVoiceRecording]);
+
+  useEffect(() => {
+    if (!hasContent || !isVoiceRecording) return;
+    cancelVoiceRecording();
+  }, [cancelVoiceRecording, hasContent, isVoiceRecording]);
 
   // Keyboard shortcut: Voice input hotkey (push-to-talk: hold to record, release to transcribe)
   useEffect(() => {

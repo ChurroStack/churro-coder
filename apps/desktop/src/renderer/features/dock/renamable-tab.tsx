@@ -157,7 +157,7 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
           }}
         />
       ) : (
-        <span className="truncate max-w-[180px]" title={displayTitle}>
+        <span className="truncate max-w-[260px]" title={displayTitle}>
           {displayTitle || 'Untitled'}
         </span>
       )}
