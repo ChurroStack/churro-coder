@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
-import {
-  speechRecognitionErrorMessages,
-  useSpeechRecognitionFallback
-} from './use-speech-recognition-fallback';
+import { speechRecognitionErrorMessages, useSpeechRecognitionFallback } from './use-speech-recognition-fallback';
 
 interface FakeResult {
   isFinal: boolean;
@@ -52,13 +49,14 @@ let lastRecognition: FakeSpeechRecognition | null = null;
 
 beforeEach(() => {
   lastRecognition = null;
-  (window as unknown as { SpeechRecognition: typeof FakeSpeechRecognition }).SpeechRecognition =
-    class extends FakeSpeechRecognition {
-      constructor() {
-        super();
-        lastRecognition = this;
-      }
-    };
+  (window as unknown as { SpeechRecognition: typeof FakeSpeechRecognition }).SpeechRecognition = class extends (
+    FakeSpeechRecognition
+  ) {
+    constructor() {
+      super();
+      lastRecognition = this;
+    }
+  };
 });
 
 afterEach(() => {
@@ -82,9 +80,7 @@ describe('useSpeechRecognitionFallback', () => {
   it('emits the final transcript through onTranscript and clears recording state on end', async () => {
     const onTranscript = vi.fn();
     const onComplete = vi.fn();
-    const { result } = renderHook(() =>
-      useSpeechRecognitionFallback({ onTranscript, onComplete })
-    );
+    const { result } = renderHook(() => useSpeechRecognitionFallback({ onTranscript, onComplete }));
 
     await act(async () => {
       await result.current.startRecording();
@@ -105,9 +101,7 @@ describe('useSpeechRecognitionFallback', () => {
   it('silently completes when onend fires without any prior result (silence)', async () => {
     const onTranscript = vi.fn();
     const onComplete = vi.fn();
-    const { result } = renderHook(() =>
-      useSpeechRecognitionFallback({ onTranscript, onComplete })
-    );
+    const { result } = renderHook(() => useSpeechRecognitionFallback({ onTranscript, onComplete }));
 
     await act(async () => {
       await result.current.startRecording();
@@ -152,9 +146,7 @@ describe('useSpeechRecognitionFallback', () => {
       lastRecognition?.emitError('network');
     });
 
-    expect(onError.mock.calls[0][0].message).toBe(
-      speechRecognitionErrorMessages.networkUnavailable
-    );
+    expect(onError.mock.calls[0][0].message).toBe(speechRecognitionErrorMessages.networkUnavailable);
   });
 
   it('aborts on cancelRecording and does not invoke onComplete', async () => {
@@ -195,8 +187,7 @@ describe('useSpeechRecognitionFallback', () => {
   it('only runs unmount cleanup once even when option identities change between renders', async () => {
     const onComplete = vi.fn();
     const { result, rerender, unmount } = renderHook(
-      (props: { onComplete: () => void }) =>
-        useSpeechRecognitionFallback({ onComplete: props.onComplete }),
+      (props: { onComplete: () => void }) => useSpeechRecognitionFallback({ onComplete: props.onComplete }),
       { initialProps: { onComplete } }
     );
 
