@@ -7,6 +7,7 @@ export type OpenspecTool = 'claude' | 'codex';
 interface OpenSpecToolsToggleProps {
   value: OpenspecTool[];
   onChange: (tools: OpenspecTool[]) => void;
+  availableTools?: OpenspecTool[];
 }
 
 const TOOLS: { id: OpenspecTool; label: string; note?: string }[] = [
@@ -18,7 +19,9 @@ const TOOLS: { id: OpenspecTool; label: string; note?: string }[] = [
   }
 ];
 
-export function OpenSpecToolsToggle({ value, onChange }: OpenSpecToolsToggleProps) {
+export function OpenSpecToolsToggle({ value, onChange, availableTools }: OpenSpecToolsToggleProps) {
+  const visibleTools = availableTools ? TOOLS.filter((t) => availableTools.includes(t.id)) : TOOLS;
+
   function toggle(tool: OpenspecTool, checked: boolean) {
     if (checked) {
       onChange([...value, tool]);
@@ -31,19 +34,18 @@ export function OpenSpecToolsToggle({ value, onChange }: OpenSpecToolsToggleProp
     <div className="flex flex-col gap-2">
       <p className="text-xs font-medium text-muted-foreground">Install CLI skills for</p>
       <div className="flex flex-col gap-1.5">
-        {TOOLS.map(({ id, label, note }) => (
-          <div key={id} className="flex items-start gap-2">
+        {visibleTools.map(({ id, label, note }) => (
+          <div key={id} className="flex items-center gap-2">
             <Checkbox
               id={`openspec-tool-${id}`}
               checked={value.includes(id)}
               onCheckedChange={(checked) => toggle(id, !!checked)}
-              className="mt-0.5"
             />
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col">
               <Label htmlFor={`openspec-tool-${id}`} className="text-sm leading-none cursor-pointer">
                 {label}
               </Label>
-              {note && <p className="text-xs text-muted-foreground">{note}</p>}
+              {note && <p className="text-xs text-muted-foreground mt-1">{note}</p>}
             </div>
           </div>
         ))}

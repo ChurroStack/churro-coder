@@ -22,6 +22,7 @@ const IGNORED_DIRS = new Set([
   'venv',
   '.cache',
   '.turbo',
+  '.nx',
   '.vercel',
   '.netlify',
   'out',
@@ -141,9 +142,6 @@ async function scanDirectory(
       if (entry.isDirectory()) {
         // Skip ignored directories
         if (IGNORED_DIRS.has(entry.name)) continue;
-        // Skip hidden directories (except .github, .vscode, etc.)
-        if (entry.name.startsWith('.') && !entry.name.startsWith('.github') && !entry.name.startsWith('.vscode'))
-          continue;
 
         // Add the folder itself to results
         entries.push({ path: relativePath, type: 'folder' });

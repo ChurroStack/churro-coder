@@ -384,6 +384,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const [selectedWorkType, setSelectedWorkType] = useAtom(lastSelectedWorkTypeAtom);
   const [selectedHarness, setSelectedHarness] = useAtom(lastSelectedHarnessAtom);
   const [selectedOpenspecTools, setSelectedOpenspecTools] = useState<OpenspecTool[]>(['claude', 'codex']);
+  const userTouchedOpenspecToolsRef = useRef(false);
   const [selectedSpecId, setSelectedSpecId] = useState<string | null>(null);
   const [, setContinueFromSpecExpanded] = useAtom(continueFromSpecExpandedAtom);
   const [, setSpecPickerOpen] = useAtom(specPickerOpenAtom);
@@ -405,6 +406,25 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     { projectId: validatedProject?.id ?? '' },
     { enabled: !!validatedProject?.id }
   );
+
+  const { data: openspecProjectState } = trpc.chats.openspecStateByProject.useQuery(
+    { projectId: validatedProject?.id ?? '' },
+    { enabled: !!validatedProject?.id && selectedHarness === 'spec-driven' }
+  );
+  const missingOpenspecTools = openspecProjectState?.missingTools ?? ['claude', 'codex'];
+  const hasMissingOpenspecTools = missingOpenspecTools.length > 0;
+
+  useEffect(() => {
+    userTouchedOpenspecToolsRef.current = false;
+  }, [validatedProject?.id]);
+
+  useEffect(() => {
+    if (openspecProjectState && !userTouchedOpenspecToolsRef.current) {
+      setSelectedOpenspecTools(
+        openspecProjectState.missingTools.length > 0 ? openspecProjectState.missingTools : ['claude', 'codex']
+      );
+    }
+  }, [openspecProjectState]);
   const selectedSpec = useMemo(
     () => openspecChanges.find((change) => change.changeId === selectedSpecId) ?? null,
     [openspecChanges, selectedSpecId]
@@ -2233,6 +2253,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                   <AgentModeSelector value={agentMode} onChange={setAgentMode} options={modeOptions} />
                 </WizardSection>
 
+                {/* Hidden 2026-05-12 — Type of work UI temporarily disabled; revive by removing this comment.
                 {wizardState.visibleSections.includes('type') && (
                   <WizardSection step={wizardStepMap.type!} label="Type of work">
                     <RadioCardGroup
@@ -2243,6 +2264,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                     />
                   </WizardSection>
                 )}
+                */}
 
                 {wizardState.visibleSections.includes('harness') && (
                   <WizardSection step={wizardStepMap.harness!} label="Harness">
@@ -2252,9 +2274,16 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       options={harnessOptions}
                       columns={2}
                     />
-                    {selectedHarness === 'spec-driven' && (
+                    {selectedHarness === 'spec-driven' && hasMissingOpenspecTools && (
                       <div className="mt-3">
-                        <OpenSpecToolsToggle value={selectedOpenspecTools} onChange={setSelectedOpenspecTools} />
+                        <OpenSpecToolsToggle
+                          value={selectedOpenspecTools}
+                          onChange={(next) => {
+                            userTouchedOpenspecToolsRef.current = true;
+                            setSelectedOpenspecTools(next);
+                          }}
+                          availableTools={missingOpenspecTools}
+                        />
                       </div>
                     )}
                   </WizardSection>

@@ -18,8 +18,8 @@ export interface OpenspecDetectionResult {
 
 /** Sentinel files the CLI emits per tool (relative to targetRoot). */
 const TOOL_SENTINELS: Record<OpenspecTool, string> = {
-  claude: '.claude/skills/openspec-proposal/SKILL.md',
-  codex: '.codex/skills/openspec-proposal/SKILL.md'
+  claude: '.claude/skills/openspec-propose/SKILL.md',
+  codex: '.codex/skills/openspec-propose/SKILL.md'
 };
 
 async function fileExists(p: string): Promise<boolean> {

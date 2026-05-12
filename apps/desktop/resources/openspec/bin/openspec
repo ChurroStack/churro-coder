@@ -1,0 +1,20 @@
+#!/bin/sh
+# Churro Coder — OpenSpec CLI shim.
+# Preferred: run via Electron's built-in Node runtime (CSCODE_ELECTRON_PATH).
+# Fallback: use `node` from PATH when the env var isn't forwarded by the agent.
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PKG_ENTRY="$SCRIPT_DIR/../pkg/bin/openspec.js"
+OPENSPEC_TELEMETRY="${OPENSPEC_TELEMETRY:-0}"
+if [ -n "$CSCODE_ELECTRON_PATH" ]; then
+  # Use the wrapper so process.defaultApp=true is set before Commander parses argv.
+  # Without it, Commander's Electron auto-detection applies argv.slice(1) and treats
+  # the script path as a CLI subcommand ("unknown command" for all non-flag args).
+  ELECTRON_ENTRY="$SCRIPT_DIR/openspec-electron-entry.mjs"
+  ELECTRON_RUN_AS_NODE=1 OPENSPEC_TELEMETRY="$OPENSPEC_TELEMETRY" exec "$CSCODE_ELECTRON_PATH" "$ELECTRON_ENTRY" "$@"
+elif command -v node >/dev/null 2>&1; then
+  OPENSPEC_TELEMETRY="$OPENSPEC_TELEMETRY" exec node "$PKG_ENTRY" "$@"
+else
+  echo "openspec: CSCODE_ELECTRON_PATH is not set and 'node' was not found in PATH." >&2
+  exit 1
+fi

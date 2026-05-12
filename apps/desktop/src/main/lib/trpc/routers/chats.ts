@@ -2489,7 +2489,6 @@ export const chatsRouter = router({
         input.tools.join(','),
         '--profile',
         'core',
-        '--yes',
         ...(input.force || state.state === 'partial-legacy' ? ['--force'] : [])
       ];
       await runOpenspecCli(cliArgs, targetRoot);
@@ -2548,7 +2547,7 @@ export const chatsRouter = router({
       assertOpenspecBinAvailable();
 
       const { runOpenspecCli } = await import('../../../lib/openspec/run-openspec-cli');
-      await runOpenspecCli(['init', '--tools', input.tools.join(','), '--profile', 'core', '--yes'], targetRoot);
+      await runOpenspecCli(['init', '--tools', input.tools.join(','), '--profile', 'core'], targetRoot);
 
       db.update(chats)
         .set({ openspecTools: JSON.stringify(input.tools) })
@@ -2557,6 +2556,27 @@ export const chatsRouter = router({
 
       console.log(`[Chats] openspec install-tools done chat=${input.chatId} tools=${input.tools.join(',')}`);
       return { targetRoot, tools: input.tools };
+    }),
+
+  /** Query the current OpenSpec state by project (pre-chat, for the new-workspace form). */
+  openspecStateByProject: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        tools: z.array(z.enum(['claude', 'codex'])).default(['claude', 'codex'])
+      })
+    )
+    .query(async ({ input }) => {
+      const db = getDatabase();
+      const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
+      if (!project) throw new Error('Project not found');
+
+      const targetRoot = project.path;
+
+      const { detectOpenspecState } = await import('../../../lib/openspec/init-detection');
+      const result = await detectOpenspecState(targetRoot, input.tools);
+
+      return { ...result, targetRoot };
     }),
 
   /** Query the current OpenSpec state for a workspace. */
