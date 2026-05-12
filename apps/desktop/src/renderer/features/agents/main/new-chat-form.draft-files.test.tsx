@@ -89,7 +89,11 @@ vi.mock('../../../lib/trpc', () => {
         openspecInit: {
           useMutation: vi.fn(() => ({
             mutate: vi.fn(),
-            mutateAsync: vi.fn(async () => ({ targetRoot: '/test/project', createdDirs: [] })),
+            mutateAsync: vi.fn(async () => ({
+              targetRoot: '/test/project',
+              tools: ['claude', 'codex'],
+              alreadyInitialized: false
+            })),
             isPending: false
           }))
         }

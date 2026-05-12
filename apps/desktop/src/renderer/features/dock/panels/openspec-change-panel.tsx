@@ -6,6 +6,7 @@ import { selectedAgentChatIdAtom } from '../../agents/atoms';
 import { appStore } from '../../../lib/jotai-store';
 import { AgentsContent } from '../../agents/ui/agents-content';
 import { OpenSpecChangeView } from '../../openspec/openspec-change-view';
+import { OpenspecSkillsBanner } from '../../openspec/openspec-skills-banner';
 import { openSpecChangeChatWidthAtom, openSpecSidebarContextAtomFamily } from '../../openspec/atoms';
 import { useDockWorkspace } from '../workspace-context';
 import type { OpenSpecChangePanelEntity } from '../atoms';
@@ -137,14 +138,19 @@ export function OpenSpecChangePanelContent({
       className="h-full w-full overflow-hidden bg-background border-t border-border"
       style={{ display: 'grid', gridTemplateColumns: `1fr 6px ${chatWidth}px` }}>
       {/* Left pane: spec viewer */}
-      <div className="h-full overflow-hidden">
-        <OpenSpecChangeView
-          chatId={params.chatId}
-          subChatId={params.subChatId}
-          changeId={params.changeId}
-          changePath={params.changePath}
-          projectId={params.projectId}
-        />
+      <div className="h-full overflow-hidden flex flex-col">
+        <div className="px-4 pt-3">
+          <OpenspecSkillsBanner chatId={params.chatId} />
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <OpenSpecChangeView
+            chatId={params.chatId}
+            subChatId={params.subChatId}
+            changeId={params.changeId}
+            changePath={params.changePath}
+            projectId={params.projectId}
+          />
+        </div>
       </div>
 
       {/* Resizer gutter — transparent, just provides the drag target */}

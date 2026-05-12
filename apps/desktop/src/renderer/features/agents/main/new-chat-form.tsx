@@ -143,6 +143,7 @@ import {
 } from '../lib/models';
 import { deriveWizardState, getWizardStepMap, type Harness, type WorkType } from '../lib/wizard-state';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
+import { OpenSpecToolsToggle, type OpenspecTool } from './openspec-tools-toggle';
 // import type { PlanType } from "@/lib/config/subscription-plans"
 type PlanType = string;
 
@@ -382,6 +383,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   }, []);
   const [selectedWorkType, setSelectedWorkType] = useAtom(lastSelectedWorkTypeAtom);
   const [selectedHarness, setSelectedHarness] = useAtom(lastSelectedHarnessAtom);
+  const [selectedOpenspecTools, setSelectedOpenspecTools] = useState<OpenspecTool[]>(['claude', 'codex']);
   const [selectedSpecId, setSelectedSpecId] = useState<string | null>(null);
   const [, setContinueFromSpecExpanded] = useAtom(continueFromSpecExpandedAtom);
   const [, setSpecPickerOpen] = useAtom(specPickerOpenAtom);
@@ -1436,7 +1438,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
           setSelectedChatId(chatId);
         }
 
-        const initResult = await openspecInit.mutateAsync({ chatId });
+        const initResult = await openspecInit.mutateAsync({ chatId, tools: selectedOpenspecTools });
         const existingChangeIds = new Set(openspecChanges.map((change) => change.changeId));
         let changeId = toOpenSpecChangeId(message, selectedWorkType, existingChangeIds);
         for (let attempt = 0; ; attempt += 1) {
@@ -1676,7 +1678,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     createOpenSpecChange,
     openspecInit,
     openspecChanges,
-    setSelectedChatId
+    setSelectedChatId,
+    selectedOpenspecTools
   ]);
 
   const handlePromptComposerKeyDown = useCallback(
@@ -2249,6 +2252,11 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       options={harnessOptions}
                       columns={2}
                     />
+                    {selectedHarness === 'spec-driven' && (
+                      <div className="mt-3">
+                        <OpenSpecToolsToggle value={selectedOpenspecTools} onChange={setSelectedOpenspecTools} />
+                      </div>
+                    )}
                   </WizardSection>
                 )}
 

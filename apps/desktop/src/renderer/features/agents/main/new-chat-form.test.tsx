@@ -6,7 +6,11 @@ const mocks = vi.hoisted(() => ({
   createChatMutateAsync: vi.fn(async () => ({ id: 'new-chat-1' })),
   openspecQuery: vi.fn(),
   projectsListQuery: vi.fn(),
-  openspecInitMutateAsync: vi.fn(async () => ({ targetRoot: '/test/project', createdDirs: ['openspec'] })),
+  openspecInitMutateAsync: vi.fn(async () => ({
+    targetRoot: '/test/project',
+    tools: ['claude', 'codex'],
+    alreadyInitialized: false
+  })),
   createOpenSpecChangeMutateAsync: vi.fn(async () => ({ ok: true })),
   openSubChatForChangeMutateAsync: vi.fn(async () => ({ id: 'sc-1', name: 'Spec', mode: 'execute' }))
 }));
@@ -284,7 +288,7 @@ describe('NewChatForm — with project', () => {
     expect(mocks.createChatMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ initialMessageParts: [], mode: 'execute' })
     );
-    expect(mocks.openspecInitMutateAsync).toHaveBeenCalledWith({ chatId: 'new-chat-1' });
+    expect(mocks.openspecInitMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ chatId: 'new-chat-1' }));
     expect(mocks.createOpenSpecChangeMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ chatId: 'new-chat-1', changeId: 'add-build-the-payment-flow' })
     );

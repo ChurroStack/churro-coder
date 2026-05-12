@@ -118,14 +118,11 @@ export function SubChatContextMenu({
   );
 
   const openspecInitMutation = trpc.chats.openspecInit.useMutation({
-    onSuccess: ({ targetRoot, createdDirs }) => {
-      if (createdDirs.length === 0) {
+    onSuccess: ({ targetRoot, alreadyInitialized }) => {
+      if (alreadyInitialized) {
         toast.info('OpenSpec already initialized', { description: targetRoot });
       } else {
-        toast.success(
-          `OpenSpec initialized (${createdDirs.length} folder${createdDirs.length === 1 ? '' : 's'} created)`,
-          { description: targetRoot }
-        );
+        toast.success('OpenSpec initialized', { description: targetRoot });
       }
     },
     onError: (err) => {

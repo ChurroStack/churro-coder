@@ -2448,62 +2448,140 @@ export const chatsRouter = router({
       };
     }),
 
-  /**
-   * Initialize the OpenSpec folder structure for a workspace.
-   *
-   * Targets the chat's worktree path (so the resulting `openspec/` folder
-   * lives in the isolated worktree and can be committed alongside the
-   * workspace's branch). Falls back to the project root if the chat has no
-   * worktree.
-   *
-   * Mirrors `createDirectoryStructure` in openspec's src/core/init.ts —
-   * creates `openspec/`, `openspec/specs/`, `openspec/changes/`, and
-   * `openspec/changes/archive/`. Idempotent: any subset that already
-   * exists (full or partial) is left intact and only the missing
-   * directories are created. `openspec/config.yaml` is intentionally not
-   * generated; the official CLI itself skips it in non-interactive mode
-   * and the only required field defaults to `spec-driven`.
-   */
-  openspecInit: publicProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input }) => {
+  /** Initialize OpenSpec for a workspace by delegating to the bundled CLI. */
+  openspecInit: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        tools: z.array(z.enum(['claude', 'codex'])).default(['claude', 'codex']),
+        force: z.boolean().default(false)
+      })
+    )
+    .mutation(async ({ input }) => {
+      const db = getDatabase();
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
+      if (!chat) throw new Error('Workspace not found');
+
+      const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
+      if (!project) throw new Error('Project not found for workspace');
+
+      const targetRoot = chat.worktreePath || project.path;
+      try {
+        await fs.access(targetRoot);
+      } catch {
+        throw new Error(`Workspace path does not exist on disk: ${targetRoot}`);
+      }
+
+      const { assertOpenspecBinAvailable } = await import('../../../lib/openspec/openspec-bin-path');
+      assertOpenspecBinAvailable();
+
+      const { detectOpenspecState } = await import('../../../lib/openspec/init-detection');
+      const state = await detectOpenspecState(targetRoot, input.tools);
+      if (state.state === 'ok' && !input.force) {
+        console.log(`[Chats] openspec init skipped (already ok) chat=${input.chatId}`);
+        return { targetRoot, tools: input.tools, alreadyInitialized: true };
+      }
+
+      const { runOpenspecCli } = await import('../../../lib/openspec/run-openspec-cli');
+      const cliArgs = [
+        'init',
+        '--tools',
+        input.tools.join(','),
+        '--profile',
+        'core',
+        '--yes',
+        ...(input.force || state.state === 'partial-legacy' ? ['--force'] : [])
+      ];
+      await runOpenspecCli(cliArgs, targetRoot);
+
+      db.update(chats)
+        .set({ openspecTools: JSON.stringify(input.tools) })
+        .where(eq(chats.id, input.chatId))
+        .run();
+
+      console.log(
+        `[Chats] openspec init done chat=${input.chatId} target=${targetRoot} tools=${input.tools.join(',')}`
+      );
+      return { targetRoot, tools: input.tools, alreadyInitialized: false };
+    }),
+
+  /** Run `openspec update` in the workspace to pull upstream skill/command changes. */
+  openspecUpdate: publicProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input }) => {
     const db = getDatabase();
     const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
-    if (!chat) {
-      throw new Error('Workspace not found');
-    }
+    if (!chat) throw new Error('Workspace not found');
 
     const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
-    if (!project) {
-      throw new Error('Project not found for workspace');
-    }
+    if (!project) throw new Error('Project not found for workspace');
 
     const targetRoot = chat.worktreePath || project.path;
-    try {
-      await fs.access(targetRoot);
-    } catch {
-      throw new Error(`Workspace path does not exist on disk: ${targetRoot}`);
-    }
 
-    const openspecRoot = path.join(targetRoot, 'openspec');
-    // Order matters: outer dirs first so each mkdir creates at most one new
-    // directory and we can rely on its return value (string when newly
-    // created, undefined when it already existed) to count actual creations.
-    const dirs: Array<{ rel: string; abs: string }> = [
-      { rel: 'openspec', abs: openspecRoot },
-      { rel: 'openspec/specs', abs: path.join(openspecRoot, 'specs') },
-      { rel: 'openspec/changes', abs: path.join(openspecRoot, 'changes') },
-      { rel: 'openspec/changes/archive', abs: path.join(openspecRoot, 'changes', 'archive') }
-    ];
+    const { assertOpenspecBinAvailable } = await import('../../../lib/openspec/openspec-bin-path');
+    assertOpenspecBinAvailable();
 
-    const createdDirs: string[] = [];
-    for (const { rel, abs } of dirs) {
-      const created = await fs.mkdir(abs, { recursive: true });
-      if (created !== undefined) {
-        createdDirs.push(rel);
-      }
-    }
+    const { runOpenspecCli } = await import('../../../lib/openspec/run-openspec-cli');
+    await runOpenspecCli(['update'], targetRoot);
 
-    console.log(`[Chats] openspec init chat=${input.chatId} target=${targetRoot} createdDirs=${createdDirs.length}`);
+    console.log(`[Chats] openspec update done chat=${input.chatId} target=${targetRoot}`);
+    return { targetRoot };
+  }),
 
-    return { targetRoot, createdDirs };
-  })
+  /** (Re-)install per-tool skills without touching the spec/change content. */
+  openspecInstallTools: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        tools: z.array(z.enum(['claude', 'codex']))
+      })
+    )
+    .mutation(async ({ input }) => {
+      const db = getDatabase();
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
+      if (!chat) throw new Error('Workspace not found');
+
+      const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
+      if (!project) throw new Error('Project not found for workspace');
+
+      const targetRoot = chat.worktreePath || project.path;
+
+      const { assertOpenspecBinAvailable } = await import('../../../lib/openspec/openspec-bin-path');
+      assertOpenspecBinAvailable();
+
+      const { runOpenspecCli } = await import('../../../lib/openspec/run-openspec-cli');
+      await runOpenspecCli(['init', '--tools', input.tools.join(','), '--profile', 'core', '--yes'], targetRoot);
+
+      db.update(chats)
+        .set({ openspecTools: JSON.stringify(input.tools) })
+        .where(eq(chats.id, input.chatId))
+        .run();
+
+      console.log(`[Chats] openspec install-tools done chat=${input.chatId} tools=${input.tools.join(',')}`);
+      return { targetRoot, tools: input.tools };
+    }),
+
+  /** Query the current OpenSpec state for a workspace. */
+  openspecState: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        tools: z.array(z.enum(['claude', 'codex'])).default(['claude', 'codex'])
+      })
+    )
+    .query(async ({ input }) => {
+      const db = getDatabase();
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
+      if (!chat) throw new Error('Workspace not found');
+
+      const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
+      if (!project) throw new Error('Project not found for workspace');
+
+      const targetRoot = chat.worktreePath || project.path;
+
+      const { detectOpenspecState } = await import('../../../lib/openspec/init-detection');
+      const result = await detectOpenspecState(targetRoot, input.tools);
+
+      const persistedTools = chat.openspecTools ? (JSON.parse(chat.openspecTools) as ('claude' | 'codex')[]) : null;
+
+      return { ...result, targetRoot, persistedTools };
+    })
 });

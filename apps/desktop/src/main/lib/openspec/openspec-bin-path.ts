@@ -2,6 +2,17 @@ import { app } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 
+export class OpenspecBundleMissingError extends Error {
+  constructor(binDir: string) {
+    const isDev = !app.isPackaged;
+    const hint = isDev
+      ? "Run 'bun run openspec:install' from apps/desktop to install the bundled CLI."
+      : 'The openspec bundle is missing from the app package. Please reinstall the app.';
+    super(`OpenSpec CLI not found at ${binDir}. ${hint}`);
+    this.name = 'OpenspecBundleMissingError';
+  }
+}
+
 let cachedBinDir: string | null = null;
 
 /**
@@ -26,6 +37,18 @@ export function getOpenspecBinDir(): string {
 
   cachedBinDir = dir;
   return dir;
+}
+
+/**
+ * Throws OpenspecBundleMissingError when the shim directory or binary is absent.
+ * Call at the top of any procedure that invokes the CLI so the UI gets a typed error.
+ */
+export function assertOpenspecBinAvailable(): void {
+  const binDir = getOpenspecBinDir();
+  const bin = path.join(binDir, 'openspec');
+  if (!fs.existsSync(bin)) {
+    throw new OpenspecBundleMissingError(binDir);
+  }
 }
 
 /**
