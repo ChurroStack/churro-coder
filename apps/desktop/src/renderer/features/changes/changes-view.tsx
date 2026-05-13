@@ -22,6 +22,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { trpc } from '../../lib/trpc';
 import { preferredEditorAtom } from '../../lib/atoms';
+import { getFileManagerUiMeta } from '../../lib/utils/file-manager';
 import { APP_META } from '../../../shared/external-apps';
 import {
   fileViewerOpenAtomFamily,
@@ -102,6 +103,7 @@ const ChangesFileItemWithContext = memo(function ChangesFileItemWithContext({
   onCopySelectedPaths: () => void;
   onCopySelectedRelativePaths: () => void;
 }) {
+  const fileManager = getFileManagerUiMeta();
   const fileName = file.path.split('/').pop() || file.path;
   const dirPath = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
   const isUntracked = file.status === 'untracked' || file.status === 'added';
@@ -182,7 +184,7 @@ const ChangesFileItemWithContext = memo(function ChangesFileItemWithContext({
             <ContextMenuItem onClick={onCopyPath}>Copy Path</ContextMenuItem>
             <ContextMenuItem onClick={onCopyRelativePath}>Copy Relative Path</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem onClick={onRevealInFinder}>Reveal in Finder</ContextMenuItem>
+            <ContextMenuItem onClick={onRevealInFinder}>{fileManager.revealLabel}</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onClick={onOpenInFilePreview}>Open in File Preview</ContextMenuItem>
             <ContextMenuItem onClick={onOpenInEditor}>Open in {editorLabel}</ContextMenuItem>

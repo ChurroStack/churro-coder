@@ -20,6 +20,7 @@ import {
 import { RenameDialog } from '@/components/rename-dialog';
 import { preferredEditorAtom } from '@/lib/atoms';
 import { getAppOption } from '@/components/open-in-button';
+import { getFileManagerUiMeta } from '@/lib/utils/file-manager';
 import { getFileIconByExtension } from '../../agents/mentions/agents-file-mention';
 import { spotlightOpenAtom } from '../../spotlight/atoms';
 import { fileTreeExpandedAtomFamily } from '../atoms';
@@ -181,6 +182,7 @@ const TreeNode = memo(function TreeNode({
   onContextAction: (action: string, node: FileTreeNode) => void;
   treeRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const fileManager = getFileManagerUiMeta();
   const isFolder = node.type === 'folder' && !!node.children;
   const isFocused = focusedPath === node.path;
   const isActive = !isFocused && activePath === node.path;
@@ -269,7 +271,9 @@ const TreeNode = memo(function TreeNode({
           <ContextMenuItem onClick={() => onContextAction('mention', node)}>Add to Chat Context</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onContextAction('open-editor', node)}>Open in {editorLabel}</ContextMenuItem>
-          <ContextMenuItem onClick={() => onContextAction('reveal-finder', node)}>Reveal in Finder</ContextMenuItem>
+          <ContextMenuItem onClick={() => onContextAction('reveal-finder', node)}>
+            {fileManager.revealLabel}
+          </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onContextAction('copy-path', node)}>Copy Path</ContextMenuItem>
           <ContextMenuItem onClick={() => onContextAction('copy-relative', node)}>Copy Relative Path</ContextMenuItem>

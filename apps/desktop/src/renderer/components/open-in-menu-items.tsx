@@ -2,11 +2,11 @@ import type { ExternalApp } from '../../shared/external-apps';
 import { useAtom } from 'jotai';
 import { useCallback } from 'react';
 import { preferredEditorAtom } from '../lib/atoms';
+import { getFileManagerUiMeta } from '../lib/utils/file-manager';
 import { trpc } from '../lib/trpc';
 import { DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from './ui/dropdown-menu';
 
 import cursorIcon from '../assets/app-icons/cursor.svg';
-import finderIcon from '../assets/app-icons/finder.png';
 import zedIcon from '../assets/app-icons/zed.png';
 import sublimeIcon from '../assets/app-icons/sublime.svg';
 import xcodeIcon from '../assets/app-icons/xcode.svg';
@@ -38,7 +38,7 @@ export interface AppOption {
 }
 
 export const APP_OPTIONS: AppOption[] = [
-  { id: 'finder', label: 'Finder', icon: finderIcon },
+  { id: 'finder', label: 'File manager', icon: '' },
   { id: 'cursor', label: 'Cursor', icon: cursorIcon },
   { id: 'zed', label: 'Zed', icon: zedIcon },
   { id: 'sublime', label: 'Sublime Text', icon: sublimeIcon },
@@ -78,6 +78,10 @@ export function getAppOption(id: ExternalApp): AppOption {
 export function OpenInMenuItems({ path, onOpened }: { path: string | undefined; onOpened?: () => void }) {
   const [, setLastUsedApp] = useAtom(preferredEditorAtom);
   const openInAppMutation = trpc.external.openInApp.useMutation();
+  const fileManager = getFileManagerUiMeta();
+  const appOptions = APP_OPTIONS.map((app) =>
+    app.id === 'finder' ? { ...app, label: fileManager.label, icon: fileManager.icon } : app
+  );
 
   const handleOpenIn = useCallback(
     (app: ExternalApp) => {
@@ -91,7 +95,7 @@ export function OpenInMenuItems({ path, onOpened }: { path: string | undefined; 
 
   return (
     <>
-      {APP_OPTIONS.map((app) => (
+      {appOptions.map((app) => (
         <DropdownMenuItem key={app.id} onClick={() => handleOpenIn(app.id)} className="flex items-center gap-2">
           <img src={app.icon} alt="" className="size-4 object-contain" />
           <span>{app.label}</span>

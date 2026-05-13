@@ -62,6 +62,7 @@ import {
 // import { useIsHydrated } from "@/hooks/use-is-hydrated"
 const useIsHydrated = () => true; // Desktop is always hydrated
 import { cn } from '../../../lib/utils';
+import { getFileManagerUiMeta } from '../../../lib/utils/file-manager';
 import { isDesktopApp } from '../../../lib/utils/platform';
 import { api } from '../../../lib/mock-api';
 import { trpcClient } from '../../../lib/trpc';
@@ -516,6 +517,7 @@ const FileDiffCard = memo(function FileDiffCard({
   showViewed = true,
   chatId
 }: FileDiffCardProps) {
+  const fileManager = getFileManagerUiMeta();
   const diffCardRef = useRef<HTMLDivElement>(null);
   const isLargeDiff = file.additions + file.deletions >= LARGE_DIFF_LINE_THRESHOLD;
 
@@ -812,7 +814,7 @@ const FileDiffCard = memo(function FileDiffCard({
             <ContextMenuSeparator />
             <ContextMenuItem onClick={handleRevealInFinder} className="text-xs">
               <FolderIcon className="mr-2 size-3.5" />
-              Reveal in Finder
+              {fileManager.revealLabel}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onClick={handleOpenInFilePreview} className="text-xs">
@@ -860,7 +862,7 @@ const FileDiffCard = memo(function FileDiffCard({
                       onClick={handleRevealInFinder}
                       className="inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
                       <FolderIcon className="size-3.5" />
-                      Finder
+                      {fileManager.label}
                     </button>
                     <button
                       type="button"
