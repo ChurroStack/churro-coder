@@ -108,6 +108,7 @@ For the full annotated tree (renderer features, dock subsystem, agent layers), s
 - The agent mode chooser is a segmented control with a detail panel below it, not a grid of large cards. Keep the selected icon, title, and description in the dedicated panel.
 - For the `Type of work` and `Harness` cards, keep the icon and title on the same top row, with the description underneath.
 - Keep the new-workspace hero compact. If spacing changes are needed, adjust the wrapper's top padding first instead of adding extra margin above the hero or compressing the inner sections unevenly.
+- **`NewProjectDialog` is the single entry point for adding projects.** The old `SelectRepoPage` and "Add repository" / "Add from GitHub" buttons have been removed. Any UI surface that wants to add a project should open `newProjectDialogOpenAtom` (from `src/renderer/features/new-project/atoms.ts`). The dialog handles three flows: Create (GitHub / Azure DevOps / Local, with CLI detection, auth check, scaffolding, and initial commit), Open (wraps `projects.openFolder`), and Clone (GitHub + Azure DevOps URLs, backed by `cloneIntoRepos`).
 
 ## Gotchas
 

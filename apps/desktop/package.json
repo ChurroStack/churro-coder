@@ -204,6 +204,11 @@
         "from": "resources/openspec",
         "to": "openspec",
         "filter": ["**/*"]
+      },
+      {
+        "from": "resources/new-project-templates",
+        "to": "new-project-templates",
+        "filter": ["**/*"]
       }
     ],
     "asar": true,

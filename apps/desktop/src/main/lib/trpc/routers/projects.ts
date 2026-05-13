@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, copyFile, unlink } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { getGitRemoteInfo } from '../../git';
+import { cloneIntoRepos, parseGitHubRef } from '../../git/clone-into-repos';
 import { terminalManager } from '../../terminal/manager';
 import { trackProjectOpened } from '../../analytics';
 import { getLaunchDirectory } from '../../cli';
@@ -256,91 +257,24 @@ export const projectsRouter = router({
   cloneFromGitHub: publicProcedure.input(z.object({ repoUrl: z.string() })).mutation(async ({ input }) => {
     const { repoUrl } = input;
 
-    // Parse the URL to extract owner/repo
-    let owner: string | null = null;
-    let repo: string | null = null;
-
-    // Match HTTPS format: https://github.com/owner/repo
-    const httpsMatch = repoUrl.match(/https?:\/\/github\.com\/([^/]+)\/([^/]+)/);
-    if (httpsMatch) {
-      owner = httpsMatch[1] || null;
-      repo = httpsMatch[2]?.replace(/\.git$/, '') || null;
-    }
-
-    // Match SSH format: git@github.com:owner/repo
-    const sshMatch = repoUrl.match(/git@github\.com:([^/]+)\/(.+)/);
-    if (sshMatch) {
-      owner = sshMatch[1] || null;
-      repo = sshMatch[2]?.replace(/\.git$/, '') || null;
-    }
-
-    // Match short format: owner/repo
-    const shortMatch = repoUrl.match(/^([^/]+)\/([^/]+)$/);
-    if (shortMatch) {
-      owner = shortMatch[1] || null;
-      repo = shortMatch[2]?.replace(/\.git$/, '') || null;
-    }
-
-    if (!owner || !repo) {
+    const parsed = parseGitHubRef(repoUrl);
+    if (!parsed) {
       throw new Error('Invalid GitHub URL or repo format');
     }
+    const { owner, repo } = parsed;
 
-    // Clone to ~/.churrostack/repos/{owner}/{repo}; if a legacy clone exists
-    // at ~/.21st/repos/{owner}/{repo}, reuse it so users don't get dupes.
-    const homePath = app.getPath('home');
-    const reposDir = join(homePath, '.churrostack', 'repos', owner);
-    const legacyClonePath = join(homePath, '.21st', 'repos', owner, repo);
-    const newClonePath = join(reposDir, repo);
-    const clonePath = !existsSync(newClonePath) && existsSync(legacyClonePath) ? legacyClonePath : newClonePath;
+    const cloneUrl = `https://github.com/${owner}/${repo}.git`;
+    const { clonePath } = await cloneIntoRepos({ owner, repo, cloneUrl, providerHint: 'github' });
 
-    // Check if already cloned
-    if (existsSync(clonePath)) {
-      // Project might already exist in DB
-      const db = getDatabase();
-      const existing = db.select().from(projects).where(eq(projects.path, clonePath)).get();
-
-      if (existing) {
-        trackProjectOpened({
-          id: existing.id,
-          hasGitRemote: !!existing.gitRemoteUrl
-        });
-        return existing;
-      }
-
-      // Create project for existing clone
-      const gitInfo = await getGitRemoteInfo(clonePath);
-      const newProject = db
-        .insert(projects)
-        .values({
-          name: repo,
-          path: clonePath,
-          gitRemoteUrl: gitInfo.remoteUrl,
-          gitProvider: gitInfo.provider,
-          gitOwner: gitInfo.owner,
-          gitRepo: gitInfo.repo,
-          gitProject: gitInfo.project
-        })
-        .returning()
-        .get();
-
-      trackProjectOpened({
-        id: newProject!.id,
-        hasGitRemote: !!gitInfo.remoteUrl
-      });
-      return newProject;
+    // Check DB for existing project at this path
+    const db = getDatabase();
+    const existing = db.select().from(projects).where(eq(projects.path, clonePath)).get();
+    if (existing) {
+      trackProjectOpened({ id: existing.id, hasGitRemote: !!existing.gitRemoteUrl });
+      return existing;
     }
 
-    // Create repos directory
-    await mkdir(reposDir, { recursive: true });
-
-    // Clone the repo
-    const cloneUrl = `https://github.com/${owner}/${repo}.git`;
-    await execAsync(`git clone "${cloneUrl}" "${clonePath}"`);
-
-    // Get git info and create project
-    const db = getDatabase();
     const gitInfo = await getGitRemoteInfo(clonePath);
-
     const newProject = db
       .insert(projects)
       .values({
@@ -355,11 +289,7 @@ export const projectsRouter = router({
       .returning()
       .get();
 
-    trackProjectOpened({
-      id: newProject!.id,
-      hasGitRemote: !!gitInfo.remoteUrl
-    });
-
+    trackProjectOpened({ id: newProject!.id, hasGitRemote: !!gitInfo.remoteUrl });
     return newProject;
   }),
 

@@ -25,6 +25,7 @@ import { analyticsRouter } from './analytics';
 import { promptsRouter } from './prompts';
 import { openspecRouter } from './openspec';
 import { messagesRouter } from './messages';
+import { newProjectRouter } from './new-project';
 import { createGitRouter } from '../../git';
 import { BrowserWindow } from 'electron';
 
@@ -60,6 +61,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     prompts: promptsRouter,
     openspec: openspecRouter,
     messages: messagesRouter,
+    newProject: newProjectRouter,
     // Git operations - named "changes" to match Superset API
     changes: createGitRouter()
   });

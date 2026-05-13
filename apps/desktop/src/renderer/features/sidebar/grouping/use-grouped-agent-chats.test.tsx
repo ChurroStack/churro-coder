@@ -5,8 +5,22 @@ import { useGroupedAgentChats } from './use-grouped-agent-chats';
 
 describe('useGroupedAgentChats', () => {
   const chats = [
-    { id: 'c1', name: 'Alpha one', updatedAt: new Date('2026-05-07T10:00:00Z'), projectId: 'p1', isRemote: false, branch: null },
-    { id: 'c2', name: 'Beta two', updatedAt: new Date('2026-05-07T11:00:00Z'), projectId: 'p2', isRemote: false, branch: null }
+    {
+      id: 'c1',
+      name: 'Alpha one',
+      updatedAt: new Date('2026-05-07T10:00:00Z'),
+      projectId: 'p1',
+      isRemote: false,
+      branch: null
+    },
+    {
+      id: 'c2',
+      name: 'Beta two',
+      updatedAt: new Date('2026-05-07T11:00:00Z'),
+      projectId: 'p2',
+      isRemote: false,
+      branch: null
+    }
   ];
   const projectsMap = new Map([
     ['p1', { id: 'p1', name: 'Alpha', path: '/alpha' }],

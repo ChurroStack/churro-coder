@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useListKeyboardNav } from './use-list-keyboard-nav';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { trpc } from '../../../lib/trpc';
+import { newProjectDialogOpenAtom } from '../../../features/new-project/atoms';
 import { Button, buttonVariants } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Plus, Trash2, FolderOpen } from 'lucide-react';
@@ -703,6 +704,7 @@ export function AgentsProjectsTab() {
   }, []);
 
   const { data: projects, isLoading } = trpc.projects.list.useQuery();
+  const setNewProjectOpen = useSetAtom(newProjectDialogOpenAtom);
 
   const openFolderMutation = trpc.projects.openFolder.useMutation({
     onSuccess: (project) => {
@@ -775,9 +777,9 @@ export function AgentsProjectsTab() {
               className="h-7 w-full rounded-lg text-sm bg-muted border border-input px-3 placeholder:text-muted-foreground/40 outline-none"
             />
             <button
-              onClick={() => openFolderMutation.mutate()}
+              onClick={() => setNewProjectOpen(true)}
               className="h-7 w-7 shrink-0 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors cursor-pointer"
-              title="Add project folder">
+              title="Add project">
               <Plus className="h-4 w-4" />
             </button>
           </div>
@@ -797,7 +799,7 @@ export function AgentsProjectsTab() {
                 <FolderFilledIcon className="h-8 w-8 text-border mb-3" />
                 <p className="text-sm text-muted-foreground mb-1">No projects</p>
                 <button
-                  onClick={() => openFolderMutation.mutate()}
+                  onClick={() => setNewProjectOpen(true)}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                   Add your first project
                 </button>

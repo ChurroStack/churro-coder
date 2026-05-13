@@ -14,9 +14,14 @@ import {
   AnthropicOnboardingPage,
   ApiKeyOnboardingPage,
   BillingMethodPage,
-  CodexOnboardingPage,
-  SelectRepoPage
+  CodexOnboardingPage
 } from './features/onboarding';
+import { EmptyStateShell } from './features/new-project/empty-state-shell';
+import { NewProjectDialog } from './features/new-project/new-project-dialog';
+
+function NewProjectDialogGlobal() {
+  return <NewProjectDialog />;
+}
 import { identify, initAnalytics, shutdown, useSentryWorkspaceTags } from './lib/analytics';
 import {
   anthropicOnboardingCompletedAtom,
@@ -328,7 +333,7 @@ export function AppContent() {
   }
 
   if (projectSelection.kind === 'show-empty') {
-    return <SelectRepoPage />;
+    return <EmptyStateShell />;
   }
 
   if (projectSelection.kind !== 'keep') {
@@ -402,6 +407,7 @@ export function App() {
                     <AppContent />
                   </div>
                   <FeedbackDialog />
+                  <NewProjectDialogGlobal />
                   <ThemedToaster />
                 </TRPCProvider>
               </TooltipProvider>
