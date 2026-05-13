@@ -44,7 +44,11 @@ import type { ModeSwitchDeps } from '../services/mode-switch-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
 
 export interface ModeSwitchMutationLike {
-  mutateAsync: (input: { subChatId: string; mode: 'execute' | 'plan' | 'explore'; exitPlan?: boolean }) => Promise<unknown>;
+  mutateAsync: (input: {
+    subChatId: string;
+    mode: 'execute' | 'plan' | 'explore';
+    exitPlan?: boolean;
+  }) => Promise<unknown>;
 }
 
 /**
@@ -98,7 +102,9 @@ export function useModeSwitchDeps(
         const existing = agentChatStore.get(id);
         if (existing) {
           return (
-            (existing as unknown as { transport?: unknown })?.transport instanceof CodexChatTransport ? 'codex' : 'claude-code'
+            (existing as unknown as { transport?: unknown })?.transport instanceof CodexChatTransport
+              ? 'codex'
+              : 'claude-code'
           ) as ProviderId;
         }
         return (appStore.get(subChatProviderOverridesAtom)[id] ?? 'claude-code') as ProviderId;

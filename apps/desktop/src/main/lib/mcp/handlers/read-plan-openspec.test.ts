@@ -70,7 +70,8 @@ vi.mock('node:child_process', async () => {
   ) {
     cb(null, cliOutput, '');
   }
-  (execFile as unknown as Record<symbol, unknown>)[promisify.custom] = () => Promise.resolve({ stdout: cliOutput, stderr: '' });
+  (execFile as unknown as Record<symbol, unknown>)[promisify.custom] = () =>
+    Promise.resolve({ stdout: cliOutput, stderr: '' });
   return { execFile };
 });
 

@@ -11,11 +11,46 @@ describe('groupChatsByProject', () => {
 
     const groups = groupChatsByProject(
       [
-        { id: 'c1', name: 'one', updatedAt: new Date('2026-05-07T10:00:00Z'), projectId: 'p1', isRemote: false, branch: null },
-        { id: 'c2', name: 'two', updatedAt: new Date('2026-05-07T12:00:00Z'), projectId: 'p1', isRemote: false, branch: null },
-        { id: 'c3', name: 'three', updatedAt: new Date('2026-05-07T11:00:00Z'), projectId: 'p2', isRemote: false, branch: null },
-        { id: 'c4', name: 'four', updatedAt: new Date('2026-05-07T13:00:00Z'), projectId: 'missing', isRemote: false, branch: null },
-        { id: 'remote_1', name: 'remote', updatedAt: new Date('2026-05-07T14:00:00Z'), projectId: null, isRemote: true, branch: null }
+        {
+          id: 'c1',
+          name: 'one',
+          updatedAt: new Date('2026-05-07T10:00:00Z'),
+          projectId: 'p1',
+          isRemote: false,
+          branch: null
+        },
+        {
+          id: 'c2',
+          name: 'two',
+          updatedAt: new Date('2026-05-07T12:00:00Z'),
+          projectId: 'p1',
+          isRemote: false,
+          branch: null
+        },
+        {
+          id: 'c3',
+          name: 'three',
+          updatedAt: new Date('2026-05-07T11:00:00Z'),
+          projectId: 'p2',
+          isRemote: false,
+          branch: null
+        },
+        {
+          id: 'c4',
+          name: 'four',
+          updatedAt: new Date('2026-05-07T13:00:00Z'),
+          projectId: 'missing',
+          isRemote: false,
+          branch: null
+        },
+        {
+          id: 'remote_1',
+          name: 'remote',
+          updatedAt: new Date('2026-05-07T14:00:00Z'),
+          projectId: null,
+          isRemote: true,
+          branch: null
+        }
       ],
       projectsMap,
       { excludePinnedChatIds: new Set(['c3']) }
