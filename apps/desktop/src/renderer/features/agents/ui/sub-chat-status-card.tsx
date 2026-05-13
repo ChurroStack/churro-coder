@@ -49,6 +49,12 @@ interface SubChatStatusCardProps {
   isNextActionPending?: boolean;
   /** Dispatcher for the primary action button */
   onWorkflowAction?: (kind: WorkflowActionKind) => void;
+  /** Whether this sub-chat belongs to an OpenSpec change — gates the Apply toggle */
+  isOpenSpecChat?: boolean;
+  /** Whether Apply mode is currently ON for this sub-chat */
+  applyMode?: boolean;
+  /** Callback to toggle Apply mode */
+  onApplyModeToggle?: () => void;
 }
 
 const ACTION_BUTTON_LABELS: Record<WorkflowActionKind, string> = {
@@ -72,7 +78,10 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
   hasQueueCardAbove = false,
   workflow,
   isNextActionPending = false,
-  onWorkflowAction
+  onWorkflowAction,
+  isOpenSpecChat = false,
+  applyMode = false,
+  onApplyModeToggle
 }: SubChatStatusCardProps) {
   const isBusy = isStreaming || isCompacting;
   const [isExpanded, setIsExpanded] = useState(false);
@@ -144,9 +153,9 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
 
   const nextStep = workflow?.next ?? null;
 
-  // Don't show if there's nothing to do — no streaming, no changed files, and
-  // the workflow has no actionable next step.
-  if (!isBusy && uncommittedFiles.length === 0 && !nextStep) {
+  // Don't show if there's nothing to do — no streaming, no changed files,
+  // no actionable next step, and no Apply toggle to expose.
+  if (!isBusy && uncommittedFiles.length === 0 && !nextStep && !isOpenSpecChat) {
     return null;
   }
 
@@ -248,6 +257,23 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
               className="h-6 px-2 text-xs font-normal rounded-md transition-transform duration-150 active:scale-[0.97]">
               Stop
               <span className="text-muted-foreground/60 ml-1">⌃C</span>
+            </Button>
+          )}
+
+          {/* Apply mode toggle — only in OpenSpec sub-chats, hidden while busy */}
+          {!isBusy && isOpenSpecChat && (
+            <Button
+              variant={applyMode ? 'default' : 'outline'}
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onApplyModeToggle?.();
+              }}
+              className={cn(
+                'h-6 px-2 text-xs font-medium rounded-md transition-all duration-150 active:scale-[0.97]',
+                applyMode && 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500'
+              )}>
+              Apply
             </Button>
           )}
 

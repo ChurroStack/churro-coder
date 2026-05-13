@@ -53,7 +53,12 @@ import { DiffFullPageView } from '../../changes/components/diff-full-page-view';
 import { usePushAction } from '../../changes/hooks/use-push-action';
 import { detailsSidebarOpenAtom } from '../../details-sidebar/atoms';
 import { FileViewerSidebar } from '../../file-viewer';
-import { openSpecStopHandlerAtomFamily, pendingOpenSpecMessageAtom } from '../../openspec/atoms';
+import {
+  openSpecApplyModeAtomFamily,
+  openSpecSidebarContextAtomFamily,
+  openSpecStopHandlerAtomFamily,
+  pendingOpenSpecMessageAtom
+} from '../../openspec/atoms';
 import { terminalBottomHeightAtom, terminalDisplayModeAtom, terminalSidebarOpenAtomFamily } from '../../terminal/atoms';
 import { TerminalBottomPanelContent, TerminalSidebar } from '../../terminal/terminal-sidebar';
 import { getTerminalScopeKey } from '../../terminal/utils';
@@ -1135,6 +1140,14 @@ export const ChatViewInner = memo(function ChatViewInner({
 
   const openSpecStopHandlerAtom = useMemo(() => openSpecStopHandlerAtomFamily(subChatId), [subChatId]);
   const setOpenSpecStopHandler = useSetAtom(openSpecStopHandlerAtom);
+
+  const openSpecSidebarContextAtom = useMemo(() => openSpecSidebarContextAtomFamily(subChatId), [subChatId]);
+  const openSpecContext = useAtomValue(openSpecSidebarContextAtom);
+  const isOpenSpecChat = openSpecContext !== null;
+
+  const openSpecApplyModeAtom = useMemo(() => openSpecApplyModeAtomFamily(subChatId), [subChatId]);
+  const [applyMode, setApplyMode] = useAtom(openSpecApplyModeAtom);
+  const handleApplyModeToggle = useCallback(() => setApplyMode((v) => !v), [setApplyMode]);
   useEffect(() => {
     setOpenSpecStopHandler(() => handleStop);
     return () => setOpenSpecStopHandler(null);
@@ -3196,7 +3209,8 @@ export const ChatViewInner = memo(function ChatViewInner({
 
   // Calculate top offset for search bar based on sub-chat selector
   const searchBarTopOffset = isSubChatsSidebarOpen ? '52px' : undefined;
-  const shouldShowStatusCard = isStreaming || isCompacting || changedFilesForSubChat.length > 0 || !!workflow?.next;
+  const shouldShowStatusCard =
+    isStreaming || isCompacting || changedFilesForSubChat.length > 0 || !!workflow?.next || isOpenSpecChat;
   const shouldShowStackedCards = !displayQuestions && (queue.length > 0 || shouldShowStatusCard);
   const handleInputProviderChange = useCallback(
     (nextProvider: 'claude-code' | 'codex') => {
@@ -3419,6 +3433,9 @@ export const ChatViewInner = memo(function ChatViewInner({
                   workflow={workflow}
                   isNextActionPending={isNextActionPending}
                   onWorkflowAction={handleNotchWorkflowAction}
+                  isOpenSpecChat={isOpenSpecChat}
+                  applyMode={applyMode}
+                  onApplyModeToggle={handleApplyModeToggle}
                 />
               )}
             </div>

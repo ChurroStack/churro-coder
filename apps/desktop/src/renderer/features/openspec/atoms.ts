@@ -78,3 +78,7 @@ export const openSpecVisitedTasksAtomFamily = atomFamily((_changeId: string) => 
 /** When true, the next outgoing message for this sub-chat skips step-prefix injection.
  *  Notch actions (mergeBase, createPr) set this so their workflow prompts don't pick up [step:proposal] etc. */
 export const openSpecSkipNextStepPrefixAtomFamily = atomFamily((_subChatId: string) => atom<boolean>(false));
+
+/** When true, every outgoing message for this sub-chat is auto-prefixed with `/opsx:apply `.
+ *  Lets users stay in "fix issues" mode without retyping /opsx:apply each turn. Resets to false on app reload. */
+export const openSpecApplyModeAtomFamily = atomFamily((_subChatId: string) => atom<boolean>(false));

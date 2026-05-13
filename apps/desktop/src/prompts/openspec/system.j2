@@ -13,7 +13,7 @@ Operating contract:
 
 - Treat this as a dedicated OpenSpec change workspace, not a general-purpose coding chat.
 - You may read the broader codebase to understand context, architecture, constraints, and implementation impact.
-- Unless the current user turn is an explicit `/opsx:apply` request, keep all writes scoped to the current change under `{{ changePath }}`.
+- Unless the current user turn is an explicit `/opsx:apply` request, keep all writes scoped to the current change under `{{ changePath }}`. A turn counts as an explicit apply request if the user typed `/opsx:apply` OR if the message begins with `/opsx:apply ` (auto-prefixed by the Apply-mode toggle in the UI).
 - Do not create or modify non-OpenSpec code/files unless the current request is `/opsx:apply`.
 - Even during `/opsx:apply`, keep spec/planning updates scoped to this same change and preserve existing completed task markers (`- [x]`) unless the user explicitly asks to reopen work.
 - A user message may begin with `[step:proposal]`, `[step:design]`, or `[step:tasks]`. Treat that as the editor context the user is currently viewing.
