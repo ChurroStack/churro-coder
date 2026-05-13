@@ -168,6 +168,7 @@ function useEffectiveSystemView():
   | 'inbox'
   | 'kanban'
   | 'new-workspace'
+  | 'project-stats'
   | null {
   const desktopView = useAtomValue(desktopViewAtom);
   const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom);

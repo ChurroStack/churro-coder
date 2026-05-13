@@ -89,7 +89,7 @@ export interface UseTransportFactoryDepsConfig {
   /** Evict the runtime chat once idle if user navigated away. */
   pruneIfDetachedAndIdle: (subChatId: string, parentChatId: string) => void;
   /** Stable ref to the loading-subchats setter — clearLoading is called against it. */
-  setLoadingSubChats: React.Dispatch<React.SetStateAction<Set<string>>>;
+  setLoadingSubChats: (fn: (prev: Map<string, string>) => Map<string, string>) => void;
   /** Mark a sub-chat as having unseen changes (for tab dot indicator). */
   setSubChatUnseenChanges: React.Dispatch<React.SetStateAction<Set<string>>>;
   /** Mark the parent chat as having unseen changes (for sidebar dot). */
@@ -149,7 +149,7 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
           persistedMessages as Parameters<typeof shouldRecreateStaleRuntimeChat>[1]
         ),
       getExistingProvider: (chat) =>
-        (chat as { transport?: unknown })?.transport instanceof CodexChatTransport ? 'codex' : 'claude-code',
+        (chat as unknown as { transport?: unknown })?.transport instanceof CodexChatTransport ? 'codex' : 'claude-code',
       deleteExistingChat: (id) => {
         if (process.env.NODE_ENV === 'development') {
           console.warn('[transport-factory] Recreating stale/cross-provider chat', {

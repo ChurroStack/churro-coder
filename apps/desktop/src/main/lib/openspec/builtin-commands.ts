@@ -5,6 +5,7 @@ export interface OpenSpecBuiltinCommand {
   description: string;
   argumentHint?: string;
   source: 'builtin';
+  pluginName?: string;
   path: string;
   content: string;
 }

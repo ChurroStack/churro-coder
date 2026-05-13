@@ -232,8 +232,13 @@ export const api = {
           };
         }, [sourceData]);
 
+        // Cast to preserve the DB field types (name, worktreePath, branch, etc.)
+        // while adding the desktop-specific overrides (sandbox_id: null, meta: null).
+        type AgentChatTransformed =
+          | (NonNullable<typeof result.data> & { sandbox_id: string | null; meta: null })
+          | null;
         return {
-          data: transformedData,
+          data: transformedData as AgentChatTransformed,
           isLoading: !sourceData && (result.isLoading || snapshotLoading)
         };
       }

@@ -156,7 +156,7 @@ describe('L4 form-binding — toggle plan → agent applies agent-mode default m
 
   test('PR #38: agent default = haiku propagates correctly when user reconfigured', async () => {
     appStore.set(defaultExecuteModeModelAtom, 'haiku');
-    appStore.set(defaultExecuteModeThinkingAtom, 'none');
+    appStore.set(defaultExecuteModeThinkingAtom, 'off');
 
     const subChatId = newSubChatId();
     modeMap.set(subChatId, 'plan');
@@ -166,7 +166,7 @@ describe('L4 form-binding — toggle plan → agent applies agent-mode default m
     await toggleMode(subChatId, 'execute', deps);
 
     expect(appStore.get(subChatModelIdAtomFamily(subChatId))).toBe('haiku');
-    expect(appStore.get(subChatClaudeThinkingAtomFamily(subChatId))).toBe('none');
+    expect(appStore.get(subChatClaudeThinkingAtomFamily(subChatId))).toBe('off');
   });
 });
 
@@ -213,7 +213,7 @@ describe('L4 form-binding — sync ordering (PR #36)', () => {
     // setMode + applyDefaultModel ran before persistMode.
     expect(orchestration.applyOrder.slice(0, 2)).toEqual(['setMode', 'applyDefaultModel']);
 
-    resolver?.();
+    (resolver as (() => void) | null)?.();
     await promise;
   });
 });

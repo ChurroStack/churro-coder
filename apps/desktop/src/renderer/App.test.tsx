@@ -103,7 +103,7 @@ function mountAppContent(store: TestStore) {
 afterEach(() => {
   cleanup();
   localStorage.clear();
-  delete (window as typeof window & { desktopApi?: unknown }).desktopApi;
+  delete (window as { desktopApi?: unknown }).desktopApi;
 });
 
 describe('AppContent — project-page decision', () => {

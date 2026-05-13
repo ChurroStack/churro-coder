@@ -15,11 +15,11 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "paths": {
       "@/*": ["./src/renderer/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "test-utils/**/*"],
   "exclude": ["node_modules", "dist", "release"]
 }

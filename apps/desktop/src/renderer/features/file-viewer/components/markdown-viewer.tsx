@@ -147,16 +147,9 @@ export function MarkdownViewer({
 
   useEffect(() => {
     if (!dockApi) return;
-    if (isEditMode) {
-      dockApi.setClosable(false);
-      dockApi.setTitle(`• ${fileName}`);
-    } else {
-      dockApi.setClosable(true);
-      dockApi.setTitle(fileName);
-    }
+    dockApi.setTitle(isEditMode ? `• ${fileName}` : fileName);
 
     return () => {
-      dockApi.setClosable(true);
       dockApi.setTitle(fileName);
     };
   }, [dockApi, fileName, isEditMode]);

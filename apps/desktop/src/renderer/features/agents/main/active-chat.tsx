@@ -522,7 +522,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   workspaceName,
   workspaceBranch,
   workspaceRepoName,
-  persistedMessages = EMPTY_PERSISTED_MESSAGES
+  persistedMessages = []
 }: {
   chat: Chat<any>;
   subChatId: string;

@@ -53,7 +53,8 @@ vi.mock('../../../lib/trpc', () => {
             mutateAsync: mocks.openspecInitMutateAsync,
             isPending: false
           }))
-        }
+        },
+        openspecStateByProject: { useQuery: q({ initialized: true, missingTools: [] }) }
       },
       openspec: {
         listChanges: { useQuery: mocks.openspecQuery },
@@ -171,10 +172,11 @@ describe('NewChatForm — no project', () => {
 
 describe('NewChatForm — with project', () => {
   it('renders hero and wizard sections when a project is selected', () => {
-    const { getByText } = renderWithProject();
+    const { getByText, queryByText } = renderWithProject();
     expect(getByText('New workspace')).toBeTruthy();
     expect(getByText('Agent mode')).toBeTruthy();
-    expect(getByText('Type of work')).toBeTruthy();
+    // "Type of work" section is temporarily hidden in the component
+    expect(queryByText('Type of work')).toBeNull();
   });
 
   it('send button is enabled when no spec is selected (open path)', () => {

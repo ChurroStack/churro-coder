@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { readCurrentReview } from '../../reviews/review-store';
 
 export function registerReadReviewTool(server: McpServer, opts: { boundSubChatId?: string }): void {
-  const inputSchema = opts.boundSubChatId
+  const inputSchema: Record<string, z.ZodTypeAny> = opts.boundSubChatId
     ? {
         revision: z
           .literal('current')
@@ -38,7 +38,8 @@ export function registerReadReviewTool(server: McpServer, opts: { boundSubChatId
           : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").'),
       inputSchema
     },
-    async (input: { subChatId?: string; revision?: 'current' }) => {
+    async (rawInput: Record<string, unknown>) => {
+      const input = rawInput as { subChatId?: string; revision?: 'current' };
       const id = opts.boundSubChatId ?? input.subChatId;
       const inputKeys = Object.keys(input).join(',') || 'none';
       console.log(

@@ -51,7 +51,7 @@ function createCodexTransport(): CodexChatTransport {
     cleanup: vi.fn()
   };
   Object.setPrototypeOf(transport, CodexChatTransport.prototype);
-  return transport as CodexChatTransport;
+  return transport as unknown as CodexChatTransport;
 }
 
 beforeEach(() => {

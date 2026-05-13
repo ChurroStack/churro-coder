@@ -44,7 +44,7 @@ import type { ModeSwitchDeps } from '../services/mode-switch-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
 
 export interface ModeSwitchMutationLike {
-  mutateAsync: (input: { subChatId: string; mode: 'execute' | 'plan'; exitPlan?: boolean }) => Promise<unknown>;
+  mutateAsync: (input: { subChatId: string; mode: 'execute' | 'plan' | 'explore'; exitPlan?: boolean }) => Promise<unknown>;
 }
 
 /**
@@ -81,6 +81,8 @@ export function useModeSwitchDeps(
       },
       persistMode: async ({ subChatId: id, mode }) => {
         if (id.startsWith('temp-')) return;
+        // 'review' is a transient FSM state, not persisted to DB.
+        if (mode === 'review') return;
         await updateSubChatModeMutation.mutateAsync({
           subChatId: id,
           mode,
@@ -96,7 +98,7 @@ export function useModeSwitchDeps(
         const existing = agentChatStore.get(id);
         if (existing) {
           return (
-            (existing as { transport?: unknown })?.transport instanceof CodexChatTransport ? 'codex' : 'claude-code'
+            (existing as unknown as { transport?: unknown })?.transport instanceof CodexChatTransport ? 'codex' : 'claude-code'
           ) as ProviderId;
         }
         return (appStore.get(subChatProviderOverridesAtom)[id] ?? 'claude-code') as ProviderId;

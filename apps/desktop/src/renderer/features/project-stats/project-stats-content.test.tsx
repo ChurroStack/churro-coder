@@ -25,8 +25,8 @@ const mockUseMutation = vi.fn(() => ({ mutate: vi.fn(), isPending: false }));
 vi.mock('../../lib/trpc', () => ({
   trpc: {
     projectStats: {
-      getStats: { useQuery: (...args: unknown[]) => mockUseQuery(...args) },
-      refresh: { useMutation: (...args: unknown[]) => mockUseMutation(...args) }
+      getStats: { useQuery: (...args: unknown[]) => (mockUseQuery as (...a: unknown[]) => unknown)(...args) },
+      refresh: { useMutation: (...args: unknown[]) => (mockUseMutation as (...a: unknown[]) => unknown)(...args) }
     }
   }
 }));

@@ -96,7 +96,8 @@ vi.mock('../../../lib/trpc', () => {
             })),
             isPending: false
           }))
-        }
+        },
+        openspecStateByProject: { useQuery: q({ initialized: true, missingTools: [] }) }
       },
       openspec: {
         listChanges: { useQuery: vi.fn(() => ({ data: [], isLoading: false, isError: false })) },

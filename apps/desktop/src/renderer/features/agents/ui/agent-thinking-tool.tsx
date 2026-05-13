@@ -18,6 +18,8 @@ interface ThinkingToolPart {
     completed?: boolean;
   };
   startedAt?: number;
+  callProviderMetadata?: { custom?: { startedAt?: number } };
+  providerMetadata?: { custom?: { startedAt?: number } };
 }
 
 interface AgentThinkingToolProps {

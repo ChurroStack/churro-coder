@@ -46,6 +46,34 @@ vi.mock('../../db', () => ({
   projects: { id: 'projects.id', path: 'projects.path' }
 }));
 
+// Mock the openspec CLI binary — the binary requires a full Electron install which
+// isn't available in the test environment. The mock returns fixed JSON; the handler
+// then reads actual files from the temp directory (access/realpath checks still run).
+vi.mock('node:child_process', async () => {
+  const { promisify } = await import('node:util');
+  const cliOutput = JSON.stringify({
+    schemaName: 'spec-driven',
+    state: 'ready',
+    progress: { total: 1, complete: 0, remaining: 1 },
+    contextFiles: {
+      proposal: ['openspec/changes/add-test/proposal.md'],
+      design: ['openspec/changes/add-test/design.md'],
+      specs: ['openspec/changes/add-test/specs/widget/spec.md'],
+      tasks: ['openspec/changes/add-test/tasks.md']
+    }
+  });
+  function execFile(
+    _bin: string,
+    _args: string[],
+    _opts: unknown,
+    cb: (err: Error | null, stdout: string, stderr: string) => void
+  ) {
+    cb(null, cliOutput, '');
+  }
+  (execFile as unknown as Record<symbol, unknown>)[promisify.custom] = () => Promise.resolve({ stdout: cliOutput, stderr: '' });
+  return { execFile };
+});
+
 import { registerReadPlanTool } from './read-plan';
 
 async function makeClientServer(boundSubChatId?: string) {

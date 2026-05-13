@@ -75,7 +75,7 @@ beforeEach(() => {
 
 describe('resolveSandboxPolicy — per-workspace session dirs', () => {
   it('includes a subChat session dir in writableRoots', async () => {
-    vi.mocked(getDatabase).mockReturnValue(makeDb({ 'chat-A': [{ id: 'sub-A1' }] }) as ReturnType<typeof getDatabase>);
+    vi.mocked(getDatabase).mockReturnValue(makeDb({ 'chat-A': [{ id: 'sub-A1' }] }) as unknown as ReturnType<typeof getDatabase>);
 
     const policy = await resolveSandboxPolicy('chat-A', os.tmpdir(), os.tmpdir());
 
@@ -84,7 +84,7 @@ describe('resolveSandboxPolicy — per-workspace session dirs', () => {
 
   it('includes all subChat session dirs for a workspace', async () => {
     vi.mocked(getDatabase).mockReturnValue(
-      makeDb({ 'chat-A': [{ id: 'sub-A1' }, { id: 'sub-A2' }] }) as ReturnType<typeof getDatabase>
+      makeDb({ 'chat-A': [{ id: 'sub-A1' }, { id: 'sub-A2' }] }) as unknown as ReturnType<typeof getDatabase>
     );
 
     const policy = await resolveSandboxPolicy('chat-A', os.tmpdir(), os.tmpdir());
@@ -94,7 +94,7 @@ describe('resolveSandboxPolicy — per-workspace session dirs', () => {
   });
 
   it('includes the chatId session dir (Ollama path)', async () => {
-    vi.mocked(getDatabase).mockReturnValue(makeDb({}) as ReturnType<typeof getDatabase>);
+    vi.mocked(getDatabase).mockReturnValue(makeDb({}) as unknown as ReturnType<typeof getDatabase>);
 
     const policy = await resolveSandboxPolicy('chat-ollama', os.tmpdir(), os.tmpdir());
 
@@ -109,7 +109,7 @@ describe('resolveSandboxPolicy — per-workspace session dirs', () => {
       makeDb({
         'chat-A': [{ id: 'sub-A1' }],
         'chat-B': [{ id: 'sub-B1' }]
-      }) as ReturnType<typeof getDatabase>
+      }) as unknown as ReturnType<typeof getDatabase>
     );
 
     const policy = await resolveSandboxPolicy('chat-A', os.tmpdir(), os.tmpdir());
@@ -120,7 +120,7 @@ describe('resolveSandboxPolicy — per-workspace session dirs', () => {
   });
 
   it('writableRootsExpanded contains the resolved form of session dirs', async () => {
-    vi.mocked(getDatabase).mockReturnValue(makeDb({ 'chat-X': [{ id: 'sub-X' }] }) as ReturnType<typeof getDatabase>);
+    vi.mocked(getDatabase).mockReturnValue(makeDb({ 'chat-X': [{ id: 'sub-X' }] }) as unknown as ReturnType<typeof getDatabase>);
 
     const policy = await resolveSandboxPolicy('chat-X', os.tmpdir(), os.tmpdir());
     const sessionDir = path.join(SESSIONS_BASE, 'sub-X');

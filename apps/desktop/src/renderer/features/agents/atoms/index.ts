@@ -242,7 +242,7 @@ export type SelectedProject = {
   name: string;
   path: string;
   gitRemoteUrl?: string | null;
-  gitProvider?: 'github' | 'gitlab' | 'bitbucket' | null;
+  gitProvider?: string | null;
   gitOwner?: string | null;
   gitRepo?: string | null;
 } | null;

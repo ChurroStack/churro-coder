@@ -51,8 +51,6 @@ import {
  */
 export interface ChatLike {
   readonly id: string;
-  /** The transport instance — used for `provider` detection and teardown. */
-  transport?: { __kind?: 'mock-transport' } | unknown;
 }
 
 export interface TransportFactoryDeps<TChat extends ChatLike = ChatLike> {

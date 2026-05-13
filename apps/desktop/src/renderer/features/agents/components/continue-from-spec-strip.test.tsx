@@ -3,15 +3,26 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '../../../../../test-utils';
 import { ContinueFromSpecStrip } from './continue-from-spec-strip';
-import type { ChangeSummary } from '../../../main/lib/openspec/types';
+import type { ChangeSummary } from '../../../../main/lib/openspec/types';
 
 afterEach(cleanup);
 
 function makeChange(id: string): ChangeSummary {
   return {
     changeId: id,
+    path: `/openspec/changes/${id}`,
+    hasProposal: true,
+    hasTasks: false,
+    hasDesign: false,
+    capabilities: [],
     modifiedAt: new Date().toISOString(),
-    proposal: { title: `Title ${id}`, why: `Why ${id}`, tasks: [], attributes: {} }
+    proposal: {
+      changeId: id,
+      title: `Title ${id}`,
+      why: `Why ${id}`,
+      whatChanges: [],
+      attributes: {}
+    }
   };
 }
 

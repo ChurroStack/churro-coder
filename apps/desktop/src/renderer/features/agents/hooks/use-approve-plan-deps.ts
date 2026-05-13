@@ -100,7 +100,7 @@ export function useApprovePlanDeps(config: UseApprovePlanDepsConfig): PlanApprov
         const existing = agentChatStore.get(id);
         if (existing) {
           return (
-            (existing as { transport?: unknown })?.transport instanceof CodexChatTransport ? 'codex' : 'claude-code'
+            (existing as unknown as { transport?: unknown })?.transport instanceof CodexChatTransport ? 'codex' : 'claude-code'
           ) as ProviderId;
         }
         return (appStore.get(subChatProviderOverridesAtom)[id] ?? 'claude-code') as ProviderId;

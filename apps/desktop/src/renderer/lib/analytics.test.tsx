@@ -26,7 +26,7 @@ vi.mock('../features/agents/stores/sub-chat-store', () => {
   let activeSubChatId: string | null = null;
   const useAgentSubChatStore = ((selector: (state: { activeSubChatId: string | null }) => unknown) =>
     selector({ activeSubChatId })) as typeof import('../features/agents/stores/sub-chat-store').useAgentSubChatStore;
-  useAgentSubChatStore.setState = (state: { activeSubChatId: string | null }) => {
+  (useAgentSubChatStore as { setState: (state: { activeSubChatId: string | null }) => void }).setState = (state) => {
     activeSubChatId = state.activeSubChatId;
   };
   return { useAgentSubChatStore };

@@ -47,7 +47,7 @@ function makeDeps(
       record('writeState', { subChatId, mode: state.mode, activity: state.activity });
       states.set(subChatId, state);
     }),
-    setMode: vi.fn((subChatId: string, mode: 'plan' | 'execute' | 'review') => {
+    setMode: vi.fn((subChatId: string, mode: 'plan' | 'execute' | 'explore' | 'review') => {
       record('setMode', { subChatId, mode });
     }),
     applyDefaultModel: vi.fn((subChatId: string, mode) => {
@@ -174,7 +174,7 @@ describe('toggleMode — provider change notification', () => {
     const notifyProviderChange = vi.fn();
     const { deps } = makeDeps('plan', {
       notifyProviderChange,
-      applyDefaultModel: vi.fn((_id: string, _mode: 'plan' | 'execute' | 'review') => ({
+      applyDefaultModel: vi.fn((_id: string, _mode: 'plan' | 'execute' | 'explore' | 'review') => ({
         modelId: 'gpt-5.4',
         provider: 'codex' as ProviderId
       }))

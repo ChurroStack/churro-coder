@@ -10,7 +10,7 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted mocks (must be declared before any vi.mock calls) ─────────────────
 const { subscribeMock, setStreamIdMock: hoistedSetStreamId } = vi.hoisted(() => ({
-  subscribeMock: vi.fn(() => ({ unsubscribe: vi.fn() })),
+  subscribeMock: vi.fn((_input?: unknown, _callbacks?: unknown) => ({ unsubscribe: vi.fn() })),
   setStreamIdMock: vi.fn()
 }));
 
@@ -117,7 +117,7 @@ function makeConfig(subChatId = 'test-sub-chat-id-fixture') {
 }
 
 function makeMessages(): UIMessage[] {
-  return [{ id: 'msg-1', role: 'user', parts: [{ type: 'text', text: 'hello' } as any], content: 'hello' }];
+  return [{ id: 'msg-1', role: 'user', parts: [{ type: 'text', text: 'hello' } as any] }];
 }
 
 async function drainStream(stream: ReadableStream): Promise<boolean> {
@@ -156,8 +156,9 @@ describe('R1 — IPCChatTransport.sendMessages streaming guard (§C)', () => {
     await transport.sendMessages({ messages: makeMessages() });
 
     expect(subscribeMock).toHaveBeenCalledTimes(1);
-    const [input] = subscribeMock.mock.calls[0];
-    expect(input.subChatId).toBe(subChatId);
+    const callArgs = subscribeMock.mock.calls[0]!;
+    const input = callArgs[0];
+    expect((input as { subChatId: string }).subChatId).toBe(subChatId);
   });
 
   test('isStreaming transitions: not streaming → streaming → subsequent call skipped', async () => {

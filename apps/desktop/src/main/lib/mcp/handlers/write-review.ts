@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { extractReviewTitleFromContent, writeCurrentReview } from '../../reviews/review-store';
 
 export function registerWriteReviewTool(server: McpServer, opts: { boundSubChatId?: string }): void {
-  const inputSchema = opts.boundSubChatId
+  const inputSchema: Record<string, z.ZodTypeAny> = opts.boundSubChatId
     ? {
         markdown: z.string().min(1).describe('The full review document in markdown format.'),
         title: z
@@ -37,7 +37,8 @@ export function registerWriteReviewTool(server: McpServer, opts: { boundSubChatI
           : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").'),
       inputSchema
     },
-    async (input: { subChatId?: string; markdown: string; title?: string }) => {
+    async (rawInput: Record<string, unknown>) => {
+      const input = rawInput as { subChatId?: string; markdown: string; title?: string };
       const id = opts.boundSubChatId ?? input.subChatId;
       const inputKeys = Object.keys(input).join(',') || 'none';
       console.log(

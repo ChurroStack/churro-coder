@@ -13,6 +13,7 @@ export type ProjectRecord = {
 export type GroupableAgentChat = {
   id: string;
   name: string | null;
+  branch: string | null;
   updatedAt: Date | null;
   projectId: string | null;
   isRemote: boolean;
@@ -56,9 +57,9 @@ export function groupChatsByProject(
 
     const project = chat.projectId ? (projectsMap.get(chat.projectId) ?? null) : null;
     const isKnownProject = Boolean(chat.projectId && project);
-    const id = isKnownProject ? project.id : '__unknown__';
+    const id = isKnownProject && project ? project.id : '__unknown__';
     const kind: ProjectGroup['kind'] = isKnownProject ? 'local' : 'unknown';
-    const displayName = isKnownProject ? project.gitRepo || project.name || 'Untitled project' : 'Other';
+    const displayName = isKnownProject && project ? project.gitRepo || project.name || 'Untitled project' : 'Other';
     const lastActivityAt = chat.updatedAt?.getTime() ?? 0;
 
     const group = groups.get(id);

@@ -44,6 +44,16 @@ vi.mock('../lib/export-chat', () => ({
   copyChat: vi.fn()
 }));
 
+vi.mock('../../../lib/trpc', () => ({
+  trpc: {
+    chats: {
+      openspecInit: {
+        useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false }))
+      }
+    }
+  }
+}));
+
 describe('SubChatContextMenu', () => {
   beforeEach(() => {
     newWindow.mockReset();

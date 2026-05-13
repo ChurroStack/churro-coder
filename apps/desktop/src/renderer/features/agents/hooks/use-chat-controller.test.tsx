@@ -88,12 +88,13 @@ function makeMinimalConfig(subChatId: string) {
       agentChat: null,
       syncFinishedMessagesToChatCache: vi.fn(),
       pruneIfDetachedAndIdle: vi.fn(),
-      setLoadingSubChats: vi.fn() as unknown as React.Dispatch<React.SetStateAction<Set<string>>>,
+      setLoadingSubChats: vi.fn() as unknown as (fn: (prev: Map<string, string>) => Map<string, string>) => void,
       setSubChatUnseenChanges: vi.fn() as unknown as React.Dispatch<React.SetStateAction<Set<string>>>,
       setUnseenChanges: vi.fn() as unknown as React.Dispatch<React.SetStateAction<Set<string>>>,
       notifyAgentComplete: vi.fn(),
       fetchDiffStatsRef: { current: vi.fn() },
-      invalidateChatQuery: vi.fn()
+      invalidateChatQuery: vi.fn(),
+      invalidateWidgetQueries: vi.fn()
     },
     approvePlanConfig: {
       onProviderChange: vi.fn(),

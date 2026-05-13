@@ -156,7 +156,7 @@ export function AppContent() {
     if (nextState === 'failed' && previousState !== 'failed') {
       console.warn('[churro-coder] renderer MCP failure toast trigger');
       toast.error('Codex MCP setup failed', {
-        description: `The read_plan tool will not be available for Codex agents. ${churroMcpStatus.error}`,
+        description: `The read_plan tool will not be available for Codex agents. ${churroMcpStatus?.error}`,
         duration: 10_000
       });
     }

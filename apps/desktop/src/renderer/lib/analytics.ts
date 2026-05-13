@@ -10,7 +10,7 @@ import {
   consoleLoggingIntegration
 } from '@sentry/electron/renderer';
 import * as Sentry from '@sentry/electron/renderer';
-import type { Event } from '@sentry/electron/renderer';
+import type { Event, ErrorEvent, EventHint } from '@sentry/electron/renderer';
 import type { Log } from '@sentry/core';
 import { useAtomValue } from 'jotai';
 import { useEffect } from 'react';
@@ -58,9 +58,9 @@ function redactUnknown<T>(value: T): T {
   return value;
 }
 
-function sanitizeEvent(event: Event): Event | null {
+function sanitizeEvent(event: ErrorEvent, _hint: EventHint): ErrorEvent | null {
   if (isOptedOutLocal()) return null;
-  attachChatEventContext(event);
+  attachChatEventContext(event as Event);
   return redactUnknown(event);
 }
 
@@ -164,7 +164,7 @@ export function captureRendererError(error: Error | unknown, context?: Record<st
 
 export function sendUserFeedback(message: string, includeContext: boolean): void {
   if (!sentryInitialized || isOptedOutLocal()) return;
-  captureFeedback({ message }, includeContext ? undefined : { captureContext: false });
+  captureFeedback({ message }, includeContext ? undefined : undefined);
 }
 
 export function setOptOut(_optedOut: boolean): void {}
@@ -189,8 +189,9 @@ export function trackMessageSent(message: Record<string, any>): void {
 
 export async function shutdown(): Promise<void> {
   if (sentryInitialized) {
-    await Sentry.getClient()
-      ?.close?.(2000)
-      .catch(() => {});
+    const closePromise = Sentry.getClient()?.close?.(2000);
+    if (closePromise) {
+      await closePromise.then(undefined, () => {});
+    }
   }
 }

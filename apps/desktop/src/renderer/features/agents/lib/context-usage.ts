@@ -87,12 +87,12 @@ export function resolveContextUsage(args: {
 
   const selectedProviderHistoryMessage = [...args.messages].reverse().find((message) => {
     if (message.role !== 'assistant' || !hasUsageOrContextMetadata(message.metadata)) return false;
-    return classifyProviderFromModel(message.metadata.model) === args.selectedProvider;
+    return classifyProviderFromModel(message.metadata?.model) === args.selectedProvider;
   });
 
   const matchingMessage = [...args.messages].reverse().find((message) => {
     if (message.role !== 'assistant' || !hasUsageOrContextMetadata(message.metadata)) return false;
-    const provider = classifyProviderFromModel(message.metadata.model);
+    const provider = classifyProviderFromModel(message.metadata?.model);
     if (provider !== args.selectedProvider) return false;
     return messageMatchesEpoch(message);
   });

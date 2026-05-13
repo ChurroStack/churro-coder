@@ -808,15 +808,6 @@ export const claudeRouter = router({
               finishSpan();
             };
 
-            const logAttributes = (extra?: Record<string, string>) => ({
-              workspace_id: input.chatId,
-              subchat_id: input.subChatId,
-              session_id: currentSessionId ?? input.sessionId ?? 'new',
-              stream_id: streamId.slice(-8),
-              mode: input.mode,
-              ...extra
-            });
-
             // If a live stream already exists for this subChatId, do NOT abort it —
             // return an empty observable instead. This makes tab-switching a no-op
             // at the backend level, so in-flight streams survive workspace switches.
@@ -838,7 +829,16 @@ export const claudeRouter = router({
             let chunkCount = 0;
             let lastChunkType = '';
             // Shared sessionId for cleanup to save on abort
-            let currentSessionId: string | null = null;
+            let currentSessionId: string | null | undefined = null;
+
+            const logAttributes = (extra?: Record<string, string>) => ({
+              workspace_id: input.chatId,
+              subchat_id: input.subChatId,
+              session_id: currentSessionId ?? input.sessionId ?? 'new',
+              stream_id: streamId.slice(-8),
+              mode: input.mode,
+              ...extra
+            });
             let sessionIdPersisted = false;
             recordChatEvent({
               ts: Date.now(),
@@ -1991,7 +1991,7 @@ ${prompt}
 
                       const openSpecPolicyDecision = evaluateOpenSpecToolPolicy({
                         openSpecWriteRoot,
-                        openSpecChangePath,
+                        openSpecChangePath: openSpecChangePath ?? undefined,
                         isApplyTurn: isOpenSpecApplyTurn,
                         cwd: input.cwd,
                         toolName,
@@ -2117,7 +2117,8 @@ ${prompt}
 
                 // Tracks the session ID to attempt resume with. Cleared to undefined
                 // on a SESSION_EXPIRED silent retry so the next iteration starts fresh.
-                let currentSessionId: string | undefined = resumeSessionId;
+                // NOTE: this reassigns the shared `currentSessionId` outer var (for cleanup).
+                currentSessionId = resumeSessionId;
                 // After an expiry-driven retry (or a mode change) we want a truly
                 // fresh session — not `continue: true`, which the CLI uses to pick
                 // up the most recent local conversation in cwd (whose .jsonl still
@@ -2553,7 +2554,8 @@ ${prompt}
                               console.log(`[SD] M:PLAN_TOOL_DETECTED sub=${subId} callId=${chunk.toolCallId}`);
                               exitPlanModeToolCallId = chunk.toolCallId;
                               // Persist plan to disk for cross-provider retrieval via churro-coder MCP
-                              const planContent = typeof chunk.input?.plan === 'string' ? chunk.input.plan : '';
+                              const chunkInput = chunk.input as Record<string, unknown> | undefined;
+                              const planContent = typeof chunkInput?.['plan'] === 'string' ? chunkInput['plan'] : '';
                               if (planContent) {
                                 void writeCurrentPlan({
                                   subChatId: input.subChatId,

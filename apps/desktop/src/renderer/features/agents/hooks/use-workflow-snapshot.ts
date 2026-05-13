@@ -73,7 +73,7 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
     const reviewDecision = (pr?.reviewDecision ?? 'none') as WorkflowSnapshot['pr']['reviewDecision'];
 
     const normalizedMode: WorkflowSnapshot['mode'] =
-      mode === 'execute' ? 'execute' : mode === 'review' ? 'review' : mode === 'explore' ? 'explore' : 'plan';
+      mode === 'execute' ? 'execute' : mode === 'explore' ? 'explore' : 'plan';
 
     return {
       mode: normalizedMode,

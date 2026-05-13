@@ -111,11 +111,11 @@ describe('useChatViewState', () => {
 
     act(() => {
       result.current.setCodexThinking('high');
-      result.current.setClaudeThinking('none');
+      result.current.setClaudeThinking('off');
     });
 
     expect(result.current.codexThinking).toBe('high');
-    expect(result.current.claudeThinking).toBe('none');
+    expect(result.current.claudeThinking).toBe('off');
   });
 
   it('per-subChatId isolation — different subChatIds get independent state', () => {
