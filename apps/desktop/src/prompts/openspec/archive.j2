@@ -1,0 +1,229 @@
+{#
+OpenSpec vendored prompt
+Upstream source: https://raw.githubusercontent.com/Fission-AI/OpenSpec/v1.3.1/src/core/templates/workflows/archive-change.ts
+Upstream template: getOpsxArchiveCommandTemplate().content
+Reviewed: 2026-05-10
+Local modifications:
+- [manual] Added step 6 "Commit and push all code changes" after the archive mv, so the openspec folder relocation is included in the commit.
+- [manual] Added step 7 "Open a pull request" after commit+push, with idempotency (gh pr view) and no-CLI fallback.
+- [manual] All `openspec` CLI calls use `"${OPENSPEC_BIN:-openspec}"` so agents whose PATH injection is unreliable (e.g. Codex) resolve the binary via the absolute-path env var instead.
+- [manual] Step 4 made mandatory: always sync delta specs before archiving; removed the user prompt to skip.
+#}
+Archive a completed change in the experimental workflow.
+
+**Input**: Optionally specify a change name after `/opsx:archive` (e.g., `/opsx:archive add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+
+**Steps**
+
+1. **If no change name provided, prompt for selection**
+
+   Run `"${OPENSPEC_BIN:-openspec}" list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+
+   Show only active changes (not already archived).
+   Include the schema used for each change if available.
+
+   **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
+
+2. **Check artifact completion status**
+
+   Run `"${OPENSPEC_BIN:-openspec}" status --change "<name>" --json` to check artifact completion.
+
+   Parse the JSON to understand:
+   - `schemaName`: The workflow being used
+   - `artifacts`: List of artifacts with their status (`done` or other)
+
+   **If any artifacts are not `done`:**
+   - Display warning listing incomplete artifacts
+   - Prompt user for confirmation to continue
+   - Proceed if user confirms
+
+3. **Check task completion status**
+
+   Read the tasks file (typically `tasks.md`) to check for incomplete tasks.
+
+   Count tasks marked with `- [ ]` (incomplete) vs `- [x]` (complete).
+
+   **If incomplete tasks found:**
+   - Display warning showing count of incomplete tasks
+   - Prompt user for confirmation to continue
+   - Proceed if user confirms
+
+   **If no tasks file exists:** Proceed without task-related warning.
+
+4. **Sync delta specs (mandatory)**
+
+   Check for delta specs at `openspec/changes/<name>/specs/`. If none exist, note "No delta specs — skipping sync" and proceed.
+
+   **If delta specs exist:**
+   - Compare each delta spec with its corresponding main spec at `openspec/specs/<capability>/spec.md`
+   - Determine what changes would be applied (adds, modifications, removals, renames)
+   - Show a brief summary of the changes
+   - Always sync — use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>")
+   - Do NOT prompt the user; sync always runs before archiving.
+
+5. **Perform the archive**
+
+   Create the archive directory if it doesn't exist:
+   ```bash
+   mkdir -p openspec/changes/archive
+   ```
+
+   Generate target name using current date: `YYYY-MM-DD-<change-name>`
+
+   **Check if target already exists:**
+   - If yes: Fail with error, suggest renaming existing archive or using different date
+   - If no: Move the change directory to archive
+
+   ```bash
+   mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
+   ```
+
+6. **Commit and push all changes**
+
+   Now that the openspec folder has been moved, stage everything — implementation code and the folder relocation — in a single commit and push.
+
+   a. Stage all changes:
+   ```bash
+   git add -A
+   ```
+
+   b. If there is anything to commit, commit it:
+   ```bash
+   git commit -m "feat(<change-name>): implement and archive change"
+   ```
+   If the working tree is already clean (nothing staged), skip the commit.
+
+   c. Push to the remote:
+   ```bash
+   git push origin HEAD
+   ```
+   If push fails because no upstream is set, use `git push --set-upstream origin <branch>`.
+
+   **If commit or push fails:**
+   - Report the error clearly.
+   - Ask the user: "Push failed — do you still want to continue? (Changes will not be on the remote.)"
+   - The archive folder move has already happened; the workspace will still be closed.
+
+7. **Open a pull request**
+
+   Only attempt this if the push in step 6 succeeded (or was skipped because the tree was clean and already pushed).
+
+   a. **Detect PR CLI:**
+      ```bash
+      gh auth status 2>/dev/null && echo "gh"
+      ```
+      If exit 0 → use `gh`. Otherwise:
+      ```bash
+      az account show 2>/dev/null && git remote get-url origin 2>/dev/null | grep -q 'dev.azure.com' && echo "az"
+      ```
+      If exit 0 → use `az`. Otherwise → print `**PR:** skipped — no CLI configured (gh or az required)` and stop this step.
+
+   b. **Resolve base branch:**
+      ```bash
+      git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null | sed 's@^origin/@@'
+      ```
+      If empty, use `main`.
+
+   c. **Idempotency check (gh only):**
+      ```bash
+      gh pr view --json url,number,state --head <branch> 2>/dev/null
+      ```
+      If the command succeeds and `.state == "OPEN"`, print `**PR:** already open at <url>` and skip the create step.
+
+   d. **Compose PR title and body:**
+      - Title: `feat(<change-name>): implement and archive <change-name>` (truncate to 80 chars if needed).
+      - Body: at most 5 sentences summarising the purpose of the change (derive from the archived `openspec/changes/archive/YYYY-MM-DD-<name>/proposal.md` if it exists). Append as a final line: `Archives openspec change \`<change-name>\`.`
+
+   e. **Create the PR:**
+      ```bash
+      # GitHub:
+      gh pr create --base <base-branch> --title "<title>" --body "<body>"
+      # Azure DevOps:
+      az repos pr create --source-branch <branch> --target-branch <base-branch> --title "<title>" --description "<body>" --output json
+      ```
+
+   f. **On PR failure:** report the error and note that the commit+push already succeeded — the user can open the PR manually. Do **not** roll back anything.
+
+8. **Display summary**
+
+   Show archive completion summary including:
+   - Change name
+   - Schema that was used
+   - Archive location
+   - Git push status (pushed / push skipped / push failed — user confirmed)
+   - Spec sync status (synced / sync skipped / no delta specs)
+   - Note about any warnings (incomplete artifacts/tasks)
+
+**Output On Success**
+
+```
+## Archive Complete
+
+**Change:** <change-name>
+**Schema:** <schema-name>
+**Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
+**Git:** ✓ Committed and pushed to origin
+**PR:** <url | already open at <url> | skipped — no CLI>
+**Specs:** ✓ Synced to main specs
+
+All artifacts complete. All tasks complete.
+```
+
+**Output On Success (No Delta Specs)**
+
+```
+## Archive Complete
+
+**Change:** <change-name>
+**Schema:** <schema-name>
+**Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
+**Git:** ✓ Committed and pushed to origin
+**PR:** <url | already open at <url> | skipped — no CLI>
+**Specs:** No delta specs
+
+All artifacts complete. All tasks complete.
+```
+
+**Output On Success With Warnings**
+
+```
+## Archive Complete (with warnings)
+
+**Change:** <change-name>
+**Schema:** <schema-name>
+**Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
+**Git:** ✓ Committed and pushed to origin
+**PR:** <url | already open at <url> | skipped — no CLI>
+**Specs:** ✓ Synced to main specs
+
+**Warnings:**
+- Archived with 2 incomplete artifacts
+- Archived with 3 incomplete tasks
+
+Review the archive if this was not intentional.
+```
+
+**Output On Error (Archive Exists)**
+
+```
+## Archive Failed
+
+**Change:** <change-name>
+**Target:** openspec/changes/archive/YYYY-MM-DD-<name>/
+
+Target archive directory already exists.
+
+**Options:**
+1. Rename the existing archive
+2. Delete the existing archive if it's a duplicate
+3. Wait until a different date to archive
+```
+
+**Guardrails**
+- Always prompt for change selection if not provided
+- Use artifact graph (openspec status --json) for completion checking
+- Don't block archive on warnings - just inform and confirm
+- Preserve .openspec.yaml when moving to archive (it moves with the directory)
+- Show clear summary of what happened
+- If delta specs exist, always sync before archiving — never prompt the user to skip
+- Use the Skill tool to invoke `openspec-sync-specs` (agent-driven)

@@ -19,6 +19,8 @@ export interface Task {
   depth: number;
   /** Best-effort file path extracted from the task title. */
   filePath?: string;
+  /** 0-based index of this task's line in the raw content (used for in-place toggling). */
+  lineIndex: number;
 }
 
 export interface TaskSection {
@@ -46,7 +48,8 @@ export function parseTasksOutline(raw: string): TasksOutline {
   let currentSection: TaskSection | null = null;
   let taskCounter = 0;
 
-  for (const line of lines) {
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx]!;
     const headingMatch = HEADING_RE.exec(line);
     if (headingMatch) {
       const level = headingMatch[1]!.length;
@@ -90,7 +93,7 @@ export function parseTasksOutline(raw: string): TasksOutline {
       const fileMatch = FILE_PATH_RE.exec(title);
       const filePath = fileMatch ? fileMatch[1] : undefined;
 
-      currentSection.tasks.push({ id, title, done: mark === 'x' || mark === 'X', depth, filePath });
+      currentSection.tasks.push({ id, title, done: mark === 'x' || mark === 'X', depth, filePath, lineIndex: lineIdx });
       continue;
     }
 

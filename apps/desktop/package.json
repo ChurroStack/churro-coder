@@ -26,9 +26,13 @@
     "claude:download:all": "node scripts/download-claude-binary.mjs --version=2.1.138 --all",
     "codex:download": "node scripts/download-codex-binary.mjs --version=0.130.0",
     "codex:download:all": "node scripts/download-codex-binary.mjs --version=0.130.0 --all",
-    "release": "rm -rf release && bun i && bun run claude:download && bun run codex:download && bun run build && bun run package:mac && bun run dist:manifest && ./scripts/upload-release-wrangler.sh",
-    "release:dev": "rm -rf release && bun run claude:download && bun run codex:download && bun run build && bun run package:mac && rm -rf node_modules && bun i",
+    "openspec:install": "node scripts/download-openspec.mjs",
+    "openspec:install:latest": "node scripts/download-openspec.mjs --latest",
+    "release": "rm -rf release && bun i && bun run claude:download && bun run codex:download && bun run openspec:install && bun run build && bun run package:mac && bun run dist:manifest && ./scripts/upload-release-wrangler.sh",
+    "release:dev": "rm -rf release && bun run claude:download && bun run codex:download && bun run openspec:install && bun run build && bun run package:mac && rm -rf node_modules && bun i",
     "icon:generate": "node scripts/generate-icon.mjs",
+    "sync:openspec": "node scripts/sync-openspec-prompts.mjs",
+    "openspec:prompts:sync": "node scripts/sync-openspec-prompts.mjs",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
@@ -195,6 +199,11 @@
       {
         "from": "resources/bin/CODEX_VERSION",
         "to": "bin/CODEX_VERSION"
+      },
+      {
+        "from": "resources/openspec",
+        "to": "openspec",
+        "filter": ["**/*"]
       }
     ],
     "asar": true,

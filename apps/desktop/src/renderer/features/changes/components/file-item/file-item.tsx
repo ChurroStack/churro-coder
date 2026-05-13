@@ -20,6 +20,7 @@ import { cn } from '../../../../lib/utils';
 import { useState } from 'react';
 import { HiMiniMinus, HiMiniPlus } from 'react-icons/hi2';
 import { trpc } from '../../../../lib/trpc';
+import { getFileManagerUiMeta } from '../../../../lib/utils/file-manager';
 import {
   ClipboardIcon,
   ExternalLinkIcon,
@@ -90,6 +91,7 @@ export function FileItem({
   showCheckbox = false,
   isStaged = false
 }: FileItemProps) {
+  const fileManager = getFileManagerUiMeta();
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   const fileName = getFileName(file.path);
@@ -257,7 +259,7 @@ export function FileItem({
           <ContextMenuSeparator />
           <ContextMenuItem onClick={handleRevealInFinder}>
             <FolderIcon className="mr-2 size-4" />
-            Reveal in Finder
+            {fileManager.revealLabel}
           </ContextMenuItem>
           <ContextMenuItem onClick={handleOpenInEditor}>
             <ExternalLinkIcon className="mr-2 size-4" />

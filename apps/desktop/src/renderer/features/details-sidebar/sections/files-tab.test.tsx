@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const mockSearchQuery = vi.fn();
+const mockGitStatusRefetch = vi.fn(async () => ({ data: undefined }));
 const mockClearCacheMutateAsync = vi.fn(async () => ({ success: true }));
 const mockInvalidate = vi.fn();
 
@@ -17,6 +18,9 @@ vi.mock('@/lib/trpc', () => ({
       deleteFile: { useMutation: () => ({ mutate: vi.fn() }) },
       clearCache: { useMutation: () => ({ mutateAsync: mockClearCacheMutateAsync, isPending: false }) },
       search: { useQuery: (...args: unknown[]) => mockSearchQuery(...args) }
+    },
+    changes: {
+      getStatus: { useQuery: () => ({ data: undefined, refetch: mockGitStatusRefetch }) }
     },
     useUtils: () => ({ files: { search: { invalidate: mockInvalidate } } })
   }

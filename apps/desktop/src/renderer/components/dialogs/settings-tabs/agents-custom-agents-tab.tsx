@@ -24,7 +24,7 @@ interface FileAgent {
   // Tolerate the "plugin" source even though only "user"/"project" agents
   // are editable from this tab — narrowing in the AgentDetail panel below
   // filters them.
-  source: 'user' | 'project' | 'plugin';
+  source: 'builtin' | 'user' | 'project' | 'plugin';
   path: string;
 }
 

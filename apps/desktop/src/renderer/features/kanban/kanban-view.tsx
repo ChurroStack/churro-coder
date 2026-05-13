@@ -18,7 +18,7 @@ import {
 import { selectedAgentChatIdsAtom, isAgentMultiSelectModeAtom, toggleAgentChatSelectionAtom } from '../../lib/atoms';
 import { KanbanBoard } from './components/kanban-board';
 import type { KanbanCardData } from './components/kanban-card';
-import { deriveKanbanStatus, deriveAttentionReason, pickLatestActiveSubChat } from './lib/kanban-state-machine';
+import { deriveKanbanStatus, deriveAttentionReason, type SubChatMode } from './lib/kanban-state-machine';
 import { useNewChatDrafts } from '../agents/lib/drafts';
 import { exportChat, copyChat } from '../agents/lib/export-chat';
 import { AgentsRenameSubChatDialog } from '../agents/components/agents-rename-subchat-dialog';
@@ -236,10 +236,7 @@ export function KanbanView() {
     return set;
   }, [pendingQuestions, expiredQuestions]);
 
-  // Build set of chatIds that are loading (from loadingSubChats values = parentChatIds)
-  const workspacesLoading = useMemo(() => new Set([...loadingSubChats.values()]), [loadingSubChats]);
-
-  // Build set of loading sub-chat IDs for pickLatestActiveSubChat
+  // Build set of loading sub-chat IDs for kanban state aggregation
   const loadingSubChatIds = useMemo(() => new Set([...loadingSubChats.keys()]), [loadingSubChats]);
 
   // Attention signals passed to the state machine. unseenChanges is already a Set<string>,
@@ -291,23 +288,16 @@ export function KanbanView() {
     for (const chat of allChatsList) {
       const project = projectsMap.get(chat.projectId);
 
-      // Pick the representative sub-chat for state derivation. mode is already narrowed
-      // to 'plan' | 'execute' | 'explore' by the chats router boundary.
-      const subChatRows = (chat.subChats ?? []).map((s) => ({
-        id: s.id,
-        mode: s.mode,
-        updatedAt: s.updatedAt ?? new Date(0)
-      }));
-      const latestActiveSubChat = pickLatestActiveSubChat(subChatRows, loadingSubChatIds);
-      const isLoading = workspacesLoading.has(chat.id);
+      // mode is already narrowed to 'plan' | 'execute' | 'explore' by the chats router boundary.
+      const subChats = (chat.subChats ?? []).map((s) => ({ id: s.id, mode: s.mode as SubChatMode }));
 
       const input = {
         kind: 'chat' as const,
         chatId: chat.id,
         archivedAt: chat.archivedAt ?? null,
         prUrl: chat.prUrl ?? null,
-        latestActiveSubChat,
-        isLoading
+        subChats,
+        loadingSubChatIds
       };
 
       const status = deriveKanbanStatus(input);
@@ -318,8 +308,15 @@ export function KanbanView() {
       // Trace first observation of in-review per session (DEV only — keeps prod console clean)
       if (import.meta.env.DEV && status === 'in-review' && !loggedInReviewIds.has(chat.id)) {
         loggedInReviewIds.add(chat.id);
-        console.debug('[kanban-state-machine] in-review chat=', chat.id, 'mode=', latestActiveSubChat?.mode);
+        console.debug('[kanban-state-machine] in-review chat=', chat.id);
       }
+
+      // Display representative: prefer plan if present, else execute, else explore, else default.
+      const cardMode: SubChatMode =
+        subChats.find((s) => s.mode === 'plan')?.mode ??
+        subChats.find((s) => s.mode === 'execute')?.mode ??
+        subChats.find((s) => s.mode === 'explore')?.mode ??
+        'plan';
 
       result.push({
         id: chat.id,
@@ -328,7 +325,7 @@ export function KanbanView() {
         chatName: chat.name,
         projectName: project?.gitRepo || project?.name || null,
         branch: chat.branch,
-        mode: latestActiveSubChat?.mode ?? 'plan',
+        mode: cardMode,
         status,
         attentionReason,
         hasUnseenChanges: unseenChanges.has(chat.id),
@@ -359,7 +356,6 @@ export function KanbanView() {
     drafts,
     projectsMap,
     loadingSubChatIds,
-    workspacesLoading,
     attentionSignals,
     workspacesWithPendingApprovals,
     workspacesWithPendingQuestions,

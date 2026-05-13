@@ -6,7 +6,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, delimiter as pathDelimiter, join } from 'node:path';
 import { z } from 'zod';
 import { normalizeCodexAssistantMessage } from '../../../../shared/codex-tool-normalizer';
 import type { ServerRequest } from '../../../../shared/codex-app-server-schema';
@@ -28,13 +28,16 @@ import {
   type CodexFailureClassification
 } from '../../codex/recovery';
 import { waitForAppServerTurn } from '../../codex/wait-for-app-server-turn';
+import { resolveCodexIdleTimeoutMs } from '../../codex/idle-timeout';
 import { mapAppServerUsageToMetadata, type CodexUsageMetadata } from '../../codex/usage-metadata';
 import { cleanupCodexThreadSubscription, trackCodexThreadSubscription } from '../../codex/thread-subscriptions';
 import { getClaudeShellEnvironment } from '../../claude/env';
+import { buildOpenspecEnvOverrides, getOpenspecBinDir } from '../../openspec/openspec-bin-path';
 import { resolveProjectPathFromWorktree } from '../../claude-config';
 import { getDatabase, projects as projectsTable, subChats } from '../../db';
 import { readMessagesFromTable, writeMessagesToTable, replaceMessagesInTable } from '../../db/messages-table';
 import { fetchMcpTools, fetchMcpToolsStdio, type McpToolInfo } from '../../mcp-auth';
+import { getPrompt } from '../../prompts/prompt-service';
 import { publicProcedure, router } from '../index';
 import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { resolveSandboxPolicy } from '../../sandbox/policy';
@@ -52,10 +55,16 @@ import {
 } from '../codex-mcp-auth';
 import { getCodexAppServerApprovalResponse } from '../codex-app-server-approval-policy';
 import { decideCodexMcpElicitation } from '../codex-mcp-elicitation';
-import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from '../codex-mode-prompts';
+import { buildCodexModeInstruction } from '../codex-mode-prompts';
+import { buildCodexReadPlanHints } from '../codex-prompt-hints';
 import { sanitizeCodexPlanSummary } from '../codex-plan-write';
-import { buildCodexSandboxPolicy, type CodexSandboxPolicy } from '../codex-sandbox-policy';
+import {
+  buildCodexSandboxPolicy,
+  buildCodexWorkspaceWriteSandboxPolicy,
+  type CodexSandboxPolicy
+} from '../codex-sandbox-policy';
 import { createTaskListPartFromPlan } from '../codex-plan-task-part';
+import { isOpenSpecApplyPrompt, resolveOpenSpecCodexToolConfig } from '../../openspec/chat-policy';
 
 const imageAttachmentSchema = z.object({
   base64Data: z.string(),
@@ -1067,6 +1076,13 @@ function buildCodexProviderEnv(authConfig?: { apiKey: string }): Record<string, 
     env.CHURRO_MCP_BEARER = currentMcpBearer;
   }
 
+  // Inject bundled openspec shim into PATH so agents can call `openspec ...` directly
+  const openspecBinDir = getOpenspecBinDir();
+  if (existsSync(openspecBinDir)) {
+    env.PATH = `${openspecBinDir}${pathDelimiter}${env.PATH || ''}`;
+  }
+  Object.assign(env, buildOpenspecEnvOverrides());
+
   const apiKey = authConfig?.apiKey?.trim();
   if (!apiKey) {
     return env;
@@ -1697,11 +1713,22 @@ function buildCodexTurnConfig(params: {
   selectedModelId: string;
   sandboxEnabled?: boolean;
   writableRoots?: string[];
+  forceWritableRoots?: string[];
 }) {
+  const sandboxPolicy =
+    params.forceWritableRoots && params.forceWritableRoots.length > 0
+      ? buildCodexWorkspaceWriteSandboxPolicy(params.forceWritableRoots)
+      : buildCodexSandboxPolicy(params.mode, params.sandboxEnabled ?? false, params.writableRoots ?? []);
+
   return {
     ...buildCodexBaseConfig(params),
     approvalPolicy: 'never',
-    sandboxPolicy: buildCodexSandboxPolicy(params.mode, params.sandboxEnabled ?? false, params.writableRoots ?? [])
+    // Stream reasoning summaries so long thinking phases keep the JSON-RPC
+    // wire active (resets the idle-timeout watcher) and surface a live
+    // "Thinking" indicator. 'auto' lets the model pick the appropriate
+    // detail level.
+    summary: 'auto',
+    sandboxPolicy
   };
 }
 
@@ -3138,6 +3165,10 @@ export const codexRouter = router({
                   authConfig: input.authConfig
                 });
                 const metadataModel = selectedModelId;
+                const openSpecChangeId = existingSubChat.openspecChangeId || null;
+                const isOpenSpecApplyTurn = isOpenSpecApplyPrompt(input.prompt);
+                const openSpecChangePath = openSpecChangeId ? join('openspec', 'changes', openSpecChangeId) : null;
+                const openSpecWriteRoot = openSpecChangePath ? join(input.cwd, openSpecChangePath) : null;
 
                 const lastMessage = existingMessages[existingMessages.length - 1];
                 const isDuplicatePrompt =
@@ -3240,10 +3271,25 @@ export const codexRouter = router({
                 const startedAt = Date.now();
                 const catchup = computeCatchupBlock(messagesForStream, 'codex');
                 const planInstruction = buildCodexModeInstruction(input.mode);
-                const subChatPlanHint = approvedPlanRequired
-                  ? buildCodexApprovedPlanHint(input.subChatId, getAppOwnedChurroCoderReadPlanToolName(mcpServerName))
+                const openSpecInstruction = openSpecChangeId
+                  ? await getPrompt({
+                      projectPath: input.projectPath || input.cwd,
+                      key: 'openspec/system',
+                      vars: {
+                        projectName: basename(input.projectPath || input.cwd),
+                        changeId: openSpecChangeId,
+                        changePath: openSpecChangePath
+                      }
+                    })
                   : '';
-                const augmentedPrompt = [planInstruction, subChatPlanHint, catchup, input.prompt]
+                const mcpToolName = getAppOwnedChurroCoderReadPlanToolName(mcpServerName);
+                const readPlanHints = buildCodexReadPlanHints({
+                  subChatId: input.subChatId,
+                  approvedPlanRequired,
+                  openSpecChangeId: openSpecChangeId ?? null,
+                  mcpToolName
+                });
+                const augmentedPrompt = [openSpecInstruction, planInstruction, readPlanHints, catchup, input.prompt]
                   .filter((segment): segment is string => Boolean(segment))
                   .join('\n\n');
 
@@ -3342,7 +3388,7 @@ export const codexRouter = router({
                   .flatMap((server) =>
                     server.tools.map((tool) => `mcp__${server.name}__${tool.name.replaceAll('/', '__')}`)
                   );
-                const builtInTools =
+                const defaultBuiltInTools =
                   input.mode === 'plan'
                     ? [
                         'Bash',
@@ -3379,6 +3425,26 @@ export const codexRouter = router({
                   input.cwd,
                   input.projectPath ?? input.cwd
                 );
+                const defaultSandboxWritableRoots = codexSandboxPolicy.writableRootsExpanded;
+                const openSpecToolConfig = resolveOpenSpecCodexToolConfig({
+                  openSpecWriteRoot,
+                  isApplyTurn: isOpenSpecApplyTurn,
+                  defaultBuiltInTools,
+                  defaultWritableRoots: defaultSandboxWritableRoots,
+                  defaultSandboxEnabled: codexSandboxPolicy.enabled
+                });
+                const builtInTools = openSpecToolConfig.builtInTools;
+                const effectiveSandboxWritableRoots = openSpecToolConfig.writableRoots;
+                const codexTurnConfig = buildCodexTurnConfig({
+                  cwd: input.cwd,
+                  mode: input.mode,
+                  selectedModelId,
+                  sandboxEnabled: openSpecToolConfig.sandboxEnabled,
+                  // Pass the symlink-expanded set so the OS sandbox accepts
+                  // both forms of paths like macOS /tmp <-> /private/tmp.
+                  writableRoots: effectiveSandboxWritableRoots,
+                  forceWritableRoots: openSpecToolConfig.forceWritableRoots
+                });
 
                 const turnAccumulator: AppServerTurnAccumulator = {
                   subChatId: input.subChatId,
@@ -3418,11 +3484,7 @@ export const codexRouter = router({
                   const activeStream = activeStreams.get(input.subChatId);
                   if (activeStream?.runId === input.runId) {
                     activeStream.client = client;
-                    activeStream.sandboxPolicy = buildCodexSandboxPolicy(
-                      input.mode,
-                      codexSandboxPolicy.enabled,
-                      codexSandboxPolicy.writableRootsExpanded.filter((r) => r !== input.cwd)
-                    );
+                    activeStream.sandboxPolicy = codexTurnConfig.sandboxPolicy;
                   }
 
                   const candidateThreadId = input.forceNewSession ? undefined : resolvedThreadId || persistedThreadId;
@@ -3511,15 +3573,7 @@ export const codexRouter = router({
                     {
                       threadId,
                       input: buildAppServerInput(augmentedPrompt, input.images),
-                      ...buildCodexTurnConfig({
-                        cwd: input.cwd,
-                        mode: input.mode,
-                        selectedModelId,
-                        sandboxEnabled: codexSandboxPolicy.enabled,
-                        // Pass the symlink-expanded set so the OS sandbox accepts
-                        // both forms of paths like macOS /tmp <-> /private/tmp.
-                        writableRoots: codexSandboxPolicy.writableRootsExpanded.filter((r) => r !== input.cwd)
-                      })
+                      ...codexTurnConfig
                     },
                     30_000
                   );
@@ -3536,7 +3590,7 @@ export const codexRouter = router({
                     accumulator: turnAccumulator,
                     getTransportLastActivityAt: () => appServerSession.lastActivityAt,
                     signal: abortController.signal,
-                    idleTimeoutMs: 60_000,
+                    idleTimeoutMs: resolveCodexIdleTimeoutMs(selectedModelId),
                     maxRuntimeMs: 60 * 60 * 1000
                   });
                   if (!turnAccumulator.usageMetadata && !abortController.signal.aborted) {

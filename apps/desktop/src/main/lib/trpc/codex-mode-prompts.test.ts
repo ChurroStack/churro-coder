@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from './codex-mode-prompts';
+import {
+  buildCodexApprovedPlanHint,
+  buildCodexModeInstruction,
+  buildCodexOpenspecReadPlanHint
+} from './codex-mode-prompts';
 
 describe('buildCodexModeInstruction', () => {
   test('plan mode says PlanWrite is the native plan path and MCP is not required', () => {
@@ -41,5 +45,39 @@ describe('buildCodexApprovedPlanHint', () => {
     expect(hint).toContain('call `mcp__churro-coder-dev__read_plan` before editing');
     expect(hint).toContain('{ "subChatId": "sub-123" }');
     expect(hint).toContain('do not call the tool without it');
+  });
+});
+
+describe('buildCodexOpenspecReadPlanHint', () => {
+  test('renders sub-chat id and changeId', () => {
+    const hint = buildCodexOpenspecReadPlanHint('subc-1', 'add-thing', 'mcp__x__read_plan');
+
+    expect(hint).toContain('Sub-chat id: subc-1');
+    expect(hint).toContain('add-thing');
+    expect(hint).toContain('mcp__x__read_plan');
+  });
+
+  test('renders the exact JSON arg shape the model must emit', () => {
+    const hint = buildCodexOpenspecReadPlanHint('subc-1', 'add-thing', 'mcp__x__read_plan');
+
+    expect(hint).toContain('{ "subChatId": "subc-1" }');
+  });
+
+  test('does not mention "approved plan"', () => {
+    const hint = buildCodexOpenspecReadPlanHint('subc-1', 'add-thing', 'mcp__x__read_plan');
+
+    expect(hint).not.toMatch(/approved plan/i);
+  });
+
+  test('warns against passing changeId as subChatId', () => {
+    const hint = buildCodexOpenspecReadPlanHint('subc-1', 'add-thing', 'mcp__x__read_plan');
+
+    expect(hint).toMatch(/do not pass the changeId as subChatId/i);
+  });
+
+  test('leaves no unrendered template variables', () => {
+    const hint = buildCodexOpenspecReadPlanHint('subc-1', 'add-thing', 'mcp__x__read_plan');
+
+    expect(hint).not.toContain('{{');
   });
 });

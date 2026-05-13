@@ -6,6 +6,7 @@ import { ChatPanelSync } from './chat-panel-sync';
 import { ChatTabPrioritySync } from './chat-tab-priority-sync';
 import { loadDockSnapshotForWorkspace, saveDockSnapshotForWorkspace, captureDock, tryRestoreDock } from './persistence';
 import { DockWorkspaceProvider } from './workspace-context';
+import { ChangeArchiveOrchestrator } from '../openspec/change-archive-orchestrator';
 
 export interface WorkspaceDockShellProps {
   /** The workspace this shell renders. Drives the persisted dock-layout
@@ -122,6 +123,7 @@ export function WorkspaceDockShell({
         aria-hidden={!active}>
         <DockShell onApiReady={handleReady} className="h-full w-full" />
         <ChatPanelSync workspaceId={workspaceId} active={active} dockApi={dockApi} />
+        <ChangeArchiveOrchestrator chatId={workspaceId} dockApi={dockApi} />
         <ChatTabPrioritySync workspaceId={workspaceId} active={active} dockApi={dockApi} />
       </div>
     </DockWorkspaceProvider>

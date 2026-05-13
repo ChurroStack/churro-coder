@@ -23,11 +23,13 @@ import {
   desktopViewAtom,
   projectStatsTargetIdAtom
 } from '../../../lib/atoms';
+import { getFileManagerUiMeta } from '../../../lib/utils/file-manager';
 import { newWorkspaceFormKeyAtom, selectedDraftIdAtom, showNewChatFormAtom } from '../../agents/atoms';
 import { trpc } from '../../../lib/trpc';
 import type { ProjectRecord } from '../grouping/group-chats-by-project';
 
 export function ProjectGroupActionsMenu({ project, chatIds }: { project: ProjectRecord; chatIds: string[] }) {
+  const fileManager = getFileManagerUiMeta();
   const utils = trpc.useUtils();
   const [preferredEditor] = useAtom(preferredEditorAtom);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
@@ -112,7 +114,7 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuItem onClick={() => openInFinderMutation.mutate(project.path)}>
-            Reveal in Finder
+            {fileManager.revealLabel}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={openNewWorkspace} className="flex items-center gap-2">

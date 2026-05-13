@@ -13,6 +13,9 @@ import {
   currentPlanPathAtomFamily
 } from '@/features/agents/atoms';
 import { addOrFocus } from '@/features/dock/add-or-focus';
+import { appStore } from '../../../lib/jotai-store';
+import { openSpecSkipNextStepPrefixAtomFamily } from '../../openspec/atoms';
+import { forceFreshSubChatSessionIfOpenSpec } from '../lib/session-reset';
 import { useDockApi } from '@/features/dock/dock-context';
 import { aiEverRespondedAtomFamily, prCreatingAtomFamily } from '@/features/details-sidebar/atoms';
 import { renderBuiltinPrompt } from '../../../../prompts/render';
@@ -219,6 +222,8 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
           break;
 
         case 'mergeBase':
+          appStore.set(openSpecSkipNextStepPrefixAtomFamily(subChatId), true);
+          forceFreshSubChatSessionIfOpenSpec(subChatId);
           setPendingMergeBaseMessage({
             message: renderBuiltinPrompt('workflow/merge-base', { baseBranch }),
             subChatId
@@ -265,6 +270,8 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
           setPrCreating(true);
           // Reuse `createPr` even when a PR already exists: the user intent is
           // still "get my latest work into the PR" and the prompt handles both paths.
+          appStore.set(openSpecSkipNextStepPrefixAtomFamily(subChatId), true);
+          forceFreshSubChatSessionIfOpenSpec(subChatId);
           const message = renderBuiltinPrompt('workflow/create-pr-clean', { baseBranch });
           setPendingPrMessage({ message, subChatId });
           break;

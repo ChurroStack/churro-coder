@@ -86,7 +86,18 @@ export function ChatTabPrioritySync({ workspaceId, active, dockApi }: ChatTabPri
         const group = panel.api.group;
         const panels = group.panels;
         if (panels.length > 0 && panels[0].id !== panel.id) {
+          const previouslyActive = group.activePanel;
           panel.api.moveTo({ group, index: 0, skipSetActive: true });
+          // skipSetActive does not guarantee that the previously-focused panel
+          // stays the group's activePanel after an in-group reorder in
+          // dockview-react v5.2. Re-assert it so the selected tab and rendered
+          // content stay glued to the user's selection — even when the user
+          // was viewing the panel being promoted (e.g. a fresh "New chat" they
+          // just typed into), since moveTo can still flip activePanel to a
+          // sibling in that case.
+          if (previouslyActive && group.activePanel?.id !== previouslyActive.id) {
+            previouslyActive.api.setActive();
+          }
           console.debug(
             '[tab-priority] promote',
             subChatId,

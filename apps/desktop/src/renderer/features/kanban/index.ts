@@ -5,7 +5,6 @@ export { KanbanCard, type KanbanCardData } from './components/kanban-card';
 export {
   deriveKanbanStatus,
   deriveAttentionReason,
-  pickLatestActiveSubChat,
   isSubChatNeedingInput,
   type KanbanStatus,
   type AttentionReason,

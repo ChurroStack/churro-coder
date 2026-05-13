@@ -11,3 +11,11 @@ export function buildCodexApprovedPlanHint(
 ): string {
   return renderBuiltinPrompt('mode/codex-approved-plan-hint', { subChatId, mcpToolName });
 }
+
+export function buildCodexOpenspecReadPlanHint(
+  subChatId: string,
+  changeId: string,
+  mcpToolName = getAppOwnedChurroCoderReadPlanToolName()
+): string {
+  return renderBuiltinPrompt('mode/codex-openspec-read-plan-hint', { subChatId, changeId, mcpToolName });
+}

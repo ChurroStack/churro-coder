@@ -35,6 +35,9 @@ export interface SubChatMeta {
   created_at?: string;
   updated_at?: string;
   mode?: 'plan' | 'execute' | 'explore';
+  projectId?: string;
+  openspecChangeId?: string | null;
+  openspecChangePath?: string;
 }
 
 interface AgentSubChatStore {

@@ -6,6 +6,7 @@ import { selectedAgentChatIdAtom } from '../../agents/atoms';
 import { appStore } from '../../../lib/jotai-store';
 import type { ChatPanelEntity } from '../atoms';
 import { useDockWorkspace } from '../workspace-context';
+import { OpenSpecChangePanelContent } from './openspec-change-panel';
 
 /**
  * ChatPanel — one dockview tab per open sub-chat. Each tab carries
@@ -41,6 +42,13 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
   const allSubChats = useAgentSubChatStore((s) => s.allSubChats);
+  const subChat = allSubChats.find((x) => x.id === params.subChatId);
+  const openspecChangeId = params.openspecChangeId ?? subChat?.openspecChangeId ?? null;
+  const openspecProjectId = params.projectId ?? subChat?.projectId;
+  const openspecChangePath =
+    params.openspecChangePath ??
+    subChat?.openspecChangePath ??
+    (openspecChangeId ? `openspec/changes/${openspecChangeId}` : undefined);
 
   // Dockview can restore a panel as the active tab without emitting the
   // visibility/active events to an already-mounted custom panel component.
@@ -91,13 +99,12 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
   // Wait for store hydration before pushing a title so we don't overwrite
   // the restored dock snapshot title with a stale creation-time placeholder.
   useEffect(() => {
-    const sc = allSubChats.find((x) => x.id === params.subChatId);
-    if (!sc) return;
-    const nextTitle = sc.name || 'New Chat';
+    if (!subChat) return;
+    const nextTitle = subChat.name || 'New Chat';
     if (nextTitle !== api.title) {
       api.setTitle(nextTitle);
     }
-  }, [allSubChats, params.subChatId, api]);
+  }, [subChat, api]);
 
   // Mount AgentsContent for any visible panel (active tab in its group).
   // Hidden tabs (in the same group, not selected) render nothing. Across
@@ -107,6 +114,24 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
     isWorkspaceActive &&
     (activeSubChatId === params.subChatId || (!activeSubChatId && openSubChatIds[0] === params.subChatId));
   const shouldMountContent = isVisible || isStoreActivePanel;
+
+  if (openspecChangeId && openspecProjectId && openspecChangePath) {
+    return (
+      <OpenSpecChangePanelContent
+        params={{
+          subChatId: params.subChatId,
+          chatId: params.chatId,
+          projectId: openspecProjectId,
+          changeId: openspecChangeId,
+          changePath: openspecChangePath,
+          name: subChat?.name ?? params.name
+        }}
+        isWorkspaceActive={isWorkspaceActive}
+        shouldMountContent={shouldMountContent}
+        isActivePanel={isActive || isStoreActivePanel}
+      />
+    );
+  }
 
   return (
     <div

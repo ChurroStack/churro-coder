@@ -7,8 +7,8 @@ import { Input } from '../../ui/input';
 import { Plus, Trash2, FolderOpen } from 'lucide-react';
 import { AIPenIcon, ExternalLinkIcon, FolderFilledIcon, ImageIcon } from '../../ui/icons';
 import { invalidateProjectIcon, useProjectIcon } from '../../../lib/hooks/use-project-icon';
+import { getFileManagerUiMeta } from '../../../lib/utils/file-manager';
 import { ProjectIcon } from '../../ui/project-icon';
-import finderIcon from '../../../assets/app-icons/finder.png';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../../ui/select';
 import {
   AlertDialog,
@@ -283,6 +283,7 @@ function ProjectDetail({ projectId }: { projectId: string }) {
   const cursorExists = configData?.available?.cursor?.exists ?? false;
 
   const openInFinderMutation = trpc.external.openInFinder.useMutation();
+  const fileManager = getFileManagerUiMeta();
 
   const handleOpenInFinder = () => {
     if (project?.path) {
@@ -396,8 +397,8 @@ function ProjectDetail({ projectId }: { projectId: string }) {
                 className="gap-1.5 flex-shrink-0 pl-2"
                 onClick={handleOpenInFinder}
                 disabled={!project?.path}>
-                <img src={finderIcon} alt="" className="h-3.5 w-3.5" />
-                Finder
+                <img src={fileManager.icon} alt="" className="h-3.5 w-3.5" />
+                {fileManager.label}
               </Button>
             </div>
 

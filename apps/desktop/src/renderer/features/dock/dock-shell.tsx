@@ -110,6 +110,16 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
             remove(subChatId);
           }
         }
+
+        if (panel.id.startsWith('openspec-change:')) {
+          const params = (panel.params ?? {}) as {
+            subChatId?: string;
+          };
+          if (params.subChatId) {
+            const remove = useAgentSubChatStore.getState().removeFromOpenSubChats;
+            remove(params.subChatId);
+          }
+        }
       });
 
       // We don't expose a teardown here because dockview itself owns the lifecycle.

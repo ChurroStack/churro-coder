@@ -14,7 +14,7 @@ function render(vars: Record<string, unknown>): string {
   // Strip trailing whitespace so the test is robust against the file's EOF
   // newline (every .j2 file ends with one; the legacy code joined arrays
   // without a trailing newline).
-  return env.renderString(template, vars).trimEnd();
+  return env.renderString(template, vars).replace(/\r\n/g, '\n').trimEnd();
 }
 
 const baseVars = {

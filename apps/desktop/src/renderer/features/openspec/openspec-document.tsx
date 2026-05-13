@@ -4,14 +4,14 @@ import { trpc } from '../../lib/trpc';
 import type { ChangeFileKind } from '../../../main/lib/openspec/types';
 
 interface OpenSpecDocumentProps {
-  projectId: string;
+  chatId: string;
   changeId: string;
   kind: ChangeFileKind;
 }
 
-export function OpenSpecDocument({ projectId, changeId, kind }: OpenSpecDocumentProps) {
+export function OpenSpecDocument({ chatId, changeId, kind }: OpenSpecDocumentProps) {
   const { data, isLoading, error } = trpc.openspec.readChangeFile.useQuery(
-    { projectId, changeId, kind },
+    { chatId, changeId, kind },
     { staleTime: 30_000 }
   );
 

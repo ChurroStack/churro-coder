@@ -49,7 +49,9 @@ export const chats = sqliteTable(
     prUrl: text('pr_url'),
     prNumber: integer('pr_number'),
     // Sandbox: null = inherit from project, false/true = chat override
-    sandboxEnabled: integer('sandbox_enabled', { mode: 'boolean' })
+    sandboxEnabled: integer('sandbox_enabled', { mode: 'boolean' }),
+    // JSON array of tools used at openspec init, e.g. '["claude","codex"]'
+    openspecTools: text('openspec_tools')
   },
   (table) => [
     index('chats_worktree_path_idx').on(table.worktreePath),

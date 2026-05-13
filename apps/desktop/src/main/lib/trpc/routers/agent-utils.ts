@@ -23,7 +23,7 @@ export interface ParsedAgent {
 
 // Agent with source/path metadata
 export interface FileAgent extends ParsedAgent {
-  source: 'user' | 'project' | 'plugin';
+  source: 'builtin' | 'user' | 'project' | 'plugin';
   pluginName?: string;
   path: string;
 }
@@ -174,7 +174,7 @@ export async function loadAgent(name: string, cwd?: string): Promise<ParsedAgent
  */
 export async function scanAgentsDirectory(
   dir: string,
-  source: 'user' | 'project' | 'plugin',
+  source: 'builtin' | 'user' | 'project' | 'plugin',
   basePath?: string // For project agents, the cwd to make paths relative to
 ): Promise<FileAgent[]> {
   const agents: FileAgent[] = [];

@@ -30,3 +30,15 @@ export function buildCodexSandboxPolicy(
     excludeSlashTmp: false
   };
 }
+
+export function buildCodexWorkspaceWriteSandboxPolicy(
+  writableRoots: string[]
+): Extract<CodexSandboxPolicy, { type: 'workspaceWrite' }> {
+  return {
+    type: 'workspaceWrite',
+    writableRoots,
+    networkAccess: true,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false
+  };
+}

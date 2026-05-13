@@ -26,7 +26,7 @@ import { resolveSandboxPolicy } from './policy';
 import { getDatabase } from '../db';
 
 const FAKE_USER_DATA = '/fake/userData';
-const SESSIONS_BASE = path.join(FAKE_USER_DATA, 'agent-sessions');
+const SESSIONS_BASE = path.resolve(FAKE_USER_DATA, 'agent-sessions');
 
 interface EqMarker {
   __field: unknown;

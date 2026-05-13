@@ -33,6 +33,10 @@ export interface ChatPanelEntity {
   /** Parent chat (workspace) id this sub-chat belongs to. Used by ChatPanel
    *  to look up the chat record / sub-chats list. */
   chatId: string;
+  /** Present when this chat tab should render the OpenSpec change editor. */
+  projectId?: string;
+  openspecChangeId?: string | null;
+  openspecChangePath?: string;
   /** Initial display name — kept in sync via setTitle when the sub-chat
    *  is renamed in the store. */
   name?: string;
@@ -63,6 +67,7 @@ export interface FilePanelEntity {
   absolutePath: string;
   initialLine?: number;
   initialColumn?: number;
+  subChatId?: string;
 }
 export interface PlanPanelEntity {
   chatId: string;

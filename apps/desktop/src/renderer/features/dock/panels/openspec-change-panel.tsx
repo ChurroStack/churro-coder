@@ -1,17 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom, useSetAtom } from 'jotai';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
 import { selectedAgentChatIdAtom } from '../../agents/atoms';
 import { appStore } from '../../../lib/jotai-store';
 import { AgentsContent } from '../../agents/ui/agents-content';
 import { OpenSpecChangeView } from '../../openspec/openspec-change-view';
-import { openSpecChangeChatWidthAtom } from '../../openspec/atoms';
+import { OpenspecSkillsBanner } from '../../openspec/openspec-skills-banner';
+import { openSpecChangeChatWidthAtom, openSpecSidebarContextAtomFamily } from '../../openspec/atoms';
 import { useDockWorkspace } from '../workspace-context';
 import type { OpenSpecChangePanelEntity } from '../atoms';
 
 const MIN_CHAT_WIDTH = 300;
 const MAX_CHAT_WIDTH = 560;
+
+interface OpenSpecChangePanelContentProps {
+  params: OpenSpecChangePanelEntity;
+  isWorkspaceActive: boolean;
+  shouldMountContent: boolean;
+  isActivePanel: boolean;
+}
 
 /**
  * OpenSpecChangePanel — dockview tab that displays an OpenSpec change.
@@ -29,11 +37,6 @@ export function OpenSpecChangePanel({ params, api, containerApi }: IDockviewPane
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
   const allSubChats = useAgentSubChatStore((s) => s.allSubChats);
-
-  const [chatWidth, setChatWidth] = useAtom(openSpecChangeChatWidthAtom);
-  const isDragging = useRef(false);
-  const dragStartX = useRef(0);
-  const dragStartWidth = useRef(0);
 
   // Sync dockview visibility/active state
   useEffect(() => {
@@ -75,6 +78,39 @@ export function OpenSpecChangePanel({ params, api, containerApi }: IDockviewPane
     (activeSubChatId === params.subChatId || (!activeSubChatId && openSubChatIds[0] === params.subChatId));
   const shouldMountContent = isVisible || isStoreActivePanel;
 
+  return (
+    <OpenSpecChangePanelContent
+      params={params}
+      isWorkspaceActive={isWorkspaceActive}
+      shouldMountContent={shouldMountContent}
+      isActivePanel={isActive || isStoreActivePanel}
+    />
+  );
+}
+
+export function OpenSpecChangePanelContent({
+  params,
+  isWorkspaceActive,
+  shouldMountContent,
+  isActivePanel
+}: OpenSpecChangePanelContentProps) {
+  const [chatWidth, setChatWidth] = useAtom(openSpecChangeChatWidthAtom);
+  const sidebarContextAtom = useMemo(() => openSpecSidebarContextAtomFamily(params.subChatId), [params.subChatId]);
+  const setSidebarContext = useSetAtom(sidebarContextAtom);
+  const isDragging = useRef(false);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
+
+  useEffect(() => {
+    setSidebarContext({
+      chatId: params.chatId,
+      projectId: params.projectId,
+      changeId: params.changeId,
+      changePath: params.changePath
+    });
+    return () => setSidebarContext(null);
+  }, [params.changeId, params.changePath, params.chatId, params.projectId, setSidebarContext]);
+
   // Resizer pointer handlers
   const handleResizerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -102,8 +138,19 @@ export function OpenSpecChangePanel({ params, api, containerApi }: IDockviewPane
       className="h-full w-full overflow-hidden bg-background border-t border-border"
       style={{ display: 'grid', gridTemplateColumns: `1fr 6px ${chatWidth}px` }}>
       {/* Left pane: spec viewer */}
-      <div className="h-full overflow-hidden">
-        <OpenSpecChangeView changeId={params.changeId} projectId={params.projectId} />
+      <div className="h-full overflow-hidden flex flex-col">
+        <div className="px-4 pt-3">
+          <OpenspecSkillsBanner chatId={params.chatId} />
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <OpenSpecChangeView
+            chatId={params.chatId}
+            subChatId={params.subChatId}
+            changeId={params.changeId}
+            changePath={params.changePath}
+            projectId={params.projectId}
+          />
+        </div>
       </div>
 
       {/* Resizer gutter — transparent, just provides the drag target */}
@@ -120,7 +167,7 @@ export function OpenSpecChangePanel({ params, api, containerApi }: IDockviewPane
           subChatIdOverride={params.subChatId}
           dockWorkspaceActive={isWorkspaceActive}
           dockPanelVisible={shouldMountContent}
-          dockPanelActive={isActive || isStoreActivePanel}
+          dockPanelActive={isActivePanel}
           chrome="embedded"
         />
       </div>

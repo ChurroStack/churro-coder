@@ -1,9 +1,11 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
+import type { editor } from 'monaco-editor';
 import { useTheme } from 'next-themes';
 import { useAtom } from 'jotai';
 import { useAtomValue } from 'jotai';
 import { Loader2, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { MarkdownIcon, CodeIcon } from '@/components/ui/icons';
 import { Kbd } from '@/components/ui/kbd';
@@ -21,7 +23,9 @@ import { FindBar } from '../../find/find-bar';
 import { markCurrentFindScope } from '../../find/constants';
 import { useDomTextFind } from '../../find/use-dom-text-find';
 import { useFindScope } from '../../find/use-find-scope';
-import { defaultEditorOptions, getMonacoTheme } from './monaco-config';
+import { fileDraftUtils, useFileDraft } from '../use-file-draft';
+import { getEditorOptions, getMonacoTheme } from './monaco-config';
+import { DraftConflictBanner, EditModeButtons, type FileViewerDockApi, UnsavedChangesDialog } from './editor-editing';
 import { FileTitleBlock } from './file-title-block';
 
 interface MarkdownViewerProps {
@@ -29,25 +33,46 @@ interface MarkdownViewerProps {
   projectPath: string;
   onClose: () => void;
   showHeader?: boolean;
+  subChatId?: string;
+  dockApi?: FileViewerDockApi;
 }
 
-export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = false }: MarkdownViewerProps) {
+export function MarkdownViewer({
+  filePath,
+  projectPath,
+  onClose,
+  showHeader = false,
+  subChatId,
+  dockApi
+}: MarkdownViewerProps) {
   const scopeRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const { resolvedTheme } = useTheme();
   const monacoTheme = getMonacoTheme(resolvedTheme || 'dark');
+  const absolutePath = useMemo(
+    () => (filePath.startsWith('/') ? filePath : `${projectPath}/${filePath}`),
+    [filePath, projectPath]
+  );
+  const fileName = useMemo(() => filePath.split('/').pop() || filePath, [filePath]);
 
   const [showPreview, setShowPreview] = useState(true);
   const [wordWrap] = useAtom(fileViewerWordWrapAtom);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentContent, setCurrentContent] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editBaseContent, setEditBaseContent] = useState('');
+  const [discardDialogAction, setDiscardDialogAction] = useState<'discard' | 'close' | 'toggle-preview' | null>(null);
+  const [draftConflictAt, setDraftConflictAt] = useState<number | null>(null);
   const findScope = useFindScope(scopeRef, showPreview);
+  const utils = trpc.useUtils();
+  const writeFileMutation = trpc.files.writeFile.useMutation();
+  const appendMessageMutation = trpc.messages.append.useMutation();
+  const hasRestoredDraftRef = useRef(false);
+  const draftPersistedRef = useRef(false);
+  const { saveDraft, clearDraft, loadDraft } = useFileDraft(absolutePath, editBaseContent || currentContent);
 
-  const handleToggleView = useCallback(() => {
-    setShowPreview((prev) => !prev);
-  }, []);
-
-  const absolutePath = useMemo(() => {
-    return filePath.startsWith('/') ? filePath : `${projectPath}/${filePath}`;
-  }, [filePath, projectPath]);
+  const effectiveContent = isEditMode ? editContent : currentContent;
 
   const { data, isLoading, error, refetch } = trpc.files.readTextFile.useQuery(
     { filePath: absolutePath },
@@ -79,24 +104,207 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
     }
   );
 
+  useEffect(() => {
+    hasRestoredDraftRef.current = false;
+    draftPersistedRef.current = false;
+    setShowPreview(true);
+    setIsEditMode(false);
+    setCurrentContent('');
+    setEditContent('');
+    setEditBaseContent('');
+    setDiscardDialogAction(null);
+    setDraftConflictAt(null);
+  }, [absolutePath]);
+
+  useEffect(() => {
+    if (!data?.ok || isEditMode) return;
+    setCurrentContent(data.content);
+  }, [data, isEditMode]);
+
+  useEffect(() => {
+    if (!data?.ok || hasRestoredDraftRef.current) return;
+    hasRestoredDraftRef.current = true;
+    setCurrentContent(data.content);
+
+    const draft = loadDraft();
+    if (!draft) return;
+
+    setEditBaseContent(data.content);
+    setEditContent(draft.content);
+    setDraftConflictAt(null);
+    setShowPreview(false);
+    setIsEditMode(true);
+    draftPersistedRef.current = true;
+
+    void fileDraftUtils.sha1(data.content).then((hash) => {
+      setDraftConflictAt(hash === draft.originalHash ? null : draft.draftedAt);
+    });
+  }, [data, loadDraft]);
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({ readOnly: !isEditMode });
+  }, [isEditMode]);
+
+  useEffect(() => {
+    if (!dockApi) return;
+    if (isEditMode) {
+      dockApi.setClosable(false);
+      dockApi.setTitle(`• ${fileName}`);
+    } else {
+      dockApi.setClosable(true);
+      dockApi.setTitle(fileName);
+    }
+
+    return () => {
+      dockApi.setClosable(true);
+      dockApi.setTitle(fileName);
+    };
+  }, [dockApi, fileName, isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    if (editContent === editBaseContent) {
+      clearDraft();
+      draftPersistedRef.current = false;
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      saveDraft(editContent);
+      draftPersistedRef.current = true;
+    }, 500);
+    return () => window.clearTimeout(timeoutId);
+  }, [clearDraft, editBaseContent, editContent, isEditMode, saveDraft]);
+
+  const exitEditMode = useCallback(() => {
+    setIsEditMode(false);
+    setDiscardDialogAction(null);
+    setDraftConflictAt(null);
+    draftPersistedRef.current = false;
+  }, []);
+
+  const handleEnterEditMode = useCallback(() => {
+    setEditBaseContent(currentContent);
+    setEditContent(currentContent);
+    setDraftConflictAt(null);
+    setShowPreview(false);
+    setIsEditMode(true);
+    draftPersistedRef.current = false;
+  }, [currentContent]);
+
+  const handleRequestClose = useCallback(() => {
+    if (isEditMode) {
+      setDiscardDialogAction('close');
+      return;
+    }
+    onClose();
+  }, [isEditMode, onClose]);
+
+  const handleToggleView = useCallback(() => {
+    if (!showPreview && isEditMode) {
+      setDiscardDialogAction('toggle-preview');
+      return;
+    }
+    setShowPreview((prev) => !prev);
+  }, [isEditMode, showPreview]);
+
+  const handleConfirmDiscard = useCallback(() => {
+    const action = discardDialogAction;
+    clearDraft();
+    setEditContent(editBaseContent);
+    exitEditMode();
+
+    if (action === 'close') {
+      onClose();
+      return;
+    }
+
+    if (action === 'toggle-preview') {
+      setShowPreview(true);
+    }
+  }, [clearDraft, discardDialogAction, editBaseContent, exitEditMode, onClose]);
+
+  const handleSave = useCallback(async () => {
+    const nextContent = editContent;
+    try {
+      await writeFileMutation.mutateAsync({ filePath: absolutePath, projectPath, content: nextContent });
+      setCurrentContent(nextContent);
+      clearDraft();
+      exitEditMode();
+      await utils.files.readTextFile.invalidate({ filePath: absolutePath });
+
+      if (!subChatId) return;
+
+      await appendMessageMutation.mutateAsync({
+        subChatId,
+        message: {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-Write',
+              state: 'done',
+              input: { file_path: absolutePath, content: nextContent },
+              output: { content: nextContent }
+            }
+          ]
+        }
+      });
+
+      // Rely on message-query invalidation so the existing change-tracking hook
+      // remains the single source of truth for subChatFilesAtom recomputation.
+      await Promise.allSettled([
+        utils.messages.getLatest.invalidate(),
+        utils.messages.getBefore.invalidate(),
+        utils.messages.getAfter.invalidate()
+      ]);
+    } catch (error) {
+      toast.error('Failed to save file', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }, [
+    absolutePath,
+    appendMessageMutation,
+    clearDraft,
+    editContent,
+    exitEditMode,
+    projectPath,
+    subChatId,
+    utils.files.readTextFile,
+    utils.messages.getAfter,
+    utils.messages.getBefore,
+    utils.messages.getLatest,
+    writeFileMutation
+  ]);
+
+  const handleUndo = useCallback(() => {
+    editorRef.current?.focus();
+    editorRef.current?.trigger('toolbar', 'undo', null);
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    editorRef.current?.focus();
+    editorRef.current?.trigger('toolbar', 'redo', null);
+  }, []);
+
   const editorOptions = useMemo(
     () => ({
-      ...defaultEditorOptions,
+      ...getEditorOptions(!isEditMode),
       wordWrap: wordWrap ? ('on' as const) : ('off' as const)
     }),
-    [wordWrap]
+    [isEditMode, wordWrap]
   );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        handleRequestClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [handleRequestClose]);
 
   useEffect(() => {
     if (!showPreview) return;
@@ -124,7 +332,7 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
 
   const domFind = useDomTextFind({
     rootRef: previewRef,
-    contentKey: `${absolutePath}:${data?.ok ? data.content : ''}`,
+    contentKey: `${absolutePath}:${currentContent}`,
     enabled: showPreview
   });
 
@@ -142,7 +350,13 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
           showPreview={showPreview}
           onToggleView={handleToggleView}
           showHeader={showHeader}
-          onClose={onClose}
+          onClose={handleRequestClose}
+          isEditMode={false}
+          onEnterEditMode={() => {}}
+          onSave={() => {}}
+          onDiscard={() => {}}
+          onUndo={() => {}}
+          onRedo={() => {}}
         />
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
@@ -168,7 +382,13 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
           showPreview={showPreview}
           onToggleView={handleToggleView}
           showHeader={showHeader}
-          onClose={onClose}
+          onClose={handleRequestClose}
+          isEditMode={false}
+          onEnterEditMode={() => {}}
+          onSave={() => {}}
+          onDiscard={() => {}}
+          onUndo={() => {}}
+          onRedo={() => {}}
         />
         <div className="flex-1 flex items-center justify-center p-4">
           <div className="flex flex-col items-center gap-3 text-center max-w-[300px]">
@@ -180,17 +400,22 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
     );
   }
 
-  const content = data?.ok ? data.content : '';
-
   return (
     <div ref={scopeRef} className="relative flex flex-col h-full bg-background">
       <Header
         filePath={filePath}
         showPreview={showPreview}
         onToggleView={handleToggleView}
-        content={content}
+        content={effectiveContent}
         showHeader={showHeader}
-        onClose={onClose}
+        onClose={handleRequestClose}
+        isEditMode={isEditMode}
+        isSaving={writeFileMutation.isPending || appendMessageMutation.isPending}
+        onEnterEditMode={handleEnterEditMode}
+        onSave={() => void handleSave()}
+        onDiscard={() => setDiscardDialogAction('discard')}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
       />
       <FindBar
         isOpen={findScope.isOpen && showPreview}
@@ -207,16 +432,17 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
         onNext={domFind.next}
         onPrev={domFind.prev}
       />
+      {draftConflictAt !== null && !showPreview && <DraftConflictBanner draftedAt={draftConflictAt} />}
       <div className="flex-1 min-h-0 overflow-hidden allow-text-selection" data-file-viewer-path={filePath}>
         {showPreview ? (
           <div ref={previewRef} className="h-full overflow-auto p-6">
-            <ChatMarkdownRenderer content={content} size="md" />
+            <ChatMarkdownRenderer content={currentContent} size="md" />
           </div>
         ) : (
           <Editor
             height="100%"
             language="markdown"
-            value={content}
+            value={effectiveContent}
             theme={monacoTheme}
             options={editorOptions}
             loading={
@@ -224,9 +450,38 @@ export function MarkdownViewer({ filePath, projectPath, onClose, showHeader = fa
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             }
+            onMount={(instance) => {
+              editorRef.current = instance;
+            }}
+            onChange={(value) => {
+              if (isEditMode) {
+                setEditContent(value ?? '');
+              }
+            }}
           />
         )}
       </div>
+      <UnsavedChangesDialog
+        open={discardDialogAction !== null}
+        title={
+          discardDialogAction === 'close'
+            ? 'Discard all changes?'
+            : discardDialogAction === 'toggle-preview'
+              ? 'Discard changes before leaving source view?'
+              : 'Discard changes?'
+        }
+        description={
+          discardDialogAction === 'close'
+            ? 'Are you sure you want to discard all changes?'
+            : discardDialogAction === 'toggle-preview'
+              ? 'Switching back to preview will discard your unsaved source changes.'
+              : 'Are you sure you want to discard your changes?'
+        }
+        onOpenChange={(open) => {
+          if (!open) setDiscardDialogAction(null);
+        }}
+        onConfirm={handleConfirmDiscard}
+      />
     </div>
   );
 }
@@ -237,7 +492,14 @@ function Header({
   onToggleView,
   content,
   showHeader = false,
-  onClose
+  onClose,
+  isEditMode,
+  isSaving,
+  onEnterEditMode,
+  onSave,
+  onDiscard,
+  onUndo,
+  onRedo
 }: {
   filePath: string;
   showPreview: boolean;
@@ -245,6 +507,13 @@ function Header({
   content?: string;
   showHeader?: boolean;
   onClose?: () => void;
+  isEditMode: boolean;
+  isSaving?: boolean;
+  onEnterEditMode: () => void;
+  onSave: () => void;
+  onDiscard: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
 }) {
   const preferredEditor = useAtomValue(preferredEditorAtom);
   const editorMeta = APP_META[preferredEditor];
@@ -266,7 +535,18 @@ function Header({
       }}>
       {showHeader && onClose && <FileTitleBlock filePath={filePath} onClose={onClose} />}
       <div className="flex items-center gap-1 flex-shrink-0">
-        {/* Open in editor */}
+        {!showPreview && (
+          <EditModeButtons
+            isEditMode={isEditMode}
+            isSaving={isSaving}
+            onEnterEditMode={onEnterEditMode}
+            onSave={onSave}
+            onDiscard={onDiscard}
+            onUndo={onUndo}
+            onRedo={onRedo}
+          />
+        )}
+
         <Tooltip delayDuration={500}>
           <TooltipTrigger asChild>
             <button
@@ -285,7 +565,6 @@ function Header({
           </TooltipContent>
         </Tooltip>
 
-        {/* View mode toggle */}
         {content && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -317,7 +596,6 @@ function Header({
           </Tooltip>
         )}
 
-        {/* Copy button */}
         {content && (
           <Tooltip>
             <TooltipTrigger asChild>

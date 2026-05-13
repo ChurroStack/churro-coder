@@ -3,7 +3,32 @@ The current branch is {{ branch }}.
 The target branch is origin/{{ baseBranch }}.
 {% if hasUpstream %}The branch is already pushed to remote.{% else %}There is no upstream branch yet.{% endif %}
 The user requested a PR.
+{% if existingPrUrl %}
+A pull request already exists for this branch: {{ existingPrUrl }}
 
+Follow these steps:
+{% set step = 1 %}{% if uncommittedCount > 0 %}{{ step }}. Run git diff to review uncommitted changes
+{% set step = step + 1 %}{{ step }}. Commit them. Write a clear, concise commit message.
+{% set step = step + 1 %}{% endif %}{% if not hasUpstream %}{{ step }}. Push to origin
+{% set step = step + 1 %}{% endif %}{{ step }}. Print the existing PR URL: {{ existingPrUrl }}
+{% set step = step + 1 %}{{ step }}. If any of these steps fail, ask the user for help.
+{% elif openspecChangeName %}
+This PR is for an OpenSpec change named `{{ openspecChangeName }}`.
+
+Follow these exact steps to create a PR:
+
+{% set step = 1 %}{% if uncommittedCount > 0 %}{{ step }}. Run git diff to review uncommitted changes
+{% set step = step + 1 %}{{ step }}. Commit them. Write a clear, concise commit message.
+{% set step = step + 1 %}{% endif %}{% if not hasUpstream %}{{ step }}. Push to origin
+{% set step = step + 1 %}{% endif %}{{ step }}. Use git diff origin/{{ baseBranch }}... to review the PR diff
+{% set step = step + 1 %}{{ step }}. Check if a PR already exists for this branch:
+   ```bash
+   gh pr view --json url,number,state --head {{ branch }} 2>/dev/null
+   ```
+   If an open PR is found, print its URL and skip the create step.
+{% set step = step + 1 %}{% if provider == 'azure' %}{{ step }}. If no open PR exists, use az repos pr create --source-branch {{ branch }} --target-branch {{ baseBranch }} --repository {{ azureRepository }} --project "{{ azureProject }}" --organization https://dev.azure.com/{{ azureOrganization }} --title "feat({{ openspecChangeName }}): <one-line summary>" --description "<body derived from {{ openspecChangePath }}/proposal.md — at most 5 sentences. Append as a final line: Refs openspec change \`{{ openspecChangeName }}\`.>" --output json to create a PR. Keep the title under 80 characters.{% else %}{{ step }}. If no open PR exists, use gh pr create --base {{ baseBranch }} --title "feat({{ openspecChangeName }}): <one-line summary>" --body "<body derived from {{ openspecChangePath }}/proposal.md — at most 5 sentences. Append as a final line: Refs openspec change \`{{ openspecChangeName }}\`.>" to create a PR. Keep the title under 80 characters.{% endif %}
+{% set step = step + 1 %}{{ step }}. If any of these steps fail, ask the user for help.
+{% else %}
 Follow these exact steps to create a PR:
 
 {% set step = 1 %}{% if uncommittedCount > 0 %}{{ step }}. Run git diff to review uncommitted changes
@@ -12,3 +37,4 @@ Follow these exact steps to create a PR:
 {% set step = step + 1 %}{% endif %}{{ step }}. Use git diff origin/{{ baseBranch }}... to review the PR diff
 {% set step = step + 1 %}{% if provider == 'azure' %}{{ step }}. Use az repos pr create --source-branch {{ branch }} --target-branch {{ baseBranch }} --repository {{ azureRepository }} --project "{{ azureProject }}" --organization https://dev.azure.com/{{ azureOrganization }} --title "<title>" --description "<summary>" --output json to create a PR. Keep the title under 80 characters and description under five sentences.{% else %}{{ step }}. Use gh pr create --base {{ baseBranch }} to create a PR. Keep the title under 80 characters and description under five sentences.{% endif %}
 {% set step = step + 1 %}{{ step }}. If any of these steps fail, ask the user for help.
+{% endif %}

@@ -1,9 +1,12 @@
 import { z } from 'zod';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
+import { observable } from '@trpc/server/observable';
 import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { router, publicProcedure } from '../index';
-import { chats, getDatabase, projects, subChats } from '../../db';
+import { chats, getDatabase, messages, projects, subChats } from '../../db';
+import { watchChangeDir } from '../../openspec/openspec-watcher';
 import {
   createChange,
   deleteChange,
@@ -120,6 +123,37 @@ export const openspecRouter = router({
     .query(async ({ input }) => {
       return readChangeFile(await resolveRootDir(input), input.changeId, input.kind);
     }),
+
+  watchChange: publicProcedure
+    .input(ROOT_INPUT.and(z.object({ changeId: z.string().min(1) })))
+    .subscription(({ input }) =>
+      observable<{ ts: number; exists: boolean }>((emit) => {
+        let close: (() => Promise<void>) | null = null;
+        let disposed = false;
+
+        (async () => {
+          const rootDir = await resolveRootDir(input);
+          const dir = join(rootDir, 'openspec', 'changes', input.changeId);
+          const handle = await watchChangeDir(dir, ({ exists }) => {
+            if (!disposed) emit.next({ ts: Date.now(), exists });
+          });
+
+          if (disposed) {
+            await handle.close();
+          } else {
+            close = () => handle.close();
+          }
+        })().catch((err) => {
+          console.error(`[openspec/router] watchChange init failed changeId=${input.changeId}`, err);
+          emit.error(err);
+        });
+
+        return () => {
+          disposed = true;
+          void close?.();
+        };
+      })
+    ),
 
   writeChangeFile: publicProcedure
     .input(
@@ -309,6 +343,18 @@ export const openspecRouter = router({
         .get();
 
       if (existing) {
+        if (existing.mode !== 'execute') {
+          const updated = db
+            .update(subChats)
+            .set({ mode: 'execute' })
+            .where(eq(subChats.id, existing.id))
+            .returning()
+            .get();
+          console.log(
+            `[openspec/router] openSubChatForChange changeId=${input.changeId} outcome=reused-mode-updated subChatId=${updated.id}`
+          );
+          return updated;
+        }
         console.log(
           `[openspec/router] openSubChatForChange changeId=${input.changeId} outcome=reused subChatId=${existing.id}`
         );
@@ -316,15 +362,44 @@ export const openspecRouter = router({
       }
 
       const name = change.proposal?.title ?? input.changeId;
+
+      // Promote the empty default sub-chat (created by chats.create) instead of
+      // creating a second row — avoids having two sub-chats where the wrong one
+      // (the empty default) gets auto-opened first.
+      const defaultSubChat = db
+        .select()
+        .from(subChats)
+        .where(and(eq(subChats.chatId, input.chatId), isNull(subChats.openspecChangeId)))
+        .get();
+      if (defaultSubChat) {
+        const firstMessage = db
+          .select({ id: messages.id })
+          .from(messages)
+          .where(eq(messages.subChatId, defaultSubChat.id))
+          .limit(1)
+          .get();
+        if (!firstMessage) {
+          const promoted = db
+            .update(subChats)
+            .set({ name, mode: 'execute', openspecChangeId: input.changeId })
+            .where(eq(subChats.id, defaultSubChat.id))
+            .returning()
+            .get();
+          console.log(
+            `[openspec/router] openSubChatForChange changeId=${input.changeId} outcome=promoted-default subChatId=${promoted.id}`
+          );
+          return promoted;
+        }
+      }
+
       try {
         const created = db
           .insert(subChats)
           .values({
             chatId: input.chatId,
             name,
-            mode: 'plan',
-            openspecChangeId: input.changeId,
-            messages: '[]'
+            mode: 'execute',
+            openspecChangeId: input.changeId
           })
           .returning()
           .get();

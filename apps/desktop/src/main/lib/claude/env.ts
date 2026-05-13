@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { getDefaultShell, isWindows, platform } from '../platform';
+import { buildOpenspecEnvOverrides, getOpenspecBinDir } from '../openspec/openspec-bin-path';
 
 // Cache the shell environment
 let cachedShellEnv: Record<string, string> | null = null;
@@ -264,6 +265,13 @@ export function buildClaudeEnv(options?: {
   env.CLAUDE_CODE_ENTRYPOINT = 'sdk-ts';
   // Enable/disable task management tools based on user preference (default: enabled)
   env.CLAUDE_CODE_ENABLE_TASKS = options?.enableTasks !== false ? 'true' : 'false';
+
+  // 6. Inject bundled openspec shim into PATH so agents can call `openspec ...` directly
+  const openspecBinDir = getOpenspecBinDir();
+  if (fs.existsSync(openspecBinDir)) {
+    env.PATH = `${openspecBinDir}${path.delimiter}${env.PATH || ''}`;
+  }
+  Object.assign(env, buildOpenspecEnvOverrides());
 
   return env;
 }

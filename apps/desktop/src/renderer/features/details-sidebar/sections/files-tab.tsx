@@ -20,9 +20,12 @@ import {
 import { RenameDialog } from '@/components/rename-dialog';
 import { preferredEditorAtom } from '@/lib/atoms';
 import { getAppOption } from '@/components/open-in-button';
+import { getFileManagerUiMeta } from '@/lib/utils/file-manager';
 import { getFileIconByExtension } from '../../agents/mentions/agents-file-mention';
+import { getStatusColor } from '../../changes/utils/status';
 import { spotlightOpenAtom } from '../../spotlight/atoms';
 import { fileTreeExpandedAtomFamily } from '../atoms';
+import type { FileStatus } from '../../../../shared/changes-types';
 
 // ============================================================================
 // Types
@@ -160,6 +163,7 @@ const TreeNode = memo(function TreeNode({
   isExpanded,
   editorLabel,
   isPathExpanded,
+  getNodeStatus,
   onToggleExpand,
   onActivate,
   onFocus,
@@ -175,12 +179,15 @@ const TreeNode = memo(function TreeNode({
   editorLabel: string;
   /** Callback to check if a child path is expanded */
   isPathExpanded: (path: string) => boolean;
+  /** Callback to get git status for a node (file or folder); null = unchanged */
+  getNodeStatus: (path: string, type: 'file' | 'folder') => FileStatus | null;
   onToggleExpand: (path: string) => void;
   onActivate: (path: string) => void;
   onFocus: (path: string) => void;
   onContextAction: (action: string, node: FileTreeNode) => void;
   treeRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const fileManager = getFileManagerUiMeta();
   const isFolder = node.type === 'folder' && !!node.children;
   const isFocused = focusedPath === node.path;
   const isActive = !isFocused && activePath === node.path;
@@ -209,6 +216,7 @@ const TreeNode = memo(function TreeNode({
   }, [isFolder, onToggleExpand, onActivate, onFocus, node.path, treeRef]);
 
   const FileIcon = !isFolder ? (getFileIconByExtension(node.name) ?? UnknownFileIcon) : null;
+  const nodeStatus = getNodeStatus(node.path, node.type);
 
   return (
     <>
@@ -256,7 +264,14 @@ const TreeNode = memo(function TreeNode({
                 FileIcon && <FileIcon className="size-3.5 text-muted-foreground" />
               )}
             </span>
-            <span className="text-xs truncate min-w-0 ml-1.5">{node.name}</span>
+            <span
+              className={cn(
+                'text-xs truncate min-w-0 ml-1.5',
+                nodeStatus && getStatusColor(nodeStatus),
+                nodeStatus === 'deleted' && 'line-through opacity-70'
+              )}>
+              {node.name}
+            </span>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-52">
@@ -269,7 +284,9 @@ const TreeNode = memo(function TreeNode({
           <ContextMenuItem onClick={() => onContextAction('mention', node)}>Add to Chat Context</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onContextAction('open-editor', node)}>Open in {editorLabel}</ContextMenuItem>
-          <ContextMenuItem onClick={() => onContextAction('reveal-finder', node)}>Reveal in Finder</ContextMenuItem>
+          <ContextMenuItem onClick={() => onContextAction('reveal-finder', node)}>
+            {fileManager.revealLabel}
+          </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onContextAction('copy-path', node)}>Copy Path</ContextMenuItem>
           <ContextMenuItem onClick={() => onContextAction('copy-relative', node)}>Copy Relative Path</ContextMenuItem>
@@ -295,6 +312,7 @@ const TreeNode = memo(function TreeNode({
             isExpanded={child.type === 'folder' && !!child.children && isPathExpanded(child.path)}
             editorLabel={editorLabel}
             isPathExpanded={isPathExpanded}
+            getNodeStatus={getNodeStatus}
             onToggleExpand={onToggleExpand}
             onActivate={onActivate}
             onFocus={onFocus}
@@ -392,6 +410,60 @@ export const FilesTab = memo(
     } = trpc.files.search.useQuery(
       { projectPath: worktreePath || '', query: '', limit: 5000, typeFilter: 'file' },
       { enabled: !!worktreePath, staleTime: 10000 }
+    );
+
+    // Git status powers the changed-file/folder highlight overlay.
+    const { data: gitStatus, refetch: refetchGitStatus } = trpc.changes.getStatus.useQuery(
+      { worktreePath: worktreePath || '' },
+      { enabled: !!worktreePath, staleTime: 5000, refetchOnWindowFocus: true }
+    );
+
+    // path -> FileStatus for files; later entries override earlier ones so the most
+    // user-visible bucket wins (untracked > unstaged > staged > againstBase).
+    const fileStatusByPath = useMemo(() => {
+      const m = new Map<string, FileStatus>();
+      if (!gitStatus) return m;
+      for (const f of gitStatus.againstBase) m.set(f.path, f.status);
+      for (const f of gitStatus.staged) m.set(f.path, f.status);
+      for (const f of gitStatus.unstaged) m.set(f.path, f.status);
+      for (const f of gitStatus.untracked) m.set(f.path, 'untracked');
+      return m;
+    }, [gitStatus]);
+
+    // path -> FileStatus for folders, derived by walking up from changed files.
+    // Mirrors VS Code's gutter precedence: deleted > modified/renamed/copied > added/untracked.
+    const folderStatusByPath = useMemo(() => {
+      const m = new Map<string, FileStatus>();
+      const rank: Record<FileStatus, number> = {
+        deleted: 4,
+        modified: 3,
+        renamed: 3,
+        copied: 3,
+        added: 2,
+        untracked: 2
+      };
+      for (const [p, st] of fileStatusByPath) {
+        let cur = p;
+        while (true) {
+          const i = cur.lastIndexOf('/');
+          if (i < 0) break;
+          cur = cur.slice(0, i);
+          const existing = m.get(cur);
+          if (!existing || rank[st] > rank[existing]) m.set(cur, st);
+        }
+      }
+      return m;
+    }, [fileStatusByPath]);
+
+    // Recreated whenever git status changes so memoized TreeNodes re-render and
+    // pick up new colors. Git status only flips on file system events, so this
+    // isn't a hot-path concern.
+    const getNodeStatus = useCallback(
+      (path: string, type: 'file' | 'folder'): FileStatus | null => {
+        const map = type === 'folder' ? folderStatusByPath : fileStatusByPath;
+        return map.get(path) ?? null;
+      },
+      [fileStatusByPath, folderStatusByPath]
     );
 
     const filteredFiles = useMemo(() => {
@@ -497,13 +569,18 @@ export const FilesTab = memo(
 
       try {
         await clearCacheMutation.mutateAsync({ projectPath: worktreePath });
-        const result = await refetchFiles({ throwOnError: true });
+        // Invalidate any other consumers of files.search (spotlight, search tab).
+        await trpcUtils.files.search.invalidate();
+        const [result] = await Promise.all([
+          refetchFiles({ throwOnError: true }),
+          refetchGitStatus() // refresh the changed-file highlight overlay too
+        ]);
         if (result.error) throw result.error;
       } catch (error) {
         const description = error instanceof Error ? error.message : 'Unknown error';
         toast.error('Failed to refresh files', { description });
       }
-    }, [worktreePath, clearCacheMutation, refetchFiles]);
+    }, [worktreePath, clearCacheMutation, refetchFiles, refetchGitStatus, trpcUtils]);
 
     // Expose actions to parent
     useImperativeHandle(
@@ -841,6 +918,7 @@ export const FilesTab = memo(
                   isExpanded={node.type === 'folder' && !!node.children && effectiveExpandedPaths.has(node.path)}
                   editorLabel={editorLabel}
                   isPathExpanded={isPathExpanded}
+                  getNodeStatus={getNodeStatus}
                   onToggleExpand={toggleExpand}
                   onActivate={activateFile}
                   onFocus={setFocusedPath}

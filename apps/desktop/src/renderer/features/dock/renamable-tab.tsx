@@ -48,7 +48,9 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
   const [isActive, setIsActive] = useState(api.isActive);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
-  const [chatPanelCount, setChatPanelCount] = useState(() => countChatPanels(containerApi.panels));
+  const [conversationPanelCount, setConversationPanelCount] = useState(() =>
+    countConversationPanels(containerApi.panels)
+  );
   const [totalPanelCount, setTotalPanelCount] = useState(() => containerApi.panels.length);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -80,14 +82,13 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
     return () => sub.dispose();
   }, [api]);
 
-  // Track the chat-panel count so the close X on the *last* chat tab can be
-  // disabled — there must always be at least one chat open while a workspace
-  // is selected. Also track the total panel count so the close X on the
-  // *only* tab (any kind) is disabled — closing the last panel would leave
-  // dockview empty.
+  // Track the conversation-panel count so the close X on the *last* chat or
+  // OpenSpec editor can be disabled. Also track the total panel count so the
+  // close X on the *only* tab (any kind) is disabled — closing the last
+  // panel would leave dockview empty.
   useEffect(() => {
     const recount = () => {
-      setChatPanelCount(countChatPanels(containerApi.panels));
+      setConversationPanelCount(countConversationPanels(containerApi.panels));
       setTotalPanelCount(containerApi.panels.length);
     };
     recount();
@@ -113,15 +114,14 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
 
   const kind = panelKind(api.id);
   // Disable the close X in two cases:
-  // 1. The last chat tab — there's no useful "close this and stay on
-  //    something" state to land in. The archive flow in
-  //    [chat-tab-archive.tsx] stays wired as a safeguard for keyboard /
-  //    programmatic clicks.
+  // 1. The last chat/OpenSpec tab — there must always be at least one
+  //    conversation surface open per workspace.
   // 2. The only tab in dockview, of any kind. Closing it would leave the
   //    center cell empty.
-  const isLastChat = kind === 'chat' && chatPanelCount <= 1;
+  const isConversationPanel = api.id.startsWith('chat:') || api.id.startsWith('openspec-change:');
+  const isLastConversation = isConversationPanel && conversationPanelCount <= 1;
   const isOnlyPanel = totalPanelCount <= 1;
-  const closeDisabled = isLastChat || isOnlyPanel;
+  const closeDisabled = isLastConversation || isOnlyPanel;
 
   const startEdit = () => {
     if (!kind) return;
@@ -163,10 +163,16 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
       )}
       <button
         type="button"
-        aria-label={closeDisabled ? (isLastChat ? 'Cannot close last chat' : 'Cannot close last tab') : 'Close tab'}
+        aria-label={
+          closeDisabled
+            ? isLastConversation
+              ? 'Cannot close last chat or OpenSpec editor'
+              : 'Cannot close last tab'
+            : 'Close tab'
+        }
         title={
-          isLastChat
-            ? 'Use the chats list to archive this workspace'
+          isLastConversation
+            ? 'At least one chat or OpenSpec editor must stay open'
             : isOnlyPanel
               ? 'At least one tab must stay open'
               : undefined
@@ -174,11 +180,8 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
         disabled={closeDisabled}
         onClick={(e) => {
           e.stopPropagation();
-          // Chat tabs go through the archive flow — last chat would show
-          // the workspace archive confirm dialog (safeguard) and other
-          // chat tabs are silently dropped from openSubChatIds. Non-chat
-          // panels (terminal / file / plan / diff / search / files-tree)
-          // close immediately like before.
+          // Chat tabs go through the archive flow. OpenSpec panels close
+          // directly and DockShell mirrors that into openSubChatIds.
           if (closeDisabled) return;
           if (kind === 'chat') {
             requestArchiveChatTab(api.id);
@@ -201,9 +204,11 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
   );
 }
 
-function countChatPanels(panels: { id: string }[]): number {
+function countConversationPanels(panels: { id: string }[]): number {
   let n = 0;
-  for (const p of panels) if (p.id.startsWith('chat:')) n++;
+  for (const p of panels) {
+    if (p.id.startsWith('chat:') || p.id.startsWith('openspec-change:')) n++;
+  }
   return n;
 }
 

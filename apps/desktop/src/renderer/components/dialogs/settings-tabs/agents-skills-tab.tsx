@@ -32,7 +32,7 @@ interface UnifiedItem {
   kind: 'skill' | 'command';
   name: string;
   description: string;
-  source: 'user' | 'project' | 'plugin';
+  source: 'builtin' | 'user' | 'project' | 'plugin';
   pluginName?: string;
   path: string;
   content: string;

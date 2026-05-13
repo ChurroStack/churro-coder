@@ -6,7 +6,13 @@ const mocks = vi.hoisted(() => ({
   createChatMutateAsync: vi.fn(async () => ({ id: 'new-chat-1' })),
   openspecQuery: vi.fn(),
   projectsListQuery: vi.fn(),
-  openSubChatForChangeMutateAsync: vi.fn(async () => ({ id: 'sc-1', name: 'Spec', mode: 'plan' }))
+  openspecInitMutateAsync: vi.fn(async () => ({
+    targetRoot: '/test/project',
+    tools: ['claude', 'codex'],
+    alreadyInitialized: false
+  })),
+  createOpenSpecChangeMutateAsync: vi.fn(async () => ({ ok: true })),
+  openSubChatForChangeMutateAsync: vi.fn(async () => ({ id: 'sc-1', name: 'Spec', mode: 'execute' }))
 }));
 
 // Stub the file-viewer component that transitively imports monaco-editor,
@@ -40,10 +46,24 @@ vi.mock('../../../lib/trpc', () => {
             mutateAsync: mocks.createChatMutateAsync,
             isPending: false
           }))
+        },
+        openspecInit: {
+          useMutation: vi.fn(() => ({
+            mutate: vi.fn(),
+            mutateAsync: mocks.openspecInitMutateAsync,
+            isPending: false
+          }))
         }
       },
       openspec: {
         listChanges: { useQuery: mocks.openspecQuery },
+        createChange: {
+          useMutation: vi.fn(() => ({
+            mutate: vi.fn(),
+            mutateAsync: mocks.createOpenSpecChangeMutateAsync,
+            isPending: false
+          }))
+        },
         openSubChatForChange: {
           useMutation: vi.fn(() => ({
             mutate: vi.fn(),
@@ -81,6 +101,8 @@ import { selectedProjectAtom } from '../atoms';
 import { TooltipProvider } from '../../../components/ui/tooltip';
 import { NewChatForm } from './new-chat-form';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
+import { appStore } from '../../../lib/jotai-store';
+import { pendingOpenSpecMessageAtom } from '../../openspec/atoms';
 
 afterEach(cleanup);
 
@@ -89,8 +111,13 @@ const mockProject = { id: 'p1', name: 'Test Project', path: '/test/project' };
 function makeChange(id: string): ChangeSummary {
   return {
     changeId: id,
+    path: `/test/project/openspec/changes/${id}`,
+    hasProposal: true,
+    hasTasks: false,
+    hasDesign: false,
+    capabilities: [],
     modifiedAt: new Date().toISOString(),
-    proposal: { title: `Spec ${id}`, why: `Because ${id}`, tasks: [], attributes: {} }
+    proposal: { changeId: id, title: `Spec ${id}`, why: `Because ${id}`, whatChanges: [], attributes: {} }
   };
 }
 
@@ -98,7 +125,10 @@ beforeEach(() => {
   localStorage.clear();
   mocks.createChatMutate.mockClear();
   mocks.createChatMutateAsync.mockClear();
+  mocks.openspecInitMutateAsync.mockClear();
+  mocks.createOpenSpecChangeMutateAsync.mockClear();
   mocks.openSubChatForChangeMutateAsync.mockClear();
+  appStore.set(pendingOpenSpecMessageAtom, null);
   // Default: no project in projects list
   mocks.projectsListQuery.mockReturnValue({ data: [], isLoading: false, isError: false });
   // Default: no openspec changes
@@ -233,6 +263,44 @@ describe('NewChatForm — with project', () => {
       fireEvent.click(getAllByText('Spec c6')[0]!);
     });
     expect(mocks.openSubChatForChangeMutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('submitting spec-driven without an existing change initializes OpenSpec, opens a change, and queues propose', async () => {
+    const { container, getByText } = renderWithProject();
+
+    await act(async () => {
+      fireEvent.click(getByText('Spec-driven'));
+    });
+
+    const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
+    expect(editor).not.toBeNull();
+    await act(async () => {
+      editor!.textContent = 'Build the payment flow';
+      fireEvent.input(editor!);
+    });
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+
+    expect(mocks.createChatMutate).not.toHaveBeenCalled();
+    expect(mocks.createChatMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ initialMessageParts: [], mode: 'execute' })
+    );
+    expect(mocks.openspecInitMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ chatId: 'new-chat-1' }));
+    expect(mocks.createOpenSpecChangeMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: 'new-chat-1', changeId: 'add-build-the-payment-flow' })
+    );
+    expect(mocks.openSubChatForChangeMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: 'new-chat-1', changeId: 'add-build-the-payment-flow' })
+    );
+    expect(appStore.get(pendingOpenSpecMessageAtom)).toEqual(
+      expect.objectContaining({
+        subChatId: 'sc-1',
+        message: expect.stringContaining('Build the payment flow')
+      })
+    );
   });
 
   it('clicking send after typing text calls mutate with a text message part', async () => {

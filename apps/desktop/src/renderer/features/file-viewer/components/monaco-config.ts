@@ -23,9 +23,8 @@ self.MonacoEnvironment = {
 // Required for Electron apps due to CSP restrictions
 loader.config({ monaco });
 
-// Default editor options for read-only file viewing
+// Default editor options for file viewing/editing
 export const defaultEditorOptions: editor.IStandaloneEditorConstructionOptions = {
-  readOnly: true,
   minimap: { enabled: true },
   lineNumbers: 'on',
   wordWrap: 'off',
@@ -69,6 +68,13 @@ export const defaultEditorOptions: editor.IStandaloneEditorConstructionOptions =
   mouseWheelZoom: true,
   'semanticHighlighting.enabled': true
 };
+
+export function getEditorOptions(readOnly: boolean): editor.IStandaloneEditorConstructionOptions {
+  return {
+    ...defaultEditorOptions,
+    readOnly
+  };
+}
 
 // Map app theme to Monaco base theme
 export function getMonacoTheme(appTheme: string): string {

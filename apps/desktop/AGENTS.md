@@ -111,6 +111,20 @@ For the full annotated tree (renderer features, dock subsystem, agent layers), s
 
 ## Gotchas
 
+### Sandbox writable-path changes must be verified across all providers
+
+The agent sandbox (which paths the OS allows writes to) is configured separately per provider:
+
+- **Claude** — `src/main/lib/trpc/routers/claude.ts` calls `resolveSandboxPolicy(...)` then `writeSandboxSettingsFile(cwd, sandboxPolicy)`. Writable roots come from `sandboxPolicy.writableRootsExpanded`.
+- **Codex** — `src/main/lib/trpc/routers/codex.ts` calls `resolveSandboxPolicy(...)`, then passes `writableRootsExpanded` through `resolveOpenSpecCodexToolConfig` → `buildCodexTurnConfig` → `buildCodexWorkspaceWriteSandboxPolicy` or `buildCodexSandboxPolicy`. The `forceWritableRoots` path bypasses the mode check entirely.
+
+Both ultimately derive their writable root set from `buildWritableRoots` in `src/main/lib/sandbox/policy.ts`, which is the single source of truth. **Any change to that function, or to how either router filters/augments its output, must be cross-checked against the other router** — a fix applied only to `codex.ts` will silently leave `claude.ts` (and any future provider) broken in the same way.
+
+Checklist when touching sandbox paths:
+1. Does `buildWritableRoots` in `policy.ts` include every path the change requires? If so, both providers benefit automatically.
+2. If a router adds or removes paths *after* calling `resolveSandboxPolicy`, verify the same adjustment is made (or is intentionally absent) in every other router.
+3. For OpenSpec-specific restrictions (`resolveOpenSpecCodexToolConfig`), confirm that `evaluateOpenSpecToolPolicy` enforces the equivalent rule on the Claude side so both providers block the same tool calls.
+
 ### Electron drag regions (`WebkitAppRegion`)
 
 The frameless window relies on `WebkitAppRegion: 'drag'` (inline style; the type augmentation lives at `src/renderer/css.d.ts`) to mark areas that move the window. Any interactive control rendered **inside or under** a drag region is non-clickable — the OS captures the click for window movement before the renderer sees it. To make a control clickable, add `style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}` to its wrapper.

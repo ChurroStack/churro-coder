@@ -31,5 +31,17 @@ coverage/
 # electron-vite temp files
 electron.vite.config.*.mjs
 
-# Claude binary (downloaded at build time)
+# CLI binaries (downloaded at build time)
 resources/bin/
+resources/openspec/pkg/
+resources/openspec/OPENSPEC_VERSION
+resources/openspec/.extract/
+
+# Hand-written OpenSpec CLI shim scripts (override the root **/[Bb]in/* rule).
+# These are source files, not build artifacts — they must ship with the app
+# so process.defaultApp=true is set before Commander parses argv inside the
+# Electron-as-Node child process.
+!resources/openspec/bin/
+!resources/openspec/bin/openspec
+!resources/openspec/bin/openspec.cmd
+!resources/openspec/bin/openspec-electron-entry.mjs

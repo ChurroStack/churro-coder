@@ -85,14 +85,32 @@ vi.mock('../../../lib/trpc', () => {
             mutateAsync: vi.fn(async () => ({ id: 'new-chat-1' })),
             isPending: false
           }))
+        },
+        openspecInit: {
+          useMutation: vi.fn(() => ({
+            mutate: vi.fn(),
+            mutateAsync: vi.fn(async () => ({
+              targetRoot: '/test/project',
+              tools: ['claude', 'codex'],
+              alreadyInitialized: false
+            })),
+            isPending: false
+          }))
         }
       },
       openspec: {
         listChanges: { useQuery: vi.fn(() => ({ data: [], isLoading: false, isError: false })) },
+        createChange: {
+          useMutation: vi.fn(() => ({
+            mutate: vi.fn(),
+            mutateAsync: vi.fn(async () => ({ ok: true })),
+            isPending: false
+          }))
+        },
         openSubChatForChange: {
           useMutation: vi.fn(() => ({
             mutate: vi.fn(),
-            mutateAsync: vi.fn(async () => ({ id: 'sc-1', name: 'Spec', mode: 'plan' })),
+            mutateAsync: vi.fn(async () => ({ id: 'sc-1', name: 'Spec', mode: 'execute' })),
             isPending: false
           }))
         }

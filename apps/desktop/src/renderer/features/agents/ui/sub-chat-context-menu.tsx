@@ -14,6 +14,7 @@ import type { SubChatMeta } from '../stores/sub-chat-store';
 import { useResolvedHotkeyDisplay } from '../../../lib/hotkeys';
 import { exportChat, copyChat, type ExportFormat } from '../lib/export-chat';
 import { toast } from 'sonner';
+import { trpc } from '../../../lib/trpc';
 
 const openInNewWindow = async (chatId: string, subChatId: string, projectId?: string | null) => {
   const result = await window.desktopApi?.newWindow({ chatId, subChatId, projectId: projectId ?? undefined });
@@ -116,6 +117,24 @@ export function SubChatContextMenu({
     [chatId, subChat.id]
   );
 
+  const openspecInitMutation = trpc.chats.openspecInit.useMutation({
+    onSuccess: ({ targetRoot, alreadyInitialized }) => {
+      if (alreadyInitialized) {
+        toast.info('OpenSpec already initialized', { description: targetRoot });
+      } else {
+        toast.success('OpenSpec initialized', { description: targetRoot });
+      }
+    },
+    onError: (err) => {
+      toast.error('Failed to initialize OpenSpec', { description: err.message });
+    }
+  });
+
+  const handleOpenspecInit = useCallback(() => {
+    if (!chatId) return;
+    openspecInitMutation.mutate({ chatId });
+  }, [chatId, openspecInitMutation]);
+
   return (
     <ContextMenuContent className="w-48">
       <ContextMenuItem onClick={() => onTogglePin(subChat.id)}>{isPinned ? 'Unpin chat' : 'Pin chat'}</ContextMenuItem>
@@ -137,6 +156,11 @@ export function SubChatContextMenu({
       {isDesktopApp() && chatId && (
         <ContextMenuItem onClick={() => openInNewWindow(chatId, subChat.id, projectId)}>
           Open in new window
+        </ContextMenuItem>
+      )}
+      {chatId && (
+        <ContextMenuItem onClick={handleOpenspecInit} disabled={openspecInitMutation.isPending}>
+          {openspecInitMutation.isPending ? 'Initializing OpenSpec…' : 'Initialize OpenSpec…'}
         </ContextMenuItem>
       )}
       {isSplitTab ? (

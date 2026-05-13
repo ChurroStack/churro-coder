@@ -7,12 +7,13 @@ import matter from 'gray-matter';
 import { discoverInstalledPlugins, getPluginComponentPaths } from '../../plugins';
 import { resolveDirentType } from '../../fs/dirent';
 import { getEnabledPlugins } from './claude-settings';
+import { BUILTIN_COMMAND_PATH_PREFIX, OPENSPEC_BUILTIN_COMMANDS } from '../../openspec/builtin-commands';
 
 export interface FileCommand {
   name: string;
   description: string;
   argumentHint?: string;
-  source: 'user' | 'project' | 'plugin';
+  source: 'builtin' | 'user' | 'project' | 'plugin';
   pluginName?: string;
   path: string;
   content: string;
@@ -125,6 +126,16 @@ async function scanCommandsDirectory(
   return commands;
 }
 
+async function hasOpenSpecProject(projectPath?: string): Promise<boolean> {
+  if (!projectPath) return false;
+  try {
+    const stat = await fs.stat(path.join(projectPath, 'openspec'));
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Generate command .md content from name, description, and body
  */
@@ -170,7 +181,8 @@ export const commandsRouter = router({
     .input(
       z
         .object({
-          projectPath: z.string().optional()
+          projectPath: z.string().optional(),
+          includeBuiltin: z.boolean().optional().default(false)
         })
         .optional()
     )
@@ -207,9 +219,11 @@ export const commandsRouter = router({
         ...pluginCommandsPromises
       ]);
       const pluginCommands = pluginCommandsArrays.flat();
+      const builtinCommands =
+        input?.includeBuiltin && (await hasOpenSpecProject(input.projectPath)) ? OPENSPEC_BUILTIN_COMMANDS : [];
 
-      // Project commands first (more specific), then user commands, then plugin commands
-      return [...projectCommands, ...userCommands, ...pluginCommands];
+      // Local/plugin commands come first so teams can override builtin names.
+      return [...projectCommands, ...userCommands, ...pluginCommands, ...builtinCommands];
     }),
 
   /**
@@ -224,6 +238,10 @@ export const commandsRouter = router({
       }
 
       try {
+        if (input.path.startsWith(BUILTIN_COMMAND_PATH_PREFIX)) {
+          const builtin = OPENSPEC_BUILTIN_COMMANDS.find((cmd) => cmd.path === input.path);
+          return { content: builtin?.content.trim() ?? '' };
+        }
         const absolutePath = resolveCommandPath(input.path, input.projectPath);
         const content = await fs.readFile(absolutePath, 'utf-8');
         const { content: body } = matter(content);

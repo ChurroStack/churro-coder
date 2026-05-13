@@ -158,9 +158,12 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   const handleOpenFile = useCallback(
     (absolutePath: string) => {
       if (!dockApi) return;
-      addOrFocus(dockApi, { kind: 'file', data: { absolutePath } });
+      addOrFocus(dockApi, {
+        kind: 'file',
+        data: { absolutePath, subChatId: activeSubChatId ?? undefined }
+      });
     },
-    [dockApi]
+    [dockApi, activeSubChatId]
   );
 
   // Status widget — workflow state + dispatch

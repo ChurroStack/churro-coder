@@ -32,7 +32,7 @@ export interface AgentData {
   model?: AgentModel;
   // The backend `agents.listEnabled` query returns "user" | "project" | "plugin"
   // — accept all three even though the picker UI only renders the first two.
-  source: 'user' | 'project' | 'plugin';
+  source: 'builtin' | 'user' | 'project' | 'plugin';
   path: string;
 }
 

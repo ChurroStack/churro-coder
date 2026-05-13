@@ -27,6 +27,13 @@ import {
   subChatClaudeThinkingAtomFamily,
   subChatModelIdAtomFamily
 } from '../atoms';
+import {
+  openSpecCurrentStepAtomFamily,
+  openSpecLastSentStepAtomFamily,
+  openSpecSidebarContextAtomFamily,
+  openSpecSkipNextStepPrefixAtomFamily
+} from '../../openspec/atoms';
+import { buildOpenSpecStepPrefixedPrompt } from '../../openspec/step-prefix';
 import { setSubChatModel } from './model-switching';
 import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
 import type { AgentMessageMetadata } from '../ui/agent-message-usage';
@@ -132,8 +139,26 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
   }): Promise<ReadableStream<UIMessageChunk>> {
     // Extract prompt and images from last user message
     const lastUser = [...options.messages].reverse().find((m) => m.role === 'user');
-    const prompt = this.extractText(lastUser);
+    let prompt = this.extractText(lastUser);
     const images = this.extractImages(lastUser);
+
+    const openSpecContext = appStore.get(openSpecSidebarContextAtomFamily(this.config.subChatId));
+    const skipPrefix = appStore.get(openSpecSkipNextStepPrefixAtomFamily(this.config.subChatId));
+    if (skipPrefix) appStore.set(openSpecSkipNextStepPrefixAtomFamily(this.config.subChatId), false);
+    if (openSpecContext && !skipPrefix) {
+      const currentStep = appStore.get(openSpecCurrentStepAtomFamily(this.config.subChatId));
+      const lastSentStep = appStore.get(openSpecLastSentStepAtomFamily(this.config.subChatId));
+      const prefixed = buildOpenSpecStepPrefixedPrompt({
+        prompt,
+        context: openSpecContext,
+        currentStep,
+        lastSentStep
+      });
+      prompt = prefixed.prompt;
+      if (prefixed.sentStep) {
+        appStore.set(openSpecLastSentStepAtomFamily(this.config.subChatId), prefixed.sentStep);
+      }
+    }
 
     // Get sessionId for resume (server preserves sessionId on abort so
     // the next message can resume with full conversation context)

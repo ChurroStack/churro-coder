@@ -22,7 +22,7 @@ export interface SkillData {
   name: string;
   description: string;
   // skills.listEnabled may return "plugin"-sourced skills — accept all three.
-  source: 'user' | 'project' | 'plugin';
+  source: 'builtin' | 'user' | 'project' | 'plugin';
   path: string;
 }
 

@@ -46,7 +46,7 @@ export const AgentsSlashCommand = memo(function AgentsSlashCommand({
 
   // Fetch custom commands from filesystem
   const { data: fileCommands = [], isLoading } = trpc.commands.list.useQuery(
-    { projectPath },
+    { projectPath, includeBuiltin: true },
     {
       enabled: isOpen,
       staleTime: 30_000, // Cache for 30 seconds

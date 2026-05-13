@@ -4,6 +4,7 @@ import type { DockviewApi } from 'dockview-react';
 import { useAgentSubChatStore, type SubChatMeta } from '../agents/stores/sub-chat-store';
 import { pendingOpenSpecPanelAtom } from '../openspec/atoms';
 import { addOrFocus } from './add-or-focus';
+import type { PanelEntity } from './atoms';
 
 /**
  * ChatPanelSync — keeps a workspace's dockview chat panels (`chat:*`) in
@@ -42,8 +43,27 @@ interface DbSubChat {
   id: string;
   name: string | null;
   mode?: 'plan' | 'execute' | 'explore' | null;
+  openspecChangeId?: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+function toOpenSpecChangePath(changeId: string, explicitPath?: string): string {
+  return explicitPath || `openspec/changes/${changeId}`;
+}
+
+function panelEntityForSubChat(workspaceId: string, subChatId: string, subChat?: SubChatMeta): PanelEntity {
+  return {
+    kind: 'chat',
+    data: {
+      subChatId,
+      chatId: workspaceId,
+      name: subChat?.name,
+      projectId: subChat?.projectId,
+      openspecChangeId: subChat?.openspecChangeId,
+      openspecChangePath: subChat?.openspecChangePath
+    }
+  };
 }
 
 export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncProps) {
@@ -72,6 +92,7 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
         if (cancelled) return;
 
         const dbSubChats: DbSubChat[] = Array.isArray(snapshot?.subChats) ? snapshot.subChats : [];
+        const projectId = typeof snapshot?.project?.id === 'string' ? snapshot.project.id : undefined;
         const store = useAgentSubChatStore.getState();
         const existingMap = new Map(store.allSubChats.map((sc) => [sc.id, sc]));
         const hydratedIds = new Set<string>();
@@ -85,7 +106,12 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
             name: sc.name || 'New Chat',
             created_at: sc.createdAt ?? existing?.created_at ?? now,
             updated_at: sc.updatedAt ?? existing?.updated_at,
-            mode: (sc.mode as 'plan' | 'execute' | 'explore' | undefined) || existing?.mode || 'plan'
+            mode: (sc.mode as 'plan' | 'execute' | 'explore' | undefined) || existing?.mode || 'plan',
+            projectId: projectId ?? existing?.projectId,
+            openspecChangeId: sc.openspecChangeId ?? existing?.openspecChangeId ?? null,
+            openspecChangePath:
+              (sc.openspecChangeId ? `openspec/changes/${sc.openspecChangeId}` : undefined) ??
+              existing?.openspecChangePath
           };
         });
 
@@ -97,7 +123,10 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
               name: existing?.name || 'New Chat',
               created_at: existing?.created_at ?? now,
               updated_at: existing?.updated_at,
-              mode: existing?.mode ?? 'plan'
+              mode: existing?.mode ?? 'plan',
+              projectId: existing?.projectId ?? projectId,
+              openspecChangeId: existing?.openspecChangeId ?? null,
+              openspecChangePath: existing?.openspecChangePath
             });
           }
         }
@@ -106,7 +135,13 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
           hydrated.length === store.allSubChats.length &&
           hydrated.every((sc) => {
             const prev = existingMap.get(sc.id);
-            return prev?.name === sc.name && prev?.mode === sc.mode;
+            return (
+              prev?.name === sc.name &&
+              prev?.mode === sc.mode &&
+              prev?.projectId === sc.projectId &&
+              prev?.openspecChangeId === sc.openspecChangeId &&
+              prev?.openspecChangePath === sc.openspecChangePath
+            );
           });
         if (!identical) store.setAllSubChats(hydrated);
       })
@@ -125,6 +160,7 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
     if (workspaceId !== null) return;
     for (const panel of dockApi.panels) {
       if (panel.id.startsWith('chat:')) panel.api.close();
+      if (panel.id.startsWith('openspec-change:')) panel.api.close();
     }
     if (!dockApi.getPanel('main')) {
       dockApi.addPanel({
@@ -152,33 +188,33 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
       if (main) main.api.close();
     }
 
+    const expectedPanelIds = new Set<string>();
     for (const subChatId of openSubChatIds) {
-      const id = `chat:${subChatId}`;
       const sc = allSubChats.find((x) => x.id === subChatId);
+      const entity = panelEntityForSubChat(workspaceId, subChatId, sc);
+      const id = `chat:${subChatId}`;
+      expectedPanelIds.add(id);
+
+      // Close any legacy openspec-change:* panel from the old routing scheme.
+      if (sc?.openspecChangeId) {
+        const legacyOpenSpecPanel = dockApi.getPanel(`openspec-change:${sc.openspecChangeId}`);
+        if (legacyOpenSpecPanel) legacyOpenSpecPanel.api.close();
+      }
+
       const nextTitle = sc?.name || 'New Chat';
       const existing = dockApi.getPanel(id);
       if (existing) {
-        if (sc && existing.api.title !== nextTitle) {
+        if (existing.api.title !== nextTitle) {
           existing.api.setTitle(nextTitle);
         }
         continue;
       }
-      dockApi.addPanel({
-        id,
-        component: 'chat',
-        title: nextTitle,
-        params: {
-          subChatId,
-          chatId: workspaceId,
-          name: sc?.name
-        }
-      });
+      addOrFocus(dockApi, entity);
     }
 
     for (const panel of dockApi.panels) {
-      if (!panel.id.startsWith('chat:')) continue;
-      const subChatId = panel.id.slice('chat:'.length);
-      if (!openSubChatIds.includes(subChatId)) {
+      if (!panel.id.startsWith('chat:') && !panel.id.startsWith('openspec-change:')) continue;
+      if (!expectedPanelIds.has(panel.id)) {
         panel.api.close();
       }
     }
@@ -193,7 +229,8 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
     if (panel && !panel.api.isActive) panel.api.setActive();
   }, [active, dockApi, workspaceId, storeChatId, activeSubChatId]);
 
-  // Effect (4) — pending OpenSpec panel → open once this workspace's dockview is ready.
+  // Effect (4) — pending OpenSpec change → open the same chat:<subChatId>
+  // panel route once this workspace's dockview is ready.
   // Written by handleSelectSpec/handleSend in new-chat-form.tsx via pendingOpenSpecPanelAtom.
   // Using the atom instead of calling addOrFocus directly avoids the stale captured-dockApi
   // problem: the form callback captures the null-workspace dock, but this effect runs inside
@@ -202,9 +239,50 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
   useEffect(() => {
     if (!active || !dockApi || !pendingPanel) return;
     if (pendingPanel.chatId !== workspaceId) return;
-    addOrFocus(dockApi, { kind: 'openspec-change', data: pendingPanel });
+    if (storeChatId !== workspaceId) return;
+    const store = useAgentSubChatStore.getState();
+    const pendingMeta: SubChatMeta = {
+      id: pendingPanel.subChatId,
+      name: pendingPanel.name || pendingPanel.changeId,
+      created_at: new Date().toISOString(),
+      mode: 'execute',
+      projectId: pendingPanel.projectId,
+      openspecChangeId: pendingPanel.changeId,
+      openspecChangePath: pendingPanel.changePath || `openspec/changes/${pendingPanel.changeId}`
+    };
+    if (store.allSubChats.some((sc) => sc.id === pendingPanel.subChatId)) {
+      store.setAllSubChats(
+        store.allSubChats.map((sc) =>
+          sc.id === pendingPanel.subChatId
+            ? {
+                ...sc,
+                name: !sc.name || sc.name === 'New Chat' ? pendingMeta.name : sc.name,
+                projectId: pendingMeta.projectId,
+                openspecChangeId: pendingMeta.openspecChangeId,
+                openspecChangePath: pendingMeta.openspecChangePath,
+                mode: sc.mode ?? pendingMeta.mode
+              }
+            : sc
+        )
+      );
+    } else {
+      store.addToAllSubChats(pendingMeta);
+    }
+    store.addToOpenSubChats(pendingPanel.subChatId, pendingPanel.chatId);
+    store.setActiveSubChat(pendingPanel.subChatId, pendingPanel.chatId);
+    addOrFocus(dockApi, {
+      kind: 'chat',
+      data: {
+        subChatId: pendingPanel.subChatId,
+        chatId: pendingPanel.chatId,
+        projectId: pendingPanel.projectId,
+        openspecChangeId: pendingPanel.changeId,
+        openspecChangePath: toOpenSpecChangePath(pendingPanel.changeId, pendingPanel.changePath),
+        name: pendingPanel.name || pendingPanel.changeId
+      }
+    });
     setPendingPanel(null);
-  }, [active, dockApi, pendingPanel, workspaceId, setPendingPanel]);
+  }, [active, dockApi, pendingPanel, workspaceId, storeChatId, setPendingPanel]);
 
   return null;
 }
