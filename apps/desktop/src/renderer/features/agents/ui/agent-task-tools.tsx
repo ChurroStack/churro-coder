@@ -2,7 +2,7 @@
 
 import { ChevronsUpDown } from 'lucide-react';
 import { useSetAtom } from 'jotai';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckIcon, PlanIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { cn } from '../../../lib/utils';
@@ -787,6 +787,16 @@ export const AgentTaskToolsGroup = memo(function AgentTaskToolsGroup({
   const taskToolsAtom = useMemo(() => currentTaskToolsAtomFamily(subChatId || 'default'), [subChatId]);
   const setTaskToolsState = useSetAtom(taskToolsAtom);
 
+  // Tracks the last JSON-serialized tasks pushed to the atom. Prevents the effect from
+  // writing on every render when content hasn't changed, which would trip React's
+  // max-update-depth safeguard during fast streaming (same pattern as agent-todo-tool.tsx).
+  const lastSyncedTasksRef = useRef<string>('');
+
+  // Reset the ref when the sub-chat changes so the first write for a new sub-chat is never suppressed.
+  useEffect(() => {
+    lastSyncedTasksRef.current = '';
+  }, [subChatId]);
+
   useEffect(() => {
     if (!subChatId) return;
 
@@ -813,6 +823,12 @@ export const AgentTaskToolsGroup = memo(function AgentTaskToolsGroup({
       if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
       return a.id.localeCompare(b.id);
     });
+    // Skip the atom write when content is identical to what was last pushed.
+    // This prevents redundant writes from multiple sibling AgentTaskToolsGroup instances
+    // during streaming from accumulating enough nested updates to trip React's 50-deep safeguard.
+    const serialized = JSON.stringify(tasks);
+    if (serialized === lastSyncedTasksRef.current) return;
+    lastSyncedTasksRef.current = serialized;
     setTaskToolsState({ tasks });
   }, [currentSnapshot, subChatId, setTaskToolsState]);
 
