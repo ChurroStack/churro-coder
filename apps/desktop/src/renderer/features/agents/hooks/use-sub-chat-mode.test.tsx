@@ -28,6 +28,11 @@ vi.mock('../../../lib/trpc', () => ({
         useQuery: vi.fn(() => ({ data: mockQueryData }))
       },
       updateSubChatMode: {
+        // Simplification: the mock calls `onSuccess` synchronously inside
+        // `mutate`, whereas the real tRPC mutation is fire-and-forget async.
+        // The fix under test only relies on `onSuccess` running after the DB
+        // write succeeds, so sync is sufficient. If the hook ever switches to
+        // `mutateAsync` (or awaits the mutation), revisit this mock.
         useMutation: vi.fn((opts?: MutationOpts) => {
           capturedMutationOpts = opts;
           return {
@@ -91,10 +96,15 @@ describe('useSubChatMode (cache-empty race)', () => {
 
   /**
    * Full-race scenario: the initial getSubChat fetch resolves with stale 'plan'
-   * AFTER the user has already clicked Execute. The post-mutation invalidate +
-   * simulated refetch must drive the hook to report 'execute'.
+   * AFTER the user has already clicked Execute. The post-mutation onSuccess
+   * must call invalidate so a refetch can pick up the fresh DB value.
+   *
+   * We do NOT assert the post-invalidate mode value here, because the mocked
+   * `useQuery` does not react to `invalidate` — the assertion would be
+   * decorative (it would pass whether or not invalidate fired). A real
+   * QueryClient + mock-link variant could close that gap.
    */
-  it('reflects execute mode after mutation succeeds even when stale query resolves to plan first', () => {
+  it('calls invalidate via onSuccess after mode update, even when stale query resolves to plan first', () => {
     // 1. Cache empty — mode defaults to 'plan'.
     const { result, rerender } = renderHook(() => useSubChatMode('sub-1'));
     expect(result.current.mode).toBe('plan');
@@ -115,10 +125,5 @@ describe('useSubChatMode (cache-empty race)', () => {
       capturedMutationOpts?.onSuccess?.({}, { id: 'sub-1', mode: 'execute' });
     });
     expect(mockInvalidate).toHaveBeenCalledWith({ id: 'sub-1' });
-
-    // 5. Simulate refetch returning the current DB value ('execute').
-    mockQueryData = { id: 'sub-1', mode: 'execute' };
-    rerender();
-    expect(result.current.mode).toBe('execute');
   });
 });
