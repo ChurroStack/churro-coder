@@ -13,7 +13,6 @@ import {
 
 export interface FileViewerDockApi {
   close: () => void;
-  setClosable: (closable: boolean) => void;
   setTitle: (title: string) => void;
 }
 
