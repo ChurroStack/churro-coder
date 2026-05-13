@@ -5,14 +5,12 @@ export type OpenspecTool = 'claude' | 'codex';
 
 export type OpenspecState =
   | 'uninitialized' // no openspec/ dir at all
-  | 'partial-legacy' // dirs exist but no AGENTS.md (our old manual init)
-  | 'tools-missing' // CLI init ran but some selected tools are missing their sentinels
+  | 'tools-missing' // openspec/ exists but some tool sentinels are absent
   | 'ok'; // everything present
 
 export interface OpenspecDetectionResult {
   state: OpenspecState;
   hasOpenspecDir: boolean;
-  hasUpstreamMarker: boolean;
   missingTools: OpenspecTool[];
 }
 
@@ -41,7 +39,6 @@ export async function detectOpenspecState(
   tools: OpenspecTool[] = ['claude', 'codex']
 ): Promise<OpenspecDetectionResult> {
   const hasOpenspecDir = await fileExists(path.join(targetRoot, 'openspec'));
-  const hasUpstreamMarker = await fileExists(path.join(targetRoot, 'openspec', 'AGENTS.md'));
 
   const missingTools: OpenspecTool[] = [];
   for (const tool of tools) {
@@ -54,13 +51,11 @@ export async function detectOpenspecState(
   let state: OpenspecState;
   if (!hasOpenspecDir) {
     state = 'uninitialized';
-  } else if (!hasUpstreamMarker) {
-    state = 'partial-legacy';
   } else if (missingTools.length > 0) {
     state = 'tools-missing';
   } else {
     state = 'ok';
   }
 
-  return { state, hasOpenspecDir, hasUpstreamMarker, missingTools };
+  return { state, hasOpenspecDir, missingTools };
 }

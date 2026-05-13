@@ -1,5 +1,5 @@
 import { useAtom, useSetAtom } from 'jotai';
-import { Archive, ChevronRight, Check, History, Eye, ArrowRight, Square, Loader2 } from 'lucide-react';
+import { Archive, ChevronRight, Check, ShieldCheck, ArrowRight, Square, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { trpc } from '../../lib/trpc';
 import { Button } from '../../components/ui/button';
@@ -179,13 +179,14 @@ export function OpenSpecChangeView({ chatId, subChatId, changeId, changePath, pr
     console.log(`[openspec/viewer] archive requested changeId=${changeId} subChatId=${subChatId}`);
   };
 
-  const handleReview = () => {
-    if (step === 'tasks') {
-      void dispatchWorkflowAction(workflow?.review.actionKind ?? 'reviewLocal');
-      console.log(`[openspec/viewer] tasks review action changeId=${changeId} subChatId=${subChatId}`);
-      return;
-    }
+  const handleVerify = () => {
+    console.log(`[openspec/viewer] verify requested changeId=${changeId} subChatId=${subChatId} step=${step}`);
     void runOpenSpecAction('/opsx:verify', 'execute');
+  };
+
+  const handleCodeReview = () => {
+    console.log(`[openspec/viewer] code review requested changeId=${changeId} subChatId=${subChatId}`);
+    void dispatchWorkflowAction(workflow?.review.actionKind ?? 'reviewLocal');
   };
 
   const capabilities = change?.capabilities ?? [];
@@ -266,20 +267,10 @@ export function OpenSpecChangeView({ chatId, subChatId, changeId, changePath, pr
           )}
 
           {/* Right-side actions */}
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => {
-                // TODO: implement History
-              }}>
-              <History className="h-3.5 w-3.5 mr-1" />
-              History
-            </Button>
-            <Button variant="ghost" size="sm" className="h-7 text-xs" disabled={isStreaming} onClick={handleReview}>
-              <Eye className="h-3.5 w-3.5 mr-1" />
-              Review
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isStreaming} onClick={handleVerify}>
+              <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+              Verify
             </Button>
             {isStreaming && stopHandler && (
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => void stopHandler()}>
@@ -317,6 +308,7 @@ export function OpenSpecChangeView({ chatId, subChatId, changeId, changePath, pr
                 projectId={projectId}
                 changeId={changeId}
                 changePath={changePath}
+                onCodeReview={handleCodeReview}
               />
             ) : (
               <OpenSpecDocument chatId={chatId} changeId={changeId} kind={step} />

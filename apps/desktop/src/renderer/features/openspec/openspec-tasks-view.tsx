@@ -1,4 +1,4 @@
-import { Loader2, Play, CheckCircle2, Circle, Square, ChevronDown, ChevronRight } from 'lucide-react';
+import { Loader2, Play, CheckCircle2, Circle, Square, ChevronDown, ChevronRight, Eye } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -30,6 +30,7 @@ interface OpenSpecTasksViewProps {
   projectId: string;
   changeId: string;
   changePath: string;
+  onCodeReview: () => void;
 }
 
 function toggleTaskInContent(content: string, lineIndex: number, done: boolean): string {
@@ -40,7 +41,14 @@ function toggleTaskInContent(content: string, lineIndex: number, done: boolean):
   return lines.join('\n');
 }
 
-export function OpenSpecTasksView({ chatId, subChatId, projectId, changeId, changePath }: OpenSpecTasksViewProps) {
+export function OpenSpecTasksView({
+  chatId,
+  subChatId,
+  projectId,
+  changeId,
+  changePath,
+  onCodeReview
+}: OpenSpecTasksViewProps) {
   const { data, isLoading, error } = trpc.openspec.readChangeFile.useQuery(
     { chatId, changeId, kind: 'tasks' },
     { staleTime: 30_000 }
@@ -115,12 +123,9 @@ export function OpenSpecTasksView({ chatId, subChatId, projectId, changeId, chan
               <p className="text-xs text-muted-foreground mt-0.5">{pct}%</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={isStreaming}
-                onClick={() => void runOpenSpecAction('/opsx:verify', 'execute')}>
-                Review so far
+              <Button variant="outline" size="sm" disabled={isStreaming} onClick={onCodeReview}>
+                <Eye className="h-3.5 w-3.5 mr-1.5" />
+                Code review
               </Button>
               {isStreaming && stopHandler ? (
                 <Button size="sm" variant="outline" onClick={() => void stopHandler()}>

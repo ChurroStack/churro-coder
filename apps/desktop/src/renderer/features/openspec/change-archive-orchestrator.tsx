@@ -121,6 +121,10 @@ function PendingChangeArchiveObserver({
     if (completedRef.current) return;
     if (change !== null) return;
     if (!archivedChanges?.some((archived) => archived.changeId === changeId)) return;
+    // Wait until the agent has finished streaming so the post-mv steps
+    // (commit + push + PR) in archive.j2 have a chance to land before we
+    // archive the workspace and close its panels.
+    if (isStreaming) return;
 
     completedRef.current = true;
 
@@ -132,6 +136,41 @@ function PendingChangeArchiveObserver({
       const shouldArchiveWorkspace = activeChanges.length === 0 && otherOpenSpecSubChats.length === 0;
 
       if (shouldArchiveWorkspace) {
+        // Belt-and-braces: archive.j2 already commits + pushes in step 6, but if the
+        // agent skipped or failed those steps we must NOT archive the workspace — the
+        // user's local work would be locked behind an archived workspace until they
+        // unarchive it. Surface the pending state instead and leave the workspace open.
+        const worktreePath = chatData?.worktreePath ?? null;
+        if (worktreePath) {
+          try {
+            const status = await trpcUtils.changes.getStatus.fetch({ worktreePath });
+            const dirty = status.staged.length + status.unstaged.length + status.untracked.length > 0;
+            const unpushed = status.hasUpstream && status.pushCount > 0;
+            if (dirty || unpushed) {
+              closeChangePanels(dockApi, subChatId, changeId);
+              dropSubChatForWorkspace(chatId, subChatId);
+              const reason = dirty
+                ? 'Uncommitted changes remain — commit and push them, then archive the workspace manually.'
+                : 'Unpushed commits remain on this branch — push them, then archive the workspace manually.';
+              toast.warning('Change archived. Workspace kept open.', { description: reason });
+              console.warn(
+                `[openspec/archive] workspace archive skipped chatId=${chatId} changeId=${changeId} dirty=${dirty} unpushed=${unpushed} pushCount=${status.pushCount}`
+              );
+              return;
+            }
+          } catch (err) {
+            // Status probe failed (e.g. worktree gone). Don't silently archive — bail
+            // and let the user retry once they've verified the working tree.
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            closeChangePanels(dockApi, subChatId, changeId);
+            dropSubChatForWorkspace(chatId, subChatId);
+            toast.warning('Change archived. Workspace kept open.', {
+              description: `Could not verify git status before archiving the workspace: ${message}`
+            });
+            console.warn(`[openspec/archive] git status check failed chatId=${chatId}`, err);
+            return;
+          }
+        }
         await archiveChat.mutateAsync({ id: chatId, deleteWorktree: false });
         closeWorkspacePanels(dockApi);
         dropOpenSubChatsForWorkspace(chatId);
@@ -162,7 +201,7 @@ function PendingChangeArchiveObserver({
       });
     // clearPending intentionally omitted; it changes identity with atom setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [archiveChat, archivedChanges, change, changeId, chatData, chatId, dockApi, subChatId, trpcUtils]);
+  }, [archiveChat, archivedChanges, change, changeId, chatData, chatId, dockApi, isStreaming, subChatId, trpcUtils]);
 
   return null;
 }

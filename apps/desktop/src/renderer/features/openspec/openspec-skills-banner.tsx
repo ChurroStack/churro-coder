@@ -9,12 +9,11 @@ interface OpenspecSkillsBannerProps {
 }
 
 /**
- * Non-blocking banner shown inside the workspace OpenSpec panel when the
- * workspace was initialized by the old manual init (no AGENTS.md) or when
- * selected tool sentinels are missing.
+ * Non-blocking banner shown inside the workspace OpenSpec panel when tool
+ * sentinels are missing from an otherwise-initialized workspace.
  *
  * Mounting point: render above the OpenSpecChangeView when openspecState
- * returns 'partial-legacy' or 'tools-missing'.
+ * returns 'tools-missing'.
  */
 export function OpenspecSkillsBanner({ chatId }: OpenspecSkillsBannerProps) {
   const [dismissed, setDismissed] = useState(false);
@@ -34,40 +33,19 @@ export function OpenspecSkillsBanner({ chatId }: OpenspecSkillsBannerProps) {
     }
   });
 
-  const upgradeMutation = trpc.chats.openspecInit.useMutation({
-    onSuccess: () => {
-      toast.success('OpenSpec workspace upgraded to bundled CLI.');
-      void utils.chats.openspecState.invalidate({ chatId });
-      setDismissed(true);
-    },
-    onError: (err) => {
-      toast.error(err.message ?? 'Failed to upgrade OpenSpec workspace.');
-    }
-  });
-
   if (isLoading || dismissed || !stateData) return null;
   const { state, missingTools } = stateData;
-  if (state === 'ok' || state === 'uninitialized') return null;
+  if (state !== 'tools-missing') return null;
 
-  const isPending = initMutation.isPending || upgradeMutation.isPending;
+  const isPending = initMutation.isPending;
 
   const handleAction = () => {
-    if (state === 'partial-legacy') {
-      upgradeMutation.mutate({ chatId, force: true });
-    } else {
-      // tools-missing
-      const tools = missingTools as ('claude' | 'codex')[];
-      initMutation.mutate({ chatId, tools });
-    }
+    const tools = missingTools as ('claude' | 'codex')[];
+    initMutation.mutate({ chatId, tools });
   };
 
-  const label =
-    state === 'partial-legacy' ? 'Upgrade to bundled OpenSpec CLI' : `Install OpenSpec for ${missingTools.join(', ')}`;
-
-  const description =
-    state === 'partial-legacy'
-      ? 'This workspace was initialized without the bundled CLI. Upgrade to install Claude/Codex skills and keep your specs in sync.'
-      : `Some tool skills are missing. Install them so ${missingTools.join(' and ')} can use OpenSpec commands outside Churro Coder.`;
+  const label = `Install OpenSpec for ${missingTools.join(', ')}`;
+  const description = `Some tool skills are missing. Install them so ${missingTools.join(' and ')} can use OpenSpec commands outside Churro Coder.`;
 
   return (
     <div className="flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm">

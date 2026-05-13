@@ -74,3 +74,7 @@ export const openSpecStopHandlerAtomFamily = atomFamily((_subChatId: string) =>
 
 /** Whether the user has visited the tasks step in this session, for the '· may regen' warning. Memory-only. */
 export const openSpecVisitedTasksAtomFamily = atomFamily((_changeId: string) => atom<boolean>(false));
+
+/** When true, the next outgoing message for this sub-chat skips step-prefix injection.
+ *  Notch actions (mergeBase, createPr) set this so their workflow prompts don't pick up [step:proposal] etc. */
+export const openSpecSkipNextStepPrefixAtomFamily = atomFamily((_subChatId: string) => atom<boolean>(false));

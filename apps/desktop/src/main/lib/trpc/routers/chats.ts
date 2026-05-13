@@ -1716,55 +1716,72 @@ export const chatsRouter = router({
   /**
    * Get PR context for message generation (branch info, uncommitted changes, etc.)
    */
-  getPrContext: publicProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
-    const db = getDatabase();
-    const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
+  getPrContext: publicProcedure
+    .input(z.object({ chatId: z.string(), subChatId: z.string().optional() }))
+    .query(async ({ input }) => {
+      const db = getDatabase();
+      const chat = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
 
-    if (!chat?.worktreePath) {
-      return null;
-    }
-
-    const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
-
-    try {
-      const git = simpleGit(chat.worktreePath);
-      const status = await git.status();
-
-      // Check if upstream exists
-      let hasUpstream = false;
-      try {
-        const tracking = await git.raw(['rev-parse', '--abbrev-ref', '@{upstream}']);
-        hasUpstream = !!tracking.trim();
-      } catch {
-        hasUpstream = false;
+      if (!chat?.worktreePath) {
+        return null;
       }
 
-      // Provider info for agent prompt generation. Null/undefined for
-      // unsupported providers keeps the renderer on the GitHub default.
-      const provider =
-        project?.gitProvider === 'github' || project?.gitProvider === 'azure' ? project.gitProvider : null;
-      const azure =
-        provider === 'azure' && project?.gitOwner && project?.gitProject && project?.gitRepo
-          ? {
-              organization: project.gitOwner,
-              project: project.gitProject,
-              repository: project.gitRepo
-            }
-          : undefined;
+      const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
 
-      return {
-        branch: chat.branch || status.current || 'unknown',
-        baseBranch: chat.baseBranch || 'main',
-        uncommittedCount: status.files.length,
-        hasUpstream,
-        provider,
-        azure
-      };
-    } catch (error) {
-      console.error('[getPrContext] Error:', error);
-      return null;
-    }
-  }),
+      try {
+        const git = simpleGit(chat.worktreePath);
+        const status = await git.status();
+
+        // Check if upstream exists
+        let hasUpstream = false;
+        try {
+          const tracking = await git.raw(['rev-parse', '--abbrev-ref', '@{upstream}']);
+          hasUpstream = !!tracking.trim();
+        } catch {
+          hasUpstream = false;
+        }
+
+        // Provider info for agent prompt generation. Null/undefined for
+        // unsupported providers keeps the renderer on the GitHub default.
+        const provider =
+          project?.gitProvider === 'github' || project?.gitProvider === 'azure' ? project.gitProvider : null;
+        const azure =
+          provider === 'azure' && project?.gitOwner && project?.gitProject && project?.gitRepo
+            ? {
+                organization: project.gitOwner,
+                project: project.gitProject,
+                repository: project.gitRepo
+              }
+            : undefined;
+
+        // OpenSpec change context (only when a subChatId is provided and bound to a change)
+        let openspecChange: { name: string; path: string } | undefined;
+        if (input.subChatId) {
+          const subChat = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
+          if (subChat?.openspecChangeId) {
+            const changeName = subChat.openspecChangeId;
+            openspecChange = {
+              name: changeName,
+              path: `openspec/changes/${changeName}`
+            };
+          }
+        }
+
+        return {
+          branch: chat.branch || status.current || 'unknown',
+          baseBranch: chat.baseBranch || 'main',
+          uncommittedCount: status.files.length,
+          hasUpstream,
+          provider,
+          azure,
+          openspecChange,
+          existingPrUrl: chat.prUrl ?? null
+        };
+      } catch (error) {
+        console.error('[getPrContext] Error:', error);
+        return null;
+      }
+    }),
 
   /**
    * Update PR info after Claude creates a PR
@@ -2489,7 +2506,7 @@ export const chatsRouter = router({
         input.tools.join(','),
         '--profile',
         'core',
-        ...(input.force || state.state === 'partial-legacy' ? ['--force'] : [])
+        ...(input.force ? ['--force'] : [])
       ];
       await runOpenspecCli(cliArgs, targetRoot);
 

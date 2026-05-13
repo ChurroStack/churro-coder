@@ -4686,7 +4686,7 @@ export function ChatView({
       store.setActiveSubChat(activeSubChatId, chatId);
 
       // Get PR context from backend
-      const context = await trpcClient.chats.getPrContext.query({ chatId });
+      const context = await trpcClient.chats.getPrContext.query({ chatId, subChatId: activeSubChatId });
       if (!context) {
         toast.error('Could not get git context', { position: 'top-center' });
         setIsCreatingPr(false);

@@ -1787,6 +1787,10 @@ ${prompt}
                 const planHint = hasPlanForSubChat
                   ? '\n\nAn approved plan governs this sub-chat. Use the `read_plan` tool (MCP server `churro-coder`) only when you need to recover that already-approved plan later, including after compaction, a provider switch, or a fresh session.'
                   : '';
+                const openSpecReadPlanHint =
+                  openSpecChangeId && !hasPlanForSubChat
+                    ? '\n\nYou may call the `read_plan` tool (MCP server `churro-coder`) to retrieve the OpenSpec change context (proposal, design, specs, tasks) for this sub-chat.'
+                    : '';
                 const agentsAppend = agentsMdContent
                   ? `\n\n# AGENTS.md\nThe following are the project's AGENTS.md instructions:\n\n${agentsMdContent}`
                   : '';
@@ -1811,7 +1815,7 @@ ${prompt}
                       }
                     }))
                   : '';
-                const systemAppend = agentsAppend + planHint + modeInstruction + openSpecAppend;
+                const systemAppend = agentsAppend + planHint + openSpecReadPlanHint + modeInstruction + openSpecAppend;
                 const systemPromptConfig = systemAppend
                   ? {
                       type: 'preset' as const,

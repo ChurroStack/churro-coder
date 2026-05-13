@@ -55,7 +55,8 @@ import {
 } from '../codex-mcp-auth';
 import { getCodexAppServerApprovalResponse } from '../codex-app-server-approval-policy';
 import { decideCodexMcpElicitation } from '../codex-mcp-elicitation';
-import { buildCodexApprovedPlanHint, buildCodexModeInstruction } from '../codex-mode-prompts';
+import { buildCodexModeInstruction } from '../codex-mode-prompts';
+import { buildCodexReadPlanHints } from '../codex-prompt-hints';
 import { sanitizeCodexPlanSummary } from '../codex-plan-write';
 import {
   buildCodexSandboxPolicy,
@@ -3281,10 +3282,14 @@ export const codexRouter = router({
                       }
                     })
                   : '';
-                const subChatPlanHint = approvedPlanRequired
-                  ? buildCodexApprovedPlanHint(input.subChatId, getAppOwnedChurroCoderReadPlanToolName(mcpServerName))
-                  : '';
-                const augmentedPrompt = [openSpecInstruction, planInstruction, subChatPlanHint, catchup, input.prompt]
+                const mcpToolName = getAppOwnedChurroCoderReadPlanToolName(mcpServerName);
+                const readPlanHints = buildCodexReadPlanHints({
+                  subChatId: input.subChatId,
+                  approvedPlanRequired,
+                  openSpecChangeId: openSpecChangeId ?? null,
+                  mcpToolName
+                });
+                const augmentedPrompt = [openSpecInstruction, planInstruction, readPlanHints, catchup, input.prompt]
                   .filter((segment): segment is string => Boolean(segment))
                   .join('\n\n');
 
@@ -3420,9 +3425,7 @@ export const codexRouter = router({
                   input.cwd,
                   input.projectPath ?? input.cwd
                 );
-                const defaultSandboxWritableRoots = codexSandboxPolicy.writableRootsExpanded.filter(
-                  (r) => r !== input.cwd
-                );
+                const defaultSandboxWritableRoots = codexSandboxPolicy.writableRootsExpanded;
                 const openSpecToolConfig = resolveOpenSpecCodexToolConfig({
                   openSpecWriteRoot,
                   isApplyTurn: isOpenSpecApplyTurn,

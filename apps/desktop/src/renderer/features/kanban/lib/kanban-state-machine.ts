@@ -9,10 +9,10 @@ export type KanbanInput =
       chatId: string;
       archivedAt: Date | null;
       prUrl: string | null;
-      /** Pre-resolved by the caller via pickLatestActiveSubChat. null iff zero sub-chats. */
-      latestActiveSubChat: { id: string; mode: SubChatMode } | null;
-      /** True iff any sub-chat of this workspace is in loadingSubChatsAtom. */
-      isLoading: boolean;
+      /** All sub-chats for this workspace. Empty array iff workspace has none. */
+      subChats: ReadonlyArray<{ id: string; mode: SubChatMode }>;
+      /** IDs of sub-chats currently in loadingSubChatsAtom (subset of subChats[].id). */
+      loadingSubChatIds: ReadonlySet<string>;
     };
 
 export interface KanbanAttentionSignals {
@@ -25,20 +25,17 @@ export interface KanbanAttentionSignals {
  * Derives the SDLC column for a card.
  * Returns null for non-visible drafts (caller should drop the card).
  *
- * Precedence: Archived > Done > Draft > mode-based switch
+ * Precedence: Archived > any-plan-subChat > Done(prUrl) > In-Progress(loading) > In-Review
  */
 export function deriveKanbanStatus(input: KanbanInput): KanbanStatus | null {
-  if (input.kind === 'draft') {
-    return input.isVisible ? 'draft' : null;
-  }
-
+  if (input.kind === 'draft') return input.isVisible ? 'draft' : null;
   if (input.archivedAt != null) return 'archived';
-  if (input.prUrl != null) return 'done';
 
-  const mode = input.latestActiveSubChat?.mode ?? 'plan';
-  if (mode === 'plan') return 'planning';
-  // execute | explore
-  if (input.isLoading) return 'in-progress';
+  const { subChats, loadingSubChatIds } = input;
+  if (subChats.length === 0) return input.prUrl != null ? 'done' : 'planning';
+  if (subChats.some((s) => s.mode === 'plan')) return 'planning';
+  if (input.prUrl != null) return 'done';
+  if (subChats.some((s) => loadingSubChatIds.has(s.id))) return 'in-progress';
   return 'in-review';
 }
 
@@ -57,20 +54,6 @@ export function deriveAttentionReason(input: KanbanInput, signals: KanbanAttenti
   if (signals.workspacesWithPendingQuestions.has(chatId)) return 'pending-question';
   if (signals.workspacesWithUnseenChanges.has(chatId)) return 'unseen-changes';
   return null;
-}
-
-/**
- * From a workspace's sub-chats, picks the single representative used for state derivation.
- * Rule: loading-wins (highest updatedAt among loading), then latest by updatedAt overall.
- */
-export function pickLatestActiveSubChat(
-  subChats: { id: string; mode: SubChatMode; updatedAt: Date }[],
-  loadingSubChatIds: Set<string>
-): { id: string; mode: SubChatMode; updatedAt: Date } | null {
-  if (subChats.length === 0) return null;
-  const loading = subChats.filter((s) => loadingSubChatIds.has(s.id));
-  const pool = loading.length > 0 ? loading : subChats;
-  return [...pool].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
 }
 
 // ---- backward-compat helpers (used by lib/use-sub-chat-status.ts) ----

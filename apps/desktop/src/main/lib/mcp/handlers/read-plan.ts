@@ -52,7 +52,14 @@ function isInside(parent: string, child: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/'));
 }
 
-async function readOpenSpecPlan(subChatId: string): Promise<OpenSpecPlan | null> {
+type OpenSpecPlanLookup =
+  | { kind: 'found'; plan: OpenSpecPlan }
+  | { kind: 'no-subchat' }
+  | { kind: 'not-bound' }
+  | { kind: 'change-missing'; changeId: string; rootDir: string }
+  | { kind: 'db-error'; message: string };
+
+async function readOpenSpecPlan(subChatId: string): Promise<OpenSpecPlanLookup> {
   let row:
     | {
         chatId: string;
@@ -78,10 +85,18 @@ async function readOpenSpecPlan(subChatId: string): Promise<OpenSpecPlan | null>
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[churro-coder] read_plan openspec lookup skipped sub=${subChatId} message=${message}`);
-    return null;
+    return { kind: 'db-error', message };
   }
 
-  if (!row?.changeId) return null;
+  if (!row) {
+    console.log(`[churro-coder] read_plan openspec found=false reason=no-subchat sub=${subChatId}`);
+    return { kind: 'no-subchat' };
+  }
+
+  if (!row.changeId) {
+    console.log(`[churro-coder] read_plan openspec found=false reason=not-bound sub=${subChatId}`);
+    return { kind: 'not-bound' };
+  }
 
   const rootDir =
     row.worktreePath && row.worktreePath.length > 0 && (await dirExists(row.worktreePath))
@@ -90,10 +105,10 @@ async function readOpenSpecPlan(subChatId: string): Promise<OpenSpecPlan | null>
   const openspecDir = join(rootDir, 'openspec');
   const changeDir = join(openspecDir, 'changes', row.changeId);
   if (!(await dirExists(changeDir))) {
-    console.warn(
-      `[churro-coder] read_plan openspec change missing sub=${subChatId} change=${row.changeId} root=${rootDir}`
+    console.log(
+      `[churro-coder] read_plan openspec found=false reason=change-missing sub=${subChatId} change=${row.changeId} root=${rootDir}`
     );
-    return null;
+    return { kind: 'change-missing', changeId: row.changeId, rootDir };
   }
 
   const binName = process.platform === 'win32' ? 'openspec.cmd' : 'openspec';
@@ -178,13 +193,16 @@ async function readOpenSpecPlan(subChatId: string): Promise<OpenSpecPlan | null>
   );
 
   return {
-    changeId: row.changeId,
-    rootDir,
-    schemaName: typeof parsed.schemaName === 'string' ? parsed.schemaName : 'unknown',
-    state: typeof parsed.state === 'string' ? parsed.state : undefined,
-    progress,
-    instruction: typeof parsed.instruction === 'string' ? parsed.instruction : undefined,
-    files
+    kind: 'found',
+    plan: {
+      changeId: row.changeId,
+      rootDir,
+      schemaName: typeof parsed.schemaName === 'string' ? parsed.schemaName : 'unknown',
+      state: typeof parsed.state === 'string' ? parsed.state : undefined,
+      progress,
+      instruction: typeof parsed.instruction === 'string' ? parsed.instruction : undefined,
+      files
+    }
   };
 }
 
@@ -248,9 +266,12 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
       description:
         'Retrieve the approved plan for the current sub-chat. ' +
         'Call this whenever you need to consult the plan — including after compaction or a provider switch. ' +
+        'For sub-chats bound to an OpenSpec change, this tool returns the OpenSpec apply-instructions context ' +
+        '(proposal, design, specs, tasks) rendered from the bundled `openspec instructions apply` CLI. ' +
         (opts.boundSubChatId
           ? ''
-          : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").'),
+          : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>"). ' +
+            'Do NOT pass the OpenSpec changeId as subChatId — they are different identifiers.'),
       inputSchema
     },
     async (input: { subChatId?: string; revision?: 'current' }) => {
@@ -271,37 +292,63 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
         };
       }
 
-      let openSpecPlan: OpenSpecPlan | null = null;
+      let lookup: OpenSpecPlanLookup;
       try {
-        openSpecPlan = await readOpenSpecPlan(id);
+        lookup = await readOpenSpecPlan(id);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          isError: true
+        };
+      }
+
+      if (lookup.kind === 'found') {
+        const text = renderOpenSpecPlan(lookup.plan);
+        console.log(
+          `[churro-coder] read_plan result sub=${id} source=openspec found=true bytes=${Buffer.byteLength(text, 'utf8')}`
+        );
+        return { content: [{ type: 'text' as const, text }] };
+      }
+
+      if (lookup.kind === 'no-subchat') {
+        console.log(`[churro-coder] read_plan result sub=${id} source=openspec found=false reason=no-subchat`);
         return {
           content: [
             {
               type: 'text' as const,
-              text: message
+              text:
+                `Error: no sub-chat found for id "${id}". ` +
+                'Check the prompt context for the correct "Sub-chat id: <value>" and pass that exact value as subChatId. ' +
+                'Do not pass the OpenSpec changeId as subChatId — they are different identifiers.'
             }
           ],
           isError: true
         };
       }
 
-      if (openSpecPlan) {
-        const text = renderOpenSpecPlan(openSpecPlan);
+      if (lookup.kind === 'db-error') {
+        // DB unavailable — fall through to file-backed plan rather than blocking the agent.
+        // This preserves the pre-existing fallback when SQLite can't be loaded.
+        console.log(`[churro-coder] read_plan openspec db-error sub=${id} falling-through to file plan`);
+      } else if (lookup.kind === 'change-missing') {
         console.log(
-          `[churro-coder] read_plan result sub=${id} source=openspec found=true bytes=${Buffer.byteLength(text, 'utf8')}`
+          `[churro-coder] read_plan result sub=${id} source=openspec found=false reason=change-missing change=${lookup.changeId}`
         );
         return {
           content: [
             {
               type: 'text' as const,
-              text
+              text:
+                `Error: OpenSpec change directory not found for change "${lookup.changeId}" under "${lookup.rootDir}". ` +
+                'The change may have been archived or the project path may be wrong.'
             }
-          ]
+          ],
+          isError: true
         };
       }
 
+      // lookup.kind === 'not-bound': fall through to file-backed plan
       const plan = await readCurrentPlan(id);
       if (!plan) {
         console.log('[churro-coder] read_plan result sub=' + id + ' found=false bytes=0');
@@ -327,12 +374,7 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
       );
 
       return {
-        content: [
-          {
-            type: 'text' as const,
-            text: header + plan.content
-          }
-        ]
+        content: [{ type: 'text' as const, text: header + plan.content }]
       };
     }
   );

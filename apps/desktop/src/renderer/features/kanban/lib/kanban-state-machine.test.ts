@@ -3,7 +3,8 @@ import {
   deriveKanbanStatus,
   deriveAttentionReason,
   type KanbanInput,
-  type KanbanAttentionSignals
+  type KanbanAttentionSignals,
+  type SubChatMode
 } from './kanban-state-machine';
 
 const noSignals: KanbanAttentionSignals = {
@@ -12,16 +13,20 @@ const noSignals: KanbanAttentionSignals = {
   workspacesWithUnseenChanges: new Set()
 };
 
-function chatInput(
-  partial: Partial<Extract<KanbanInput, { kind: 'chat' }>> & { chatId?: string }
-): Extract<KanbanInput, { kind: 'chat' }> {
+function chatInput(partial: {
+  chatId?: string;
+  archivedAt?: Date | null;
+  prUrl?: string | null;
+  subChats?: Array<{ id: string; mode: SubChatMode }>;
+  loadingSubChatIds?: Set<string>;
+}): Extract<KanbanInput, { kind: 'chat' }> {
   return {
     kind: 'chat',
     chatId: partial.chatId ?? 'chat-1',
     archivedAt: partial.archivedAt ?? null,
     prUrl: partial.prUrl ?? null,
-    latestActiveSubChat: partial.latestActiveSubChat ?? null,
-    isLoading: partial.isLoading ?? false
+    subChats: partial.subChats ?? [],
+    loadingSubChatIds: partial.loadingSubChatIds ?? new Set()
   };
 }
 
@@ -41,7 +46,11 @@ describe('deriveKanbanStatus', () => {
   test('archived + loading → archived', () => {
     expect(
       deriveKanbanStatus(
-        chatInput({ archivedAt: new Date(), isLoading: true, latestActiveSubChat: { id: 's1', mode: 'execute' } })
+        chatInput({
+          archivedAt: new Date(),
+          subChats: [{ id: 's1', mode: 'execute' }],
+          loadingSubChatIds: new Set(['s1'])
+        })
       )
     ).toBe('archived');
   });
@@ -52,14 +61,14 @@ describe('deriveKanbanStatus', () => {
     );
   });
 
-  // Done: prUrl wins over mode
-  test('prUrl + loading → done', () => {
+  // Done: prUrl wins when no plan sub-chats
+  test('prUrl + execute loading → done', () => {
     expect(
       deriveKanbanStatus(
         chatInput({
           prUrl: 'https://example.com/pr/1',
-          isLoading: true,
-          latestActiveSubChat: { id: 's1', mode: 'execute' }
+          subChats: [{ id: 's1', mode: 'execute' }],
+          loadingSubChatIds: new Set(['s1'])
         })
       )
     ).toBe('done');
@@ -67,47 +76,159 @@ describe('deriveKanbanStatus', () => {
 
   // Planning fallback when zero sub-chats
   test('zero sub-chats → planning', () => {
-    expect(deriveKanbanStatus(chatInput({ latestActiveSubChat: null }))).toBe('planning');
+    expect(deriveKanbanStatus(chatInput({ subChats: [] }))).toBe('planning');
   });
 
   test('plan sub-chat, never run → planning', () => {
-    expect(deriveKanbanStatus(chatInput({ latestActiveSubChat: { id: 's1', mode: 'plan' }, isLoading: false }))).toBe(
-      'planning'
-    );
+    expect(deriveKanbanStatus(chatInput({ subChats: [{ id: 's1', mode: 'plan' }] }))).toBe('planning');
   });
 
   test('execute sub-chat, loading → in-progress', () => {
-    expect(deriveKanbanStatus(chatInput({ latestActiveSubChat: { id: 's1', mode: 'execute' }, isLoading: true }))).toBe(
-      'in-progress'
-    );
+    expect(
+      deriveKanbanStatus(chatInput({ subChats: [{ id: 's1', mode: 'execute' }], loadingSubChatIds: new Set(['s1']) }))
+    ).toBe('in-progress');
   });
 
   test('explore sub-chat, loading → in-progress', () => {
-    expect(deriveKanbanStatus(chatInput({ latestActiveSubChat: { id: 's1', mode: 'explore' }, isLoading: true }))).toBe(
-      'in-progress'
-    );
+    expect(
+      deriveKanbanStatus(chatInput({ subChats: [{ id: 's1', mode: 'explore' }], loadingSubChatIds: new Set(['s1']) }))
+    ).toBe('in-progress');
   });
 
   test('execute sub-chat, not loading → in-review', () => {
-    expect(
-      deriveKanbanStatus(chatInput({ latestActiveSubChat: { id: 's1', mode: 'execute' }, isLoading: false }))
-    ).toBe('in-review');
+    expect(deriveKanbanStatus(chatInput({ subChats: [{ id: 's1', mode: 'execute' }] }))).toBe('in-review');
   });
 
-  // Regression: in-review and isLoading must be mutually exclusive
-  test('regression: in-review never while isLoading=true', () => {
+  // Regression: in-review and loading must be mutually exclusive
+  test('regression: in-review never while a sub-chat is loading', () => {
     const status = deriveKanbanStatus(
-      chatInput({ latestActiveSubChat: { id: 's1', mode: 'execute' }, isLoading: true })
+      chatInput({ subChats: [{ id: 's1', mode: 'execute' }], loadingSubChatIds: new Set(['s1']) })
     );
     expect(status).not.toBe('in-review');
   });
 
   // Planning re-entry after In Review
   test('plan-mode sub-chat after prior In Review → planning', () => {
-    // Caller already resolved latestActiveSubChat to the plan-mode one
-    expect(deriveKanbanStatus(chatInput({ latestActiveSubChat: { id: 's2', mode: 'plan' }, isLoading: false }))).toBe(
-      'planning'
+    expect(deriveKanbanStatus(chatInput({ subChats: [{ id: 's2', mode: 'plan' }] }))).toBe('planning');
+  });
+
+  // ── Aggregation cases ──────────────────────────────────────────────────────
+
+  test('done execute + plan sub-chat → planning (plan beats everything except archived)', () => {
+    expect(
+      deriveKanbanStatus(
+        chatInput({
+          subChats: [
+            { id: 'exec-1', mode: 'execute' },
+            { id: 'plan-1', mode: 'plan' }
+          ]
+        })
+      )
+    ).toBe('planning');
+  });
+
+  test('done execute + plan sub-chat, plan is loading → planning (plan still wins)', () => {
+    expect(
+      deriveKanbanStatus(
+        chatInput({
+          subChats: [
+            { id: 'exec-1', mode: 'execute' },
+            { id: 'plan-1', mode: 'plan' }
+          ],
+          loadingSubChatIds: new Set(['plan-1'])
+        })
+      )
+    ).toBe('planning');
+  });
+
+  test('execute loading + execute settled → in-progress', () => {
+    expect(
+      deriveKanbanStatus(
+        chatInput({
+          subChats: [
+            { id: 'exec-1', mode: 'execute' },
+            { id: 'exec-2', mode: 'execute' }
+          ],
+          loadingSubChatIds: new Set(['exec-1'])
+        })
+      )
+    ).toBe('in-progress');
+  });
+
+  test('execute settled + explore settled, no plan → in-review', () => {
+    expect(
+      deriveKanbanStatus(
+        chatInput({
+          subChats: [
+            { id: 'exec-1', mode: 'execute' },
+            { id: 'explore-1', mode: 'explore' }
+          ]
+        })
+      )
+    ).toBe('in-review');
+  });
+
+  test('prUrl + plan sub-chat → planning (plan beats prUrl)', () => {
+    expect(
+      deriveKanbanStatus(chatInput({ prUrl: 'https://example.com/pr/1', subChats: [{ id: 'plan-1', mode: 'plan' }] }))
+    ).toBe('planning');
+  });
+
+  test('prUrl + only execute settled → done', () => {
+    expect(
+      deriveKanbanStatus(
+        chatInput({ prUrl: 'https://example.com/pr/1', subChats: [{ id: 'exec-1', mode: 'execute' }] })
+      )
+    ).toBe('done');
+  });
+
+  test('archived + plan sub-chat → archived', () => {
+    expect(deriveKanbanStatus(chatInput({ archivedAt: new Date(), subChats: [{ id: 'plan-1', mode: 'plan' }] }))).toBe(
+      'archived'
     );
+  });
+
+  test('mix of plan + explore, none loading → planning', () => {
+    expect(
+      deriveKanbanStatus(
+        chatInput({
+          subChats: [
+            { id: 'plan-1', mode: 'plan' },
+            { id: 'explore-1', mode: 'explore' }
+          ]
+        })
+      )
+    ).toBe('planning');
+  });
+
+  // Auto-promote regression: tab promotion moves exec to index 0 and adds it to loadingSubChatIds,
+  // but the presence of a plan sub-chat must keep the workspace in Planning.
+  test('auto-promote regression: plan + exec, exec not loading → planning', () => {
+    expect(
+      deriveKanbanStatus(
+        chatInput({
+          subChats: [
+            { id: 'plan-1', mode: 'plan' },
+            { id: 'exec-1', mode: 'execute' }
+          ],
+          loadingSubChatIds: new Set()
+        })
+      )
+    ).toBe('planning');
+  });
+
+  test('auto-promote regression: plan + exec, exec loading → planning (plan still wins)', () => {
+    expect(
+      deriveKanbanStatus(
+        chatInput({
+          subChats: [
+            { id: 'plan-1', mode: 'plan' },
+            { id: 'exec-1', mode: 'execute' }
+          ],
+          loadingSubChatIds: new Set(['exec-1'])
+        })
+      )
+    ).toBe('planning');
   });
 });
 
@@ -191,18 +312,17 @@ describe('deriveAttentionReason', () => {
   });
 
   // ── Asymmetry rows ───────────────────────────────────────────────────────
-  // State uses ONE representative sub-chat; attention unions across ALL sub-chats.
-  // These rows fail loudly if attention is ever accidentally derived from latestActiveSubChat alone.
+  // Kanban status comes from aggregating all sub-chats; attention unions across ALL sub-chats.
+  // These rows fail loudly if attention is ever accidentally derived from sub-chat state alone.
 
-  test('asymmetry: latest execute clean but older plan sub-chat has pending-plan', () => {
-    // State = in-review (latest is execute, not loading)
-    // Attention = pending-plan (older sub-chat has pending approval)
+  test('asymmetry: only execute sub-chat clean, pending-plan signal still fires', () => {
+    // State = in-review (only execute sub-chat, not loading)
+    // Attention = pending-plan (workspace-level signal from another sub-chat or DB record)
     const input = chatInput({
-      latestActiveSubChat: { id: 'exec-latest', mode: 'execute' },
-      isLoading: false
+      subChats: [{ id: 'exec-latest', mode: 'execute' }]
     });
     const signals: KanbanAttentionSignals = {
-      workspacesWithPendingApprovals: new Set(['chat-1']), // any sub-chat of chat-1 has pending plan
+      workspacesWithPendingApprovals: new Set(['chat-1']),
       workspacesWithPendingQuestions: new Set(),
       workspacesWithUnseenChanges: new Set()
     };
@@ -210,10 +330,9 @@ describe('deriveAttentionReason', () => {
     expect(deriveAttentionReason(input, signals)).toBe('pending-plan');
   });
 
-  test('asymmetry: latest execute clean, older execute has unanswered question', () => {
+  test('asymmetry: only execute sub-chat clean, pending-question signal still fires', () => {
     const input = chatInput({
-      latestActiveSubChat: { id: 'exec-latest', mode: 'execute' },
-      isLoading: false
+      subChats: [{ id: 'exec-latest', mode: 'execute' }]
     });
     const signals: KanbanAttentionSignals = {
       workspacesWithPendingApprovals: new Set(),
@@ -229,14 +348,18 @@ describe('deriveAttentionReason', () => {
 
 describe('worked examples', () => {
   test('1 plan sub-chat, never run → Planning, no attention', () => {
-    const input = chatInput({ latestActiveSubChat: { id: 's1', mode: 'plan' }, isLoading: false });
+    const input = chatInput({ subChats: [{ id: 's1', mode: 'plan' }] });
     expect(deriveKanbanStatus(input)).toBe('planning');
     expect(deriveAttentionReason(input, noSignals)).toBeNull();
   });
 
   test('2 plan sub-chats, both pending approval → Planning, pending-plan', () => {
-    // Caller pre-resolved to latest; both have pending approval (signals set contains chatId)
-    const input = chatInput({ latestActiveSubChat: { id: 's2', mode: 'plan' }, isLoading: false });
+    const input = chatInput({
+      subChats: [
+        { id: 's1', mode: 'plan' },
+        { id: 's2', mode: 'plan' }
+      ]
+    });
     const signals: KanbanAttentionSignals = {
       ...noSignals,
       workspacesWithPendingApprovals: new Set(['chat-1'])
@@ -245,19 +368,25 @@ describe('worked examples', () => {
     expect(deriveAttentionReason(input, signals)).toBe('pending-plan');
   });
 
-  test('plan pending approval + execute loading → In Progress, pending-plan', () => {
-    // loading-wins picks the execute sub-chat; plan sub-chat still contributes to attention
-    const input = chatInput({ latestActiveSubChat: { id: 'exec', mode: 'execute' }, isLoading: true });
+  test('plan pending approval + execute loading → Planning, pending-plan', () => {
+    // Both plan and execute sub-chats exist. Plan wins; execute loading is irrelevant.
+    const input = chatInput({
+      subChats: [
+        { id: 'plan-1', mode: 'plan' },
+        { id: 'exec', mode: 'execute' }
+      ],
+      loadingSubChatIds: new Set(['exec'])
+    });
     const signals: KanbanAttentionSignals = {
       ...noSignals,
       workspacesWithPendingApprovals: new Set(['chat-1'])
     };
-    expect(deriveKanbanStatus(input)).toBe('in-progress');
+    expect(deriveKanbanStatus(input)).toBe('planning');
     expect(deriveAttentionReason(input, signals)).toBe('pending-plan');
   });
 
   test('plan pending approval, no execute sub-chat → Planning, pending-plan', () => {
-    const input = chatInput({ latestActiveSubChat: { id: 'plan', mode: 'plan' }, isLoading: false });
+    const input = chatInput({ subChats: [{ id: 'plan', mode: 'plan' }] });
     const signals: KanbanAttentionSignals = {
       ...noSignals,
       workspacesWithPendingApprovals: new Set(['chat-1'])
@@ -266,19 +395,31 @@ describe('worked examples', () => {
     expect(deriveAttentionReason(input, signals)).toBe('pending-plan');
   });
 
-  test('execute running + stale plan sub-chat → In Progress, no attention', () => {
-    const input = chatInput({ latestActiveSubChat: { id: 'exec', mode: 'execute' }, isLoading: true });
-    expect(deriveKanbanStatus(input)).toBe('in-progress');
+  test('execute running + plan sub-chat → Planning, no attention (plan wins over loading)', () => {
+    // Previously returned In Progress; plan sub-chat pulls it back to Planning.
+    const input = chatInput({
+      subChats: [
+        { id: 'stale-plan', mode: 'plan' },
+        { id: 'exec', mode: 'execute' }
+      ],
+      loadingSubChatIds: new Set(['exec'])
+    });
+    expect(deriveKanbanStatus(input)).toBe('planning');
     expect(deriveAttentionReason(input, noSignals)).toBeNull();
   });
 
-  test('execute finished + stale plan sub-chat → In Review', () => {
-    const input = chatInput({ latestActiveSubChat: { id: 'exec', mode: 'execute' }, isLoading: false });
+  test('execute finished, no plan sub-chat → In Review', () => {
+    const input = chatInput({ subChats: [{ id: 'exec', mode: 'execute' }] });
     expect(deriveKanbanStatus(input)).toBe('in-review');
   });
 
   test('user opens new plan-mode sub-chat after In Review → Planning', () => {
-    const input = chatInput({ latestActiveSubChat: { id: 'new-plan', mode: 'plan' }, isLoading: false });
+    const input = chatInput({
+      subChats: [
+        { id: 'exec', mode: 'execute' },
+        { id: 'new-plan', mode: 'plan' }
+      ]
+    });
     expect(deriveKanbanStatus(input)).toBe('planning');
   });
 });

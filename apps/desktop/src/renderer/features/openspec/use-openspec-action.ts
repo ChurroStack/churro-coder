@@ -4,6 +4,7 @@ import { appStore } from '../../lib/jotai-store';
 import { trpc } from '../../lib/trpc';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
 import { applyModeDefaultModelAndSwitchProvider } from '../agents/lib/model-switching';
+import { forceFreshSubChatSession } from '../agents/lib/session-reset';
 import { useSubChatMode } from '../agents/hooks/use-sub-chat-mode';
 import { openSpecSidebarContextAtomFamily, pendingOpenSpecMessageAtom, type OpenSpecSidebarContext } from './atoms';
 type OpenSpecActionKind = 'execute' | 'apply';
@@ -59,6 +60,7 @@ export function useOpenSpecAction(context: OpenSpecSidebarContext, subChatId: st
       applyModeDefaultModelAndSwitchProvider(targetSubChatId, targetMode);
 
       await trpcUtils.chats.getSubChat.invalidate({ id: targetSubChatId });
+      forceFreshSubChatSession(targetSubChatId);
       setPendingMessage({ subChatId: targetSubChatId, message });
       console.log(
         `[openspec/action] changeId=${context.changeId} subChatId=${targetSubChatId} kind=${kind} mode=${targetMode} message=${message.split('\n')[0]}`

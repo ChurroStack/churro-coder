@@ -113,9 +113,9 @@ describe('resolveOpenSpecCodexToolConfig', () => {
     expect(config.builtInTools).toEqual(
       expect.arrayContaining(['Bash', 'Edit', 'Write', 'Read', 'Glob', 'Grep', 'WebFetch'])
     );
-    expect(config.writableRoots).toEqual(['/repo/openspec/changes/add-login']);
+    expect(config.writableRoots).toEqual(['/repo/openspec/changes/add-login', '/repo', '/tmp/churro']);
     expect(config.sandboxEnabled).toBe(true);
-    expect(config.forceWritableRoots).toEqual(['/repo/openspec/changes/add-login']);
+    expect(config.forceWritableRoots).toEqual(['/repo/openspec/changes/add-login', '/repo', '/tmp/churro']);
   });
 
   test('uses default mode policy during apply turns or non-OpenSpec chats', () => {

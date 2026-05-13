@@ -38,6 +38,7 @@ function renderTasksView() {
       projectId="project-1"
       changeId="change-1"
       changePath="openspec/changes/change-1"
+      onCodeReview={() => {}}
     />
   );
 }

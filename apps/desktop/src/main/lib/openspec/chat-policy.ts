@@ -71,8 +71,8 @@ export function resolveOpenSpecCodexToolConfig(params: {
 
   return {
     builtInTools: OPEN_SPEC_CODEX_RESTRICTED_TOOLS,
-    writableRoots: [params.openSpecWriteRoot],
+    writableRoots: [params.openSpecWriteRoot, ...params.defaultWritableRoots],
     sandboxEnabled: true,
-    forceWritableRoots: [params.openSpecWriteRoot]
+    forceWritableRoots: [params.openSpecWriteRoot, ...params.defaultWritableRoots]
   };
 }

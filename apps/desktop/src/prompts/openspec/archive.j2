@@ -5,6 +5,7 @@ Upstream template: getOpsxArchiveCommandTemplate().content
 Reviewed: 2026-05-10
 Local modifications:
 - [manual] Added step 6 "Commit and push all code changes" after the archive mv, so the openspec folder relocation is included in the commit.
+- [manual] Added step 7 "Open a pull request" after commit+push, with idempotency (gh pr view) and no-CLI fallback.
 - [manual] All `openspec` CLI calls use `"${OPENSPEC_BIN:-openspec}"` so agents whose PATH injection is unreliable (e.g. Codex) resolve the binary via the absolute-path env var instead.
 - [manual] Step 4 made mandatory: always sync delta specs before archiving; removed the user prompt to skip.
 #}
@@ -103,7 +104,47 @@ Archive a completed change in the experimental workflow.
    - Ask the user: "Push failed — do you still want to continue? (Changes will not be on the remote.)"
    - The archive folder move has already happened; the workspace will still be closed.
 
-7. **Display summary**
+7. **Open a pull request**
+
+   Only attempt this if the push in step 6 succeeded (or was skipped because the tree was clean and already pushed).
+
+   a. **Detect PR CLI:**
+      ```bash
+      gh auth status 2>/dev/null && echo "gh"
+      ```
+      If exit 0 → use `gh`. Otherwise:
+      ```bash
+      az account show 2>/dev/null && git remote get-url origin 2>/dev/null | grep -q 'dev.azure.com' && echo "az"
+      ```
+      If exit 0 → use `az`. Otherwise → print `**PR:** skipped — no CLI configured (gh or az required)` and stop this step.
+
+   b. **Resolve base branch:**
+      ```bash
+      git symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null | sed 's@^origin/@@'
+      ```
+      If empty, use `main`.
+
+   c. **Idempotency check (gh only):**
+      ```bash
+      gh pr view --json url,number,state --head <branch> 2>/dev/null
+      ```
+      If the command succeeds and `.state == "OPEN"`, print `**PR:** already open at <url>` and skip the create step.
+
+   d. **Compose PR title and body:**
+      - Title: `feat(<change-name>): implement and archive <change-name>` (truncate to 80 chars if needed).
+      - Body: at most 5 sentences summarising the purpose of the change (derive from the archived `openspec/changes/archive/YYYY-MM-DD-<name>/proposal.md` if it exists). Append as a final line: `Archives openspec change \`<change-name>\`.`
+
+   e. **Create the PR:**
+      ```bash
+      # GitHub:
+      gh pr create --base <base-branch> --title "<title>" --body "<body>"
+      # Azure DevOps:
+      az repos pr create --source-branch <branch> --target-branch <base-branch> --title "<title>" --description "<body>" --output json
+      ```
+
+   f. **On PR failure:** report the error and note that the commit+push already succeeded — the user can open the PR manually. Do **not** roll back anything.
+
+8. **Display summary**
 
    Show archive completion summary including:
    - Change name
@@ -122,6 +163,7 @@ Archive a completed change in the experimental workflow.
 **Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Git:** ✓ Committed and pushed to origin
+**PR:** <url | already open at <url> | skipped — no CLI>
 **Specs:** ✓ Synced to main specs
 
 All artifacts complete. All tasks complete.
@@ -136,6 +178,7 @@ All artifacts complete. All tasks complete.
 **Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Git:** ✓ Committed and pushed to origin
+**PR:** <url | already open at <url> | skipped — no CLI>
 **Specs:** No delta specs
 
 All artifacts complete. All tasks complete.
@@ -150,6 +193,7 @@ All artifacts complete. All tasks complete.
 **Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Git:** ✓ Committed and pushed to origin
+**PR:** <url | already open at <url> | skipped — no CLI>
 **Specs:** ✓ Synced to main specs
 
 **Warnings:**

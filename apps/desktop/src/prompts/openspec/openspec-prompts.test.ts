@@ -18,4 +18,20 @@ describe('OpenSpec built-in prompt registry', () => {
     expect(BUILTIN_PROMPTS['openspec/apply']).toContain('specific task');
     expect(BUILTIN_PROMPTS['openspec/apply']).toContain('$ARGUMENTS');
   });
+
+  test('archive prompt includes PR step with idempotency and no-CLI fallback', () => {
+    const archive = BUILTIN_PROMPTS['openspec/archive'];
+    expect(archive).toContain('Open a pull request');
+    expect(archive).toContain('gh pr create');
+    expect(archive).toContain('gh pr view');
+    expect(archive).toContain('no CLI configured');
+    expect(archive).toContain('skipped — no CLI');
+    expect(archive).toContain('**PR:**');
+  });
+
+  test('archive prompt local modifications header records the PR step', () => {
+    const archive = BUILTIN_PROMPTS['openspec/archive'];
+    expect(archive).toContain('Open a pull request');
+    expect(archive).toContain('[manual]');
+  });
 });

@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { trpcClient } from '@/lib/trpc';
 import { filteredSubChatIdAtom, pendingReviewMessageAtom, subChatFilesAtom } from '@/features/agents/atoms';
 import { applyModeDefaultModelAndSwitchProvider, reviewInFlight } from '@/features/agents/lib/model-switching';
+import { forceFreshSubChatSessionIfOpenSpec } from '@/features/agents/lib/session-reset';
 import { generateReviewMessage } from '@/features/agents/utils/pr-message';
 
 export interface UseReviewActionOptions {
@@ -76,6 +77,7 @@ export function useReviewAction({ activeSubChatId, chatId }: UseReviewActionOpti
         : [];
 
       const message = generateReviewMessage(context, scopedFiles.length > 0 ? scopedFiles : undefined);
+      forceFreshSubChatSessionIfOpenSpec(activeSubChatId);
       setPendingReviewMessage({ message, subChatId: activeSubChatId });
       return { ok: true };
     } catch (err) {

@@ -23,7 +23,8 @@ import {
 import {
   openSpecCurrentStepAtomFamily,
   openSpecLastSentStepAtomFamily,
-  openSpecSidebarContextAtomFamily
+  openSpecSidebarContextAtomFamily,
+  openSpecSkipNextStepPrefixAtomFamily
 } from '../../openspec/atoms';
 import { buildOpenSpecStepPrefixedPrompt } from '../../openspec/step-prefix';
 import { CODEX_MODELS, type CodexThinkingLevel } from './models';
@@ -133,7 +134,9 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     const images = this.extractImages(lastUser);
 
     const openSpecContext = appStore.get(openSpecSidebarContextAtomFamily(this.config.subChatId));
-    if (openSpecContext) {
+    const skipPrefix = appStore.get(openSpecSkipNextStepPrefixAtomFamily(this.config.subChatId));
+    if (skipPrefix) appStore.set(openSpecSkipNextStepPrefixAtomFamily(this.config.subChatId), false);
+    if (openSpecContext && !skipPrefix) {
       const currentStep = appStore.get(openSpecCurrentStepAtomFamily(this.config.subChatId));
       const lastSentStep = appStore.get(openSpecLastSentStepAtomFamily(this.config.subChatId));
       const prefixed = buildOpenSpecStepPrefixedPrompt({

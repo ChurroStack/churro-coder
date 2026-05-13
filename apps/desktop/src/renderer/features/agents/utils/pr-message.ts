@@ -17,6 +17,13 @@ export interface PrContext {
     project: string;
     repository: string;
   };
+  /** Populated when the active sub-chat is bound to an OpenSpec change. */
+  openspecChange?: {
+    name: string;
+    path: string;
+  };
+  /** URL of an existing open PR for the branch, if one is tracked in the DB. */
+  existingPrUrl?: string | null;
 }
 
 /**
@@ -31,7 +38,10 @@ export function generatePrMessage(context: PrContext): string {
     provider: context.provider ?? null,
     azureOrganization: context.azure?.organization ?? '',
     azureProject: context.azure?.project ?? '',
-    azureRepository: context.azure?.repository ?? ''
+    azureRepository: context.azure?.repository ?? '',
+    openspecChangeName: context.openspecChange?.name ?? '',
+    openspecChangePath: context.openspecChange?.path ?? '',
+    existingPrUrl: context.existingPrUrl ?? ''
   });
 }
 
