@@ -21,6 +21,7 @@ import {
   subChatCodexThinkingAtomFamily
 } from '../atoms';
 import {
+  openSpecApplyModeAtomFamily,
   openSpecCurrentStepAtomFamily,
   openSpecLastSentStepAtomFamily,
   openSpecSidebarContextAtomFamily,
@@ -139,11 +140,13 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
     if (openSpecContext && !skipPrefix) {
       const currentStep = appStore.get(openSpecCurrentStepAtomFamily(this.config.subChatId));
       const lastSentStep = appStore.get(openSpecLastSentStepAtomFamily(this.config.subChatId));
+      const applyMode = appStore.get(openSpecApplyModeAtomFamily(this.config.subChatId));
       const prefixed = buildOpenSpecStepPrefixedPrompt({
         prompt,
         context: openSpecContext,
         currentStep,
-        lastSentStep
+        lastSentStep,
+        applyMode
       });
       prompt = prefixed.prompt;
       if (prefixed.sentStep) {

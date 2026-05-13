@@ -1240,6 +1240,23 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       // New chats are always local
       setSelectedChatIsRemote(false);
       setChatSourceMode('local');
+      // Prime the per-subChat query cache so useSubChatMode readers see a
+      // defined `prev` immediately. Without this, the cache is empty when the
+      // active-chat view mounts and any setData optimistic write is a no-op,
+      // leaving the mode dropdown stuck on the default 'plan' until the first
+      // DB round-trip completes and potentially overwrites with a stale value.
+      //
+      // NOTE: We synthesize `chat: null` here rather than the real
+      // `{ ...chat, project }` shape because the create response doesn't carry
+      // the chat/project rows. Today the only reader of this cache entry
+      // (`useSubChatMode`) reads `mode` only, so the null synthetic is safe.
+      // The brief window before the background refetch replaces this with the
+      // real shape would break any consumer that does `subChat.chat.project`
+      // without a null check — add such a consumer with care, or extend the
+      // create response to carry `{ chat, project }`.
+      for (const subChat of data.subChats ?? []) {
+        utils.chats.getSubChat.setData({ id: subChat.id }, { ...subChat, chat: null });
+      }
       // Track this chat and its first subchat as just created for typewriter effect
       const ids = [data.id];
       if (data.subChats?.[0]?.id) {

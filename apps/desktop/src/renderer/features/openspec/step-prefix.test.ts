@@ -53,4 +53,64 @@ describe('buildOpenSpecStepPrefixedPrompt', () => {
       })
     ).toEqual({ prompt: '[step:design]\nUpdate the architecture', sentStep: 'design' });
   });
+
+  test('apply mode off — no /opsx:apply prefix added', () => {
+    expect(
+      buildOpenSpecStepPrefixedPrompt({
+        prompt: 'Fix the bug',
+        context,
+        currentStep: 'tasks',
+        lastSentStep: 'tasks',
+        applyMode: false
+      })
+    ).toEqual({ prompt: 'Fix the bug', sentStep: null });
+  });
+
+  test('apply mode on, step unchanged — prepends /opsx:apply only', () => {
+    expect(
+      buildOpenSpecStepPrefixedPrompt({
+        prompt: 'Fix the bug',
+        context,
+        currentStep: 'tasks',
+        lastSentStep: 'tasks',
+        applyMode: true
+      })
+    ).toEqual({ prompt: '/opsx:apply Fix the bug', sentStep: null });
+  });
+
+  test('apply mode on, step changed — /opsx:apply [step:tasks] ordering preserved', () => {
+    expect(
+      buildOpenSpecStepPrefixedPrompt({
+        prompt: 'Fix the bug',
+        context,
+        currentStep: 'tasks',
+        lastSentStep: 'proposal',
+        applyMode: true
+      })
+    ).toEqual({ prompt: '/opsx:apply [step:tasks]\nFix the bug', sentStep: 'tasks' });
+  });
+
+  test('apply mode on but context is null — prompt left unchanged', () => {
+    expect(
+      buildOpenSpecStepPrefixedPrompt({
+        prompt: 'Fix the bug',
+        context: null,
+        currentStep: 'tasks',
+        lastSentStep: null,
+        applyMode: true
+      })
+    ).toEqual({ prompt: 'Fix the bug', sentStep: null });
+  });
+
+  test('apply mode on but user already typed /opsx:apply — no doubled prefix', () => {
+    expect(
+      buildOpenSpecStepPrefixedPrompt({
+        prompt: '/opsx:apply Fix the bug',
+        context,
+        currentStep: 'tasks',
+        lastSentStep: 'tasks',
+        applyMode: true
+      })
+    ).toEqual({ prompt: '/opsx:apply Fix the bug', sentStep: null });
+  });
 });
