@@ -123,6 +123,7 @@ import { useChatScrollInit } from '../hooks/use-chat-scroll-init';
 import { useChatViewState } from '../hooks/use-chat-view-state';
 import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { useModeSwitchDeps } from '../hooks/use-mode-switch-deps';
+import { createUpdateSubChatModeOnSuccess } from '../hooks/update-sub-chat-mode-callbacks';
 import { useTransportFactoryDeps } from '../hooks/use-transport-factory-deps';
 import { useApprovePlanDeps } from '../hooks/use-approve-plan-deps';
 import { useReviewAction } from '../hooks/use-review-action';
@@ -747,10 +748,7 @@ export const ChatViewInner = memo(function ChatViewInner({
 
   // Mutation for updating sub-chat mode in database
   const updateSubChatModeMutation = api.agents.updateSubChatMode.useMutation({
-    onSuccess: () => {
-      // Invalidate to refetch with new mode from DB
-      utils.agents.getAgentChat.invalidate({ chatId: parentChatId });
-    },
+    onSuccess: createUpdateSubChatModeOnSuccess(utils, trpcUtils, parentChatId),
     onError: (error, variables) => {
       // Don't revert if sub-chat not found in DB - it may not be persisted yet
       // This is expected for new sub-chats that haven't been saved to DB

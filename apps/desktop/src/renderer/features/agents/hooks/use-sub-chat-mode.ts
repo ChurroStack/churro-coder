@@ -28,7 +28,13 @@ export function useSubChatMode(subChatId: string): {
 
   const { data: subChat } = trpc.chats.getSubChat.useQuery({ id: subChatId }, { enabled: !!subChatId });
 
-  const updateMode = trpc.chats.updateSubChatMode.useMutation();
+  const updateMode = trpc.chats.updateSubChatMode.useMutation({
+    onSuccess: (_data, variables) => {
+      // Invalidate so a stale getSubChat response (arriving after the user
+      // clicked the dropdown) cannot pin the dropdown to the old mode.
+      utils.chats.getSubChat.invalidate({ id: variables.id });
+    }
+  });
 
   const setMode = useCallback(
     (mode: AgentMode) => {
