@@ -252,7 +252,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
             ...(images.length > 0 && { images })
           },
           {
-            onData: (chunk: UIMessageChunk) => {
+            onData: async (chunk: UIMessageChunk) => {
               chunkCount++;
               lastChunkType = chunk.type;
 
@@ -375,7 +375,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 // dismisses, or sends a new message.
               }
 
-              // Handle authentication errors - show Claude login modal
+              // Handle authentication errors - try silent keychain import first
               if (chunk.type === 'auth-error') {
                 recordChatEvent({
                   ts: Date.now(),
@@ -386,8 +386,8 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                   session_id: claudeSessionId,
                   note: 'auth-error'
                 });
-                // Store the failed message for retry after successful auth
-                // readyToRetry=false prevents immediate retry - modal sets it to true on OAuth success
+                // Stage the pending retry so both the auto-reconnect path and
+                // the modal-fallback path share the same retry trigger.
                 appStore.set(pendingAuthRetryMessageAtom, {
                   subChatId: this.config.subChatId,
                   provider: 'claude-code',
@@ -395,6 +395,31 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                   ...(images.length > 0 && { images }),
                   readyToRetry: false
                 });
+
+                let autoImported = false;
+                try {
+                  const result = await trpcClient.claudeCode.tryAutoReconnect.mutate();
+                  autoImported = result.imported;
+                  console.log(
+                    `[ClaudeAuth] transport: auto-reconnect sub=${this.config.subChatId} imported=${result.imported} reason=${result.reason}`
+                  );
+                } catch (err) {
+                  console.error('[ClaudeAuth] transport: auto-reconnect failed', err);
+                }
+
+                if (autoImported) {
+                  toast.info('Reconnecting Claude…', { duration: 4000 });
+                  const pending = appStore.get(pendingAuthRetryMessageAtom);
+                  if (pending && pending.subChatId === this.config.subChatId) {
+                    appStore.set(pendingAuthRetryMessageAtom, { ...pending, readyToRetry: true });
+                  }
+                  console.log(`[SD] R:AUTH_AUTO_RECONNECT sub=${subId}`);
+                  agentChatStore.setStreamId(this.config.subChatId, null);
+                  controller.error(new Error('Auth auto-reconnect'));
+                  return;
+                }
+
+                // Fallback: same behavior as before — open the login modal
                 appStore.set(claudeLoginModalConfigAtom, {
                   hideCustomModelSettingsLink: false,
                   autoStartAuth: false
