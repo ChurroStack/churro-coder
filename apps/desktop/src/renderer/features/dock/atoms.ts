@@ -63,6 +63,7 @@ export interface FilePanelEntity {
   absolutePath: string;
   initialLine?: number;
   initialColumn?: number;
+  subChatId?: string;
 }
 export interface PlanPanelEntity {
   chatId: string;

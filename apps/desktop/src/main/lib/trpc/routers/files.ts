@@ -442,6 +442,24 @@ export const filesRouter = router({
   }),
 
   /**
+   * Write text file contents to disk.
+   */
+  writeFile: publicProcedure
+    .input(
+      z.object({
+        filePath: z.string(),
+        projectPath: z.string().optional(),
+        content: z.string()
+      })
+    )
+    .mutation(async ({ input }) => {
+      validatePathSafe(input.filePath, input.projectPath);
+      await writeFile(input.filePath, input.content, 'utf-8');
+      console.log(`[files] writeFile path=${input.filePath} bytes=${Buffer.byteLength(input.content, 'utf8')}`);
+      return { success: true };
+    }),
+
+  /**
    * Stream content-search matches across a project directory.
    * Reuses the same ignored-dirs/files filter as the file tree.
    */
