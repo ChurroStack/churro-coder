@@ -12,8 +12,8 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "dev:debug": "CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=1 electron-vite dev",
-    "build": "NODE_OPTIONS='--max-old-space-size=8192' electron-vite build",
+    "dev:debug": "cross-env CHURRO_ELECTRON_REMOTE_DEBUGGING_PORT=1 electron-vite dev",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-vite build",
     "preview": "electron-vite preview",
     "package": "electron-builder --dir",
     "package:mac": "electron-builder --mac",
@@ -147,6 +147,7 @@
     "electron": "~41.5.1",
     "electron-builder": "^26.8.1",
     "electron-vite": "^3.0.0",
+    "cross-env": "^10.0.0",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.1",
     "prettier": "^3.8.3",

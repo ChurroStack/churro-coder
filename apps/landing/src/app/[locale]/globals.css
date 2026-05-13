@@ -54,3 +54,60 @@ body {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
+
+/* vanilla-cookieconsent — dark theme override to match site palette */
+:root {
+  --cc-bg: #18181b;
+  --cc-primary-color: #fafafa;
+  --cc-secondary-color: #a1a1aa;
+  --cc-btn-primary-bg: #fafafa;
+  --cc-btn-primary-color: #09090b;
+  --cc-btn-primary-hover-bg: #e4e4e7;
+  --cc-btn-secondary-bg: #27272a;
+  --cc-btn-secondary-color: #fafafa;
+  --cc-btn-secondary-hover-bg: #3f3f46;
+  --cc-separator-border-color: #27272a;
+  --cc-toggle-on-bg: #fafafa;
+  --cc-toggle-off-bg: #3f3f46;
+  --cc-toggle-on-knob-bg: #09090b;
+  --cc-toggle-off-knob-bg: #a1a1aa;
+  --cc-toggle-enabled-icon-color: #09090b;
+  --cc-toggle-disabled-icon-color: #a1a1aa;
+  --cc-toggle-readonly-bg: #27272a;
+  --cc-toggle-readonly-knob-bg: #71717a;
+  --cc-cookie-category-block-bg: #27272a;
+  --cc-cookie-category-block-border: #3f3f46;
+  --cc-cookie-category-block-hover-bg: #3f3f46;
+  --cc-cookie-category-expanded-block-hover-bg: #27272a;
+  --cc-cookie-category-expanded-block-bg: #18181b;
+  --cc-overlay-bg: rgba(0, 0, 0, 0.65);
+  --cc-webkit-scrollbar-bg: #27272a;
+  --cc-webkit-scrollbar-hover-bg: #3f3f46;
+  --cc-footer-bg: #09090b;
+  --cc-footer-color: #a1a1aa;
+  --cc-footer-border-color: #27272a;
+}
+
+.light {
+  --cc-bg: #ffffff;
+  --cc-primary-color: #09090b;
+  --cc-secondary-color: #71717a;
+  --cc-btn-primary-bg: #09090b;
+  --cc-btn-primary-color: #fafafa;
+  --cc-btn-primary-hover-bg: #27272a;
+  --cc-btn-secondary-bg: #f4f4f5;
+  --cc-btn-secondary-color: #09090b;
+  --cc-btn-secondary-hover-bg: #e4e4e7;
+  --cc-separator-border-color: #e4e4e7;
+  --cc-toggle-on-bg: #09090b;
+  --cc-toggle-off-bg: #d4d4d8;
+  --cc-toggle-on-knob-bg: #ffffff;
+  --cc-toggle-off-knob-bg: #ffffff;
+  --cc-cookie-category-block-bg: #fafafa;
+  --cc-cookie-category-block-border: #e4e4e7;
+  --cc-cookie-category-block-hover-bg: #f4f4f5;
+  --cc-cookie-category-expanded-block-bg: #ffffff;
+  --cc-footer-bg: #fafafa;
+  --cc-footer-color: #71717a;
+  --cc-footer-border-color: #e4e4e7;
+}

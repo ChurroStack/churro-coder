@@ -215,6 +215,46 @@ function getCurrentPlatformBinaryPath() {
   return path.join(BIN_DIR, currentPlatform, platform.outputBinaryName)
 }
 
+function replaceDirectoryInPlace(srcDir, destDir) {
+  fs.mkdirSync(destDir, { recursive: true })
+
+  const srcEntries = fs.readdirSync(srcDir, { withFileTypes: true })
+  const destEntries = fs.existsSync(destDir)
+    ? fs.readdirSync(destDir, { withFileTypes: true })
+    : []
+
+  const srcNames = new Set(srcEntries.map((entry) => entry.name))
+  for (const entry of destEntries) {
+    if (!srcNames.has(entry.name)) {
+      fs.rmSync(path.join(destDir, entry.name), { recursive: true, force: true })
+    }
+  }
+
+  for (const entry of srcEntries) {
+    const srcPath = path.join(srcDir, entry.name)
+    const destPath = path.join(destDir, entry.name)
+
+    if (entry.isDirectory()) {
+      replaceDirectoryInPlace(srcPath, destPath)
+      continue
+    }
+
+    if (path.extname(entry.name) === ".ts") {
+      const normalized = fs
+        .readFileSync(srcPath, "utf8")
+        .replace(/\r\n/g, "\n")
+        .replace(/\n/g, "\r\n")
+      const current = fs.existsSync(destPath) ? fs.readFileSync(destPath, "utf8") : null
+      if (current !== normalized) {
+        fs.writeFileSync(destPath, normalized, "utf8")
+      }
+      continue
+    }
+
+    fs.copyFileSync(srcPath, destPath)
+  }
+}
+
 function generateAppServerTypes(binaryPath) {
   console.log(`\nGenerating app-server TypeScript bindings...`)
 
@@ -238,11 +278,23 @@ function generateAppServerTypes(binaryPath) {
     throw new Error(`app-server generate-ts failed with code ${result.status ?? "unknown"}`)
   }
 
-  if (fs.existsSync(SCHEMA_DIR)) {
-    fs.renameSync(SCHEMA_DIR, trashDir)
+  try {
+    if (fs.existsSync(SCHEMA_DIR)) {
+      fs.renameSync(SCHEMA_DIR, trashDir)
+    }
+    fs.renameSync(tmpDir, SCHEMA_DIR)
+    fs.rmSync(trashDir, { recursive: true, force: true })
+  } catch (error) {
+    if (process.platform !== "win32") {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+      throw error
+    }
+
+    console.warn("  Directory swap failed on Windows; falling back to in-place schema refresh")
+    replaceDirectoryInPlace(tmpDir, SCHEMA_DIR)
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    fs.rmSync(trashDir, { recursive: true, force: true })
   }
-  fs.renameSync(tmpDir, SCHEMA_DIR)
-  fs.rmSync(trashDir, { recursive: true, force: true })
 
   console.log(`  Saved to: ${SCHEMA_DIR}`)
 }
