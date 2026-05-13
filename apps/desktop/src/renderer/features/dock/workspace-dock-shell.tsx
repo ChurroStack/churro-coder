@@ -3,6 +3,7 @@ import type { DockviewApi } from 'dockview-react';
 import { cn } from '../../lib/utils';
 import { DockShell } from './dock-shell';
 import { ChatPanelSync } from './chat-panel-sync';
+import { ChatTabPrioritySync } from './chat-tab-priority-sync';
 import { loadDockSnapshotForWorkspace, saveDockSnapshotForWorkspace, captureDock, tryRestoreDock } from './persistence';
 import { DockWorkspaceProvider } from './workspace-context';
 
@@ -121,6 +122,7 @@ export function WorkspaceDockShell({
         aria-hidden={!active}>
         <DockShell onApiReady={handleReady} className="h-full w-full" />
         <ChatPanelSync workspaceId={workspaceId} active={active} dockApi={dockApi} />
+        <ChatTabPrioritySync workspaceId={workspaceId} active={active} dockApi={dockApi} />
       </div>
     </DockWorkspaceProvider>
   );

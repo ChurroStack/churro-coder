@@ -244,16 +244,38 @@ export const voiceRouter = router({
 
   /**
    * Check if voice transcription is available
-   * Available only when OPENAI_API_KEY is set
+   * Available when OPENAI is configured or native OS speech recognition
+   * is expected to be available for this desktop runtime.
    */
   isAvailable: publicProcedure.query(() => {
     const hasLocalKey = !!getOpenAIApiKey();
+    const nativeExpected = process.platform === 'darwin' || process.platform === 'win32';
+
     if (hasLocalKey) {
-      return { available: true, method: 'local' as const, reason: undefined };
+      return {
+        available: true,
+        method: 'openai' as const,
+        openAiAvailable: true,
+        nativeExpected,
+        reason: undefined
+      };
     }
+
+    if (nativeExpected) {
+      return {
+        available: true,
+        method: 'native' as const,
+        openAiAvailable: false,
+        nativeExpected: true,
+        reason: undefined
+      };
+    }
+
     return {
       available: false,
       method: null,
+      openAiAvailable: false,
+      nativeExpected: false,
       reason: 'Add your OpenAI API key in Settings > Models to enable voice input'
     };
   }),
