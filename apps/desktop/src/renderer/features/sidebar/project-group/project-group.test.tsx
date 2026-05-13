@@ -77,7 +77,9 @@ describe('ProjectGroup', () => {
               kind: 'local',
               project: { id: 'p1', name: 'Alpha', path: '/alpha' },
               displayName: 'Alpha',
-              chats: [{ id: 'c1', name: 'Chat 1', updatedAt: new Date(), projectId: 'p1', isRemote: false, branch: null }],
+              chats: [
+                { id: 'c1', name: 'Chat 1', updatedAt: new Date(), projectId: 'p1', isRemote: false, branch: null }
+              ],
               lastActivityAt: Date.now(),
               status: 'pendingQuestion'
             }}>

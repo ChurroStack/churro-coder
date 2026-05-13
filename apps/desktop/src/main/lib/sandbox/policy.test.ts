@@ -75,7 +75,9 @@ beforeEach(() => {
 
 describe('resolveSandboxPolicy — per-workspace session dirs', () => {
   it('includes a subChat session dir in writableRoots', async () => {
-    vi.mocked(getDatabase).mockReturnValue(makeDb({ 'chat-A': [{ id: 'sub-A1' }] }) as unknown as ReturnType<typeof getDatabase>);
+    vi.mocked(getDatabase).mockReturnValue(
+      makeDb({ 'chat-A': [{ id: 'sub-A1' }] }) as unknown as ReturnType<typeof getDatabase>
+    );
 
     const policy = await resolveSandboxPolicy('chat-A', os.tmpdir(), os.tmpdir());
 
@@ -120,7 +122,9 @@ describe('resolveSandboxPolicy — per-workspace session dirs', () => {
   });
 
   it('writableRootsExpanded contains the resolved form of session dirs', async () => {
-    vi.mocked(getDatabase).mockReturnValue(makeDb({ 'chat-X': [{ id: 'sub-X' }] }) as unknown as ReturnType<typeof getDatabase>);
+    vi.mocked(getDatabase).mockReturnValue(
+      makeDb({ 'chat-X': [{ id: 'sub-X' }] }) as unknown as ReturnType<typeof getDatabase>
+    );
 
     const policy = await resolveSandboxPolicy('chat-X', os.tmpdir(), os.tmpdir());
     const sessionDir = path.join(SESSIONS_BASE, 'sub-X');

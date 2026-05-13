@@ -742,9 +742,12 @@ export const ChatViewInner = memo(function ChatViewInner({
 
   // Mutation for updating sub-chat mode in database
   const updateSubChatModeMutation = api.agents.updateSubChatMode.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       // Invalidate to refetch with new mode from DB
       utils.agents.getAgentChat.invalidate({ chatId: parentChatId });
+      // Also invalidate the tRPC getSubChat cache so a stale response
+      // cannot pin the mode dropdown to the pre-click value.
+      trpcUtils.chats.getSubChat.invalidate({ id: variables.subChatId });
     },
     onError: (error, variables) => {
       // Don't revert if sub-chat not found in DB - it may not be persisted yet
