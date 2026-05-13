@@ -129,12 +129,7 @@ describe('FileViewerSidebar', () => {
   it('saves edited code and appends a synthetic tool-Write message when subChatId is provided', async () => {
     const { getByText, getByLabelText, queryByText } = renderWithProviders(
       <TooltipProvider>
-        <FileViewerSidebar
-          filePath="/repo/example.ts"
-          projectPath="/repo"
-          onClose={vi.fn()}
-          subChatId="sub-123"
-        />
+        <FileViewerSidebar filePath="/repo/example.ts" projectPath="/repo" onClose={vi.fn()} subChatId="sub-123" />
       </TooltipProvider>
     );
 
