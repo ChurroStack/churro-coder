@@ -7,26 +7,25 @@ export function buildOpenSpecStepPrefixedPrompt(params: {
   lastSentStep: OpenSpecStep | null;
   applyMode?: boolean;
 }): { prompt: string; sentStep: OpenSpecStep | null } {
-  if (!params.context) {
+  const stepChanged = params.currentStep !== params.lastSentStep;
+  // Skip duplicate apply prefix when the user already typed `/opsx:apply` themselves.
+  const needsApplyPrefix = params.applyMode === true && !params.prompt.startsWith('/opsx:apply');
+
+  if (!params.context || (!stepChanged && !needsApplyPrefix)) {
     return { prompt: params.prompt, sentStep: null };
   }
 
   let prompt = params.prompt;
   let sentStep: OpenSpecStep | null = null;
 
-  // Inject [step:*] prefix when the step has changed
-  if (params.currentStep !== params.lastSentStep) {
+  if (stepChanged) {
     prompt = `[step:${params.currentStep}]\n${prompt}`;
     sentStep = params.currentStep;
   }
 
-  // Prepend /opsx:apply when apply mode is ON (goes before [step:*] so the agent sees apply first)
-  if (params.applyMode) {
+  // `/opsx:apply` goes before `[step:*]` so the agent sees the apply marker first.
+  if (needsApplyPrefix) {
     prompt = `/opsx:apply ${prompt}`;
-  }
-
-  if (prompt === params.prompt) {
-    return { prompt: params.prompt, sentStep: null };
   }
 
   return { prompt, sentStep };

@@ -89,4 +89,28 @@ describe('buildOpenSpecStepPrefixedPrompt', () => {
       })
     ).toEqual({ prompt: '/opsx:apply [step:tasks]\nFix the bug', sentStep: 'tasks' });
   });
+
+  test('apply mode on but context is null — prompt left unchanged', () => {
+    expect(
+      buildOpenSpecStepPrefixedPrompt({
+        prompt: 'Fix the bug',
+        context: null,
+        currentStep: 'tasks',
+        lastSentStep: null,
+        applyMode: true
+      })
+    ).toEqual({ prompt: 'Fix the bug', sentStep: null });
+  });
+
+  test('apply mode on but user already typed /opsx:apply — no doubled prefix', () => {
+    expect(
+      buildOpenSpecStepPrefixedPrompt({
+        prompt: '/opsx:apply Fix the bug',
+        context,
+        currentStep: 'tasks',
+        lastSentStep: 'tasks',
+        applyMode: true
+      })
+    ).toEqual({ prompt: '/opsx:apply Fix the bug', sentStep: null });
+  });
 });

@@ -228,6 +228,13 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
           {/* Workflow chip — primary user-facing label when not busy */}
           {!isBusy && nextStep && <span className="text-xs text-foreground truncate">{nextStep.label}</span>}
 
+          {/* Idle-state OpenSpec hint — avoids an orphan bar showing only the Apply button */}
+          {!isBusy && !nextStep && uncommittedFiles.length === 0 && isOpenSpecChat && (
+            <span className="text-xs text-muted-foreground truncate">
+              {applyMode ? 'Apply mode on' : 'Apply mode off'}
+            </span>
+          )}
+
           {/* File stats — secondary detail when there are uncommitted files */}
           {showFileStats && (
             <span className={cn('text-xs text-muted-foreground', nextStep && 'border-l border-border/50 pl-2 ml-1')}>
@@ -263,8 +270,13 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
           {/* Apply mode toggle — only in OpenSpec sub-chats, hidden while busy */}
           {!isBusy && isOpenSpecChat && (
             <Button
-              variant={applyMode ? 'default' : 'outline'}
+              variant="outline"
               size="sm"
+              role="switch"
+              aria-checked={applyMode}
+              aria-pressed={applyMode}
+              aria-label={applyMode ? 'Apply mode on — click to disable' : 'Apply mode off — click to enable'}
+              title="Apply mode: auto-prefixes outgoing messages with /opsx:apply"
               onClick={(e) => {
                 e.stopPropagation();
                 onApplyModeToggle?.();
@@ -273,6 +285,13 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
                 'h-6 px-2 text-xs font-medium rounded-md transition-all duration-150 active:scale-[0.97]',
                 applyMode && 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500'
               )}>
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'mr-1 inline-block size-1.5 rounded-full',
+                  applyMode ? 'bg-white' : 'bg-muted-foreground/40'
+                )}
+              />
               Apply
             </Button>
           )}
