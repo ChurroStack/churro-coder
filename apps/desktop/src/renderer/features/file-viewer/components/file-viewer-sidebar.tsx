@@ -5,6 +5,7 @@ import { useAtom } from 'jotai';
 import { useAtomValue } from 'jotai';
 import { useTheme } from 'next-themes';
 import { Loader2, AlertCircle, FileWarning, MoreHorizontal, WrapText, Map } from 'lucide-react';
+import { toast } from 'sonner';
 import { IconLineNumbers } from '@/components/ui/icons';
 import { Kbd } from '@/components/ui/kbd';
 import { Button } from '@/components/ui/button';
@@ -13,8 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuItem
+  DropdownMenuCheckboxItem
 } from '@/components/ui/dropdown-menu';
 import { ViewerErrorBoundary } from '@/components/ui/error-boundary';
 import { FileTitleBlock } from './file-title-block';
@@ -32,15 +32,19 @@ import {
 } from '../../agents/atoms';
 import { useFileContent, getErrorMessage } from '../hooks/use-file-content';
 import { getMonacoLanguage, getFileViewerType } from '../utils/language-map';
-import { defaultEditorOptions, getMonacoTheme, registerMonacoTheme } from './monaco-config';
+import { getEditorOptions, getMonacoTheme, registerMonacoTheme } from './monaco-config';
 import { useVSCodeTheme } from '@/lib/themes';
 import { ImageViewer } from './image-viewer';
 import { MarkdownViewer } from './markdown-viewer';
+import { fileDraftUtils, useFileDraft } from '../use-file-draft';
+import { DraftConflictBanner, EditModeButtons, type FileViewerDockApi, UnsavedChangesDialog } from './editor-editing';
 
 interface FileViewerSidebarProps {
   filePath: string;
   projectPath: string;
   onClose: () => void;
+  subChatId?: string;
+  dockApi?: FileViewerDockApi;
   /**
    * When true, render an inline header with a close button + filename
    * inside the viewer itself. Default false because dockview's tab strip
@@ -105,11 +109,25 @@ function UnsupportedViewer({
 function CodeViewerHeader({
   filePath,
   content,
+  isEditMode,
+  isSaving,
+  onEnterEditMode,
+  onSave,
+  onDiscard,
+  onUndo,
+  onRedo,
   showHeader = false,
   onClose
 }: {
   filePath: string;
   content?: string | null;
+  isEditMode: boolean;
+  isSaving?: boolean;
+  onEnterEditMode: () => void;
+  onSave: () => void;
+  onDiscard: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
   showHeader?: boolean;
   onClose?: () => void;
 }) {
@@ -136,6 +154,18 @@ function CodeViewerHeader({
       }}>
       {showHeader && onClose && <FileTitleBlock filePath={filePath} onClose={onClose} />}
       <div className="flex items-center gap-1 flex-shrink-0">
+        {content !== undefined && content !== null && (
+          <EditModeButtons
+            isEditMode={isEditMode}
+            isSaving={isSaving}
+            onEnterEditMode={onEnterEditMode}
+            onSave={onSave}
+            onDiscard={onDiscard}
+            onUndo={onUndo}
+            onRedo={onRedo}
+          />
+        )}
+
         {/* Open in editor */}
         <Tooltip delayDuration={500}>
           <TooltipTrigger asChild>
@@ -202,7 +232,14 @@ function CodeViewerHeader({
 /**
  * FileViewerSidebar - Routes to appropriate viewer based on file type
  */
-export function FileViewerSidebar({ filePath, projectPath, onClose, showHeader = false }: FileViewerSidebarProps) {
+export function FileViewerSidebar({
+  filePath,
+  projectPath,
+  onClose,
+  subChatId,
+  dockApi,
+  showHeader = false
+}: FileViewerSidebarProps) {
   const viewerType = getFileViewerType(filePath);
 
   switch (viewerType) {
@@ -217,13 +254,27 @@ export function FileViewerSidebar({ filePath, projectPath, onClose, showHeader =
     case 'markdown':
       return (
         <ViewerErrorBoundary viewerType="markdown" onReset={onClose}>
-          <MarkdownViewer filePath={filePath} projectPath={projectPath} onClose={onClose} showHeader={showHeader} />
+          <MarkdownViewer
+            filePath={filePath}
+            projectPath={projectPath}
+            onClose={onClose}
+            showHeader={showHeader}
+            subChatId={subChatId}
+            dockApi={dockApi}
+          />
         </ViewerErrorBoundary>
       );
     default:
       return (
         <ViewerErrorBoundary viewerType="file" onReset={onClose}>
-          <CodeViewer filePath={filePath} projectPath={projectPath} onClose={onClose} showHeader={showHeader} />
+          <CodeViewer
+            filePath={filePath}
+            projectPath={projectPath}
+            onClose={onClose}
+            showHeader={showHeader}
+            subChatId={subChatId}
+            dockApi={dockApi}
+          />
         </ViewerErrorBoundary>
       );
   }
@@ -344,11 +395,15 @@ function CodeViewer({
   filePath,
   projectPath,
   onClose,
+  subChatId,
+  dockApi,
   showHeader = false
 }: {
   filePath: string;
   projectPath: string;
   onClose: () => void;
+  subChatId?: string;
+  dockApi?: FileViewerDockApi;
   showHeader?: boolean;
 }) {
   const language = getMonacoLanguage(filePath);
@@ -362,14 +417,31 @@ function CodeViewer({
 
   const preferredEditor = useAtomValue(preferredEditorAtom);
   const openInAppMutation = trpc.external.openInApp.useMutation();
+  const writeFileMutation = trpc.files.writeFile.useMutation();
+  const appendMessageMutation = trpc.messages.append.useMutation();
+  const utils = trpc.useUtils();
 
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentContent, setCurrentContent] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editBaseContent, setEditBaseContent] = useState('');
+  const [discardDialogAction, setDiscardDialogAction] = useState<'discard' | 'close' | null>(null);
+  const [draftConflictAt, setDraftConflictAt] = useState<number | null>(null);
   // Pending line to scroll to once Monaco mounts (set by Search tab clicks).
   const pendingScrollLineRef = useRef<number | null>(null);
+  const hasRestoredDraftRef = useRef(false);
+  const draftPersistedRef = useRef(false);
+  const absolutePath = useMemo(
+    () => (filePath.startsWith('/') ? filePath : `${projectPath}/${filePath}`),
+    [filePath, projectPath]
+  );
+  const fileName = useMemo(() => filePath.split('/').pop() || filePath, [filePath]);
+  const { saveDraft, clearDraft, loadDraft } = useFileDraft(absolutePath, editBaseContent || currentContent);
 
   // Handle ⌘⇧O hotkey to open current file in external editor
   useEffect(() => {
@@ -415,12 +487,73 @@ function CodeViewer({
   }, [currentTheme]);
 
   const { content, isLoading, error } = useFileContent(projectPath, filePath);
+  const effectiveContent = isEditMode ? editContent : currentContent;
+
+  useEffect(() => {
+    hasRestoredDraftRef.current = false;
+    draftPersistedRef.current = false;
+    setIsEditMode(false);
+    setCurrentContent('');
+    setEditContent('');
+    setEditBaseContent('');
+    setDiscardDialogAction(null);
+    setDraftConflictAt(null);
+  }, [absolutePath]);
+
+  useEffect(() => {
+    if (content == null || isEditMode) return;
+    setCurrentContent(content);
+  }, [content, isEditMode]);
+
+  useEffect(() => {
+    if (content == null || hasRestoredDraftRef.current) return;
+    hasRestoredDraftRef.current = true;
+    setCurrentContent(content);
+
+    const draft = loadDraft();
+    if (!draft) return;
+
+    setEditBaseContent(content);
+    setEditContent(draft.content);
+    setIsEditMode(true);
+    draftPersistedRef.current = true;
+
+    void fileDraftUtils.sha1(content).then((hash) => {
+      setDraftConflictAt(hash === draft.originalHash ? null : draft.draftedAt);
+    });
+  }, [content, loadDraft]);
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({ readOnly: !isEditMode });
+  }, [isEditMode]);
+
+  useEffect(() => {
+    if (!dockApi) return;
+    dockApi.setTitle(isEditMode ? `• ${fileName}` : fileName);
+    return () => {
+      dockApi.setTitle(fileName);
+    };
+  }, [dockApi, fileName, isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    if (editContent === editBaseContent) {
+      clearDraft();
+      draftPersistedRef.current = false;
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      saveDraft(editContent);
+      draftPersistedRef.current = true;
+    }, 500);
+    return () => window.clearTimeout(timeoutId);
+  }, [clearDraft, editBaseContent, editContent, isEditMode, saveDraft]);
 
   // Apply pending scroll target once content is available (Monaco rebuilds the
   // model when `value` changes, so we defer one frame to ensure it's ready).
   useEffect(() => {
     const line = pendingScrollLineRef.current;
-    if (!line || content == null) return;
+    if (!line || effectiveContent == null) return;
     const ed = editorRef.current;
     if (!ed) return;
     const raf = requestAnimationFrame(() => {
@@ -430,7 +563,104 @@ function CodeViewer({
       pendingScrollLineRef.current = null;
     });
     return () => cancelAnimationFrame(raf);
-  }, [content, filePath]);
+  }, [effectiveContent, filePath]);
+
+  const exitEditMode = useCallback(() => {
+    setIsEditMode(false);
+    setDiscardDialogAction(null);
+    setDraftConflictAt(null);
+    draftPersistedRef.current = false;
+  }, []);
+
+  const handleEnterEditMode = useCallback(() => {
+    setEditBaseContent(currentContent);
+    setEditContent(currentContent);
+    setDraftConflictAt(null);
+    setIsEditMode(true);
+    draftPersistedRef.current = false;
+  }, [currentContent]);
+
+  const handleRequestClose = useCallback(() => {
+    if (isEditMode) {
+      setDiscardDialogAction('close');
+      return;
+    }
+    onClose();
+  }, [isEditMode, onClose]);
+
+  const handleConfirmDiscard = useCallback(() => {
+    clearDraft();
+    setEditContent(editBaseContent);
+    exitEditMode();
+    if (discardDialogAction === 'close') {
+      onClose();
+    }
+  }, [clearDraft, discardDialogAction, editBaseContent, exitEditMode, onClose]);
+
+  const handleSave = useCallback(async () => {
+    const nextContent = editContent;
+    try {
+      await writeFileMutation.mutateAsync({ filePath: absolutePath, projectPath, content: nextContent });
+      setCurrentContent(nextContent);
+      clearDraft();
+      exitEditMode();
+      await utils.files.readTextFile.invalidate({ filePath: absolutePath });
+
+      if (!subChatId) return;
+
+      const messageId = crypto.randomUUID();
+      await appendMessageMutation.mutateAsync({
+        subChatId,
+        message: {
+          id: messageId,
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-Write',
+              state: 'done',
+              input: { file_path: absolutePath, content: nextContent },
+              output: { content: nextContent }
+            }
+          ]
+        }
+      });
+
+      // Rely on message-query invalidation so the existing change-tracking hook
+      // remains the single source of truth for subChatFilesAtom recomputation.
+      await Promise.allSettled([
+        utils.messages.getLatest.invalidate(),
+        utils.messages.getBefore.invalidate(),
+        utils.messages.getAfter.invalidate()
+      ]);
+    } catch (error) {
+      toast.error('Failed to save file', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }, [
+    absolutePath,
+    appendMessageMutation,
+    clearDraft,
+    editContent,
+    exitEditMode,
+    projectPath,
+    subChatId,
+    utils.files.readTextFile,
+    utils.messages.getAfter,
+    utils.messages.getBefore,
+    utils.messages.getLatest,
+    writeFileMutation
+  ]);
+
+  const handleUndo = useCallback(() => {
+    editorRef.current?.focus();
+    editorRef.current?.trigger('toolbar', 'undo', null);
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    editorRef.current?.focus();
+    editorRef.current?.trigger('toolbar', 'redo', null);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -444,12 +674,12 @@ function CodeViewer({
         if (findWidget) return;
 
         e.preventDefault();
-        onClose();
+        handleRequestClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, contextMenu]);
+  }, [handleRequestClose, contextMenu]);
 
   // Custom context menu handler for Monaco
   useEffect(() => {
@@ -556,8 +786,8 @@ function CodeViewer({
       }
     }
     // Fallback: copy all content
-    if (content) navigator.clipboard.writeText(content);
-  }, [content]);
+    if (effectiveContent) navigator.clipboard.writeText(effectiveContent);
+  }, [effectiveContent]);
 
   const handleFind = useCallback(() => {
     const ed = editorRef.current;
@@ -596,18 +826,28 @@ function CodeViewer({
 
   const editorOptions = useMemo(
     () => ({
-      ...defaultEditorOptions,
+      ...getEditorOptions(!isEditMode),
       wordWrap: wordWrap ? ('on' as const) : ('off' as const),
       minimap: { enabled: minimap },
       lineNumbers: lineNumbers ? ('on' as const) : ('off' as const)
     }),
-    [wordWrap, minimap, lineNumbers]
+    [isEditMode, lineNumbers, minimap, wordWrap]
   );
 
   if (isLoading) {
     return (
       <div className="flex flex-col h-full bg-background">
-        <CodeViewerHeader filePath={filePath} showHeader={showHeader} onClose={onClose} />
+        <CodeViewerHeader
+          filePath={filePath}
+          isEditMode={false}
+          onEnterEditMode={() => {}}
+          onSave={() => {}}
+          onDiscard={() => {}}
+          onUndo={() => {}}
+          onRedo={() => {}}
+          showHeader={showHeader}
+          onClose={handleRequestClose}
+        />
         <LoadingSpinner />
       </div>
     );
@@ -616,7 +856,17 @@ function CodeViewer({
   if (error) {
     return (
       <div className="flex flex-col h-full bg-background">
-        <CodeViewerHeader filePath={filePath} showHeader={showHeader} onClose={onClose} />
+        <CodeViewerHeader
+          filePath={filePath}
+          isEditMode={false}
+          onEnterEditMode={() => {}}
+          onSave={() => {}}
+          onDiscard={() => {}}
+          onUndo={() => {}}
+          onRedo={() => {}}
+          showHeader={showHeader}
+          onClose={handleRequestClose}
+        />
         <ErrorDisplay error={getErrorMessage(error)} />
       </div>
     );
@@ -793,16 +1043,34 @@ function CodeViewer({
           display: none !important;
         }
       `}</style>
-      <CodeViewerHeader filePath={filePath} content={content} showHeader={showHeader} onClose={onClose} />
+      <CodeViewerHeader
+        filePath={filePath}
+        content={effectiveContent}
+        isEditMode={isEditMode}
+        isSaving={writeFileMutation.isPending || appendMessageMutation.isPending}
+        onEnterEditMode={handleEnterEditMode}
+        onSave={() => void handleSave()}
+        onDiscard={() => setDiscardDialogAction('discard')}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        showHeader={showHeader}
+        onClose={handleRequestClose}
+      />
+      {draftConflictAt !== null && <DraftConflictBanner draftedAt={draftConflictAt} />}
       <div ref={containerRef} className="flex-1 min-h-0 allow-text-selection" data-file-viewer-path={filePath}>
         <Editor
           height="100%"
           language={language}
-          value={content || ''}
+          value={effectiveContent}
           theme={monacoTheme}
           options={editorOptions}
           loading={<LoadingSpinner />}
           onMount={handleEditorMount}
+          onChange={(value) => {
+            if (isEditMode) {
+              setEditContent(value ?? '');
+            }
+          }}
         />
       </div>
       {contextMenu && (
@@ -816,6 +1084,19 @@ function CodeViewer({
           hasSelection={hasSelection}
         />
       )}
+      <UnsavedChangesDialog
+        open={discardDialogAction !== null}
+        title={discardDialogAction === 'close' ? 'Discard all changes?' : 'Discard changes?'}
+        description={
+          discardDialogAction === 'close'
+            ? 'Are you sure you want to discard all changes?'
+            : 'Are you sure you want to discard your changes?'
+        }
+        onOpenChange={(open) => {
+          if (!open) setDiscardDialogAction(null);
+        }}
+        onConfirm={handleConfirmDiscard}
+      />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
+import { getFileManagerUiMeta } from '@/lib/utils/file-manager';
 import { getStatusIndicator } from '../utils/status';
 import type { FileStatus } from '../../../../shared/changes-types';
 
@@ -42,7 +43,7 @@ export interface FileListItemProps {
   onCopyPath?: () => void;
   /** Copy relative path */
   onCopyRelativePath?: () => void;
-  /** Open in Finder/Explorer */
+  /** Reveal in the platform file manager */
   onRevealInFinder?: () => void;
   /** Open in file preview sidebar */
   onOpenInFilePreview?: () => void;
@@ -84,6 +85,7 @@ export const FileListItem = memo(function FileListItem({
   onDiscard,
   showContextMenu = true
 }: FileListItemProps) {
+  const fileManager = getFileManagerUiMeta();
   const content = (
     <div
       data-file-item
@@ -126,7 +128,7 @@ export const FileListItem = memo(function FileListItem({
         {onCopyPath && <ContextMenuItem onClick={onCopyPath}>Copy Path</ContextMenuItem>}
         {onCopyRelativePath && <ContextMenuItem onClick={onCopyRelativePath}>Copy Relative Path</ContextMenuItem>}
         {(onCopyPath || onCopyRelativePath) && onRevealInFinder && <ContextMenuSeparator />}
-        {onRevealInFinder && <ContextMenuItem onClick={onRevealInFinder}>Reveal in Finder</ContextMenuItem>}
+        {onRevealInFinder && <ContextMenuItem onClick={onRevealInFinder}>{fileManager.revealLabel}</ContextMenuItem>}
         {(onOpenInFilePreview || onOpenInEditor) && <ContextMenuSeparator />}
         {onOpenInFilePreview && <ContextMenuItem onClick={onOpenInFilePreview}>Open in File Preview</ContextMenuItem>}
         {onOpenInEditor && (

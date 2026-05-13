@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { trpc } from '@/lib/trpc';
 import { preferredEditorAtom } from '@/lib/atoms';
 import { useResolvedHotkeyDisplay } from '@/lib/hotkeys';
+import { getFileManagerUiMeta } from '@/lib/utils/file-manager';
 import { APP_META } from '../../../../shared/external-apps';
 import { EDITOR_ICONS } from '@/lib/editor-icons';
 import { toast } from 'sonner';
@@ -126,6 +127,7 @@ export const InfoSection = memo(function InfoSection({
   isExpanded = false,
   remoteInfo
 }: InfoSectionProps) {
+  const fileManager = getFileManagerUiMeta();
   // Extract folder name from path
   const folderName = worktreePath?.split('/').pop() || 'Unknown';
 
@@ -334,7 +336,7 @@ export const InfoSection = memo(function InfoSection({
           value={folderName}
           title={worktreePath}
           onClick={handleOpenFolder}
-          tooltip="Open in Finder"
+          tooltip={fileManager.openLabel}
         />
       )}
       {/* Open in Editor — any local chat with a repo path (project or worktree) */}

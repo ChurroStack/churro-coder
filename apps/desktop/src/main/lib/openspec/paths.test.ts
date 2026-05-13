@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   archivedFolderRegex,
   parseArchivedFolder,
@@ -11,12 +11,13 @@ import {
 
 describe('resolveRoot', () => {
   test('returns derived openspec subdirectories', () => {
+    const rootDir = resolve('/tmp/proj');
     const r = resolveRoot('/tmp/proj');
-    expect(r.rootDir).toBe('/tmp/proj');
-    expect(r.openspecDir).toBe('/tmp/proj/openspec');
-    expect(r.changesDir).toBe('/tmp/proj/openspec/changes');
-    expect(r.archiveDir).toBe('/tmp/proj/openspec/changes/archive');
-    expect(r.specsDir).toBe('/tmp/proj/openspec/specs');
+    expect(r.rootDir).toBe(rootDir);
+    expect(r.openspecDir).toBe(join(rootDir, 'openspec'));
+    expect(r.changesDir).toBe(join(rootDir, 'openspec', 'changes'));
+    expect(r.archiveDir).toBe(join(rootDir, 'openspec', 'changes', 'archive'));
+    expect(r.specsDir).toBe(join(rootDir, 'openspec', 'specs'));
   });
 
   test('rejects relative paths', () => {

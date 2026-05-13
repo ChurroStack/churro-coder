@@ -19,7 +19,13 @@ export function FilePanel({ params, api }: IDockviewPanelProps<FilePanelEntity>)
 
   return (
     <div className="h-full w-full overflow-hidden border-t border-border">
-      <FileViewerSidebar filePath={params.absolutePath} projectPath={projectPath} onClose={handleClose} />
+      <FileViewerSidebar
+        filePath={params.absolutePath}
+        projectPath={projectPath}
+        onClose={handleClose}
+        subChatId={params.subChatId}
+        dockApi={api}
+      />
     </div>
   );
 }
