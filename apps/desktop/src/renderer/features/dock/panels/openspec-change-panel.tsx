@@ -12,7 +12,6 @@ import { useDockWorkspace } from '../workspace-context';
 import type { OpenSpecChangePanelEntity } from '../atoms';
 
 const MIN_CHAT_WIDTH = 300;
-const MAX_CHAT_WIDTH = 560;
 
 interface OpenSpecChangePanelContentProps {
   params: OpenSpecChangePanelEntity;
@@ -100,6 +99,23 @@ export function OpenSpecChangePanelContent({
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // Track outer container width so the max chat pane stays ≤ 50% of available space.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      setContainerWidth(w);
+      // Clamp persisted width back if container shrank below 50%.
+      const maxW = Math.max(MIN_CHAT_WIDTH, Math.floor(w * 0.5));
+      setChatWidth((prev) => Math.min(prev, maxW));
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [setChatWidth]);
 
   useEffect(() => {
     setSidebarContext({
@@ -121,8 +137,10 @@ export function OpenSpecChangePanelContent({
 
   const handleResizerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDragging.current) return;
+    const maxChatWidth =
+      containerWidth > 0 ? Math.max(MIN_CHAT_WIDTH, Math.floor(containerWidth * 0.5)) : MIN_CHAT_WIDTH * 2;
     const delta = dragStartX.current - e.clientX; // dragging left = wider chat
-    const next = Math.min(MAX_CHAT_WIDTH, Math.max(MIN_CHAT_WIDTH, dragStartWidth.current + delta));
+    const next = Math.min(maxChatWidth, Math.max(MIN_CHAT_WIDTH, dragStartWidth.current + delta));
     setChatWidth(next);
   };
 
@@ -135,6 +153,7 @@ export function OpenSpecChangePanelContent({
 
   return (
     <div
+      ref={containerRef}
       className="h-full w-full overflow-hidden bg-background border-t border-border"
       style={{ display: 'grid', gridTemplateColumns: `1fr 6px ${chatWidth}px` }}>
       {/* Left pane: spec viewer */}

@@ -208,24 +208,33 @@ export const KanbanCard = memo(function KanbanCard({
     'outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70'
   );
 
+  const handleKeyActivate = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick(e as unknown as React.MouseEvent);
+    }
+  };
+
   // Don't show context menu for drafts
   if (card.isDraft) {
     return (
-      <button type="button" onClick={onClick} className={baseCardClasses}>
+      <div role="button" tabIndex={0} onClick={onClick} onKeyDown={handleKeyActivate} className={baseCardClasses}>
         {cardContent}
-      </button>
+      </div>
     );
   }
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={onClick}
+          onKeyDown={handleKeyActivate}
           className={cn(baseCardClasses, card.isSelected && 'bg-primary/10 border-primary/30')}>
           {cardContent}
-        </button>
+        </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
         <ContextMenuItem onClick={() => onTogglePin(card.chatId)}>

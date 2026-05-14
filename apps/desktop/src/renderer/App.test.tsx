@@ -73,8 +73,11 @@ vi.mock('./features/onboarding', () => ({
   AnthropicOnboardingPage: () => <div>Anthropic Onboarding</div>,
   ApiKeyOnboardingPage: () => <div>API Key Onboarding</div>,
   BillingMethodPage: () => <div>Billing Method</div>,
-  CodexOnboardingPage: () => <div>Codex Onboarding</div>,
-  SelectRepoPage: () => <div>Select a repository</div>
+  CodexOnboardingPage: () => <div>Codex Onboarding</div>
+}));
+
+vi.mock('./features/new-project/empty-state-shell', () => ({
+  EmptyStateShell: () => <div>Add project</div>
 }));
 
 vi.mock('./features/layout/agents-layout', () => ({
@@ -127,7 +130,7 @@ describe('AppContent — project-page decision', () => {
     return { ...override, refetch: refetchProjectsMock };
   }
 
-  it('does not show the SelectRepoPage when projects exist and selectedProject is null', async () => {
+  it('does not show the EmptyStateShell when projects exist and selectedProject is null', async () => {
     const store = createTestStore();
     seedOnboarding(store);
     projectsListMock.mockReturnValue(
@@ -149,16 +152,16 @@ describe('AppContent — project-page decision', () => {
 
     const { findByText, queryByText } = mountAppContent(store);
     await findByText('Agents Layout');
-    expect(queryByText('Select a repository')).toBeNull();
+    expect(queryByText('Add project')).toBeNull();
   });
 
-  it('shows the SelectRepoPage when DB has no projects', async () => {
+  it('shows the EmptyStateShell when DB has no projects', async () => {
     const store = createTestStore();
     seedOnboarding(store);
     projectsListMock.mockReturnValue(projectsResult({ data: [], isLoading: false }));
 
     const { findByText } = mountAppContent(store);
-    await findByText('Select a repository');
+    await findByText('Add project');
   });
 
   it('renders AgentsLayout when localStorage selectedProject points at a deleted project but DB has others', async () => {
@@ -191,7 +194,7 @@ describe('AppContent — project-page decision', () => {
     );
     const { findByText, queryByText } = mountAppContent(store);
     await findByText('Agents Layout');
-    expect(queryByText('Select a repository')).toBeNull();
+    expect(queryByText('Add project')).toBeNull();
   });
 
   it('falls back to most-recent when selectedChatId points at a deleted chat (getProjectIdById returns null)', async () => {
@@ -217,7 +220,7 @@ describe('AppContent — project-page decision', () => {
     chatsGetProjectIdByIdMock.mockReturnValue({ data: null }); // chat row deleted
     const { findByText, queryByText } = mountAppContent(store);
     await findByText('Agents Layout');
-    expect(queryByText('Select a repository')).toBeNull();
+    expect(queryByText('Add project')).toBeNull();
   });
 
   it('trusts localStorage and triggers refetch when projects.list resolves to a non-array shape', async () => {
@@ -237,7 +240,7 @@ describe('AppContent — project-page decision', () => {
     const { findByText, queryByText } = mountAppContent(store);
     // localStorage project is trusted while the corrected refetch is in flight
     await findByText('Agents Layout');
-    expect(queryByText('Select a repository')).toBeNull();
+    expect(queryByText('Add project')).toBeNull();
     // defensive refetch must have been triggered
     expect(refetchProjectsMock).toHaveBeenCalled();
   });

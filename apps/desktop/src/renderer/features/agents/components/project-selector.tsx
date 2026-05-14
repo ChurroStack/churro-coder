@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { useAtom } from 'jotai';
+import { useAtom, useSetAtom } from 'jotai';
+import { newProjectDialogOpenAtom } from '../../new-project/atoms';
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
 import {
   Command,
@@ -19,6 +20,7 @@ import { selectedProjectAtom } from '../atoms';
 
 export function ProjectSelector() {
   const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom);
+  const setNewProjectOpen = useSetAtom(newProjectDialogOpenAtom);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [githubDialogOpen, setGithubDialogOpen] = useState(false);
@@ -135,15 +137,14 @@ export function ProjectSelector() {
     };
   }, [selectedProject, projects, isLoadingProjects]);
 
-  // If no projects exist and none selected - show direct "Add repository" button
+  // If no projects exist and none selected - show "+ Add project" button
   if (!validSelection && (!Array.isArray(projects) || projects.length === 0) && !isLoadingProjects) {
     return (
       <button
-        onClick={handleOpenFolder}
-        disabled={openFolder.isPending}
+        onClick={() => setNewProjectOpen(true)}
         className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
         <FolderPlusIcon className="h-3.5 w-3.5" />
-        <span>{openFolder.isPending ? 'Adding...' : 'Add repository'}</span>
+        <span>+ Add project</span>
       </button>
     );
   }
@@ -194,20 +195,13 @@ export function ProjectSelector() {
             </CommandList>
             <div className="border-t border-border/50 py-1">
               <button
-                onClick={handleOpenFolder}
-                disabled={openFolder.isPending}
-                className="flex items-center gap-1.5 min-h-[32px] py-[5px] px-1.5 mx-1 w-[calc(100%-8px)] rounded-md text-sm cursor-default select-none outline-none dark:hover:bg-neutral-800 hover:text-foreground transition-colors">
-                <FolderPlusIcon className="h-4 w-4 text-muted-foreground" />
-                <span>{openFolder.isPending ? 'Adding...' : 'Add repository'}</span>
-              </button>
-              <button
                 onClick={() => {
                   setOpen(false);
-                  setGithubDialogOpen(true);
+                  setNewProjectOpen(true);
                 }}
                 className="flex items-center gap-1.5 min-h-[32px] py-[5px] px-1.5 mx-1 w-[calc(100%-8px)] rounded-md text-sm cursor-default select-none outline-none dark:hover:bg-neutral-800 hover:text-foreground transition-colors">
-                <GitHubIcon className="h-4 w-4 text-muted-foreground" />
-                <span>Add from GitHub</span>
+                <FolderPlusIcon className="h-4 w-4 text-muted-foreground" />
+                <span>+ Add project</span>
               </button>
             </div>
           </Command>

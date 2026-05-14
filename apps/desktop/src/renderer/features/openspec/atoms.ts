@@ -79,6 +79,8 @@ export const openSpecVisitedTasksAtomFamily = atomFamily((_changeId: string) => 
  *  Notch actions (mergeBase, createPr) set this so their workflow prompts don't pick up [step:proposal] etc. */
 export const openSpecSkipNextStepPrefixAtomFamily = atomFamily((_subChatId: string) => atom<boolean>(false));
 
-/** When true, every outgoing message for this sub-chat is auto-prefixed with `/opsx:apply `.
- *  Lets users stay in "fix issues" mode without retyping /opsx:apply each turn. Resets to false on app reload. */
-export const openSpecApplyModeAtomFamily = atomFamily((_subChatId: string) => atom<boolean>(false));
+/** One-shot pending command set by the send button before triggering onSend().
+ *  The transport reads and clears it to prepend /opsx:propose or /opsx:apply on the next outgoing turn. */
+export const openSpecPendingCommandAtomFamily = atomFamily((_subChatId: string) =>
+  atom<'propose' | 'apply' | null>(null)
+);

@@ -39,7 +39,8 @@ import {
 } from '../../lib/hooks/use-remote-chats';
 import { usePrefetchLocalChat } from '../../lib/hooks/use-prefetch-local-chat';
 import { AgentsArchivePopover } from '../agents/components/agents-archive-popover';
-import { BarChart3, Columns3, Plus } from 'lucide-react';
+import { BarChart3, Columns3, Plus, FolderPlus } from 'lucide-react';
+import { newProjectDialogOpenAtom } from '../new-project/atoms';
 import { useQuery } from '@tanstack/react-query';
 // Desktop: archive is handled inline, not via hook
 // import { DiscordIcon } from "@/components/icons"
@@ -1358,6 +1359,7 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
   const nameRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const agentTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const setNewProjectOpen = useSetAtom(newProjectDialogOpenAtom);
   const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
   const setDesktopViewForSettings = useSetAtom(desktopViewAtom);
   const setSidebarOpenForSettings = useSetAtom(agentsSidebarOpenAtom);
@@ -3055,6 +3057,20 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
               </div>
 
               <div className="flex-1" />
+
+              {/* Add project button */}
+              <Tooltip delayDuration={500}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setNewProjectOpen(true)}
+                    style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                    className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
+                    <FolderPlus className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Add project</TooltipContent>
+              </Tooltip>
             </div>
 
             {/* UPDATES-DISABLED: re-enable to restore Feedback button */}

@@ -200,6 +200,10 @@ export function trackProjectOpened(_project: unknown): void {
   capture('project.opened');
 }
 
+export function trackProjectCreated(opts: { provider: string; openspecInit: boolean; hasPrompt: boolean }): void {
+  capture('project.created', { provider: opts.provider, openspecInit: opts.openspecInit, hasPrompt: opts.hasPrompt });
+}
+
 export function trackWorkspaceCreated(_workspace: unknown): void {
   capture('workspace.created');
 }

@@ -58,6 +58,7 @@ import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { AgentsSlashCommand, BUILTIN_SLASH_COMMANDS, type SlashCommandOption } from '../commands';
 import { AgentModelSelector } from '../components/agent-model-selector';
 import { AgentSendButton } from '../components/agent-send-button';
+import { OpenSpecSendButton } from '../components/openspec-send-button';
 import type { UploadedFile, UploadedImage } from '../hooks/use-agents-file-upload';
 import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { clearSubChatDraft, saveSubChatDraftWithAttachments } from '../lib/drafts';
@@ -84,6 +85,7 @@ import { useVoiceInput } from '../../../lib/hooks/use-voice-input';
 import { getResolvedHotkey } from '../../../lib/hotkeys';
 import { customHotkeysAtom } from '../../../lib/atoms';
 import { toast } from 'sonner';
+import { openSpecCurrentStepAtomFamily, openSpecSidebarContextAtomFamily } from '../../openspec/atoms';
 
 // Hook to get available models (including offline models if Ollama is available and debug enabled)
 function useAvailableModels() {
@@ -645,8 +647,26 @@ export const ChatInputArea = memo(function ChatInputArea({
   // Note: When offline, we show Ollama models selector instead of Claude models
   // The selectedOllamaModel atom is used to track which Ollama model is selected
 
+  // OpenSpec context — drives send-button and toolbar branching
+  const openSpecContextAtom = useMemo(() => openSpecSidebarContextAtomFamily(subChatId), [subChatId]);
+  const openSpecContext = useAtomValue(openSpecContextAtom);
+  const isOpenSpec = openSpecContext !== null;
+  const openSpecCurrentStepAtom = useMemo(() => openSpecCurrentStepAtomFamily(subChatId), [subChatId]);
+  const openSpecCurrentStep = useAtomValue(openSpecCurrentStepAtom);
+
   // Plan mode - per-subChat via tRPC single source of truth
   const { mode: subChatMode, setMode: setSubChatMode } = useSubChatMode(subChatId);
+
+  // Force execute mode for OpenSpec chats — they always run in Execute context.
+  useEffect(() => {
+    if (!isOpenSpec) return;
+    if (subChatMode === 'execute') return;
+    const currentStoreMode = useAgentSubChatStore.getState().allSubChats.find((sc) => sc.id === subChatId)?.mode;
+    if (currentStoreMode === 'execute') return;
+
+    setSubChatMode('execute');
+    applyModeDefaultModel(subChatId, 'execute');
+  }, [isOpenSpec, subChatMode, setSubChatMode, subChatId]);
 
   // Helper to update mode (atomFamily + Zustand store sync)
   // Also applies the mode's default model so the chat input selector reflects
@@ -662,7 +682,6 @@ export const ChatInputArea = memo(function ChatInputArea({
         onModeChange(newMode);
       } else {
         setSubChatMode(newMode);
-        useAgentSubChatStore.getState().updateSubChatMode(subChatId, newMode);
         applyModeDefaultModel(subChatId, newMode);
       }
     },
@@ -1419,288 +1438,297 @@ export const ChatInputArea = memo(function ChatInputArea({
               </div>
               <PromptInputActions className="w-full">
                 <div className="flex items-center gap-0.5 flex-1 min-w-0">
-                  {/* Mode toggle (Agent/Plan) */}
-                  <DropdownMenu
-                    open={modeDropdownOpen}
-                    onOpenChange={(open) => {
-                      // Streaming gate: the mode-switch FSM rejects user
-                      // toggles while activity != idle (PR #51), so block
-                      // opening the menu mid-stream rather than letting
-                      // the user click and observe a silent rejection.
-                      if (open && isStreaming) return;
-                      setModeDropdownOpen(open);
-                      if (!open) {
-                        if (tooltipTimeoutRef.current) {
-                          clearTimeout(tooltipTimeoutRef.current);
-                          tooltipTimeoutRef.current = null;
+                  {/* Mode toggle (Agent/Plan) — hidden in OpenSpec chats */}
+                  {!isOpenSpec && (
+                    <DropdownMenu
+                      open={modeDropdownOpen}
+                      onOpenChange={(open) => {
+                        // Streaming gate: the mode-switch FSM rejects user
+                        // toggles while activity != idle (PR #51), so block
+                        // opening the menu mid-stream rather than letting
+                        // the user click and observe a silent rejection.
+                        if (open && isStreaming) return;
+                        setModeDropdownOpen(open);
+                        if (!open) {
+                          if (tooltipTimeoutRef.current) {
+                            clearTimeout(tooltipTimeoutRef.current);
+                            tooltipTimeoutRef.current = null;
+                          }
+                          setModeTooltip(null);
+                          hasShownTooltipRef.current = false;
                         }
-                        setModeTooltip(null);
-                        hasShownTooltipRef.current = false;
-                      }
-                    }}>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        disabled={isStreaming}
-                        className={cn(
-                          'flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70',
-                          isStreaming && 'opacity-50 cursor-not-allowed pointer-events-none'
-                        )}>
-                        {subChatMode === 'plan' ? (
-                          <PlanIcon className="h-3.5 w-3.5 shrink-0" />
-                        ) : subChatMode === 'explore' ? (
-                          <Telescope className="h-3.5 w-3.5 shrink-0" />
-                        ) : (
-                          <AgentIcon className="h-3.5 w-3.5 shrink-0" />
-                        )}
-                        <span className="truncate">
-                          {subChatMode === 'plan' ? 'Plan' : subChatMode === 'explore' ? 'Explore' : 'Execute'}
-                        </span>
-                        <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="start"
-                      sideOffset={6}
-                      className="!min-w-[116px] !w-[116px]"
-                      onCloseAutoFocus={(e) => e.preventDefault()}>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          // Clear tooltip before closing dropdown (onMouseLeave won't fire)
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          setModeTooltip(null);
-                          updateMode('execute');
-                          setModeDropdownOpen(false);
-                        }}
-                        className="justify-between gap-2"
-                        onMouseEnter={(e) => {
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const showTooltip = () => {
-                            setModeTooltip({
-                              visible: true,
-                              position: {
-                                top: rect.top,
-                                left: rect.right + 8
-                              },
-                              mode: 'execute'
-                            });
-                            hasShownTooltipRef.current = true;
-                            tooltipTimeoutRef.current = null;
-                          };
-                          if (hasShownTooltipRef.current) {
-                            showTooltip();
-                          } else {
-                            tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
-                          }
-                        }}
-                        onMouseLeave={() => {
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          setModeTooltip(null);
-                        }}>
-                        <div className="flex items-center gap-2">
-                          <AgentIcon className="w-4 h-4 text-muted-foreground" />
-                          <span>Execute</span>
-                        </div>
-                        {subChatMode === 'execute' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          setModeTooltip(null);
-                          updateMode('explore');
-                          setModeDropdownOpen(false);
-                        }}
-                        className="justify-between gap-2"
-                        onMouseEnter={(e) => {
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const showTooltip = () => {
-                            setModeTooltip({
-                              visible: true,
-                              position: {
-                                top: rect.top,
-                                left: rect.right + 8
-                              },
-                              mode: 'explore'
-                            });
-                            hasShownTooltipRef.current = true;
-                            tooltipTimeoutRef.current = null;
-                          };
-                          if (hasShownTooltipRef.current) {
-                            showTooltip();
-                          } else {
-                            tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
-                          }
-                        }}
-                        onMouseLeave={() => {
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          setModeTooltip(null);
-                        }}>
-                        <div className="flex items-center gap-2">
-                          <Telescope className="w-4 h-4 text-muted-foreground" />
-                          <span>Explore</span>
-                        </div>
-                        {subChatMode === 'explore' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => {
-                          // Clear tooltip before closing dropdown (onMouseLeave won't fire)
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          setModeTooltip(null);
-                          updateMode('plan');
-                          setModeDropdownOpen(false);
-                        }}
-                        className="justify-between gap-2"
-                        onMouseEnter={(e) => {
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const showTooltip = () => {
-                            setModeTooltip({
-                              visible: true,
-                              position: {
-                                top: rect.top,
-                                left: rect.right + 8
-                              },
-                              mode: 'plan'
-                            });
-                            hasShownTooltipRef.current = true;
-                            tooltipTimeoutRef.current = null;
-                          };
-                          if (hasShownTooltipRef.current) {
-                            showTooltip();
-                          } else {
-                            tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
-                          }
-                        }}
-                        onMouseLeave={() => {
-                          if (tooltipTimeoutRef.current) {
-                            clearTimeout(tooltipTimeoutRef.current);
-                            tooltipTimeoutRef.current = null;
-                          }
-                          setModeTooltip(null);
-                        }}>
-                        <div className="flex items-center gap-2">
-                          <PlanIcon className="w-4 h-4 text-muted-foreground" />
-                          <span>Plan</span>
-                        </div>
-                        {subChatMode === 'plan' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                    {modeTooltip?.visible &&
-                      createPortal(
-                        <div
-                          className="fixed z-[100000]"
-                          style={{
-                            top: modeTooltip.position.top + 14,
-                            left: modeTooltip.position.left,
-                            transform: 'translateY(-50%)'
+                      }}>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          disabled={isStreaming}
+                          className={cn(
+                            'flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/50 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70',
+                            isStreaming && 'opacity-50 cursor-not-allowed pointer-events-none'
+                          )}>
+                          {subChatMode === 'plan' ? (
+                            <PlanIcon className="h-3.5 w-3.5 shrink-0" />
+                          ) : subChatMode === 'explore' ? (
+                            <Telescope className="h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <AgentIcon className="h-3.5 w-3.5 shrink-0" />
+                          )}
+                          <span className="truncate">
+                            {subChatMode === 'plan' ? 'Plan' : subChatMode === 'explore' ? 'Explore' : 'Execute'}
+                          </span>
+                          <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        sideOffset={6}
+                        className="!min-w-[116px] !w-[116px]"
+                        onCloseAutoFocus={(e) => e.preventDefault()}>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            // Clear tooltip before closing dropdown (onMouseLeave won't fire)
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            setModeTooltip(null);
+                            updateMode('execute');
+                            setModeDropdownOpen(false);
+                          }}
+                          className="justify-between gap-2"
+                          onMouseEnter={(e) => {
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const showTooltip = () => {
+                              setModeTooltip({
+                                visible: true,
+                                position: {
+                                  top: rect.top,
+                                  left: rect.right + 8
+                                },
+                                mode: 'execute'
+                              });
+                              hasShownTooltipRef.current = true;
+                              tooltipTimeoutRef.current = null;
+                            };
+                            if (hasShownTooltipRef.current) {
+                              showTooltip();
+                            } else {
+                              tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            setModeTooltip(null);
                           }}>
-                          <div
-                            data-tooltip="true"
-                            className="relative rounded-[12px] bg-popover px-2.5 py-1.5 text-xs text-popover-foreground dark max-w-[150px]">
-                            <span>
-                              {modeTooltip.mode === 'execute'
-                                ? 'Apply changes directly without a plan'
-                                : modeTooltip.mode === 'explore'
-                                  ? 'Explore the codebase in read-only mode'
-                                  : 'Create a plan before making changes'}
-                            </span>
+                          <div className="flex items-center gap-2">
+                            <AgentIcon className="w-4 h-4 text-muted-foreground" />
+                            <span>Execute</span>
                           </div>
-                        </div>,
-                        document.body
-                      )}
-                  </DropdownMenu>
+                          {subChatMode === 'execute' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            setModeTooltip(null);
+                            updateMode('explore');
+                            setModeDropdownOpen(false);
+                          }}
+                          className="justify-between gap-2"
+                          onMouseEnter={(e) => {
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const showTooltip = () => {
+                              setModeTooltip({
+                                visible: true,
+                                position: {
+                                  top: rect.top,
+                                  left: rect.right + 8
+                                },
+                                mode: 'explore'
+                              });
+                              hasShownTooltipRef.current = true;
+                              tooltipTimeoutRef.current = null;
+                            };
+                            if (hasShownTooltipRef.current) {
+                              showTooltip();
+                            } else {
+                              tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            setModeTooltip(null);
+                          }}>
+                          <div className="flex items-center gap-2">
+                            <Telescope className="w-4 h-4 text-muted-foreground" />
+                            <span>Explore</span>
+                          </div>
+                          {subChatMode === 'explore' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            // Clear tooltip before closing dropdown (onMouseLeave won't fire)
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            setModeTooltip(null);
+                            updateMode('plan');
+                            setModeDropdownOpen(false);
+                          }}
+                          className="justify-between gap-2"
+                          onMouseEnter={(e) => {
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const showTooltip = () => {
+                              setModeTooltip({
+                                visible: true,
+                                position: {
+                                  top: rect.top,
+                                  left: rect.right + 8
+                                },
+                                mode: 'plan'
+                              });
+                              hasShownTooltipRef.current = true;
+                              tooltipTimeoutRef.current = null;
+                            };
+                            if (hasShownTooltipRef.current) {
+                              showTooltip();
+                            } else {
+                              tooltipTimeoutRef.current = setTimeout(showTooltip, 1000);
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            if (tooltipTimeoutRef.current) {
+                              clearTimeout(tooltipTimeoutRef.current);
+                              tooltipTimeoutRef.current = null;
+                            }
+                            setModeTooltip(null);
+                          }}>
+                          <div className="flex items-center gap-2">
+                            <PlanIcon className="w-4 h-4 text-muted-foreground" />
+                            <span>Plan</span>
+                          </div>
+                          {subChatMode === 'plan' && <CheckIcon className="h-3.5 w-3.5 ml-auto shrink-0" />}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                      {modeTooltip?.visible &&
+                        createPortal(
+                          <div
+                            className="fixed z-[100000]"
+                            style={{
+                              top: modeTooltip.position.top + 14,
+                              left: modeTooltip.position.left,
+                              transform: 'translateY(-50%)'
+                            }}>
+                            <div
+                              data-tooltip="true"
+                              className="relative rounded-[12px] bg-popover px-2.5 py-1.5 text-xs text-popover-foreground dark max-w-[150px]">
+                              <span>
+                                {modeTooltip.mode === 'execute'
+                                  ? 'Apply changes directly without a plan'
+                                  : modeTooltip.mode === 'explore'
+                                    ? 'Explore the codebase in read-only mode'
+                                    : 'Create a plan before making changes'}
+                              </span>
+                            </div>
+                          </div>,
+                          document.body
+                        )}
+                    </DropdownMenu>
+                  )}
 
-                  <div className="group/model-controls flex items-center gap-0.5">
-                    <AgentModelSelector
-                      open={isModelDropdownOpen}
-                      onOpenChange={setIsModelDropdownOpen}
-                      selectedAgentId={provider}
-                      onSelectedAgentIdChange={(nextProvider) => {
-                        if (isStreaming || !!sandboxId) return;
-                        if (nextProvider === provider) return;
-                        onProviderChange?.(nextProvider);
-                      }}
-                      selectedModelLabel={selectedModelLabel}
-                      onOpenModelsSettings={() => {
-                        setSettingsTab('models');
-                        setSettingsOpen(true);
-                      }}
-                      claude={{
-                        models: availableModels.models.filter((m) => !hiddenModels.includes(m.id)),
-                        selectedModelId: selectedModel?.id,
-                        onSelectModel: (modelId) => {
-                          const model =
-                            availableModels.models.find((item) => item.id === modelId) || availableModels.models[0];
-                          if (!model) return;
-                          setSelectedSubChatModelId(model.id);
-                          setLastSelectedModelId(model.id);
-                        },
-                        hasCustomModelConfig: hasCustomClaudeConfig,
-                        isOffline: availableModels.isOffline && availableModels.hasOllama,
-                        ollamaModels: availableModels.ollamaModels,
-                        selectedOllamaModel: currentOllamaModel,
-                        recommendedOllamaModel: availableModels.recommendedModel,
-                        onSelectOllamaModel: setSelectedOllamaModel,
-                        isConnected: isClaudeConnected,
-                        selectedThinking: selectedClaudeThinking,
-                        onSelectThinking: (thinking) => {
-                          setSelectedSubChatClaudeThinking(thinking);
-                          setLastSelectedClaudeThinking(thinking);
-                        }
-                      }}
-                      codex={{
-                        models: codexUiModels,
-                        selectedModelId: selectedCodexModel.id,
-                        onSelectModel: (modelId) => {
-                          const model = codexUiModels.find((item) => item.id === modelId);
-                          if (!model) return;
-                          const nextThinking = model.thinkings.includes(
-                            selectedSubChatCodexThinking as CodexThinkingLevel
-                          )
-                            ? (selectedSubChatCodexThinking as CodexThinkingLevel)
-                            : model.thinkings.includes('high')
-                              ? 'high'
-                              : model.thinkings[0]!;
+                  {/* Agent model selector — hidden in OpenSpec chats, disabled while streaming */}
+                  {!isOpenSpec && (
+                    <div
+                      className={cn(
+                        'group/model-controls flex items-center gap-0.5',
+                        isStreaming && 'opacity-50 pointer-events-none'
+                      )}>
+                      <AgentModelSelector
+                        open={isModelDropdownOpen}
+                        onOpenChange={setIsModelDropdownOpen}
+                        selectedAgentId={provider}
+                        onSelectedAgentIdChange={(nextProvider) => {
+                          if (isStreaming || !!sandboxId) return;
+                          if (nextProvider === provider) return;
+                          onProviderChange?.(nextProvider);
+                        }}
+                        selectedModelLabel={selectedModelLabel}
+                        onOpenModelsSettings={() => {
+                          setSettingsTab('models');
+                          setSettingsOpen(true);
+                        }}
+                        claude={{
+                          models: availableModels.models.filter((m) => !hiddenModels.includes(m.id)),
+                          selectedModelId: selectedModel?.id,
+                          onSelectModel: (modelId) => {
+                            const model =
+                              availableModels.models.find((item) => item.id === modelId) || availableModels.models[0];
+                            if (!model) return;
+                            setSelectedSubChatModelId(model.id);
+                            setLastSelectedModelId(model.id);
+                          },
+                          hasCustomModelConfig: hasCustomClaudeConfig,
+                          isOffline: availableModels.isOffline && availableModels.hasOllama,
+                          ollamaModels: availableModels.ollamaModels,
+                          selectedOllamaModel: currentOllamaModel,
+                          recommendedOllamaModel: availableModels.recommendedModel,
+                          onSelectOllamaModel: setSelectedOllamaModel,
+                          isConnected: isClaudeConnected,
+                          selectedThinking: selectedClaudeThinking,
+                          onSelectThinking: (thinking) => {
+                            setSelectedSubChatClaudeThinking(thinking);
+                            setLastSelectedClaudeThinking(thinking);
+                          }
+                        }}
+                        codex={{
+                          models: codexUiModels,
+                          selectedModelId: selectedCodexModel.id,
+                          onSelectModel: (modelId) => {
+                            const model = codexUiModels.find((item) => item.id === modelId);
+                            if (!model) return;
+                            const nextThinking = model.thinkings.includes(
+                              selectedSubChatCodexThinking as CodexThinkingLevel
+                            )
+                              ? (selectedSubChatCodexThinking as CodexThinkingLevel)
+                              : model.thinkings.includes('high')
+                                ? 'high'
+                                : model.thinkings[0]!;
 
-                          setSelectedSubChatCodexModelId(model.id);
-                          setSelectedSubChatCodexThinking(nextThinking);
-                          setLastSelectedCodexModelId(model.id);
-                          setLastSelectedCodexThinking(nextThinking);
-                        },
-                        selectedThinking: selectedCodexThinking,
-                        onSelectThinking: (thinking) => {
-                          setSelectedSubChatCodexThinking(thinking);
-                          setLastSelectedCodexThinking(thinking);
-                        },
-                        isConnected: codexOnboardingCompleted
-                      }}
-                    />
-                  </div>
+                            setSelectedSubChatCodexModelId(model.id);
+                            setSelectedSubChatCodexThinking(nextThinking);
+                            setLastSelectedCodexModelId(model.id);
+                            setLastSelectedCodexThinking(nextThinking);
+                          },
+                          selectedThinking: selectedCodexThinking,
+                          onSelectThinking: (thinking) => {
+                            setSelectedSubChatCodexThinking(thinking);
+                            setLastSelectedCodexThinking(thinking);
+                          },
+                          isConnected: codexOnboardingCompleted
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-0.5 ml-auto flex-shrink-0">
@@ -1768,52 +1796,75 @@ export const ChatInputArea = memo(function ChatInputArea({
                     </DropdownMenu>
                   )}
 
-                  {/* Send/Stop/Voice button */}
+                  {/* Send/Stop button — OpenSpec uses square-action variant; classic uses round */}
                   <div className="ml-1">
-                    <AgentSendButton
-                      isStreaming={isStreaming}
-                      isSubmitting={false}
-                      disabled={
-                        (!hasContent &&
-                          images.length === 0 &&
-                          files.length === 0 &&
-                          textContexts.length === 0 &&
-                          (diffTextContexts?.length ?? 0) === 0 &&
-                          queueLength === 0) ||
-                        isUploading
-                      }
-                      hasContent={
-                        hasContent ||
-                        images.length > 0 ||
-                        files.length > 0 ||
-                        textContexts.length > 0 ||
-                        (diffTextContexts?.length ?? 0) > 0
-                      }
-                      onClick={() => {
-                        // If input is empty and queue has items, send first queue item
-                        if (
-                          !hasContent &&
-                          images.length === 0 &&
-                          files.length === 0 &&
-                          queueLength > 0 &&
-                          onSendFromQueue &&
-                          firstQueueItemId
-                        ) {
-                          onSendFromQueue(firstQueueItemId);
-                        } else {
-                          onSend();
+                    {isOpenSpec ? (
+                      <OpenSpecSendButton
+                        subChatId={subChatId}
+                        currentStep={openSpecCurrentStep}
+                        isStreaming={isStreaming}
+                        hasContent={
+                          hasContent ||
+                          images.length > 0 ||
+                          files.length > 0 ||
+                          textContexts.length > 0 ||
+                          (diffTextContexts?.length ?? 0) > 0
                         }
-                      }}
-                      onStop={onStop}
-                      mode={subChatMode}
-                      // Voice input props - show mic when input is empty and voice is available
-                      showVoiceInput={isVoiceAvailable}
-                      isRecording={isVoiceRecording}
-                      isTranscribing={isTranscribing}
-                      onVoiceMouseDown={handleVoiceMouseDown}
-                      onVoiceMouseUp={handleVoiceMouseUp}
-                      onVoiceMouseLeave={handleVoiceMouseLeave}
-                    />
+                        disabled={
+                          (!hasContent &&
+                            images.length === 0 &&
+                            files.length === 0 &&
+                            textContexts.length === 0 &&
+                            (diffTextContexts?.length ?? 0) === 0) ||
+                          isUploading
+                        }
+                        onSend={onSend}
+                        onStop={onStop}
+                      />
+                    ) : (
+                      <AgentSendButton
+                        isStreaming={isStreaming}
+                        isSubmitting={false}
+                        disabled={
+                          (!hasContent &&
+                            images.length === 0 &&
+                            files.length === 0 &&
+                            textContexts.length === 0 &&
+                            (diffTextContexts?.length ?? 0) === 0 &&
+                            queueLength === 0) ||
+                          isUploading
+                        }
+                        hasContent={
+                          hasContent ||
+                          images.length > 0 ||
+                          files.length > 0 ||
+                          textContexts.length > 0 ||
+                          (diffTextContexts?.length ?? 0) > 0
+                        }
+                        onClick={() => {
+                          if (
+                            !hasContent &&
+                            images.length === 0 &&
+                            files.length === 0 &&
+                            queueLength > 0 &&
+                            onSendFromQueue &&
+                            firstQueueItemId
+                          ) {
+                            onSendFromQueue(firstQueueItemId);
+                          } else {
+                            onSend();
+                          }
+                        }}
+                        onStop={onStop}
+                        mode={subChatMode}
+                        showVoiceInput={isVoiceAvailable}
+                        isRecording={isVoiceRecording}
+                        isTranscribing={isTranscribing}
+                        onVoiceMouseDown={handleVoiceMouseDown}
+                        onVoiceMouseUp={handleVoiceMouseUp}
+                        onVoiceMouseLeave={handleVoiceMouseLeave}
+                      />
+                    )}
                   </div>
                 </div>
               </PromptInputActions>

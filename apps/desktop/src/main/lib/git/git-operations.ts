@@ -202,6 +202,43 @@ export const createGitOperationsRouter = () => {
         });
       }),
 
+    // Stage ALL working-tree changes (including untracked) and commit. Used by
+    // the openspec archive flow so we can enforce the invariant: a workspace
+    // cannot be archived while spec deltas remain uncommitted. Returns
+    // committed=false when there is nothing to stage so callers can no-op.
+    commitAll: publicProcedure
+      .input(
+        z.object({
+          worktreePath: z.string(),
+          message: z.string()
+        })
+      )
+      .mutation(async ({ input }): Promise<{ committed: boolean; hash?: string }> => {
+        assertRegisteredWorktree(input.worktreePath);
+
+        if (!input.message.trim()) {
+          throw new Error('Commit message cannot be empty');
+        }
+
+        return withGitLock(input.worktreePath, async () => {
+          const git = createGit(input.worktreePath);
+
+          await withLockRetry(input.worktreePath, () => git.add(['-A']));
+
+          const status = await git.status();
+          if (status.staged.length === 0) {
+            return { committed: false };
+          }
+
+          const result = await withLockRetry(input.worktreePath, () => git.commit(input.message));
+          invalidateGitStateCaches(input.worktreePath);
+          console.log(
+            `[git/commitAll] committed worktreePath=${input.worktreePath} hash=${result.commit} stagedCount=${status.staged.length}`
+          );
+          return { committed: true, hash: result.commit };
+        });
+      }),
+
     // Atomic commit: stage specific files and commit in one operation
     atomicCommit: publicProcedure
       .input(

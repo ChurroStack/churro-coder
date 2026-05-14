@@ -63,4 +63,18 @@ describe('sub-chat-store expectedChatId guard', () => {
     expect(useAgentSubChatStore.getState().openSubChatIds).toEqual(['sub-1']);
     expect(useAgentSubChatStore.getState().activeSubChatId).toBe('sub-1');
   });
+
+  test('does not publish a state update when sub-chat mode is already current', () => {
+    useAgentSubChatStore.setState({
+      allSubChats: [{ id: 'sub-1', name: 'OpenSpec change', mode: 'execute' }]
+    });
+    const listener = vi.fn();
+    const unsubscribe = useAgentSubChatStore.subscribe(listener);
+
+    useAgentSubChatStore.getState().updateSubChatMode('sub-1', 'execute');
+    useAgentSubChatStore.getState().updateSubChatMode('missing-sub-chat', 'execute');
+
+    unsubscribe();
+    expect(listener).not.toHaveBeenCalled();
+  });
 });
