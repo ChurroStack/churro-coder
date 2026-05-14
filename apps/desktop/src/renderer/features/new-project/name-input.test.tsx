@@ -8,7 +8,10 @@ import { newProjectDraftAtom } from './atoms';
 afterEach(cleanup);
 
 // Control the useQuery response per test
-const mockUseQuery = vi.fn(() => ({ data: undefined, isLoading: false }));
+const mockUseQuery = vi.fn(() => ({
+  data: undefined as { valid: boolean; error?: string } | undefined,
+  isLoading: false
+}));
 
 vi.mock('@/lib/trpc', () => ({
   trpc: {

@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, copyFile, unlink } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { getGitRemoteInfo } from '../../git';
-import { cloneIntoRepos, parseGitHubRef } from '../../git/clone-into-repos';
+import { cloneIntoRepos, parseGitHubRef, parseAzureDevOpsRef } from '../../git/clone-into-repos';
 import { terminalManager } from '../../terminal/manager';
 import { trackProjectOpened } from '../../analytics';
 import { getLaunchDirectory } from '../../cli';
@@ -252,19 +252,42 @@ export const projectsRouter = router({
   }),
 
   /**
-   * Clone a GitHub repo and create a project
+   * Clone a GitHub or Azure DevOps repo and create a project. Mutation name
+   * preserved for back-compat with renderer callers; Azure DevOps URLs are
+   * accepted and routed through the Azure path layout.
    */
   cloneFromGitHub: publicProcedure.input(z.object({ repoUrl: z.string() })).mutation(async ({ input }) => {
     const { repoUrl } = input;
 
-    const parsed = parseGitHubRef(repoUrl);
-    if (!parsed) {
-      throw new Error('Invalid GitHub URL or repo format');
+    // Try Azure DevOps first — it has a more specific URL shape, so any URL
+    // matching it is unambiguous.
+    const azure = parseAzureDevOpsRef(repoUrl);
+    let clonePath: string;
+    let projectName: string;
+    if (azure) {
+      const { org, project, repo } = azure;
+      const { clonePath: cp } = await cloneIntoRepos({
+        owner: org,
+        repo,
+        project,
+        cloneUrl: repoUrl,
+        providerHint: 'azure'
+      });
+      clonePath = cp;
+      projectName = repo;
+    } else {
+      const parsed = parseGitHubRef(repoUrl);
+      if (!parsed) {
+        throw new Error(
+          'Invalid repo format. Use a GitHub URL (owner/repo or https://github.com/...) or Azure DevOps clone URL (https://dev.azure.com/org/project/_git/repo).'
+        );
+      }
+      const { owner, repo } = parsed;
+      const cloneUrl = `https://github.com/${owner}/${repo}.git`;
+      const { clonePath: cp } = await cloneIntoRepos({ owner, repo, cloneUrl, providerHint: 'github' });
+      clonePath = cp;
+      projectName = repo;
     }
-    const { owner, repo } = parsed;
-
-    const cloneUrl = `https://github.com/${owner}/${repo}.git`;
-    const { clonePath } = await cloneIntoRepos({ owner, repo, cloneUrl, providerHint: 'github' });
 
     // Check DB for existing project at this path
     const db = getDatabase();
@@ -278,7 +301,7 @@ export const projectsRouter = router({
     const newProject = db
       .insert(projects)
       .values({
-        name: repo,
+        name: projectName,
         path: clonePath,
         gitRemoteUrl: gitInfo.remoteUrl,
         gitProvider: gitInfo.provider,

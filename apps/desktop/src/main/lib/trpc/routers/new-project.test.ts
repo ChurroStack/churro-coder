@@ -58,10 +58,21 @@ vi.mock('../../platform/index', () => ({
   isMacOS: vi.fn(() => true)
 }));
 
-vi.mock('../../openspec/openspec-bin-path', () => ({
-  assertOpenspecBinAvailable: vi.fn(() => {
-    throw new Error('not available');
-  })
+vi.mock('../../openspec/openspec-bin-path', () => {
+  class OpenspecBundleMissingError extends Error {
+    constructor(binDir: string) {
+      super(`OpenSpec CLI bundle not found at ${binDir}.`);
+      this.name = 'OpenspecBundleMissingError';
+    }
+  }
+  return {
+    assertOpenspecBinAvailable: vi.fn(),
+    OpenspecBundleMissingError
+  };
+});
+
+vi.mock('../../openspec/run-openspec-cli', () => ({
+  runOpenspecCli: vi.fn().mockResolvedValue({ stdout: '', stderr: '' })
 }));
 
 vi.mock('node:fs', () => ({
@@ -85,7 +96,8 @@ vi.mock('../index', () => ({
   publicProcedure: {
     input: (_schema: unknown) => ({
       query: (fn: unknown) => ({ _def: { type: 'query', resolver: fn } }),
-      mutation: (fn: unknown) => ({ _def: { type: 'mutation', resolver: fn } })
+      mutation: (fn: unknown) => ({ _def: { type: 'mutation', resolver: fn } }),
+      subscription: (fn: unknown) => ({ _def: { type: 'subscription', resolver: fn } })
     })
   },
   router: (routes: unknown) => routes
@@ -105,6 +117,9 @@ import { exec } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 import { renderTemplate } from '../../providers/templates';
 import { newProjectRouter } from './new-project';
+import type { NewProjectEvent } from './new-project';
+import { runOpenspecCli } from '../../openspec/run-openspec-cli';
+import { assertOpenspecBinAvailable, OpenspecBundleMissingError } from '../../openspec/openspec-bin-path';
 
 const mockGetDatabase = vi.mocked(getDatabase);
 const mockGetProviderAdapter = vi.mocked(getProviderAdapter);
@@ -119,6 +134,8 @@ const mockExec = vi.mocked(
   ) => void
 );
 const mockRenderTemplate = vi.mocked(renderTemplate);
+const mockRunOpenspecCli = vi.mocked(runOpenspecCli);
+const mockAssertOpenspecBinAvailable = vi.mocked(assertOpenspecBinAvailable);
 
 // ── DB helper ─────────────────────────────────────────────────────────────────
 
@@ -153,9 +170,26 @@ function makeAdapter(createRepoResult: object) {
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
-async function callCreateProject(input: Record<string, unknown>) {
+async function callCreateProject(input: Record<string, unknown>): Promise<NewProjectEvent[]> {
   const resolver = (newProjectRouter as any).createProject._def.resolver;
-  return resolver({ input });
+  const obs = resolver({ input });
+  const events: NewProjectEvent[] = [];
+  await new Promise<void>((resolve, reject) => {
+    obs.subscribe({
+      next: (event: NewProjectEvent) => events.push(event),
+      error: reject,
+      complete: resolve
+    });
+  });
+  return events;
+}
+
+function getCompleteEvent(events: NewProjectEvent[]) {
+  return events.find((e) => e.type === 'complete') as Extract<NewProjectEvent, { type: 'complete' }> | undefined;
+}
+
+function getFatalEvent(events: NewProjectEvent[]) {
+  return events.find((e) => e.type === 'fatal') as Extract<NewProjectEvent, { type: 'fatal' }> | undefined;
 }
 
 function setupExecSuccess() {
@@ -177,8 +211,6 @@ const BASE_INPUT = {
 };
 
 const MOCK_PROJECT = { id: 'proj-1', name: 'test-repo', path: '/tmp/repos/user/test-repo' };
-const MOCK_CHAT = { id: 'chat-1', name: 'test-repo', projectId: 'proj-1', worktreePath: null };
-const MOCK_SUBCHAT = { id: 'sub-1', chatId: 'chat-1', mode: 'execute' };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -192,7 +224,7 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('createProject — happy path (GitHub)', () => {
-  it('creates project, chat, subchat and returns ids', async () => {
+  it('creates project row and emits complete with projectId only (no chat / worktree)', async () => {
     setupExecSuccess();
     mockGetProviderAdapter.mockReturnValue(
       makeAdapter({ ok: true, cloneUrl: 'https://github.com/user/test-repo.git' }) as any
@@ -205,16 +237,26 @@ describe('createProject — happy path (GitHub)', () => {
       repo: 'test-repo',
       project: null
     });
-    mockCreateWorktreeForChat.mockResolvedValue(undefined);
-    mockGetDatabase.mockReturnValue(makeChainableDb([MOCK_PROJECT, MOCK_CHAT, MOCK_SUBCHAT]) as any);
+    const db = makeChainableDb([MOCK_PROJECT]);
+    mockGetDatabase.mockReturnValue(db as any);
 
-    const result = await callCreateProject(BASE_INPUT);
+    const events = await callCreateProject(BASE_INPUT);
+    const complete = getCompleteEvent(events);
 
-    expect(result).toMatchObject({ projectId: 'proj-1', chatId: 'chat-1', subChatId: 'sub-1' });
+    expect(complete).toMatchObject({ projectId: 'proj-1', path: '/tmp/repos/user/test-repo' });
+    // complete event must NOT carry chat/subChat ids — the wizard lands on New workspace
+    expect(complete as object).not.toHaveProperty('chatId');
+    expect(complete as object).not.toHaveProperty('subChatId');
     expect(mockCloneIntoRepos).toHaveBeenCalledOnce();
-    expect(mockCreateWorktreeForChat).toHaveBeenCalledOnce();
-    // git add + commit + push = 3 exec calls
-    expect(mockExec).toHaveBeenCalledTimes(3);
+    expect(mockCreateWorktreeForChat).not.toHaveBeenCalled();
+    // Only the project row is inserted — no chats, no subChats
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    // git add + commit + symbolic-ref (resolve branch) + push = 4 exec calls
+    expect(mockExec).toHaveBeenCalledTimes(4);
+    const branchCall = mockExec.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('git symbolic-ref')
+    );
+    expect(branchCall).toBeTruthy();
     const pushCall = mockExec.mock.calls.find(
       (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('git push')
     );
@@ -223,7 +265,7 @@ describe('createProject — happy path (GitHub)', () => {
 });
 
 describe('createProject — push failure triggers rollback', () => {
-  it('removes clone dir and re-throws when git push fails', async () => {
+  it('removes clone dir and emits fatal event when git push fails', async () => {
     mockExec.mockImplementation((_cmd: unknown, _opts: unknown, cb?: unknown) => {
       const callback = (typeof _opts === 'function' ? _opts : cb) as (
         err: Error | null,
@@ -248,10 +290,13 @@ describe('createProject — push failure triggers rollback', () => {
       repo: 'test-repo',
       project: null
     });
-    mockCreateWorktreeForChat.mockResolvedValue(undefined);
-    mockGetDatabase.mockReturnValue(makeChainableDb([MOCK_PROJECT, MOCK_CHAT, MOCK_SUBCHAT]) as any);
+    mockGetDatabase.mockReturnValue(makeChainableDb([MOCK_PROJECT]) as any);
 
-    await expect(callCreateProject(BASE_INPUT)).rejects.toThrow('Permission denied');
+    const events = await callCreateProject(BASE_INPUT);
+    const fatal = getFatalEvent(events);
+
+    expect(fatal).toBeDefined();
+    expect(fatal!.message).toContain('Permission denied');
 
     // The remove-clone-dir compensator should have run via fs.rm
     const mockRm = vi.mocked(rm);
@@ -259,17 +304,190 @@ describe('createProject — push failure triggers rollback', () => {
   });
 });
 
+describe('createProject — local provider', () => {
+  const LOCAL_INPUT = {
+    provider: 'local' as const,
+    accountId: 'local',
+    name: 'my-local-app',
+    openspecInit: false,
+    prompt: 'Build something great locally',
+    correlationId: 'test-cid-local'
+  };
+
+  it('uses git init instead of clone and skips push; no chat / worktree created', async () => {
+    setupExecSuccess();
+    const db = makeChainableDb([
+      { id: 'proj-local', name: 'my-local-app', path: '/tmp/test-home/.churrostack/repos/local/my-local-app' }
+    ]);
+    mockGetDatabase.mockReturnValue(db as any);
+    mockGetGitRemoteInfo.mockResolvedValue({ remoteUrl: null, provider: null, owner: null, repo: null, project: null });
+
+    const events = await callCreateProject(LOCAL_INPUT);
+    const complete = getCompleteEvent(events);
+
+    expect(complete).toMatchObject({
+      projectId: 'proj-local',
+      path: '/tmp/test-home/.churrostack/repos/local/my-local-app'
+    });
+    expect(mockCloneIntoRepos).not.toHaveBeenCalled();
+    expect(mockCreateWorktreeForChat).not.toHaveBeenCalled();
+    const initCall = mockExec.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('git init')
+    );
+    expect(initCall).toBeTruthy();
+    const pushCall = mockExec.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('git push')
+    );
+    expect(pushCall).toBeFalsy();
+  });
+});
+
+describe('createProject — openspecInit true', () => {
+  it('runs openspec init in clonePath BEFORE git commit', async () => {
+    // Record relative order of openspec CLI vs. exec (git) calls
+    const callOrder: string[] = [];
+    mockAssertOpenspecBinAvailable.mockImplementation(() => {});
+    mockRunOpenspecCli.mockImplementation(async () => {
+      callOrder.push('openspec');
+      return { stdout: '', stderr: '' };
+    });
+    mockExec.mockImplementation((cmd: unknown, _opts: unknown, cb?: unknown) => {
+      const callback = (typeof _opts === 'function' ? _opts : cb) as (
+        err: Error | null,
+        stdout: string,
+        stderr: string
+      ) => void;
+      if (typeof cmd === 'string') callOrder.push(`exec:${cmd}`);
+      callback(null, '', '');
+    });
+
+    mockGetProviderAdapter.mockReturnValue(
+      makeAdapter({ ok: true, cloneUrl: 'https://github.com/user/test-repo.git' }) as any
+    );
+    mockCloneIntoRepos.mockResolvedValue({ clonePath: '/tmp/repos/user/test-repo', alreadyExisted: false });
+    mockGetGitRemoteInfo.mockResolvedValue({
+      remoteUrl: 'https://github.com/user/test-repo.git',
+      provider: 'github',
+      owner: 'user',
+      repo: 'test-repo',
+      project: null
+    });
+    const db = makeChainableDb([MOCK_PROJECT]);
+    mockGetDatabase.mockReturnValue(db as any);
+
+    const events = await callCreateProject({ ...BASE_INPUT, openspecInit: true });
+
+    expect(getCompleteEvent(events)).toBeDefined();
+    expect(mockRunOpenspecCli).toHaveBeenCalledOnce();
+    // runs in clonePath, not a worktree path
+    expect(mockRunOpenspecCli).toHaveBeenCalledWith(
+      ['init', '--tools', 'claude,codex', '--profile', 'core'],
+      '/tmp/repos/user/test-repo'
+    );
+    // openspec must run before `git add` and `git commit`
+    const openspecIdx = callOrder.indexOf('openspec');
+    const gitAddIdx = callOrder.findIndex((c) => c.includes('git add'));
+    const gitCommitIdx = callOrder.findIndex((c) => c.includes('git commit'));
+    expect(openspecIdx).toBeGreaterThanOrEqual(0);
+    expect(openspecIdx).toBeLessThan(gitAddIdx);
+    expect(openspecIdx).toBeLessThan(gitCommitIdx);
+    // Only the project row is inserted — no chat, no worktree
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(mockCreateWorktreeForChat).not.toHaveBeenCalled();
+  });
+
+  it('continues with templates-only commit when openspec init fails (non-fatal)', async () => {
+    mockAssertOpenspecBinAvailable.mockImplementation(() => {
+      throw new Error('openspec not installed');
+    });
+    setupExecSuccess();
+    mockGetProviderAdapter.mockReturnValue(
+      makeAdapter({ ok: true, cloneUrl: 'https://github.com/user/test-repo.git' }) as any
+    );
+    mockCloneIntoRepos.mockResolvedValue({ clonePath: '/tmp/repos/user/test-repo', alreadyExisted: false });
+    mockGetGitRemoteInfo.mockResolvedValue({
+      remoteUrl: 'https://github.com/user/test-repo.git',
+      provider: 'github',
+      owner: 'user',
+      repo: 'test-repo',
+      project: null
+    });
+    const db = makeChainableDb([MOCK_PROJECT]);
+    mockGetDatabase.mockReturnValue(db as any);
+
+    const events = await callCreateProject({ ...BASE_INPUT, openspecInit: true });
+
+    // Completes successfully; openspec-init step is reported as 'error' but not fatal
+    expect(getCompleteEvent(events)).toBeDefined();
+    expect(getFatalEvent(events)).toBeUndefined();
+    const openspecErrorEvent = events.find(
+      (e) => e.type === 'step' && e.step === 'openspec-init' && e.status === 'error'
+    );
+    expect(openspecErrorEvent).toBeDefined();
+    // Only the project row is inserted — no chat insert occurs
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(mockCreateWorktreeForChat).not.toHaveBeenCalled();
+  });
+
+  it('flags bundle-missing with a more actionable error message than a transient CLI error', async () => {
+    mockAssertOpenspecBinAvailable.mockImplementation(() => {
+      throw new OpenspecBundleMissingError('/fake/bin/dir');
+    });
+    setupExecSuccess();
+    mockGetProviderAdapter.mockReturnValue(
+      makeAdapter({ ok: true, cloneUrl: 'https://github.com/user/test-repo.git' }) as any
+    );
+    mockCloneIntoRepos.mockResolvedValue({ clonePath: '/tmp/repos/user/test-repo', alreadyExisted: false });
+    mockGetGitRemoteInfo.mockResolvedValue({
+      remoteUrl: 'https://github.com/user/test-repo.git',
+      provider: 'github',
+      owner: 'user',
+      repo: 'test-repo',
+      project: null
+    });
+    mockCreateWorktreeForChat.mockResolvedValue({
+      success: true,
+      worktreePath: '/tmp/worktrees/test-repo/branch-1',
+      branch: 'branch-1',
+      baseBranch: 'main'
+    });
+    mockGetDatabase.mockReturnValue(makeChainableDb([MOCK_PROJECT]) as any);
+
+    const events = await callCreateProject({ ...BASE_INPUT, openspecInit: true });
+
+    // Bundle-missing should still be non-fatal — overall flow completes.
+    expect(getCompleteEvent(events)).toBeDefined();
+    expect(getFatalEvent(events)).toBeUndefined();
+    const openspecErrorEvent = events.find(
+      (e): e is Extract<NewProjectEvent, { type: 'step' }> =>
+        e.type === 'step' && e.step === 'openspec-init' && e.status === 'error'
+    );
+    expect(openspecErrorEvent).toBeDefined();
+    // Message must clearly call out the missing bundle so the UI can render an actionable hint.
+    expect(openspecErrorEvent!.message).toMatch(/bundle missing/i);
+  });
+});
+
 describe('createProject — name validation', () => {
   it('rejects empty name before any network call', async () => {
-    await expect(callCreateProject({ ...BASE_INPUT, name: '' })).rejects.toThrow('Invalid project name');
+    const events = await callCreateProject({ ...BASE_INPUT, name: '' });
+    const fatal = getFatalEvent(events);
+    expect(fatal).toBeDefined();
+    expect(fatal!.message).toContain('Invalid project name');
     expect(mockGetProviderAdapter).not.toHaveBeenCalled();
   });
 
   it('rejects names over 100 chars', async () => {
-    await expect(callCreateProject({ ...BASE_INPUT, name: 'a'.repeat(101) })).rejects.toThrow('Invalid project name');
+    const events = await callCreateProject({ ...BASE_INPUT, name: 'a'.repeat(101) });
+    const fatal = getFatalEvent(events);
+    expect(fatal).toBeDefined();
+    expect(fatal!.message).toContain('Invalid project name');
   });
 
   it('rejects reserved name .git', async () => {
-    await expect(callCreateProject({ ...BASE_INPUT, name: '.git' })).rejects.toThrow('Invalid project name');
+    const events = await callCreateProject({ ...BASE_INPUT, name: '.git' });
+    const fatal = getFatalEvent(events);
+    expect(fatal).toBeDefined();
+    expect(fatal!.message).toContain('Invalid project name');
   });
 });

@@ -17,17 +17,26 @@ export interface NewProjectDraft {
 
 export type StepStatus = 'idle' | 'pending' | 'done' | 'error';
 
+export type NewProjectStep =
+  | 'validate'
+  | 'remote-create'
+  | 'clone'
+  | 'scaffold'
+  | 'commit'
+  | 'push'
+  | 'db-insert'
+  | 'openspec-init';
+
 export interface NewProjectProgress {
   validate: StepStatus;
   'remote-create': StepStatus;
   clone: StepStatus;
   scaffold: StepStatus;
+  'openspec-init': StepStatus;
   commit: StepStatus;
   push: StepStatus;
   'db-insert': StepStatus;
-  'chat-create': StepStatus;
-  'worktree-create': StepStatus;
-  'openspec-init': StepStatus;
+  errors: Partial<Record<NewProjectStep, string>>;
   lastError?: string;
 }
 
@@ -49,12 +58,11 @@ function freshProgress(): NewProjectProgress {
     'remote-create': 'idle',
     clone: 'idle',
     scaffold: 'idle',
+    'openspec-init': 'idle',
     commit: 'idle',
     push: 'idle',
     'db-insert': 'idle',
-    'chat-create': 'idle',
-    'worktree-create': 'idle',
-    'openspec-init': 'idle'
+    errors: {}
   };
 }
 

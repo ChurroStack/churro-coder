@@ -343,6 +343,9 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
 
   updateSubChatMode: (subChatId, mode) => {
     const { allSubChats } = get();
+    const existing = allSubChats.find((sc) => sc.id === subChatId);
+    if (!existing || existing.mode === mode) return;
+
     set({
       allSubChats: allSubChats.map((sc) => (sc.id === subChatId ? { ...sc, mode } : sc))
     });

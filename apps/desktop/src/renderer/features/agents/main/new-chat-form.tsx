@@ -122,6 +122,7 @@ import { SpecPickerDialog } from '../components/spec-picker-dialog';
 import { WizardSection } from '../components/wizard-section';
 import { appStore } from '../../../lib/jotai-store';
 import { pendingOpenSpecMessageAtom, pendingOpenSpecPanelAtom } from '../../openspec/atoms';
+import { pendingNewWorkspacePromptAtom } from '../../new-project/pending-prompt-atoms';
 import { AgentSendButton } from '../components/agent-send-button';
 import { formatTimeAgo } from '../utils/format-time-ago';
 import { handlePasteEvent } from '../utils/paste-text';
@@ -1203,6 +1204,27 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       }
     };
   }, []);
+
+  // Pre-fill from the New Project wizard: when the user lands on this screen
+  // after the wizard finished, consume the pending prompt (set by the wizard)
+  // and clear it so future visits start empty.
+  const [pendingNewWorkspacePrompt, setPendingNewWorkspacePrompt] = useAtom(pendingNewWorkspacePromptAtom);
+  useEffect(() => {
+    if (!pendingNewWorkspacePrompt || selectedDraftId) return;
+    const applyPrompt = () => {
+      if (editorRef.current) {
+        editorRef.current.setValue(pendingNewWorkspacePrompt);
+        setHasContent(true);
+        setPendingNewWorkspacePrompt('');
+        return true;
+      }
+      return false;
+    };
+    if (!applyPrompt()) {
+      const timeoutId = setTimeout(applyPrompt, 50);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [pendingNewWorkspacePrompt, selectedDraftId, setPendingNewWorkspacePrompt]);
 
   // Filter all repos by search (combined list) and sort by preview status
   const filteredRepos = repos

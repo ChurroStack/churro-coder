@@ -3,11 +3,7 @@ import { useSetAtom } from 'jotai';
 import { trpc } from '@/lib/trpc';
 import { selectedProjectAtom } from '@/lib/atoms';
 import { newProjectDialogOpenAtom } from './atoms';
-function parseAzureDevOpsRef(input: string): { org: string; project: string; repo: string } | null {
-  const m = input.match(/https?:\/\/dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/\s]+)/);
-  if (!m) return null;
-  return { org: m[1]!, project: m[2]!, repo: m[3]!.replace(/\.git$/, '') };
-}
+import { parseAzureDevOpsRef } from '../../../shared/git-url-parsers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';

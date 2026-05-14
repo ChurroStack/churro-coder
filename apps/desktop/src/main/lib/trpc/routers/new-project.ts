@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure } from '../index';
-import { getDatabase, projects, chats, subChats } from '../../db';
-import { eq } from 'drizzle-orm';
+import { observable } from '@trpc/server/observable';
+import { getDatabase, projects } from '../../db';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
@@ -12,9 +12,24 @@ import { getProviderAdapter } from '../../providers/index';
 import { evict } from '../../providers/detect-cache';
 import { cloneIntoRepos } from '../../git/clone-into-repos';
 import { getGitRemoteInfo } from '../../git';
-import { createWorktreeForChat } from '../../git/worktree';
 import { isWindows } from '../../platform/index';
 import { trackProjectCreated } from '../../analytics';
+import { validateRepoNameRules } from '../../../../shared/repo-name-rules';
+
+export type NewProjectStep =
+  | 'validate'
+  | 'remote-create'
+  | 'clone'
+  | 'scaffold'
+  | 'commit'
+  | 'push'
+  | 'db-insert'
+  | 'openspec-init';
+
+export type NewProjectEvent =
+  | { type: 'step'; step: NewProjectStep; status: 'pending' | 'done' | 'error'; message?: string }
+  | { type: 'complete'; projectId: string; path: string }
+  | { type: 'fatal'; step: NewProjectStep | 'rollback'; message: string };
 
 const execAsync = promisify(exec);
 
@@ -43,9 +58,9 @@ export const newProjectRouter = router({
         try {
           const { assertOpenspecBinAvailable } = await import('../../openspec/openspec-bin-path');
           assertOpenspecBinAvailable();
-          return { available: true, version: 'bundled' };
+          return { available: true, version: 'bundled' as string | undefined };
         } catch {
-          return { available: false };
+          return { available: false, version: undefined as string | undefined };
         }
       }
 
@@ -95,7 +110,7 @@ export const newProjectRouter = router({
       return validateRepoName(input.name, input.provider, input.accountId, input.projectId);
     }),
 
-  /** Full project creation orchestrator. */
+  /** Full project creation orchestrator. Streams per-step progress events. */
   createProject: publicProcedure
     .input(
       z.object({
@@ -110,164 +125,295 @@ export const newProjectRouter = router({
         correlationId: z.string()
       })
     )
-    .mutation(async ({ input }) => {
-      const { correlationId } = input;
+    .subscription(({ input }) => {
+      return observable<NewProjectEvent>((emit) => {
+        const { correlationId } = input;
 
-      // Step 1: Re-validate name
-      const nameCheck = validateRepoName(input.name, input.provider, input.accountId, input.projectId);
-      if (!nameCheck.valid) {
-        throw new Error(`Invalid project name: ${nameCheck.error}`);
-      }
-      log(correlationId, 'validate', true);
+        const emitStep = (step: NewProjectStep, status: 'pending' | 'done' | 'error', message?: string) => {
+          console.log(`[NewProject] ${correlationId} emit step=${step} status=${status}`);
+          emit.next({ type: 'step', step, status, message });
+        };
 
-      const adapter = getProviderAdapter(input.provider);
-      const compensators: Array<() => Promise<void>> = [];
+        const run = async () => {
+          let currentStep: NewProjectStep = 'validate';
+          const compensators: Array<() => Promise<void>> = [];
+          let removeRemoteCompensator: (() => Promise<void>) | null = null;
 
-      try {
-        // Step 2: Create remote repo
-        let cloneUrl = '';
-        if (input.provider !== 'local') {
-          const repoResult = await adapter.createRepo({
-            name: input.name,
-            description: input.description,
-            accountId: input.accountId,
-            projectId: input.projectId,
-            visibility: input.visibility ?? 'private',
-            correlationId
-          });
-          if (!repoResult.ok) {
-            log(correlationId, 'remote-create', false, repoResult.message);
-            throw new Error(repoResult.message);
-          }
-          cloneUrl = repoResult.cloneUrl;
-          log(correlationId, 'remote-create', true);
-
-          compensators.push(async () => {
-            try {
-              const adapter = getProviderAdapter(input.provider as 'github' | 'azure');
-              if ('deleteRepo' in adapter && typeof (adapter as any).deleteRepo === 'function') {
-                await (adapter as any).deleteRepo({ accountId: input.accountId, name: input.name, correlationId });
-              }
-              log(correlationId, 'compensate:remote-delete', true);
-            } catch (err) {
-              log(correlationId, 'compensate:remote-delete', false, String(err));
+          try {
+            // Step 1: Re-validate name
+            emitStep('validate', 'pending');
+            currentStep = 'validate';
+            const nameCheck = validateRepoName(input.name, input.provider, input.accountId, input.projectId);
+            if (!nameCheck.valid) {
+              throw new Error(`Invalid project name: ${nameCheck.error}`);
             }
-          });
-        }
+            emitStep('validate', 'done');
+            log(correlationId, 'validate', true);
 
-        // Step 3: Clone or git init
-        let clonePath: string;
-        if (input.provider === 'local') {
-          const homePath = app.getPath('home');
-          clonePath = join(homePath, '.churrostack', 'repos', 'local', input.name);
-          await mkdir(clonePath, { recursive: true });
-          await execAsync('git init --initial-branch=main', { cwd: clonePath });
-          log(correlationId, 'clone', true);
-        } else {
-          const result = await cloneIntoRepos({
-            owner: input.accountId,
-            repo: input.name,
-            project: input.projectId,
-            cloneUrl,
-            providerHint: input.provider
-          });
-          clonePath = result.clonePath;
-          log(correlationId, 'clone', true);
-        }
+            const adapter = getProviderAdapter(input.provider);
 
-        compensators.push(async () => {
-          try {
-            await rm(clonePath, { recursive: true, force: true });
-            log(correlationId, 'compensate:remove-clone-dir', true);
+            // Step 2: Create remote repo
+            let cloneUrl = '';
+            if (input.provider !== 'local') {
+              emitStep('remote-create', 'pending');
+              currentStep = 'remote-create';
+              const repoResult = await adapter.createRepo({
+                name: input.name,
+                description: input.description,
+                accountId: input.accountId,
+                projectId: input.projectId,
+                visibility: input.visibility ?? 'private',
+                correlationId
+              });
+              if (!repoResult.ok) {
+                log(correlationId, 'remote-create', false, repoResult.message);
+                throw new Error(repoResult.message);
+              }
+              cloneUrl = repoResult.cloneUrl;
+              emitStep('remote-create', 'done');
+              log(correlationId, 'remote-create', true);
+
+              removeRemoteCompensator = async () => {
+                try {
+                  const a = getProviderAdapter(input.provider as 'github' | 'azure');
+                  if (a.deleteRepo) {
+                    await a.deleteRepo({ accountId: input.accountId, name: input.name, correlationId });
+                  }
+                  log(correlationId, 'compensate:remote-delete', true);
+                } catch (err) {
+                  log(correlationId, 'compensate:remote-delete', false, String(err));
+                }
+              };
+              compensators.push(removeRemoteCompensator);
+            }
+
+            // Step 3: Clone or git init
+            emitStep('clone', 'pending');
+            currentStep = 'clone';
+            let clonePath: string;
+            // Track whether THIS run created the clone directory. If we reused
+            // an existing dir (legacy ~/.21st fallback, or a prior interrupted
+            // attempt), the rm compensator would wipe user data on rollback.
+            let createdClonePath: boolean;
+            if (input.provider === 'local') {
+              const homePath = app.getPath('home');
+              clonePath = join(homePath, '.churrostack', 'repos', 'local', input.name);
+              const preExisted = existsSync(clonePath);
+              await mkdir(clonePath, { recursive: true });
+              await execAsync('git init --initial-branch=main', { cwd: clonePath });
+              createdClonePath = !preExisted;
+            } else {
+              const result = await cloneIntoRepos({
+                owner: input.accountId,
+                repo: input.name,
+                project: input.projectId,
+                cloneUrl,
+                providerHint: input.provider
+              });
+              clonePath = result.clonePath;
+              createdClonePath = !result.alreadyExisted;
+            }
+            emitStep('clone', 'done');
+            log(correlationId, 'clone', true);
+
+            if (createdClonePath) {
+              compensators.push(async () => {
+                try {
+                  await rm(clonePath, { recursive: true, force: true });
+                  log(correlationId, 'compensate:remove-clone-dir', true);
+                } catch (err) {
+                  log(correlationId, 'compensate:remove-clone-dir', false, String(err));
+                }
+              });
+            } else {
+              console.log(
+                `[NewProject] ${correlationId} step=compensate:remove-clone-dir-skipped reason="dir pre-existed; refusing to rm on rollback"`
+              );
+            }
+
+            // Step 4: Scaffold templates
+            emitStep('scaffold', 'pending');
+            currentStep = 'scaffold';
+            await scaffoldTemplates(clonePath, {
+              name: input.name,
+              description: input.description ?? '',
+              prompt: input.prompt,
+              openspecInit: input.openspecInit
+            });
+            emitStep('scaffold', 'done');
+            log(correlationId, 'scaffold', true);
+
+            // Step 5: OpenSpec init (runs in the main clone, before commit, so the
+            // openspec/.claude/.codex scaffolding lands in the initial commit and
+            // reaches the remote). Non-fatal: on failure we keep the templates-only commit.
+            // Note: persisted openspecTools is intentionally NOT stored here — the
+            // wizard no longer creates a chat row. Runtime detection via
+            // detectOpenspecState() picks up the sentinel files when the user
+            // creates a workspace on the New workspace screen.
+            let openspecInitSucceeded = false;
+            if (input.openspecInit) {
+              emitStep('openspec-init', 'pending');
+              currentStep = 'openspec-init';
+              try {
+                const { assertOpenspecBinAvailable, OpenspecBundleMissingError } =
+                  await import('../../openspec/openspec-bin-path');
+                try {
+                  assertOpenspecBinAvailable();
+                  const { runOpenspecCli } = await import('../../openspec/run-openspec-cli');
+                  await runOpenspecCli(['init', '--tools', 'claude,codex', '--profile', 'core'], clonePath);
+                  openspecInitSucceeded = true;
+                  emitStep('openspec-init', 'done');
+                  log(correlationId, 'openspec-init', true);
+                } catch (e) {
+                  // Distinguish a missing bundle (packaging defect, more actionable for the user)
+                  // from a transient CLI error. Both stay non-fatal for the overall flow.
+                  const isBundleMissing = e instanceof OpenspecBundleMissingError;
+                  const rawMsg = String(e);
+                  const msg = isBundleMissing
+                    ? `OpenSpec CLI bundle missing — skipping init. ${rawMsg}`
+                    : `OpenSpec init failed (continuing without it): ${rawMsg}`;
+                  emitStep('openspec-init', 'error', msg);
+                  log(
+                    correlationId,
+                    'openspec-init',
+                    false,
+                    `${isBundleMissing ? 'bundle-missing' : 'cli-error'} ${rawMsg}`
+                  );
+                  // non-fatal: continue with templates-only commit
+                }
+              } catch (importErr) {
+                // Failed even to load openspec-bin-path (very unlikely). Still non-fatal.
+                const msg = `OpenSpec init unavailable: ${String(importErr)}`;
+                emitStep('openspec-init', 'error', msg);
+                log(correlationId, 'openspec-init', false, msg);
+              }
+            }
+
+            // Re-render AGENTS.md with the actual openspec outcome so the postmortems
+            // pointer doesn't reference openspec/postmortems when openspec init failed.
+            // Safe to overwrite: if openspec init failed it didn't add its managed block,
+            // so we just replace the placeholder. (When openspec init succeeded, AGENTS.md
+            // already has the right pointer and openspec init may have prepended a managed
+            // block on top — we don't touch it in that case.)
+            if (input.openspecInit && !openspecInitSucceeded) {
+              try {
+                await renderAgentsMd(clonePath, {
+                  name: input.name,
+                  description: input.description ?? '',
+                  prompt: input.prompt,
+                  openspecInit: false
+                });
+              } catch (err) {
+                log(correlationId, 'agents-md-rewrite', false, String(err));
+                // best-effort: keep going even if the rewrite fails
+              }
+            }
+
+            // Step 6: Initial commit (captures templates + openspec scaffolding)
+            emitStep('commit', 'pending');
+            currentStep = 'commit';
+            await execAsync('git add .', { cwd: clonePath });
+            try {
+              await execAsync('git commit -m "Initial commit"', { cwd: clonePath });
+            } catch (commitErr) {
+              const raw = commitErr instanceof Error ? commitErr.message : String(commitErr);
+              if (/gpg|signing|secret key|no secret key|gpg failed/i.test(raw)) {
+                throw new Error(
+                  `Initial commit failed because git commit signing is enabled but signing failed. Either disable signing for this repo (\`git config commit.gpgsign false\`) or fix your GPG/SSH signing key, then retry.\n\nUnderlying error: ${raw}`
+                );
+              }
+              throw commitErr;
+            }
+            emitStep('commit', 'done');
+            log(correlationId, 'commit', true);
+
+            // Step 7: Push (remote providers only). Resolve the actual current
+            // branch rather than hard-coding 'main' — empty Azure DevOps repos
+            // (or users with init.defaultBranch=master) clone with a non-main
+            // HEAD, and `git push -u origin main` would fail with
+            // "src refspec main does not match any."
+            if (input.provider !== 'local') {
+              emitStep('push', 'pending');
+              currentStep = 'push';
+              let currentBranch = 'main';
+              try {
+                const result = await execAsync('git symbolic-ref --short HEAD', { cwd: clonePath });
+                const out = typeof result === 'string' ? result : ((result as { stdout?: string }).stdout ?? '');
+                const trimmed = out.trim();
+                if (trimmed) currentBranch = trimmed;
+              } catch {
+                // Couldn't read HEAD (detached, unexpected error) — fall back
+                // to 'main' to stay consistent with the local git-init default.
+              }
+              await execAsync(`git push -u origin ${currentBranch}`, { cwd: clonePath });
+              emitStep('push', 'done');
+              log(correlationId, 'push', true);
+              // Clear remote-delete compensator — push succeeded, repo is canonical.
+              // Use identity-based removal so future compensators inserted between
+              // remote-create and push don't get dropped by mistake.
+              if (removeRemoteCompensator) {
+                const idx = compensators.indexOf(removeRemoteCompensator);
+                if (idx !== -1) compensators.splice(idx, 1);
+                removeRemoteCompensator = null;
+              }
+            }
+
+            // Step 8: Insert project row
+            emitStep('db-insert', 'pending');
+            currentStep = 'db-insert';
+            const db = getDatabase();
+            const gitInfo = await getGitRemoteInfo(clonePath);
+            const project = db
+              .insert(projects)
+              .values({
+                name: input.name,
+                path: clonePath,
+                gitRemoteUrl: gitInfo.remoteUrl,
+                gitProvider: gitInfo.provider,
+                gitOwner: gitInfo.owner,
+                gitRepo: gitInfo.repo,
+                gitProject: gitInfo.project
+              })
+              .returning()
+              .get();
+            emitStep('db-insert', 'done');
+            log(correlationId, 'db-insert', true);
+
+            // No chat / worktree creation here on purpose. The user lands on the
+            // "New workspace" screen with this project selected and creates the
+            // workspace (chat + worktree) from there using the normal flow.
+
+            trackProjectCreated({ provider: input.provider, openspecInit: input.openspecInit, hasPrompt: true });
+            log(correlationId, 'done', true);
+
+            console.log(
+              `[NewProject] ${correlationId} emit type=complete projectId=${project.id} path=${project.path}`
+            );
+            emit.next({ type: 'complete', projectId: project.id, path: project.path });
+            emit.complete();
           } catch (err) {
-            log(correlationId, 'compensate:remove-clone-dir', false, String(err));
+            const message = String(err);
+            emitStep(currentStep, 'error', message);
+            log(correlationId, 'rollback', false, message);
+            for (const comp of [...compensators].reverse()) {
+              try {
+                await comp();
+              } catch {
+                /* best-effort */
+              }
+            }
+            console.log(`[NewProject] ${correlationId} emit type=fatal step=${currentStep}`);
+            emit.next({ type: 'fatal', step: currentStep, message });
+            emit.complete();
           }
+        };
+
+        run().catch((err) => {
+          emit.error(err);
         });
 
-        // Step 4: Scaffold templates
-        await scaffoldTemplates(clonePath, {
-          name: input.name,
-          description: input.description ?? '',
-          prompt: input.prompt,
-          openspecInit: input.openspecInit
-        });
-        log(correlationId, 'scaffold', true);
-
-        // Step 5: Initial commit
-        await execAsync('git add .', { cwd: clonePath });
-        await execAsync('git commit -m "Initial commit"', { cwd: clonePath });
-        log(correlationId, 'commit', true);
-
-        // Step 6: Push (remote providers only)
-        if (input.provider !== 'local') {
-          await execAsync('git push -u origin main', { cwd: clonePath });
-          log(correlationId, 'push', true);
-          // Clear remote-delete compensator — push succeeded, repo is canonical
-          compensators.pop();
-        }
-
-        // Step 7: Insert project row
-        const db = getDatabase();
-        const gitInfo = await getGitRemoteInfo(clonePath);
-        const project = db
-          .insert(projects)
-          .values({
-            name: input.name,
-            path: clonePath,
-            gitRemoteUrl: gitInfo.remoteUrl,
-            gitProvider: gitInfo.provider,
-            gitOwner: gitInfo.owner,
-            gitRepo: gitInfo.repo,
-            gitProject: gitInfo.project
-          })
-          .returning()
-          .get();
-        log(correlationId, 'db-insert', true);
-
-        // Step 8: Create chat + subChat
-        const chat = db.insert(chats).values({ name: input.name, projectId: project.id }).returning().get();
-        const subChat = db.insert(subChats).values({ chatId: chat.id, mode: 'execute' }).returning().get();
-        log(correlationId, 'chat-create', true);
-
-        // Step 9: Create worktree
-        await createWorktreeForChat(clonePath, input.name, chat.id);
-        log(correlationId, 'worktree-create', true);
-
-        // Step 10: OpenSpec init (non-fatal)
-        if (input.openspecInit) {
-          try {
-            const { assertOpenspecBinAvailable } = await import('../../openspec/openspec-bin-path');
-            assertOpenspecBinAvailable();
-            const worktreeChat = db.select().from(chats).where(eq(chats.id, chat.id)).get();
-            const targetPath = worktreeChat?.worktreePath ?? clonePath;
-            const { runOpenspecCli } = await import('../../openspec/run-openspec-cli');
-            await runOpenspecCli(['init', '--tools', 'claude,codex', '--profile', 'core'], targetPath);
-            db.update(chats)
-              .set({ openspecTools: JSON.stringify(['claude', 'codex']) })
-              .where(eq(chats.id, chat.id))
-              .run();
-            log(correlationId, 'openspec-init', true);
-          } catch (e) {
-            log(correlationId, 'openspec-init', false, String(e));
-            // non-fatal
-          }
-        }
-
-        trackProjectCreated({ provider: input.provider, openspecInit: input.openspecInit, hasPrompt: true });
-        log(correlationId, 'done', true);
-
-        return { projectId: project.id, chatId: chat.id, subChatId: subChat.id };
-      } catch (err) {
-        log(correlationId, 'rollback', false, String(err));
-        for (const comp of compensators.reverse()) {
-          try {
-            await comp();
-          } catch {
-            /* best-effort */
-          }
-        }
-        throw err;
-      }
+        return () => {};
+      });
     })
 });
 
@@ -280,24 +426,19 @@ export interface NameValidationResult {
   error?: string;
 }
 
-function validateRepoName(name: string, provider: string, accountId: string, projectId?: string): NameValidationResult {
-  if (!name) return { valid: false, error: 'Name is required' };
-  if (name.length > 100) return { valid: false, error: 'Name must be 100 characters or fewer' };
+function validateRepoName(
+  name: string,
+  provider: 'github' | 'azure' | 'local',
+  accountId: string,
+  projectId?: string
+): NameValidationResult {
+  // Pure rules (regex, reserved, length) live in shared/repo-name-rules.ts so
+  // the renderer and the main process can't drift apart.
+  const rulesResult = validateRepoNameRules(name, provider);
+  if (!rulesResult.valid) return rulesResult;
 
-  if (provider === 'github') {
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)) {
-      return { valid: false, error: 'Only letters, numbers, hyphens, underscores, and dots are allowed' };
-    }
-    if (/\.\./.test(name)) return { valid: false, error: 'Name cannot contain consecutive dots' };
-    if (name === '.' || name === '..') return { valid: false, error: 'Invalid name' };
-  } else if (provider === 'azure') {
-    if (/[/\\:*?"<>|]/.test(name)) return { valid: false, error: 'Name contains invalid characters' };
-  }
-
-  const reserved = ['.git', 'con', 'prn', 'aux', 'nul', 'com0', 'com1', 'lpt0', 'lpt1'];
-  if (reserved.includes(name.toLowerCase())) return { valid: false, error: 'That name is reserved' };
-
-  // Check target path on disk
+  // Path-existence check stays here: it needs access to app.getPath('home')
+  // and isn't reachable from the renderer.
   const homePath = app.getPath('home');
   let targetPath: string;
   if (provider === 'azure' && projectId) {
@@ -322,11 +463,20 @@ interface ScaffoldVars {
   openspecInit: boolean;
 }
 
-async function scaffoldTemplates(clonePath: string, vars: ScaffoldVars): Promise<void> {
-  const { renderTemplate } = await import('../../providers/templates');
-  const templateDir = join(app.getAppPath(), '..', 'resources', 'new-project-templates');
+function getTemplateDir(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'new-project-templates')
+    : join(__dirname, '..', '..', 'resources', 'new-project-templates');
+}
 
-  const agentsMd = await renderTemplate(join(templateDir, 'AGENTS.md.tmpl'), {
+/**
+ * Render and write AGENTS.md (and CLAUDE.md on Windows as a duplicate copy).
+ * Exposed separately from scaffoldTemplates so the orchestrator can re-render
+ * with the actual openspec outcome after init.
+ */
+async function renderAgentsMd(clonePath: string, vars: ScaffoldVars): Promise<void> {
+  const { renderTemplate } = await import('../../providers/templates');
+  const agentsMd = await renderTemplate(join(getTemplateDir(), 'AGENTS.md.tmpl'), {
     name: vars.name,
     description: vars.description,
     prompt: vars.prompt,
@@ -334,12 +484,22 @@ async function scaffoldTemplates(clonePath: string, vars: ScaffoldVars): Promise
   });
   await writeFile(join(clonePath, 'AGENTS.md'), agentsMd, 'utf8');
 
-  // CLAUDE.md: symlink on macOS/Linux, copy on Windows
-  const claudeMdTarget = join(clonePath, 'CLAUDE.md');
+  // On Windows, CLAUDE.md is a duplicate copy of AGENTS.md (no symlinks),
+  // so it must be kept in sync. On macOS/Linux it's a symlink — already current.
   if (isWindows()) {
-    await writeFile(claudeMdTarget, agentsMd, 'utf8');
-  } else {
-    await symlink('AGENTS.md', claudeMdTarget);
+    await writeFile(join(clonePath, 'CLAUDE.md'), agentsMd, 'utf8');
+  }
+}
+
+async function scaffoldTemplates(clonePath: string, vars: ScaffoldVars): Promise<void> {
+  const { renderTemplate } = await import('../../providers/templates');
+  const templateDir = getTemplateDir();
+
+  await renderAgentsMd(clonePath, vars);
+
+  // CLAUDE.md symlink on macOS/Linux (Windows path handled inside renderAgentsMd above).
+  if (!isWindows()) {
+    await symlink('AGENTS.md', join(clonePath, 'CLAUDE.md'));
   }
 
   const readmeMd = await renderTemplate(join(templateDir, 'README.md.tmpl'), {

@@ -6,12 +6,7 @@ import { Input } from '@/components/ui/input';
 import { validateRepoName } from './lib/validate-name';
 import { cn } from '@/lib/utils';
 
-interface NameInputProps {
-  onFocus?: () => void;
-  onBlur?: () => void;
-}
-
-export function NameInput({ onFocus, onBlur }: NameInputProps = {}) {
+export function NameInput() {
   const [draft, setDraft] = useAtom(newProjectDraftAtom);
   const [debouncedName, setDebouncedName] = useState(draft.name);
 
@@ -48,8 +43,6 @@ export function NameInput({ onFocus, onBlur }: NameInputProps = {}) {
         placeholder="my-awesome-project"
         value={draft.name}
         onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-        onFocus={onFocus}
-        onBlur={onBlur}
         className={cn(error ? 'border-destructive focus-visible:ring-destructive' : '')}
         maxLength={100}
       />

@@ -11,7 +11,7 @@ export function VisibilityCheckbox() {
   const isPublic = draft.visibility === 'public';
 
   return (
-    <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+    <div className="flex items-center gap-2 pt-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
       <Checkbox
         id="visibility-public"
         checked={isPublic}

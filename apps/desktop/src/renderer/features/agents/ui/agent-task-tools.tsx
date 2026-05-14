@@ -2,7 +2,7 @@
 
 import { ChevronsUpDown } from 'lucide-react';
 import { useSetAtom } from 'jotai';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { CheckIcon, PlanIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { cn } from '../../../lib/utils';
@@ -62,6 +62,13 @@ const snapshotHistoryCache = new Map<string, Map<string, Map<string, TaskSnapsho
 // Map<subChatId, groupKey[]>
 const groupOrderCache = new Map<string, string[]>();
 
+// Shared deduplication guard: tracks the last JSON-serialized tasks written to the atom per
+// subChatId. All sibling AgentTaskToolsGroup instances share this map so only the first one
+// to produce a given snapshot actually writes to the atom — subsequent siblings see a match
+// and bail out, preventing the "Maximum update depth exceeded" crash when many groups mount
+// at once and each fires its useEffect in the same React commit cycle.
+const lastSyncedTasksBySubChat = new Map<string, string>();
+
 const MAX_CACHED_SUBCHATS = 20;
 
 function evictOldestCaches() {
@@ -70,6 +77,7 @@ function evictOldestCaches() {
     for (const key of keys.slice(0, keys.length - MAX_CACHED_SUBCHATS)) {
       snapshotHistoryCache.delete(key);
       groupOrderCache.delete(key);
+      lastSyncedTasksBySubChat.delete(key);
     }
   }
 }
@@ -81,6 +89,7 @@ function evictOldestCaches() {
 export function clearTaskSnapshotCache(subChatId: string) {
   snapshotHistoryCache.delete(subChatId);
   groupOrderCache.delete(subChatId);
+  lastSyncedTasksBySubChat.delete(subChatId);
 }
 
 // Task info for read-only display (TaskList, TaskGet)
@@ -787,16 +796,6 @@ export const AgentTaskToolsGroup = memo(function AgentTaskToolsGroup({
   const taskToolsAtom = useMemo(() => currentTaskToolsAtomFamily(subChatId || 'default'), [subChatId]);
   const setTaskToolsState = useSetAtom(taskToolsAtom);
 
-  // Tracks the last JSON-serialized tasks pushed to the atom. Prevents the effect from
-  // writing on every render when content hasn't changed, which would trip React's
-  // max-update-depth safeguard during fast streaming (same pattern as agent-todo-tool.tsx).
-  const lastSyncedTasksRef = useRef<string>('');
-
-  // Reset the ref when the sub-chat changes so the first write for a new sub-chat is never suppressed.
-  useEffect(() => {
-    lastSyncedTasksRef.current = '';
-  }, [subChatId]);
-
   useEffect(() => {
     if (!subChatId) return;
 
@@ -823,12 +822,13 @@ export const AgentTaskToolsGroup = memo(function AgentTaskToolsGroup({
       if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
       return a.id.localeCompare(b.id);
     });
-    // Skip the atom write when content is identical to what was last pushed.
-    // This prevents redundant writes from multiple sibling AgentTaskToolsGroup instances
-    // during streaming from accumulating enough nested updates to trip React's 50-deep safeguard.
+    // Use the module-level shared map so ALL sibling AgentTaskToolsGroup instances with the
+    // same subChatId share the same last-written value. A per-instance useRef doesn't work
+    // because each sibling starts with ref='', causing every sibling to write independently
+    // and cascade enough nested React state updates to exceed the 50-deep limit.
     const serialized = JSON.stringify(tasks);
-    if (serialized === lastSyncedTasksRef.current) return;
-    lastSyncedTasksRef.current = serialized;
+    if (serialized === (lastSyncedTasksBySubChat.get(subChatId) ?? '')) return;
+    lastSyncedTasksBySubChat.set(subChatId, serialized);
     setTaskToolsState({ tasks });
   }, [currentSnapshot, subChatId, setTaskToolsState]);
 

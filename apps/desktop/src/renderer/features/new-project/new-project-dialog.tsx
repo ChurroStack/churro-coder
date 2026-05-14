@@ -26,7 +26,7 @@ export function NewProjectDialog() {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="w-[900px] max-h-[90vh] overflow-y-auto"
+        className="w-[1050px] max-h-[90vh] overflow-y-auto"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <DialogHeader>
           <DialogTitle>Add project</DialogTitle>

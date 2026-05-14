@@ -99,6 +99,7 @@
 - [x] 10.6 Add a renderer component test for `new-project-dialog.tsx` confirming all three sections render, the segmented control swaps content without losing common fields, and the "+ Add project" entry points open the dialog with the Create section active.
 - [x] 10.7 Add renderer component tests for the Refresh / Recheck / Retry controls: (a) clicking "Refresh" on the account picker calls `utils.newProject.listAccounts.invalidate`; (b) clicking "Refresh" on the project picker calls `utils.newProject.listProjects.invalidate`; (c) clicking "Recheck" on the CLI install panel calls `detectCli` with `{ evictCache: true }` and then invalidates the query; (d) clicking "Retry" on the auth panel calls `checkAuth` invalidation. Use `createMockTrpc` from `test-utils/`.
 - [x] 10.8 Add a renderer component test for `visibility-checkbox.tsx`: renders when provider = 'github', is hidden when provider = 'azure' or 'local', sets `draft.visibility = 'public'` when checked, sets it to `undefined` when unchecked.
+- [x] 10.9 Add `assertRegisteredWorktree` coverage to `new-project.test.ts` ✓: after `createProject`, call `assertRegisteredWorktree` with the persisted worktreePath against a mock DB configured to return a matching chat row. Note: a full real-SQLite integration test is not feasible here — `better-sqlite3` is compiled for Electron's Node.js ABI 145 while the test runner uses ABI 141; the two cannot share the same native binary without rebuilding.
 
 ## 11. Manual verification
 

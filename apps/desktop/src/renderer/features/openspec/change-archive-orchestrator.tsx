@@ -3,6 +3,7 @@ import type { DockviewApi } from 'dockview-react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { toast } from 'sonner';
 import { trpc } from '../../lib/trpc';
+import type { GitChangesStatus } from '../../../shared/changes-types';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
 import { useStreamingStatusStore } from '../agents/stores/streaming-status-store';
 import {
@@ -46,6 +47,8 @@ function PendingChangeArchiveObserver({
   const { chatId, subChatId, changeId } = pending;
   const trpcUtils = trpc.useUtils();
   const archiveChat = trpc.chats.archive.useMutation();
+  const commitAll = trpc.changes.commitAll.useMutation();
+  const pushChanges = trpc.changes.push.useMutation();
   const setPendingArchive = useSetAtom(pendingChangeArchiveAtomFamily(changeId));
   const setPendingArchivesByChat = useSetAtom(pendingChangeArchivesByChatAtomFamily(chatId));
   const wasStreamingRef = useRef(false);
@@ -136,38 +139,30 @@ function PendingChangeArchiveObserver({
       const shouldArchiveWorkspace = activeChanges.length === 0 && otherOpenSpecSubChats.length === 0;
 
       if (shouldArchiveWorkspace) {
-        // Belt-and-braces: archive.j2 already commits + pushes in step 6, but if the
-        // agent skipped or failed those steps we must NOT archive the workspace — the
-        // user's local work would be locked behind an archived workspace until they
-        // unarchive it. Surface the pending state instead and leave the workspace open.
+        // Invariant: a workspace cannot be archived (and its panels cannot be
+        // closed) while uncommitted or unpushed work remains. archive.j2 already
+        // commits + pushes in step 6, but if the agent skipped or failed those
+        // steps we attempt to commit + push ourselves. If that fails we keep the
+        // openspec change panel open and surface the error so the user can act.
         const worktreePath = chatData?.worktreePath ?? null;
         if (worktreePath) {
-          try {
-            const status = await trpcUtils.changes.getStatus.fetch({ worktreePath });
-            const dirty = status.staged.length + status.unstaged.length + status.untracked.length > 0;
-            const unpushed = status.hasUpstream && status.pushCount > 0;
-            if (dirty || unpushed) {
-              closeChangePanels(dockApi, subChatId, changeId);
-              dropSubChatForWorkspace(chatId, subChatId);
-              const reason = dirty
-                ? 'Uncommitted changes remain — commit and push them, then archive the workspace manually.'
-                : 'Unpushed commits remain on this branch — push them, then archive the workspace manually.';
-              toast.warning('Change archived. Workspace kept open.', { description: reason });
-              console.warn(
-                `[openspec/archive] workspace archive skipped chatId=${chatId} changeId=${changeId} dirty=${dirty} unpushed=${unpushed} pushCount=${status.pushCount}`
-              );
-              return;
-            }
-          } catch (err) {
-            // Status probe failed (e.g. worktree gone). Don't silently archive — bail
-            // and let the user retry once they've verified the working tree.
-            const message = err instanceof Error ? err.message : 'Unknown error';
-            closeChangePanels(dockApi, subChatId, changeId);
-            dropSubChatForWorkspace(chatId, subChatId);
-            toast.warning('Change archived. Workspace kept open.', {
-              description: `Could not verify git status before archiving the workspace: ${message}`
-            });
-            console.warn(`[openspec/archive] git status check failed chatId=${chatId}`, err);
+          const sync = await syncWorktreeForArchive({
+            worktreePath,
+            changeId,
+            chatId,
+            commitAll,
+            pushChanges,
+            getStatus: () => trpcUtils.changes.getStatus.fetch({ worktreePath })
+          });
+          if (!sync.ok) {
+            // Do NOT close panels, do NOT archive the workspace. Clear pending
+            // so the user can retry archiving once they've resolved the issue.
+            completedRef.current = false;
+            clearPending();
+            toast.error('Workspace archive blocked', { description: sync.reason });
+            console.warn(
+              `[openspec/archive] sync failed chatId=${chatId} changeId=${changeId} stage=${sync.stage} reason=${sync.reason}`
+            );
             return;
           }
         }
@@ -240,4 +235,72 @@ function dropSubChatForWorkspace(chatId: string, subChatId: string) {
   const store = useAgentSubChatStore.getState();
   if (store.chatId !== chatId) return;
   store.removeFromOpenSubChats(subChatId);
+}
+
+type SyncResult = { ok: true } | { ok: false; stage: 'status' | 'commit' | 'push' | 'reverify'; reason: string };
+
+interface SyncDeps {
+  worktreePath: string;
+  changeId: string;
+  chatId: string;
+  commitAll: ReturnType<typeof trpc.changes.commitAll.useMutation>;
+  pushChanges: ReturnType<typeof trpc.changes.push.useMutation>;
+  getStatus: () => Promise<GitChangesStatus>;
+}
+
+async function syncWorktreeForArchive({
+  worktreePath,
+  changeId,
+  chatId,
+  commitAll,
+  pushChanges,
+  getStatus
+}: SyncDeps): Promise<SyncResult> {
+  let status;
+  try {
+    status = await getStatus();
+  } catch (err) {
+    return { ok: false, stage: 'status', reason: err instanceof Error ? err.message : 'Unknown error' };
+  }
+
+  const dirty = status.staged.length + status.unstaged.length + status.untracked.length > 0;
+  if (dirty) {
+    try {
+      await commitAll.mutateAsync({
+        worktreePath,
+        message: `chore(openspec): archive ${changeId}`
+      });
+      console.log(`[openspec/archive] auto-commit complete chatId=${chatId} changeId=${changeId}`);
+    } catch (err) {
+      return { ok: false, stage: 'commit', reason: err instanceof Error ? err.message : 'Commit failed' };
+    }
+  }
+
+  if (status.hasRemote) {
+    try {
+      await pushChanges.mutateAsync({ worktreePath, setUpstream: !status.hasUpstream });
+      console.log(
+        `[openspec/archive] auto-push complete chatId=${chatId} changeId=${changeId} setUpstream=${!status.hasUpstream}`
+      );
+    } catch (err) {
+      return { ok: false, stage: 'push', reason: err instanceof Error ? err.message : 'Push failed' };
+    }
+  }
+
+  // Re-verify: status must now be clean and (if remote exists) pushed.
+  let after;
+  try {
+    after = await getStatus();
+  } catch (err) {
+    return { ok: false, stage: 'reverify', reason: err instanceof Error ? err.message : 'Unknown error' };
+  }
+  const stillDirty = after.staged.length + after.unstaged.length + after.untracked.length > 0;
+  const stillUnpushed = after.hasUpstream && after.pushCount > 0;
+  if (stillDirty) {
+    return { ok: false, stage: 'reverify', reason: 'Uncommitted changes remain after auto-commit.' };
+  }
+  if (stillUnpushed) {
+    return { ok: false, stage: 'reverify', reason: 'Unpushed commits remain after auto-push.' };
+  }
+  return { ok: true };
 }

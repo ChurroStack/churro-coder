@@ -38,6 +38,12 @@ export type CreateRepoResult =
   | { ok: true; cloneUrl: string; htmlUrl?: string }
   | { ok: false; code: ErrorCode; message: string };
 
+export interface DeleteRepoInput {
+  accountId: string;
+  name: string;
+  correlationId: string;
+}
+
 export interface ProviderAdapter {
   id: ProviderId;
   detectCli(correlationId: string): Promise<DetectResult>;
@@ -46,4 +52,7 @@ export interface ProviderAdapter {
   listProjects(accountId: string, correlationId: string): Promise<AzureProject[] | null>;
   createRepo(input: CreateRepoInput): Promise<CreateRepoResult>;
   getCloneUrl(accountId: string, repoName: string, projectId?: string): string | null;
+  /** Optional rollback for createRepo. Adapters that don't implement this leave
+   * the orphaned remote repo behind; the compensator becomes a no-op. */
+  deleteRepo?(input: DeleteRepoInput): Promise<void>;
 }

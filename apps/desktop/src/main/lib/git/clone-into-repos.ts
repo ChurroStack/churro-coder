@@ -1,11 +1,11 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app } from 'electron';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface CloneIntoReposInput {
   /** GitHub owner, Azure org, or any remote owner segment */
@@ -66,36 +66,13 @@ export async function cloneIntoRepos(input: CloneIntoReposInput): Promise<CloneI
   }
 
   await mkdir(reposDir, { recursive: true });
-  await execAsync(`git clone "${cloneUrl}" "${clonePath}"`);
+  // execFile (argv array) — no shell, so cloneUrl/clonePath cannot expand
+  // shell metacharacters even if the input contains $(...) or backticks.
+  await execFileAsync('git', ['clone', cloneUrl, clonePath]);
 
   return { clonePath, alreadyExisted: false };
 }
 
-/**
- * Parse a GitHub repo reference into owner/repo parts.
- * Accepts HTTPS URL, SSH URL, or short `owner/repo` format.
- * Returns null if the input does not match any known format.
- */
-export function parseGitHubRef(input: string): { owner: string; repo: string } | null {
-  const https = input.match(/https?:\/\/github\.com\/([^/]+)\/([^/\s]+)/);
-  if (https) return { owner: https[1]!, repo: https[2]!.replace(/\.git$/, '') };
-
-  const ssh = input.match(/git@github\.com:([^/]+)\/(.+)/);
-  if (ssh) return { owner: ssh[1]!, repo: ssh[2]!.replace(/\.git$/, '') };
-
-  const short = input.match(/^([^/\s]+)\/([^/\s]+)$/);
-  if (short) return { owner: short[1]!, repo: short[2]!.replace(/\.git$/, '') };
-
-  return null;
-}
-
-/**
- * Parse an Azure DevOps clone URL into org/project/repo parts.
- * Accepts: https://dev.azure.com/<org>/<project>/_git/<repo>
- * Returns null if not a recognised Azure DevOps URL.
- */
-export function parseAzureDevOpsRef(input: string): { org: string; project: string; repo: string } | null {
-  const m = input.match(/https?:\/\/dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/\s]+)/);
-  if (!m) return null;
-  return { org: m[1]!, project: m[2]!, repo: m[3]!.replace(/\.git$/, '') };
-}
+// Re-export the pure parsers from shared/ so existing callers and tests don't
+// need to update their imports. New code should prefer the shared module.
+export { parseGitHubRef, parseAzureDevOpsRef } from '../../../shared/git-url-parsers';

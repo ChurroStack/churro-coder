@@ -30,10 +30,22 @@ const mockUtils = {
   }
 };
 
-const mockListAccountsQuery = vi.fn(() => ({ data: [], isFetching: false }));
-const mockListProjectsQuery = vi.fn(() => ({ data: undefined, isFetching: false }));
-const mockDetectCliQuery = vi.fn(() => ({ data: undefined, isFetching: false }));
-const mockCheckAuthQuery = vi.fn(() => ({ data: undefined, isFetching: false }));
+const mockListAccountsQuery = vi.fn(() => ({
+  data: [] as { id: string; label: string; badge: string }[],
+  isFetching: false
+}));
+const mockListProjectsQuery = vi.fn(() => ({
+  data: undefined as { id: string; name: string }[] | undefined,
+  isFetching: false
+}));
+const mockDetectCliQuery = vi.fn(() => ({
+  data: undefined as { available: boolean } | undefined,
+  isFetching: false
+}));
+const mockCheckAuthQuery = vi.fn(() => ({
+  data: undefined as { ok: boolean; code?: string } | undefined,
+  isFetching: false
+}));
 
 vi.mock('@/lib/trpc', () => ({
   trpc: {

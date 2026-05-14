@@ -8,7 +8,7 @@ export class OpenspecBundleMissingError extends Error {
     const hint = isDev
       ? "Run 'bun run openspec:install' from apps/desktop to install the bundled CLI."
       : 'The openspec bundle is missing from the app package. Please reinstall the app.';
-    super(`OpenSpec CLI not found at ${binDir}. ${hint}`);
+    super(`OpenSpec CLI bundle not found at ${binDir}. ${hint}`);
     this.name = 'OpenspecBundleMissingError';
   }
 }
@@ -47,6 +47,10 @@ export function assertOpenspecBinAvailable(): void {
   const binDir = getOpenspecBinDir();
   const bin = path.join(binDir, 'openspec');
   if (!fs.existsSync(bin)) {
+    throw new OpenspecBundleMissingError(binDir);
+  }
+  const pkgEntry = path.join(binDir, '..', 'pkg', 'bin', 'openspec.js');
+  if (!fs.existsSync(pkgEntry)) {
     throw new OpenspecBundleMissingError(binDir);
   }
 }

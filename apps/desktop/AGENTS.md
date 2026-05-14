@@ -73,6 +73,10 @@ bun run claude:download:all   # Fetch for all arches
 bun run codex:download        # Fetch Codex CLI for current arch
 bun run codex:download:all    # Fetch for all arches
 
+# OpenSpec CLI (auto-installed by postinstall; run manually to reinstall or upgrade)
+bun run openspec:install        # Install pinned version into resources/openspec/pkg/
+bun run openspec:install:latest # Install latest version from npm
+
 # Database (Drizzle + SQLite)
 bun run db:generate      # Generate migrations from schema
 bun run db:push          # Push schema directly (dev only)

@@ -42,6 +42,10 @@ interface AgentSendButtonProps {
   onVoiceMouseUp?: () => void;
   /** Deprecated hold-to-talk cancel handler retained for call-site compatibility */
   onVoiceMouseLeave?: () => void;
+  /** Rendering variant: 'round' (default) = classic circular send button; 'square-action' = rectangular blue action button */
+  variant?: 'round' | 'square-action';
+  /** Label text shown when variant='square-action' */
+  actionLabel?: string;
 }
 
 export function AgentSendButton({
@@ -59,7 +63,9 @@ export function AgentSendButton({
   isRecording = false,
   isTranscribing = false,
   onVoiceMouseDown,
-  onVoiceMouseUp
+  onVoiceMouseUp,
+  variant = 'round',
+  actionLabel
 }: AgentSendButtonProps) {
   // Resolved hotkeys for stop-generation tooltip
   const stopHotkey = useResolvedHotkeyDisplayWithAlt('stop-generation');
@@ -226,6 +232,39 @@ export function AgentSendButton({
 
   // Hide tooltip during recording so wave indicator is visible
   const tooltipOpen = isRecording ? false : undefined;
+
+  // Square-action variant: rectangular blue button with text label, used in OpenSpec chats.
+  // Keeps stop/queue logic but skips voice and glow ring.
+  if (variant === 'square-action') {
+    const isSquareDisabled = isStreaming ? false : disabled || isSubmitting;
+    const showStop = isStreaming && !hasContent;
+    return (
+      <Button
+        size={size}
+        className={`h-7 px-3 rounded-md transition-[background-color,transform,opacity] duration-150 ease-out active:scale-[0.97] flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-none ${className}`}
+        disabled={isSquareDisabled}
+        type="button"
+        onClick={() => {
+          if (showStop && onStop) {
+            onStop();
+          } else {
+            onClick();
+          }
+        }}
+        aria-label={showStop ? 'Stop generation' : (ariaLabel ?? actionLabel ?? 'Send message')}>
+        {showStop ? (
+          <div className="w-2.5 h-2.5 bg-current rounded-[2px] flex-shrink-0" />
+        ) : isSubmitting ? (
+          <IconSpinner className="size-4" />
+        ) : (
+          <>
+            {actionLabel && <span className="text-xs font-medium">{actionLabel}</span>}
+            <ArrowUp className="size-3.5" />
+          </>
+        )}
+      </Button>
+    );
+  }
 
   return (
     <Tooltip delayDuration={1_000} open={tooltipOpen}>
