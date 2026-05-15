@@ -13,7 +13,6 @@ import { currentPlanPathAtomFamily, pendingBuildPlanSubChatIdAtom } from '../ato
 import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { addOrFocus } from '../../dock/add-or-focus';
 import { useDockApi } from '../../dock/dock-context';
-import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { getToolStatus } from './agent-tool-registry';
 import { areToolPropsEqual } from './agent-tool-utils';
 
@@ -136,11 +135,8 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
 
   // Handle build plan - triggers via atom, consumed by ChatViewInner
   const handleBuildPlan = useCallback(() => {
-    const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId;
-    if (activeSubChatId) {
-      setPendingBuildPlanSubChatId(activeSubChatId);
-    }
-  }, [setPendingBuildPlanSubChatId]);
+    setPendingBuildPlanSubChatId(subChatId);
+  }, [setPendingBuildPlanSubChatId, subChatId]);
 
   // Handle copy plan
   const handleCopy = useCallback(() => {
