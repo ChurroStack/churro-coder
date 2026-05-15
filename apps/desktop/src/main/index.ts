@@ -10,6 +10,7 @@ import { closeDatabase, initDatabase } from './lib/db';
 import { sweepOrphanTmpFiles } from './lib/sub-chat-artifacts/orphan-sweep';
 import { getLaunchDirectory, isCliInstalled, installCli, uninstallCli, parseLaunchDirectory } from './lib/cli';
 import { cleanupGitWatchers } from './lib/git/watcher';
+import { clearOrphanedChurroMcpEntries } from './lib/claude-config';
 import { cancelAllPendingOAuth, handleMcpOAuthCallback } from './lib/mcp-auth';
 import { getAllMcpConfigHandler, hasActiveClaudeSessions, abortAllClaudeSessions } from './lib/trpc/routers/claude';
 import {
@@ -297,10 +298,8 @@ if (gotTheLock) {
     verifyProtocolRegistration();
 
     // Purge orphaned churro-coder-* MCP entries left by a prior session (crash / force-quit).
-    // Must run before any CLI sessions bootstrap so the slate is clean before new entries
-    // are written. Non-fatal: a failure here just means stale entries persist in /mcp list.
-    { const { clearOrphanedChurroMcpEntries } = await import('./lib/claude-config');
-      clearOrphanedChurroMcpEntries().catch((e) => console.warn('[claude-config] startup MCP cleanup failed:', e)); }
+    // Runs before any CLI session bootstraps so the slate is clean before new entries are written.
+    clearOrphanedChurroMcpEntries().catch((e) => console.warn('[claude-config] startup MCP cleanup failed:', e));
 
     // Start churro-coder MCP HTTP server + register with Codex CLI (self-heals each launch).
     // Claude uses a per-turn SDK instance and doesn't depend on this completing.
