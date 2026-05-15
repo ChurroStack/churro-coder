@@ -62,6 +62,7 @@ export const AgentsSlashCommand = memo(function AgentsSlashCommand({
       command: `/${cmd.name}`,
       description: cmd.description || `Custom command from ${cmd.source}`,
       category: 'repository' as const,
+      source: cmd.source,
       path: cmd.path,
       argumentHint: cmd.argumentHint
     }));
@@ -139,10 +140,34 @@ export const AgentsSlashCommand = memo(function AgentsSlashCommand({
       );
     }
 
-    // Sort all commands by name length (shorter = closer match), then alphabetically for stability
-    return [...customFiltered, ...builtinFiltered].sort(
-      (a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name)
-    );
+    // Dedup by name; prefer builtin > project > user > plugin (lower number wins).
+    // UI builtins (category='builtin') always win against any file-derived entry.
+    const priorityOf = (opt: SlashCommandOption): number => {
+      if (opt.category === 'builtin') return 0;
+      switch (opt.source) {
+        case 'builtin':
+          return 1;
+        case 'project':
+          return 2;
+        case 'user':
+          return 3;
+        case 'plugin':
+          return 4;
+        default:
+          return 5;
+      }
+    };
+
+    const byName = new Map<string, SlashCommandOption>();
+    for (const opt of [...builtinFiltered, ...customFiltered]) {
+      const existing = byName.get(opt.name);
+      if (!existing || priorityOf(opt) < priorityOf(existing)) {
+        byName.set(opt.name, opt);
+      }
+    }
+
+    // Sort by name length (shorter = closer match), then alphabetically for stability.
+    return [...byName.values()].sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name));
   }, [debouncedSearchText, customCommands, mode, disabledCommands]);
 
   // Track previous values for smarter selection reset
@@ -261,16 +286,14 @@ export const AgentsSlashCommand = memo(function AgentsSlashCommand({
 
   if (!isOpen) return null;
 
-  // Calculate dropdown dimensions (matching file mention style)
+  // Calculate dropdown dimensions
   const dropdownWidth = 320;
-  const itemHeight = 28; // h-7 = 28px to match file mention
+  // Two-line item: bold command + up to 2 lines of description
+  const itemHeight = 56;
   const headerHeight = 24;
   // Single "Commands" header for all options
   const headersCount = options.length > 0 ? 1 : 0;
-  const requestedHeight = Math.min(
-    options.length * itemHeight + headersCount * headerHeight + 8,
-    200 // Match file mention maxHeight
-  );
+  const requestedHeight = Math.min(options.length * itemHeight + headersCount * headerHeight + 8, 320);
   const gap = 8;
 
   // Decide placement like Radix Popover (auto-flip top/bottom)
@@ -342,19 +365,19 @@ export const AgentsSlashCommand = memo(function AgentsSlashCommand({
                 }}
                 onMouseEnter={() => setSelectedIndex(index)}
                 className={cn(
-                  'group inline-flex w-[calc(100%-8px)] mx-1 items-center whitespace-nowrap outline-none',
-                  'h-7 px-1.5 justify-start text-xs rounded-md',
+                  'group flex w-[calc(100%-8px)] mx-1 flex-col outline-none overflow-hidden',
+                  'px-1.5 py-1.5 justify-center text-xs rounded-md h-[56px]',
                   'transition-colors cursor-pointer select-none',
                   isSelected
                     ? 'dark:bg-neutral-800 bg-accent text-foreground'
                     : 'text-muted-foreground dark:hover:bg-neutral-800 hover:bg-accent hover:text-foreground'
                 )}>
-                <span className="flex items-center gap-1 w-full min-w-0">
-                  <span className="shrink-0 whitespace-nowrap font-medium">{option.command}</span>
-                  <span className="text-muted-foreground flex-1 min-w-0 ml-2 overflow-hidden text-[10px] truncate">
+                <span className="block font-semibold truncate">{option.command}</span>
+                {option.description ? (
+                  <span className="block text-muted-foreground text-[10px] line-clamp-2 break-words leading-snug mt-0.5">
                     {option.description}
                   </span>
-                </span>
+                ) : null}
               </div>
             );
           })}

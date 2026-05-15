@@ -20,19 +20,20 @@ export interface FileCommand {
 }
 
 /**
- * Parse command .md frontmatter to extract description and argument-hint
+ * Parse command .md frontmatter to extract description and argument-hint.
+ * The frontmatter `name` field is intentionally ignored — command names are
+ * always derived from the file path (folder:filename) to keep the popover
+ * label consistent with how the command is invoked.
  */
 function parseCommandMd(content: string): {
   description?: string;
   argumentHint?: string;
-  name?: string;
 } {
   try {
     const { data } = matter(content);
     return {
       description: typeof data.description === 'string' ? data.description : undefined,
-      argumentHint: typeof data['argument-hint'] === 'string' ? data['argument-hint'] : undefined,
-      name: typeof data.name === 'string' ? data.name : undefined
+      argumentHint: typeof data['argument-hint'] === 'string' ? data['argument-hint'] : undefined
     };
   } catch (err) {
     console.error('[commands] Failed to parse frontmatter:', err);
@@ -95,7 +96,7 @@ async function scanCommandsDirectory(
           const rawContent = await fs.readFile(fullPath, 'utf-8');
           const parsed = parseCommandMd(rawContent);
           const { content: body } = matter(rawContent);
-          const commandName = parsed.name || fallbackName;
+          const commandName = fallbackName;
 
           // Format display path: ~/... for user, relative for project
           let displayPath: string;
