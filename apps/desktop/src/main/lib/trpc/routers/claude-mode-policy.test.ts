@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { evaluateClaudeModeToolPolicy } from './claude-mode-policy';
+import { evaluateClaudeModeToolPolicy, resolveClaudePermissionMode } from './claude-mode-policy';
 
 describe('evaluateClaudeModeToolPolicy — plan mode', () => {
   test('Bash is allowed (falls through to SDK plan-mode contract)', () => {
@@ -77,5 +77,57 @@ describe('evaluateClaudeModeToolPolicy — execute mode', () => {
     expect(evaluateClaudeModeToolPolicy('execute', 'Write', { file_path: 'src/foo.ts' })).toBeNull();
     expect(evaluateClaudeModeToolPolicy('execute', 'NotebookEdit', {})).toBeNull();
     expect(evaluateClaudeModeToolPolicy('execute', 'ExitPlanMode', {})).toBeNull();
+  });
+});
+
+describe('resolveClaudePermissionMode', () => {
+  test('plan → plan / no bypass, regardless of sandbox/apply', () => {
+    expect(resolveClaudePermissionMode({ mode: 'plan', sandboxOn: false, isOpenSpecApplyTurn: false })).toEqual({
+      permissionMode: 'plan',
+      allowDangerouslySkipPermissions: false
+    });
+    expect(resolveClaudePermissionMode({ mode: 'plan', sandboxOn: true, isOpenSpecApplyTurn: true })).toEqual({
+      permissionMode: 'plan',
+      allowDangerouslySkipPermissions: false
+    });
+  });
+
+  test('explore → default / no bypass, regardless of sandbox/apply', () => {
+    expect(resolveClaudePermissionMode({ mode: 'explore', sandboxOn: false, isOpenSpecApplyTurn: false })).toEqual({
+      permissionMode: 'default',
+      allowDangerouslySkipPermissions: false
+    });
+    expect(resolveClaudePermissionMode({ mode: 'explore', sandboxOn: true, isOpenSpecApplyTurn: true })).toEqual({
+      permissionMode: 'default',
+      allowDangerouslySkipPermissions: false
+    });
+  });
+
+  test('execute + sandbox off + not apply → bypassPermissions', () => {
+    expect(resolveClaudePermissionMode({ mode: 'execute', sandboxOn: false, isOpenSpecApplyTurn: false })).toEqual({
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true
+    });
+  });
+
+  test('execute + sandbox on + not apply → default (no bypass)', () => {
+    expect(resolveClaudePermissionMode({ mode: 'execute', sandboxOn: true, isOpenSpecApplyTurn: false })).toEqual({
+      permissionMode: 'default',
+      allowDangerouslySkipPermissions: false
+    });
+  });
+
+  test('execute + sandbox on + apply turn → bypassPermissions (the fix)', () => {
+    expect(resolveClaudePermissionMode({ mode: 'execute', sandboxOn: true, isOpenSpecApplyTurn: true })).toEqual({
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true
+    });
+  });
+
+  test('execute + sandbox off + apply turn → bypassPermissions', () => {
+    expect(resolveClaudePermissionMode({ mode: 'execute', sandboxOn: false, isOpenSpecApplyTurn: true })).toEqual({
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true
+    });
   });
 });
