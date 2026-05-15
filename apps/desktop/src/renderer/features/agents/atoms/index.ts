@@ -1297,6 +1297,11 @@ export const fileViewerWordWrapAtom = atomWithStorage<boolean>('agents:fileViewe
   getOnInit: true
 });
 
+// File viewer font size (persisted), clamped to 11-22 px
+export const fileViewerFontSizeAtom = atomWithStorage<number>('agents:fileViewerFontSize', 13, undefined, {
+  getOnInit: true
+});
+
 // File viewer minimap preference (persisted)
 export const fileViewerMinimapAtom = atomWithStorage<boolean>('agents:fileViewerMinimap', true, undefined, {
   getOnInit: true

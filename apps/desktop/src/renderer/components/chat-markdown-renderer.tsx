@@ -28,7 +28,7 @@ function escapeHtml(text: string): string {
 // Code block text sizes matching paragraph text sizes
 const codeBlockTextSize = {
   sm: 'text-sm',
-  md: 'text-sm',
+  md: 'text-[0.9em]',
   lg: 'text-sm'
 };
 
@@ -137,6 +137,8 @@ interface ChatMarkdownRendererProps {
   size?: MarkdownSize;
   /** Additional className for the wrapper */
   className?: string;
+  /** Inline style applied to the prose wrapper (overrides prose-sm font-size for live scaling) */
+  style?: React.CSSProperties;
   /** Whether to enable syntax highlighting (default: true) */
   syntaxHighlight?: boolean;
   /** Whether content is being streamed */
@@ -194,23 +196,23 @@ const sizeStyles: Record<
     h1: 'text-[1.5em] font-semibold text-foreground mt-[1.4em] mb-px first:mt-0 leading-[1.3]',
     h2: 'text-[1.5em] font-semibold text-foreground mt-[1.4em] mb-px first:mt-0 leading-[1.3]',
     h3: 'text-[1.25em] font-semibold text-foreground mt-[1em] mb-px first:mt-0 leading-[1.3]',
-    h4: 'text-base font-semibold text-foreground mt-[1em] mb-px first:mt-0 leading-[1.3]',
-    h5: 'text-sm font-medium text-foreground mt-[1em] mb-px first:mt-0 leading-[1.3]',
-    h6: 'text-sm font-medium text-foreground mt-[1em] mb-px first:mt-0 leading-[1.3]',
-    p: 'text-sm text-foreground/80 my-px leading-normal py-[3px]',
-    ul: 'list-disc list-inside text-sm text-foreground/80 mb-px marker:text-foreground/60',
-    ol: 'list-decimal list-inside text-sm text-foreground/80 mb-px marker:text-foreground/60',
-    li: 'text-sm text-foreground/80 py-[3px]',
+    h4: 'text-[1em] font-semibold text-foreground mt-[1em] mb-px first:mt-0 leading-[1.3]',
+    h5: 'text-[1em] font-medium text-foreground mt-[1em] mb-px first:mt-0 leading-[1.3]',
+    h6: 'text-[1em] font-medium text-foreground mt-[1em] mb-px first:mt-0 leading-[1.3]',
+    p: 'text-[1em] text-foreground/80 my-px leading-normal py-[3px]',
+    ul: 'list-disc list-inside text-[1em] text-foreground/80 mb-px marker:text-foreground/60',
+    ol: 'list-decimal list-inside text-[1em] text-foreground/80 mb-px marker:text-foreground/60',
+    li: 'text-[1em] text-foreground/80 py-[3px]',
     inlineCode:
       'bg-foreground/[0.06] dark:bg-foreground/[0.1] font-mono text-[85%] rounded px-[0.4em] py-[0.2em] break-all',
-    blockquote: 'border-l-2 border-foreground/20 pl-4 text-foreground/70 mb-px',
+    blockquote: 'border-l-2 border-foreground/20 pl-4 text-foreground/70 mb-px text-[1em]',
     hr: 'mt-8 mb-4 border-t border-border',
-    table: 'w-full text-sm',
+    table: 'w-full text-[1em]',
     thead: 'border-b border-border',
     tbody: '',
     tr: '[&:not(:last-child)]:border-b [&:not(:last-child)]:border-border',
-    th: 'text-left text-sm font-medium text-foreground px-3 py-2 bg-muted/50 border-r border-border last:border-r-0',
-    td: 'text-sm text-foreground/80 px-3 py-2 border-r border-border last:border-r-0'
+    th: 'text-left text-[1em] font-medium text-foreground px-3 py-2 bg-muted/50 border-r border-border last:border-r-0',
+    td: 'text-[1em] text-foreground/80 px-3 py-2 border-r border-border last:border-r-0'
   },
   lg: {
     h1: 'text-[1.875em] font-semibold text-foreground mt-[1.4em] mb-px first:mt-0 leading-[1.3]',
@@ -276,6 +278,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
   content,
   size = 'md',
   className,
+  style,
   isStreaming = false
 }: ChatMarkdownRendererProps) {
   const codeTheme = useCodeTheme();
@@ -408,6 +411,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
 
   return (
     <div
+      style={style}
       className={cn(
         'prose prose-sm max-w-none dark:prose-invert prose-code:before:content-none prose-code:after:content-none',
         // Reset prose margins - we use our own compact Notion-like spacing
