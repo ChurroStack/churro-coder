@@ -18,7 +18,9 @@ import { APP_META } from '../../../../shared/external-apps';
 import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer';
 import { CopyButton } from '../../agents/ui/message-action-buttons';
 import { EDITOR_ICONS } from '@/lib/editor-icons';
-import { fileViewerWordWrapAtom } from '../../agents/atoms';
+import { fileViewerWordWrapAtom, fileViewerFontSizeAtom } from '../../agents/atoms';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Slider } from '@/components/ui/slider';
 import { FindBar } from '../../find/find-bar';
 import { markCurrentFindScope } from '../../find/constants';
 import { useDomTextFind } from '../../find/use-dom-text-find';
@@ -58,6 +60,7 @@ export function MarkdownViewer({
 
   const [showPreview, setShowPreview] = useState(true);
   const [wordWrap] = useAtom(fileViewerWordWrapAtom);
+  const [fontSize, setFontSize] = useAtom(fileViewerFontSizeAtom);
   const [isEditMode, setIsEditMode] = useState(false);
   const [currentContent, setCurrentContent] = useState('');
   const [editContent, setEditContent] = useState('');
@@ -283,9 +286,10 @@ export function MarkdownViewer({
   const editorOptions = useMemo(
     () => ({
       ...getEditorOptions(!isEditMode),
-      wordWrap: wordWrap ? ('on' as const) : ('off' as const)
+      wordWrap: wordWrap ? ('on' as const) : ('off' as const),
+      fontSize: Math.min(22, Math.max(11, fontSize))
     }),
-    [isEditMode, wordWrap]
+    [isEditMode, wordWrap, fontSize]
   );
 
   useEffect(() => {
@@ -350,6 +354,8 @@ export function MarkdownViewer({
           onDiscard={() => {}}
           onUndo={() => {}}
           onRedo={() => {}}
+          fontSize={fontSize}
+          onFontSizeChange={setFontSize}
         />
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
@@ -382,6 +388,8 @@ export function MarkdownViewer({
           onDiscard={() => {}}
           onUndo={() => {}}
           onRedo={() => {}}
+          fontSize={fontSize}
+          onFontSizeChange={setFontSize}
         />
         <div className="flex-1 flex items-center justify-center p-4">
           <div className="flex flex-col items-center gap-3 text-center max-w-[300px]">
@@ -409,6 +417,8 @@ export function MarkdownViewer({
         onDiscard={() => setDiscardDialogAction('discard')}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        fontSize={fontSize}
+        onFontSizeChange={setFontSize}
       />
       <FindBar
         isOpen={findScope.isOpen && showPreview}
@@ -429,7 +439,11 @@ export function MarkdownViewer({
       <div className="flex-1 min-h-0 overflow-hidden allow-text-selection" data-file-viewer-path={filePath}>
         {showPreview ? (
           <div ref={previewRef} className="h-full overflow-auto p-6">
-            <ChatMarkdownRenderer content={currentContent} size="md" />
+            <ChatMarkdownRenderer
+              content={currentContent}
+              size="md"
+              style={{ fontSize: `${Math.min(22, Math.max(11, fontSize))}px` }}
+            />
           </div>
         ) : (
           <Editor
@@ -492,7 +506,9 @@ function Header({
   onSave,
   onDiscard,
   onUndo,
-  onRedo
+  onRedo,
+  fontSize,
+  onFontSizeChange
 }: {
   filePath: string;
   showPreview: boolean;
@@ -507,6 +523,8 @@ function Header({
   onDiscard: () => void;
   onUndo: () => void;
   onRedo: () => void;
+  fontSize: number;
+  onFontSizeChange: (size: number) => void;
 }) {
   const preferredEditor = useAtomValue(preferredEditorAtom);
   const editorMeta = APP_META[preferredEditor];
@@ -557,6 +575,33 @@ function Header({
             {openInEditorHotkey && <Kbd className="normal-case font-sans">{openInEditorHotkey}</Kbd>}
           </TooltipContent>
         </Tooltip>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 p-0 hover:bg-foreground/10 text-muted-foreground hover:text-foreground"
+              aria-label="Font size">
+              <span className="text-[10px] font-semibold leading-none">Aa</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent side="bottom" align="end" className="w-52 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">Font size</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-foreground">{Math.round((fontSize / 13) * 100)}%</span>
+                <button
+                  type="button"
+                  onClick={() => onFontSizeChange(13)}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                  Reset
+                </button>
+              </div>
+            </div>
+            <Slider min={11} max={22} step={1} value={[fontSize]} onValueChange={([v]) => onFontSizeChange(v)} />
+          </PopoverContent>
+        </Popover>
 
         {content && (
           <Tooltip>
