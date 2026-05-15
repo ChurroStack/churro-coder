@@ -41,6 +41,7 @@ import { appStore } from '../../../lib/jotai-store';
 import { trpc } from '../../../lib/trpc';
 import { chatModeFsmStateAtomFamily, subChatProviderOverridesAtom } from '../atoms';
 import type { ModeSwitchDeps } from '../services/mode-switch-service';
+import { applyModeToSubChatCacheEntry } from '../lib/sub-chat-cache';
 import type { ProviderId } from '../machines/transport-lifecycle';
 
 export interface ModeSwitchMutationLike {
@@ -73,7 +74,7 @@ export function useModeSwitchDeps(
         // only persists "plan" / "execute". Drop "review" writes here —
         // applyDefaultModel still applies the right model + thinking.
         if (mode === 'review') return;
-        utils.chats.getSubChat.setData({ id }, (prev) => (prev ? { ...prev, mode } : prev));
+        utils.chats.getSubChat.setData({ id }, (prev) => applyModeToSubChatCacheEntry(prev, id, mode));
         useAgentSubChatStore.getState().updateSubChatMode(id, mode);
       },
       applyDefaultModel: (id, mode) => {

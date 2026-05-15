@@ -234,6 +234,7 @@ import { autoRenameAgentChat } from '../utils/auto-rename';
 import { generateCommitToPrMessage, generatePrMessage } from '../utils/pr-message';
 import { extractGitActivity } from '../utils/git-activity';
 import { evictChatsForParentChatSwitch, evictInactiveChatsForWorkspace } from '../lib/chat-instance-pruning';
+import { applyModeToSubChatCacheEntry } from '../lib/sub-chat-cache';
 import { ChatInputArea } from './chat-input-area';
 import { IsolatedMessagesSection } from './isolated-messages-section';
 const clearSubChatSelectionAtom = atom(null, () => {});
@@ -3562,7 +3563,7 @@ export function ChatView({
       writeState: (id, state) => appStore.set(chatModeFsmStateAtomFamily(id), state),
       setMode: (id, mode) => {
         if (mode === 'review') return;
-        trpcUtils.chats.getSubChat.setData({ id }, (prev) => (prev ? { ...prev, mode } : prev));
+        trpcUtils.chats.getSubChat.setData({ id }, (prev) => applyModeToSubChatCacheEntry(prev, id, mode));
         useAgentSubChatStore.getState().updateSubChatMode(id, mode);
       },
       applyDefaultModel: (id, mode) => {

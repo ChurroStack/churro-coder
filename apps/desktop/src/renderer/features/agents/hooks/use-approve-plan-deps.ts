@@ -44,6 +44,7 @@ import { appStore } from '../../../lib/jotai-store';
 import { trpc, trpcClient } from '../../../lib/trpc';
 import { bumpSessionEpoch, subChatProviderOverridesAtom } from '../atoms';
 import { buildImplementPlanParts } from '../lib/implement-plan-parts';
+import { applyModeToSubChatCacheEntry } from '../lib/sub-chat-cache';
 import type { ApprovedPlanContent, PlanApprovalDeps } from '../services/plan-approval-service';
 import type { ProviderId } from '../machines/transport-lifecycle';
 
@@ -108,7 +109,7 @@ export function useApprovePlanDeps(config: UseApprovePlanDepsConfig): PlanApprov
         return (appStore.get(subChatProviderOverridesAtom)[id] ?? 'claude-code') as ProviderId;
       },
       setMode: (id, mode) => {
-        utils.chats.getSubChat.setData({ id }, (prev) => (prev ? { ...prev, mode } : prev));
+        utils.chats.getSubChat.setData({ id }, (prev) => applyModeToSubChatCacheEntry(prev, id, mode));
         useAgentSubChatStore.getState().updateSubChatMode(id, mode);
       },
       persistMode: async ({ subChatId: id, mode, exitPlan }) => {

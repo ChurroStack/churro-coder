@@ -46,6 +46,12 @@ vi.mock('../../../lib/trpc', () => ({
   }
 }));
 
+vi.mock('../stores/sub-chat-store', () => ({
+  useAgentSubChatStore: {
+    getState: () => ({ allSubChats: [], updateSubChatMode: vi.fn() })
+  }
+}));
+
 vi.mock('../../../lib/window-storage', async () => {
   const { atom } = await import('jotai');
   return {
@@ -125,5 +131,16 @@ describe('useSubChatMode (cache-empty race)', () => {
       capturedMutationOpts?.onSuccess?.({}, { id: 'sub-1', mode: 'execute' });
     });
     expect(mockInvalidate).toHaveBeenCalledWith({ id: 'sub-1' });
+  });
+
+  it('setMode synthesizes a cache entry when prev is undefined', () => {
+    const { result } = renderHook(() => useSubChatMode('sub-1'));
+    act(() => {
+      result.current.setMode('execute');
+    });
+    expect(mockSetData).toHaveBeenCalledWith({ id: 'sub-1' }, expect.any(Function));
+    const updater = mockSetData.mock.calls[0][1];
+    expect(updater(undefined)).toMatchObject({ id: 'sub-1', mode: 'execute' });
+    expect(updater({ id: 'sub-1', mode: 'plan', chat: null })).toMatchObject({ mode: 'execute' });
   });
 });
