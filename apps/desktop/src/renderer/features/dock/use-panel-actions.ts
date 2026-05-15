@@ -24,6 +24,7 @@ export interface PanelActions {
   canOpenFilesTree: boolean;
   // Action triggers
   newSubChat: () => void;
+  newSubChatWithHarness: (harness: 'claude-cli' | 'codex-cli') => void;
   openTerminal: () => void;
   openPlan: () => void;
   openDiff: () => void;
@@ -53,6 +54,7 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
   const { data: chat } = trpc.chats.get.useQuery({ id: chatId ?? '' }, { enabled: !!chatId });
   const worktreePath = chat?.worktreePath ?? null;
   const projectId = chat?.projectId ?? null;
+  const projectPath = chat?.project?.path ?? null;
   const branch = chat?.branch ?? null;
 
   const setTerminals = useSetAtom(terminalsAtom);
@@ -107,7 +109,7 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
           id: panelId,
           component: 'chat',
           title: 'New Chat',
-          params: { subChatId: newId, chatId, name: 'New Chat' },
+          params: { subChatId: newId, chatId, name: 'New Chat', harness: 'builtin' },
           position: { referenceGroup: sourceGroup }
         });
       }
@@ -126,6 +128,70 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
       toast.error('Failed to create chat');
     });
   }, [chatId, defaultMode, utils, createSubChat, dockApi, sourceGroup]);
+
+  const newSubChatWithHarness = useCallback(
+    (harness: 'claude-cli' | 'codex-cli') => {
+      if (!chatId) return;
+      const newId = crypto.randomUUID();
+      const label = harness === 'claude-cli' ? 'Claude CLI' : 'Codex CLI';
+      (utils.agents as any).getAgentChat.setData({ chatId } as { chatId: string }, (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          subChats: [
+            ...(old.subChats || []),
+            {
+              id: newId,
+              name: label,
+              mode: defaultMode,
+              harness,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              messages: null,
+              stream_id: null
+            }
+          ]
+        };
+      });
+      const store = useAgentSubChatStore.getState();
+      const cwd = worktreePath ?? projectPath ?? undefined;
+      store.addToAllSubChats({
+        id: newId,
+        name: label,
+        harness,
+        mode: defaultMode,
+        cwd,
+        created_at: new Date().toISOString()
+      });
+      store.addToOpenSubChats(newId);
+      store.setActiveSubChat(newId);
+      if (dockApi && sourceGroup) {
+        const panelId = `chat:${newId}`;
+        if (!dockApi.getPanel(panelId)) {
+          dockApi.addPanel({
+            id: panelId,
+            component: 'chat',
+            title: label,
+            params: { subChatId: newId, chatId, name: label, harness },
+            position: { referenceGroup: sourceGroup }
+          });
+        }
+      }
+      createSubChat.mutateAsync({ id: newId, chatId, mode: defaultMode, harness }).catch((err) => {
+        console.error('[newSubChatWithHarness] Failed to persist:', err);
+        (utils.agents as any).getAgentChat.setData({ chatId } as { chatId: string }, (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            subChats: (old.subChats || []).filter((sc: { id: string }) => sc.id !== newId)
+          };
+        });
+        useAgentSubChatStore.getState().removeFromOpenSubChats(newId);
+        toast.error('Failed to create chat');
+      });
+    },
+    [chatId, defaultMode, worktreePath, projectPath, utils, createSubChat, dockApi, sourceGroup]
+  );
 
   const openTerminal = useCallback(() => {
     if (!dockApi || !chatId || !worktreePath) return;
@@ -208,6 +274,7 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
     canOpenSearch: !!projectId && !!dockApi,
     canOpenFilesTree: !!projectId && !!dockApi,
     newSubChat,
+    newSubChatWithHarness,
     openTerminal,
     openPlan,
     openDiff,

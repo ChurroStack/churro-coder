@@ -1,10 +1,9 @@
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useRef, useCallback, useEffect } from 'react';
-import { useSetAtom } from 'jotai';
 import { trpc } from '@/lib/trpc';
 import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer';
 import { Button } from '@/components/ui/button';
-import { pendingFixReviewIssuesAtom } from '../../agents/atoms';
+import { useHarnessSendDispatcher } from '../../agents/hooks/use-harness-send-dispatcher';
 import { renderBuiltinPrompt } from '../../../../prompts/render';
 import type { ReviewPanelEntity } from '../atoms';
 
@@ -22,7 +21,7 @@ export function ReviewPanel({ params, api, containerApi }: IDockviewPanelProps<R
   );
   const content = data?.exists ? data.content : null;
 
-  const setPendingFixReviewIssues = useSetAtom(pendingFixReviewIssuesAtom);
+  const { dispatchFixReviewIssues } = useHarnessSendDispatcher(params.subChatId ?? '');
 
   const contentRef = useRef<HTMLDivElement>(null);
   const topGradientRef = useRef<HTMLDivElement>(null);
@@ -53,16 +52,14 @@ export function ReviewPanel({ params, api, containerApi }: IDockviewPanelProps<R
 
   const handleFix = useCallback(() => {
     if (!params.subChatId) return;
-    setPendingFixReviewIssues({
-      subChatId: params.subChatId,
-      message: renderBuiltinPrompt('workflow/fix-review-issues', { subChatId: params.subChatId })
-    });
+    const message = renderBuiltinPrompt('workflow/fix-review-issues', { subChatId: params.subChatId });
+    dispatchFixReviewIssues(message);
     // Navigate back to the chat for this sub-chat (so the user sees the agent
     // start working) and close this panel — same UX as PlanPanel's Approve.
     const chatPanel = containerApi.getPanel(`chat:${params.subChatId}`);
     if (chatPanel) chatPanel.api.setActive();
     api.close();
-  }, [params.subChatId, setPendingFixReviewIssues, api, containerApi]);
+  }, [params.subChatId, dispatchFixReviewIssues, api, containerApi]);
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden border-t border-border">

@@ -40,6 +40,10 @@ export interface ChatPanelEntity {
   /** Initial display name — kept in sync via setTitle when the sub-chat
    *  is renamed in the store. */
   name?: string;
+  /** Immutable harness for this subChat. Carried on the dockview params so
+   *  the surface router resolves correctly on drag-drop, tear-out, and layout
+   *  deserialization — before the async store/query hydration completes. */
+  harness?: 'builtin' | 'claude-cli' | 'codex-cli';
 }
 export interface NewChatPanelEntity {
   draftId?: string;

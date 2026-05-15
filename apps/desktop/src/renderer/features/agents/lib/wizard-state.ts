@@ -1,13 +1,16 @@
 import type { AgentMode } from '../atoms';
 
 export type WorkType = 'feature' | 'bug' | 'documentation';
-export type Harness = 'vibe-coding' | 'spec-driven';
+/** Cards axis in the New Workspace wizard: classic chat vs OpenSpec editor. */
+export type WizardTemplate = 'vibe-coding' | 'spec-driven';
+/** @deprecated Use WizardTemplate instead */
+export type Harness = WizardTemplate;
 export type WizardSectionKey = 'mode' | 'type' | 'harness' | 'prompt';
 
 export type WizardInput = {
   agentMode: AgentMode;
   workType: WorkType;
-  harness: Harness;
+  harness: WizardTemplate;
   selectedSpecId: string | null;
   hasProject: boolean;
   hasText: boolean;

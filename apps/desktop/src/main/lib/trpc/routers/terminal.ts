@@ -7,6 +7,21 @@ import { terminalManager } from '../../terminal/manager';
 import type { TerminalEvent } from '../../terminal/types';
 import { TRPCError } from '@trpc/server';
 
+const bootstrapSchema = z
+  .object({
+    cwd: z.string().optional(),
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string()).optional(),
+    initialInput: z.string().optional(),
+    idleDetection: z
+      .object({
+        silenceMs: z.number().int().positive().optional()
+      })
+      .optional()
+  })
+  .optional();
+
 export const terminalRouter = router({
   /**
    * Create or attach to an existing terminal session.
@@ -22,7 +37,8 @@ export const terminalRouter = router({
         cols: z.number().int().positive().optional(),
         rows: z.number().int().positive().optional(),
         cwd: z.string().optional(),
-        initialCommands: z.array(z.string()).optional()
+        initialCommands: z.array(z.string()).optional(),
+        bootstrap: bootstrapSchema
       })
     )
     .mutation(async ({ input }) => {
@@ -202,6 +218,19 @@ export const terminalRouter = router({
         terminalManager.off(`data:${paneId}`, onData);
         terminalManager.off(`exit:${paneId}`, onExit);
       };
+    });
+  }),
+
+  /**
+   * Advisory idle subscription: emits when the terminal session has been
+   * silent for the configured `silenceMs` (requires idleDetection in bootstrap).
+   * Consumers may disable the Send button as a hint; force-send must always work.
+   */
+  idle: publicProcedure.input(z.string().min(1)).subscription(({ input: paneId }) => {
+    return observable<{ paneId: string }>((emit) => {
+      const onIdle = () => emit.next({ paneId });
+      terminalManager.on(`idle:${paneId}`, onIdle);
+      return () => terminalManager.off(`idle:${paneId}`, onIdle);
     });
   })
 });

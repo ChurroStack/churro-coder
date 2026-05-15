@@ -330,3 +330,151 @@ describe('NewChatForm — with project', () => {
     );
   });
 });
+
+// Task 8.6 — wizard 2×3 combination matrix:
+// card ∈ {vibe-coding, spec-driven} × agent ∈ {builtin, claude-cli, codex-cli}
+// Each cell verifies the axes are independent (card value and agent harness don't bleed into each other).
+describe('NewChatForm — wizard axis independence', () => {
+  it('vibe-coding + builtin: sends with harness=builtin (regression baseline)', async () => {
+    const { container } = renderWithProject();
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+
+    expect(mocks.createChatMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ harness: 'builtin' }),
+      expect.anything()
+    );
+  });
+
+  it('vibe-coding + claude-cli: sends with harness=claude-cli', async () => {
+    const { container } = renderWithProject();
+
+    const dropdown = container.querySelector(
+      'select[data-testid="agent-harness-dropdown"]'
+    ) as HTMLSelectElement | null;
+    expect(dropdown).not.toBeNull();
+    await act(async () => {
+      fireEvent.change(dropdown!, { target: { value: 'claude-cli' } });
+    });
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+
+    expect(mocks.createChatMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ harness: 'claude-cli' }),
+      expect.anything()
+    );
+  });
+
+  it('vibe-coding + codex-cli: sends with harness=codex-cli', async () => {
+    const { container } = renderWithProject();
+
+    const dropdown = container.querySelector(
+      'select[data-testid="agent-harness-dropdown"]'
+    ) as HTMLSelectElement | null;
+    expect(dropdown).not.toBeNull();
+    await act(async () => {
+      fireEvent.change(dropdown!, { target: { value: 'codex-cli' } });
+    });
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+
+    expect(mocks.createChatMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ harness: 'codex-cli' }),
+      expect.anything()
+    );
+  });
+
+  it('spec-driven + builtin: createAsync called with harness=builtin and mode=execute', async () => {
+    const { container, getByText } = renderWithProject();
+
+    await act(async () => {
+      fireEvent.click(getByText('Spec-driven'));
+    });
+
+    const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
+    await act(async () => {
+      editor!.textContent = 'Add spec feature';
+      fireEvent.input(editor!);
+    });
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+
+    expect(mocks.createChatMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ harness: 'builtin', mode: 'execute' })
+    );
+  });
+
+  it('spec-driven + claude-cli: createAsync called with harness=claude-cli', async () => {
+    const { container, getByText } = renderWithProject();
+
+    await act(async () => {
+      fireEvent.click(getByText('Spec-driven'));
+    });
+
+    const dropdown = container.querySelector(
+      'select[data-testid="agent-harness-dropdown"]'
+    ) as HTMLSelectElement | null;
+    expect(dropdown).not.toBeNull();
+    await act(async () => {
+      fireEvent.change(dropdown!, { target: { value: 'claude-cli' } });
+    });
+
+    const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
+    await act(async () => {
+      editor!.textContent = 'Add spec feature';
+      fireEvent.input(editor!);
+    });
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+
+    expect(mocks.createChatMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ harness: 'claude-cli', mode: 'execute' })
+    );
+  });
+
+  it('spec-driven + codex-cli: createAsync called with harness=codex-cli', async () => {
+    const { container, getByText } = renderWithProject();
+
+    await act(async () => {
+      fireEvent.click(getByText('Spec-driven'));
+    });
+
+    const dropdown = container.querySelector(
+      'select[data-testid="agent-harness-dropdown"]'
+    ) as HTMLSelectElement | null;
+    expect(dropdown).not.toBeNull();
+    await act(async () => {
+      fireEvent.change(dropdown!, { target: { value: 'codex-cli' } });
+    });
+
+    const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
+    await act(async () => {
+      editor!.textContent = 'Add spec feature';
+      fireEvent.input(editor!);
+    });
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+
+    expect(mocks.createChatMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ harness: 'codex-cli', mode: 'execute' })
+    );
+  });
+});

@@ -594,7 +594,8 @@ export const filesRouter = router({
   writePastedText: publicProcedure
     .input(
       z.object({
-        subChatId: z.string(),
+        // Reject path separators / traversal — subChatIds are UUIDs or hex/dash IDs.
+        subChatId: z.string().regex(/^[a-zA-Z0-9_-]+$/),
         text: z.string(),
         filename: z.string().optional()
       })
@@ -628,6 +629,40 @@ export const filesRouter = router({
         filename: finalFilename,
         size: text.length
       };
+    }),
+
+  /**
+   * Save a pasted image (base64-encoded) to the session's pasted directory.
+   * Returns the absolute file path so CLI harnesses can read it.
+   */
+  writePastedImage: publicProcedure
+    .input(
+      z.object({
+        // Reject path separators / traversal — subChatIds are UUIDs or hex/dash IDs.
+        subChatId: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+        base64Data: z.string(),
+        mediaType: z.string().default('image/png'),
+        filename: z.string().optional()
+      })
+    )
+    .mutation(async ({ input }) => {
+      const { subChatId, base64Data, mediaType, filename } = input;
+
+      const ext = (mediaType.split('/')[1] ?? 'png').replace('jpeg', 'jpg');
+      const sessionDir = join(app.getPath('userData'), 'agent-sessions', subChatId);
+      const pastedDir = join(sessionDir, 'pasted');
+      await mkdir(pastedDir, { recursive: true });
+
+      const finalFilename = filename || `pasted_${Date.now()}.${ext}`;
+      validateFileName(finalFilename);
+      const filePath = join(pastedDir, finalFilename);
+      validatePathSafe(filePath, pastedDir);
+
+      const buffer = Buffer.from(base64Data, 'base64');
+      await writeFile(filePath, buffer);
+
+      console.log(`[files] Wrote pasted image to ${filePath} (${buffer.length} bytes)`);
+      return { filePath, filename: finalFilename, size: buffer.length };
     }),
 
   /**

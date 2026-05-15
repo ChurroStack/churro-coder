@@ -2,7 +2,9 @@ import { atom } from 'jotai';
 import { atomFamily, atomWithStorage } from 'jotai/utils';
 import { atomWithWindowStorage } from '../../../lib/window-storage';
 import type { FileMentionOption } from '../mentions/agents-mentions-editor';
-import type { Harness, WorkType } from '../lib/wizard-state';
+import type { WizardTemplate, WorkType } from '../lib/wizard-state';
+/** @deprecated Use WizardTemplate; kept for backwards compatibility */
+type Harness = WizardTemplate;
 
 export type AgentMode = 'plan' | 'execute' | 'explore';
 type LegacyAgentMode = AgentMode | 'agent';
@@ -368,6 +370,14 @@ export const lastSelectedWorkTypeAtom = atomWithStorage<WorkType>('preferences:w
 export const lastSelectedHarnessAtom = atomWithStorage<Harness>('preferences:harness', 'vibe-coding', undefined, {
   getOnInit: true
 });
+
+/** Agent harness chosen in the New Workspace wizard. Defaults to builtin. */
+export const lastSelectedAgentHarnessAtom = atomWithStorage<'builtin' | 'claude-cli' | 'codex-cli'>(
+  'preferences:agent-harness',
+  'builtin',
+  undefined,
+  { getOnInit: true }
+);
 
 export const continueFromSpecExpandedAtom = atomWithStorage<boolean>(
   'preferences:spec-strip-expanded',
@@ -1374,3 +1384,10 @@ export const newWorkspaceSidePanelModeAtom = atom<NewWorkspaceSidePanelMode>(nul
 export const newWorkspaceViewerFileAtom = atom<string | null>(null);
 export const newWorkspaceSidePanelWidthAtom = atom(280);
 export const newWorkspaceFileViewerWidthAtom = atom(560);
+
+/**
+ * Set of subChatIds that this window does NOT own.
+ * Written by useSubChatOwnership when a claim is denied or ownership changes.
+ * ChatInputArea reads this to disable the Send button for non-owner panels.
+ */
+export const subChatNonOwnerSetAtom = atom<ReadonlySet<string>>(new Set<string>());

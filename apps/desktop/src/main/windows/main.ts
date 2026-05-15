@@ -13,6 +13,7 @@ import {
 import { join } from 'path';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { createIPCHandler } from 'trpc-electron/main';
+import { releaseAllForWindow } from '../lib/sub-chat-artifacts/ownership-registry';
 import { createAppRouter } from '../lib/trpc/routers';
 import { eq } from 'drizzle-orm';
 import { getAuthManager, getBaseUrl } from '../index';
@@ -760,6 +761,7 @@ export function createWindow(options?: { chatId?: string; subChatId?: string; pr
   // Handle window close
   window.on('closed', () => {
     console.log(`[Main] Window ${window.id} closed`);
+    releaseAllForWindow(window.id);
     // windowManager handles cleanup via 'closed' event listener
   });
 

@@ -43,6 +43,7 @@ interface DbSubChat {
   id: string;
   name: string | null;
   mode?: 'plan' | 'execute' | 'explore' | null;
+  harness?: 'builtin' | 'claude-cli' | 'codex-cli' | null;
   openspecChangeId?: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -61,7 +62,8 @@ function panelEntityForSubChat(workspaceId: string, subChatId: string, subChat?:
       name: subChat?.name,
       projectId: subChat?.projectId,
       openspecChangeId: subChat?.openspecChangeId,
-      openspecChangePath: subChat?.openspecChangePath
+      openspecChangePath: subChat?.openspecChangePath,
+      harness: subChat?.harness ?? 'builtin'
     }
   };
 }
@@ -107,6 +109,8 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
             created_at: sc.createdAt ?? existing?.created_at ?? now,
             updated_at: sc.updatedAt ?? existing?.updated_at,
             mode: (sc.mode as 'plan' | 'execute' | 'explore' | undefined) || existing?.mode || 'plan',
+            harness:
+              (sc.harness as 'builtin' | 'claude-cli' | 'codex-cli' | undefined) ?? existing?.harness ?? 'builtin',
             projectId: projectId ?? existing?.projectId,
             openspecChangeId: sc.openspecChangeId ?? existing?.openspecChangeId ?? null,
             openspecChangePath:
@@ -124,6 +128,7 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
               created_at: existing?.created_at ?? now,
               updated_at: existing?.updated_at,
               mode: existing?.mode ?? 'plan',
+              harness: existing?.harness ?? 'builtin',
               projectId: existing?.projectId ?? projectId,
               openspecChangeId: existing?.openspecChangeId ?? null,
               openspecChangePath: existing?.openspecChangePath
@@ -138,6 +143,7 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
             return (
               prev?.name === sc.name &&
               prev?.mode === sc.mode &&
+              prev?.harness === sc.harness &&
               prev?.projectId === sc.projectId &&
               prev?.openspecChangeId === sc.openspecChangeId &&
               prev?.openspecChangePath === sc.openspecChangePath
@@ -278,7 +284,8 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
         projectId: pendingPanel.projectId,
         openspecChangeId: pendingPanel.changeId,
         openspecChangePath: toOpenSpecChangePath(pendingPanel.changeId, pendingPanel.changePath),
-        name: pendingPanel.name || pendingPanel.changeId
+        name: pendingPanel.name || pendingPanel.changeId,
+        harness: pendingMeta.harness ?? 'builtin'
       }
     });
     setPendingPanel(null);

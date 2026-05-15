@@ -146,3 +146,37 @@ GitHub Actions runs tests on every PR via the existing `.github/workflows/ci.yml
 - **Drizzle migrations — two silent failure modes to watch for:**
   1. **Multi-statement SQL must use `--> statement-breakpoint` separators (note the space after `-->`).** `better-sqlite3`'s `prepare()` rejects any string with more than one statement, and drizzle-orm's migrator splits on the exact string `--> statement-breakpoint` (see `node_modules/drizzle-orm/migrator.cjs`). When you write a migration with multiple `ALTER TABLE` / `CREATE TABLE` / `UPDATE` statements, place `--> statement-breakpoint` on its own line between each one. A missing or malformed separator (e.g. `-->statement-breakpoint` without the space) makes the whole file one statement, which throws on `prepare()`. The migrator then rolls back the entire transaction, the catch path quarantines the database (rename it to `.broken-<timestamp>`), and the recovery path opens a fresh DB and re-runs the same broken migration — meaning every relaunch produces another empty `.broken-` file until the SQL is fixed.
   2. **The `when` timestamp in `drizzle/meta/_journal.json` must be strictly greater than the previous entry's `when`.** The migrator skips entries whose `when` is ≤ the last applied migration's timestamp. A new entry with a timestamp in the past (e.g. any date before April 2026 if the existing entries reach that far) will be silently skipped and its columns will never be added to the DB — no error, no warning.
+
+## Project Rules
+
+### UI Implementation
+This is an electron-vite + React app. The renderer is testable in jsdom; no
+real Electron needed for component tests.
+
+#### Non-negotiable rule
+When `/opsx:apply` (or any prompt) touches a renderer component:
+
+1. **Read the change's spec.md first.** For every UI requirement, identify the
+   accessible elements named in THEN clauses (e.g. "a button labeled Save",
+   "a menu item Settings").
+2. **Write the Vitest test first**, colocated as `Component.test.tsx`. Tag the
+   describe block with the spec path: `describe('Requirement Name [capability/req-id]')`.
+3. **Use accessible queries only:** `getByRole`, `getByLabelText`, `getByText`.
+   Never `getByTestId` or `container.querySelector` unless the spec explicitly
+   allows it.
+4. **Mock the IPC bridge** at the top of the test file:
+   `vi.stubGlobal('api', { ...vi.fn() handlers })`.
+5. **Implement the component** until the tests pass.
+6. **Run `npm run test:run`** and report the result before marking the task done
+   in tasks.md. Do not check the box if any test fails.
+
+#### Forbidden
+- Implementing UI without a corresponding test.
+- Removing or skipping a failing test to make `/opsx:verify` pass.
+- Using CSS class selectors as the primary assertion.
+
+#### `/opsx:verify` for UI changes
+A change is only verifiable when:
+- Every scenario in the change's spec.md has a matching `test(...)` block.
+- `npm run test:run` exits 0.
+- `tasks.md` has the test-pass task checked.

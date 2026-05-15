@@ -69,32 +69,46 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
           return changed ? next : m;
         });
 
+        // Dockview fires onDidRemovePanel for BOTH drag-and-drop (reposition) and
+        // actual tab close. For drag, it immediately fires onDidAddPanel for the
+        // same panel id in the same synchronous tick, so the panel is back in
+        // dockApi.panels by the time queueMicrotask fires. Checking getPanel
+        // after yielding lets us skip cleanup for drag and only apply it for
+        // a true close.
+        const removedPanelId = panel.id;
+        const dockApi = event.api;
+
         // Terminal cleanup — when a `terminal:` panel goes away, drop it
         // from the per-chat list and SIGKILL the PTY so a closed panel
         // doesn't leave orphaned shells running. The TerminalPanel reads
         // `paneId` + `chatId` from its params, which we round-trip through
         // dockview's params on the panel object.
-        if (panel.id.startsWith('terminal:')) {
+        if (removedPanelId.startsWith('terminal:')) {
           const params = (panel.params ?? {}) as {
             paneId?: string;
             chatId?: string;
           };
           const { paneId, chatId } = params;
           if (paneId && chatId) {
-            killTerminal.mutate({ paneId });
-            setTerminals((prev) => {
-              const list = prev[chatId] ?? [];
-              const next = list.filter((t) => t.paneId !== paneId);
-              if (next.length === list.length) return prev;
-              return { ...prev, [chatId]: next };
-            });
-            setActiveTerminalIds((prev) => {
-              const list = prev[chatId];
-              if (!list) return prev;
-              // If the closed terminal was active, leave selection to the
-              // panel which becomes active next (TerminalPanel.onDidActiveChange
-              // handles it). Otherwise leave as-is.
-              return prev;
+            const capturedSetTerminals = setTerminals;
+            const capturedSetActiveTerminalIds = setActiveTerminalIds;
+            queueMicrotask(() => {
+              if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
+              killTerminal.mutate({ paneId });
+              capturedSetTerminals((prev) => {
+                const list = prev[chatId] ?? [];
+                const next = list.filter((t) => t.paneId !== paneId);
+                if (next.length === list.length) return prev;
+                return { ...prev, [chatId]: next };
+              });
+              capturedSetActiveTerminalIds((prev) => {
+                const list = prev[chatId];
+                if (!list) return prev;
+                // If the closed terminal was active, leave selection to the
+                // panel which becomes active next (TerminalPanel.onDidActiveChange
+                // handles it). Otherwise leave as-is.
+                return prev;
+              });
             });
           }
         }
@@ -103,21 +117,26 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
         // X, mirror that into the sub-chat store so the rail / `openSubChatIds`
         // forget about it. The store's `removeFromOpenSubChats` handles the
         // active-fallback logic.
-        if (panel.id.startsWith('chat:')) {
-          const subChatId = panel.id.slice('chat:'.length);
+        if (removedPanelId.startsWith('chat:')) {
+          const subChatId = removedPanelId.slice('chat:'.length);
           if (subChatId) {
-            const remove = useAgentSubChatStore.getState().removeFromOpenSubChats;
-            remove(subChatId);
+            queueMicrotask(() => {
+              if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
+              useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId);
+            });
           }
         }
 
-        if (panel.id.startsWith('openspec-change:')) {
+        if (removedPanelId.startsWith('openspec-change:')) {
           const params = (panel.params ?? {}) as {
             subChatId?: string;
           };
           if (params.subChatId) {
-            const remove = useAgentSubChatStore.getState().removeFromOpenSubChats;
-            remove(params.subChatId);
+            const scId = params.subChatId;
+            queueMicrotask(() => {
+              if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
+              useAgentSubChatStore.getState().removeFromOpenSubChats(scId);
+            });
           }
         }
       });
@@ -126,7 +145,7 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
       // The subscription lives as long as the api does.
       void sub;
     },
-    [onApiReady, setReady, setMap]
+    [onApiReady, setReady, setMap, setTerminals, setActiveTerminalIds, killTerminal]
   );
 
   return (

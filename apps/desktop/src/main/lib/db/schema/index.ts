@@ -83,6 +83,7 @@ export const subChats = sqliteTable(
     streamId: text('stream_id'), // Track in-progress streams
     mode: text('mode').notNull().default('plan'), // "plan" | "execute" | "explore"
     openspecChangeId: text('openspec_change_id'), // OpenSpec change folder name this sub-chat is bound to
+    harness: text('harness').notNull().default('builtin'), // 'builtin' | 'claude-cli' | 'codex-cli' — immutable after creation
     // Cached file stats — kept in sync by writers, read by getFileStats to avoid JSON parse on every query
     fileStatsAdditions: integer('file_stats_additions').notNull().default(0),
     fileStatsDeletions: integer('file_stats_deletions').notNull().default(0),

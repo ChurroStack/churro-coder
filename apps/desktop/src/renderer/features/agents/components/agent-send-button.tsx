@@ -46,6 +46,8 @@ interface AgentSendButtonProps {
   variant?: 'round' | 'square-action';
   /** Label text shown when variant='square-action' */
   actionLabel?: string;
+  /** Advisory-busy hint from CLI terminal: dims the button without hard-disabling it. Force-send still works. */
+  advisory?: boolean;
 }
 
 export function AgentSendButton({
@@ -65,7 +67,8 @@ export function AgentSendButton({
   onVoiceMouseDown,
   onVoiceMouseUp,
   variant = 'round',
-  actionLabel
+  actionLabel,
+  advisory = false
 }: AgentSendButtonProps) {
   // Resolved hotkeys for stop-generation tooltip
   const stopHotkey = useResolvedHotkeyDisplayWithAlt('stop-generation');
@@ -271,11 +274,15 @@ export function AgentSendButton({
       <TooltipTrigger asChild>
         <Button
           size={size}
-          className={`h-7 w-7 rounded-full transition-[background-color,transform,opacity] duration-150 ease-out active:scale-[0.97] flex items-center justify-center ${glowClass || ''} ${modeClass} ${className}`}
+          className={cn(
+            `h-7 w-7 rounded-full transition-[background-color,transform,opacity] duration-150 ease-out active:scale-[0.97] flex items-center justify-center ${glowClass || ''} ${modeClass} ${className}`,
+            advisory && 'opacity-40'
+          )}
           disabled={isDisabled || isTranscribing}
           type="button"
           onClick={handleButtonClick}
-          aria-label={getAriaLabel()}>
+          aria-label={getAriaLabel()}
+          data-advisory={advisory || undefined}>
           {getIcon()}
         </Button>
       </TooltipTrigger>

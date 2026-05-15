@@ -23,30 +23,33 @@ function getShellArgs(shell: string): string[] {
  * Falls back to home directory if path doesn't exist
  */
 function validateAndResolveCwd(cwd: string): string {
-  if (!fs.existsSync(cwd)) {
+  // Expand shell tilde shorthand before filesystem checks — '~' is not a real path.
+  const expanded = cwd === '~' ? os.homedir() : cwd.startsWith('~/') ? path.join(os.homedir(), cwd.slice(2)) : cwd;
+
+  if (!fs.existsSync(expanded)) {
     const homeDir = os.homedir();
-    console.warn(`[Terminal] CWD does not exist: ${cwd}, using home directory: ${homeDir}`);
+    console.warn(`[Terminal] CWD does not exist: ${expanded}, using home directory: ${homeDir}`);
     return homeDir;
   }
 
   try {
-    const stat = fs.statSync(cwd);
+    const stat = fs.statSync(expanded);
     if (!stat.isDirectory()) {
       const homeDir = os.homedir();
-      console.warn(`[Terminal] CWD is not a directory: ${cwd}, using home directory: ${homeDir}`);
+      console.warn(`[Terminal] CWD is not a directory: ${expanded}, using home directory: ${homeDir}`);
       return homeDir;
     }
   } catch {
     const homeDir = os.homedir();
-    console.warn(`[Terminal] Error checking CWD: ${cwd}, using home directory: ${homeDir}`);
+    console.warn(`[Terminal] Error checking CWD: ${expanded}, using home directory: ${homeDir}`);
     return homeDir;
   }
 
   try {
-    return path.resolve(cwd);
+    return path.resolve(expanded);
   } catch {
     const homeDir = os.homedir();
-    console.warn(`[Terminal] Error resolving CWD: ${cwd}, using home directory: ${homeDir}`);
+    console.warn(`[Terminal] Error resolving CWD: ${expanded}, using home directory: ${homeDir}`);
     return homeDir;
   }
 }
@@ -78,40 +81,6 @@ function resolveShellPath(shell: string): string {
   return shell;
 }
 
-function spawnPty(params: {
-  shell: string;
-  cols: number;
-  rows: number;
-  cwd: string;
-  env: Record<string, string>;
-}): pty.IPty {
-  const { shell, cols, rows, cwd, env } = params;
-  const shellArgs = getShellArgs(shell);
-  const resolvedCwd = validateAndResolveCwd(cwd);
-  const resolvedShell = resolveShellPath(shell);
-
-  try {
-    return pty.spawn(resolvedShell, shellArgs, {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd: resolvedCwd,
-      env
-    });
-  } catch (error) {
-    console.error(`[Terminal] Failed to spawn PTY with ${resolvedShell}:`, error);
-    // Try with fallback shell
-    console.log(`[Terminal] Retrying with fallback shell: ${FALLBACK_SHELL}`);
-    return pty.spawn(FALLBACK_SHELL, [], {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd: resolvedCwd,
-      env
-    });
-  }
-}
-
 export async function createSession(
   params: InternalCreateSessionParams,
   onData: (paneId: string, data: string) => void
@@ -126,21 +95,27 @@ export async function createSession(
     cwd,
     cols,
     rows,
-    useFallbackShell = false
+    useFallbackShell = false,
+    bootstrap
   } = params;
 
-  const shell = useFallbackShell ? FALLBACK_SHELL : getDefaultShell();
-  if (!cwd) {
+  // Bootstrap overrides take precedence over top-level params
+  const effectiveCwd = bootstrap?.cwd || cwd;
+  const defaultShell = useFallbackShell ? FALLBACK_SHELL : getDefaultShell();
+  const shell = bootstrap?.command || defaultShell;
+  const shellArgs = bootstrap?.command ? (bootstrap.args ?? []) : getShellArgs(defaultShell);
+
+  if (!effectiveCwd) {
     console.warn(
       `[Terminal] No cwd provided for paneId=${paneId} — falling back to ${os.homedir()}. This usually means the workspace path wasn't ready when the terminal was created.`
     );
   }
-  const workingDir = validateAndResolveCwd(cwd || os.homedir());
+  const workingDir = validateAndResolveCwd(effectiveCwd || os.homedir());
   const terminalCols = cols || DEFAULT_COLS;
   const terminalRows = rows || DEFAULT_ROWS;
 
-  const env = buildTerminalEnv({
-    shell,
+  const baseEnv = buildTerminalEnv({
+    shell: defaultShell,
     paneId,
     tabId,
     workspaceId,
@@ -148,14 +123,28 @@ export async function createSession(
     workspacePath,
     rootPath
   });
+  const env = bootstrap?.env ? { ...baseEnv, ...bootstrap.env } : baseEnv;
 
-  const ptyProcess = spawnPty({
-    shell,
-    cols: terminalCols,
-    rows: terminalRows,
-    cwd: workingDir,
-    env
-  });
+  const resolvedShell = resolveShellPath(shell);
+  let ptyProcess: import('node-pty').IPty;
+  try {
+    ptyProcess = pty.spawn(resolvedShell, shellArgs, {
+      name: 'xterm-256color',
+      cols: terminalCols,
+      rows: terminalRows,
+      cwd: workingDir,
+      env
+    });
+  } catch (error) {
+    console.error(`[Terminal] Failed to spawn PTY with ${resolvedShell}:`, error);
+    ptyProcess = pty.spawn(FALLBACK_SHELL, [], {
+      name: 'xterm-256color',
+      cols: terminalCols,
+      rows: terminalRows,
+      cwd: workingDir,
+      env
+    });
+  }
 
   const session: TerminalSession = {
     pty: ptyProcess,
@@ -169,12 +158,32 @@ export async function createSession(
     isAlive: true,
     shell,
     startTime: Date.now(),
-    usedFallback: useFallbackShell
+    usedFallback: useFallbackShell,
+    idleDetection: bootstrap?.idleDetection
   };
 
   ptyProcess.onData((data) => {
     onData(paneId, data);
   });
+
+  // Write initialInput once after the first stdout chunk OR after 250ms
+  if (bootstrap?.initialInput) {
+    const input = bootstrap.initialInput.endsWith('\n') ? bootstrap.initialInput : `${bootstrap.initialInput}\n`;
+    let written = false;
+    const write = () => {
+      if (written) return;
+      written = true;
+      if (session.isAlive) {
+        session.pty.write(input);
+      }
+    };
+    const ceiling = setTimeout(write, 250);
+    const dataHandle = ptyProcess.onData(() => {
+      clearTimeout(ceiling);
+      dataHandle.dispose();
+      write();
+    });
+  }
 
   return session;
 }

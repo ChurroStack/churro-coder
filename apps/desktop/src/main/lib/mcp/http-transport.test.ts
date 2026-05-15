@@ -14,7 +14,9 @@ vi.mock('electron', () => ({
 }));
 
 import { writeCurrentPlan } from '../plans/plan-store';
+import { readCurrentReview } from '../reviews/review-store';
 import {
+  __setSubChatIdValidatorForTest,
   __simulateMcpHttpServerFailureForTest,
   closeMcpHttpServer,
   getMcpHttpEndpoint,
@@ -232,5 +234,105 @@ describe('http-transport', () => {
     } finally {
       await client.close();
     }
+  });
+});
+
+describe('path-scoped routing /sub/<subChatId>/', () => {
+  afterEach(() => {
+    __setSubChatIdValidatorForTest(null);
+  });
+
+  test('known id + bearer: write_review writes only that subchat directory', async () => {
+    const knownId = 'path-sub-1';
+    const otherId = 'path-sub-2';
+    __setSubChatIdValidatorForTest((id) => id === knownId);
+
+    const { url, bearer } = await initMcpHttpServer();
+    const subUrl = new URL(`sub/${knownId}/`, url);
+
+    const transport = new StreamableHTTPClientTransport(subUrl, {
+      requestInit: { headers: { Authorization: `Bearer ${bearer}` } }
+    });
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    await client.connect(transport);
+
+    try {
+      // write_review on a path-scoped server takes only markdown (subChatId is bound)
+      const result = await client.callTool({
+        name: 'write_review',
+        arguments: { markdown: '# Path Review\n\nOnly this subchat.' }
+      });
+      expect(result.isError).toBeFalsy();
+    } finally {
+      await client.close();
+    }
+
+    // knownId review file must exist
+    const review = await readCurrentReview(knownId);
+    expect(review).not.toBeNull();
+    expect(review!.content).toContain('# Path Review');
+
+    // otherId must be untouched
+    const otherReview = await readCurrentReview(otherId);
+    expect(otherReview).toBeNull();
+  });
+
+  test('unknown id + bearer: returns 404 JSON-RPC error (-32004)', async () => {
+    __setSubChatIdValidatorForTest(() => false);
+
+    const { url, bearer } = await initMcpHttpServer();
+    const res = await fetch(new URL('sub/unknown-id/', url), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
+    });
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: '2.0',
+      error: { code: -32004, message: 'Unknown subChatId' }
+    });
+  });
+
+  test('known id without bearer: returns 401 (bearer guards all routes)', async () => {
+    const knownId = 'path-sub-auth';
+    __setSubChatIdValidatorForTest((id) => id === knownId);
+
+    const { url } = await initMcpHttpServer();
+    const res = await fetch(new URL(`sub/${knownId}/`, url), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
+    });
+
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Unauthorized' }
+    });
+  });
+
+  test('/sub/ with no subChatId segment returns 404 (-32004)', async () => {
+    const { url, bearer } = await initMcpHttpServer();
+    const res = await fetch(new URL('sub/', url), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
+    });
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      jsonrpc: '2.0',
+      error: { code: -32004, message: 'Missing subChatId in path' }
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useAtom, useSetAtom } from 'jotai';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
@@ -18,6 +18,9 @@ interface OpenSpecChangePanelContentProps {
   isWorkspaceActive: boolean;
   shouldMountContent: boolean;
   isActivePanel: boolean;
+  /** When provided, renders in place of the default AgentsContent sidebar.
+   *  Used by ChatPanel for CLI-harness subChats (harness-aware sidebar slot). */
+  sidebarContent?: ReactNode;
 }
 
 /**
@@ -91,7 +94,8 @@ export function OpenSpecChangePanelContent({
   params,
   isWorkspaceActive,
   shouldMountContent,
-  isActivePanel
+  isActivePanel,
+  sidebarContent
 }: OpenSpecChangePanelContentProps) {
   const [chatWidth, setChatWidth] = useAtom(openSpecChangeChatWidthAtom);
   const sidebarContextAtom = useMemo(() => openSpecSidebarContextAtomFamily(params.subChatId), [params.subChatId]);
@@ -180,15 +184,17 @@ export function OpenSpecChangePanelContent({
         onPointerUp={handleResizerPointerUp}
       />
 
-      {/* Right pane: embedded chat */}
+      {/* Right pane: embedded chat (classic) or CLI terminal (harness-aware) */}
       <div className="h-full overflow-hidden border-l border-border">
-        <AgentsContent
-          subChatIdOverride={params.subChatId}
-          dockWorkspaceActive={isWorkspaceActive}
-          dockPanelVisible={shouldMountContent}
-          dockPanelActive={isActivePanel}
-          chrome="embedded"
-        />
+        {sidebarContent ?? (
+          <AgentsContent
+            subChatIdOverride={params.subChatId}
+            dockWorkspaceActive={isWorkspaceActive}
+            dockPanelVisible={shouldMountContent}
+            dockPanelActive={isActivePanel}
+            chrome="embedded"
+          />
+        )}
       </div>
     </div>
   );
