@@ -9,6 +9,8 @@ export interface SlashCommand {
   name: string; // Display name without slash, e.g. "clear", "help"
   description: string;
   category: SlashCommandCategory;
+  // Origin of a repository command (used for dedup precedence in the popover)
+  source?: 'builtin' | 'project' | 'user' | 'plugin';
   // For repository commands - the prompt content from .md file
   prompt?: string;
   // For repository commands - path to the .md file

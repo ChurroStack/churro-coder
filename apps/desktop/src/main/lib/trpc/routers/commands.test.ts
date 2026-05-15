@@ -42,3 +42,17 @@ describe('OpenSpec built-in slash commands', () => {
     expect(source).toContain('return [...projectCommands, ...userCommands, ...pluginCommands, ...builtinCommands]');
   });
 });
+
+describe('scanCommandsDirectory naming convention', () => {
+  test('always derives commandName from fallbackName (folder:filename), ignoring frontmatter name', async () => {
+    const source = await import('node:fs/promises').then((fs) =>
+      fs.readFile(new URL('./commands.ts', import.meta.url), 'utf8')
+    );
+
+    // Behavior guard: the path-derived fallbackName must be used directly, with
+    // no `parsed.name || ...` fallback that would leak frontmatter into the
+    // popover label.
+    expect(source).toContain('const commandName = fallbackName;');
+    expect(source).not.toMatch(/parsed\.name\s*\|\|/);
+  });
+});
