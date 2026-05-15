@@ -85,7 +85,11 @@ import { useVoiceInput } from '../../../lib/hooks/use-voice-input';
 import { getResolvedHotkey } from '../../../lib/hotkeys';
 import { customHotkeysAtom } from '../../../lib/atoms';
 import { toast } from 'sonner';
-import { openSpecCurrentStepAtomFamily, openSpecSidebarContextAtomFamily } from '../../openspec/atoms';
+import {
+  openSpecCurrentStepAtomFamily,
+  openSpecPendingCommandAtomFamily,
+  openSpecSidebarContextAtomFamily
+} from '../../openspec/atoms';
 
 // Hook to get available models (including offline models if Ollama is available and debug enabled)
 function useAvailableModels() {
@@ -653,6 +657,12 @@ export const ChatInputArea = memo(function ChatInputArea({
   const isOpenSpec = openSpecContext !== null;
   const openSpecCurrentStepAtom = useMemo(() => openSpecCurrentStepAtomFamily(subChatId), [subChatId]);
   const openSpecCurrentStep = useAtomValue(openSpecCurrentStepAtom);
+  const openSpecPendingCommandAtom = useMemo(() => openSpecPendingCommandAtomFamily(subChatId), [subChatId]);
+  const setOpenSpecPendingCommand = useSetAtom(openSpecPendingCommandAtom);
+  const handleOpenSpecPropose = useCallback(() => {
+    setOpenSpecPendingCommand('propose');
+    onSend();
+  }, [setOpenSpecPendingCommand, onSend]);
 
   // Plan mode - per-subChat via tRPC single source of truth
   const { mode: subChatMode, setMode: setSubChatMode } = useSubChatMode(subChatId);
@@ -1775,27 +1785,6 @@ export const ChatInputArea = memo(function ChatInputArea({
                     </>
                   )}
 
-                  {/* Handoff kebab menu */}
-                  {onContinueWithProvider && messageTokenData.messageCount > 0 && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 rounded-sm outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
-                          aria-label="More actions">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() => onContinueWithProvider(provider === 'codex' ? 'claude-code' : 'codex')}>
-                          Hand off in new chat window
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-
                   {/* Send/Stop button — OpenSpec uses square-action variant; classic uses round */}
                   <div className="ml-1">
                     {isOpenSpec ? (
@@ -1866,6 +1855,34 @@ export const ChatInputArea = memo(function ChatInputArea({
                       />
                     )}
                   </div>
+
+                  {/* Unified kebab menu — always right of the send button */}
+                  {((isOpenSpec && openSpecCurrentStep === 'tasks' && !isStreaming) ||
+                    (onContinueWithProvider && messageTokenData.messageCount > 0)) && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-sm outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70"
+                          aria-label="More actions"
+                          type="button">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {isOpenSpec && openSpecCurrentStep === 'tasks' && !isStreaming && (
+                          <DropdownMenuItem onSelect={handleOpenSpecPropose}>Propose</DropdownMenuItem>
+                        )}
+                        {onContinueWithProvider && messageTokenData.messageCount > 0 && (
+                          <DropdownMenuItem
+                            onSelect={() => onContinueWithProvider(provider === 'codex' ? 'claude-code' : 'codex')}>
+                            Hand off in new chat window
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </PromptInputActions>
             </PromptInput>
