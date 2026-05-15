@@ -1,5 +1,24 @@
 export type ClaudeMode = 'plan' | 'execute' | 'explore';
 
+export interface ClaudePermissionDecision {
+  permissionMode: 'plan' | 'default' | 'bypassPermissions';
+  allowDangerouslySkipPermissions: boolean;
+}
+
+export function resolveClaudePermissionMode(params: {
+  mode: ClaudeMode;
+  sandboxOn: boolean;
+  isOpenSpecApplyTurn: boolean;
+}): ClaudePermissionDecision {
+  const { mode, sandboxOn, isOpenSpecApplyTurn } = params;
+  if (mode === 'plan') return { permissionMode: 'plan', allowDangerouslySkipPermissions: false };
+  if (mode === 'explore') return { permissionMode: 'default', allowDangerouslySkipPermissions: false };
+  const bypass = !sandboxOn || isOpenSpecApplyTurn;
+  return bypass
+    ? { permissionMode: 'bypassPermissions', allowDangerouslySkipPermissions: true }
+    : { permissionMode: 'default', allowDangerouslySkipPermissions: false };
+}
+
 export type ClaudeModeToolDeny = { deny: true; message: string };
 
 export const PLAN_MODE_BLOCKED_TOOLS: ReadonlySet<string> = new Set(['NotebookEdit']);

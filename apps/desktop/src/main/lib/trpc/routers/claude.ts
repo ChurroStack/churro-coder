@@ -72,7 +72,7 @@ import { writeCurrentPlan, hasPlan, extractPlanTitleFromContent } from '../../pl
 import { getPrompt } from '../../prompts/prompt-service';
 import { renderBuiltinPrompt } from '../../../../prompts/render';
 import { expandOpsxCommand } from '../../openspec/prompt-expansion';
-import { evaluateClaudeModeToolPolicy } from './claude-mode-policy';
+import { evaluateClaudeModeToolPolicy, resolveClaudePermissionMode } from './claude-mode-policy';
 import { createMcpServerForSubChat } from '../../mcp/server';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
@@ -1837,14 +1837,11 @@ ${prompt}
                 if (sandboxOn) {
                   sandboxSettingsFilePath = await writeSandboxSettingsFile(input.cwd, sandboxPolicy);
                 }
-                const permissionMode =
-                  input.mode === 'plan'
-                    ? ('plan' as const)
-                    : input.mode === 'explore'
-                      ? ('default' as const)
-                      : sandboxOn
-                        ? ('default' as const)
-                        : ('bypassPermissions' as const);
+                const { permissionMode, allowDangerouslySkipPermissions } = resolveClaudePermissionMode({
+                  mode: input.mode,
+                  sandboxOn,
+                  isOpenSpecApplyTurn
+                });
 
                 console.log(
                   `[claude-model] query-options sub=${subId} requested=${rawResolvedModel || 'none'} sdkModel=${resolvedModel || 'none'} permissionMode=${permissionMode} sandbox=${sandboxOn} sessionMode=${resumeSessionId ? 'resume' : 'new-or-continue'}`
@@ -1876,10 +1873,7 @@ ${prompt}
                       }),
                     env: finalEnv,
                     permissionMode,
-                    ...(input.mode === 'execute' &&
-                      !sandboxOn && {
-                        allowDangerouslySkipPermissions: true
-                      }),
+                    ...(allowDangerouslySkipPermissions && { allowDangerouslySkipPermissions: true }),
                     includePartialMessages: true,
                     // Load skills from project and user directories (skip for Ollama - not supported)
                     ...(!isUsingOllama && {
