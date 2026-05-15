@@ -19,6 +19,7 @@ import { useCallback } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { normalizeAgentMode, type AgentMode } from '../atoms';
+import { applyModeToSubChatCacheEntry } from '../lib/sub-chat-cache';
 
 export function useSubChatMode(subChatId: string): {
   mode: AgentMode;
@@ -39,7 +40,7 @@ export function useSubChatMode(subChatId: string): {
   const setMode = useCallback(
     (mode: AgentMode) => {
       // Synchronous cache write — all subscribers re-render before the await below.
-      utils.chats.getSubChat.setData({ id: subChatId }, (prev) => (prev ? { ...prev, mode } : prev));
+      utils.chats.getSubChat.setData({ id: subChatId }, (prev) => applyModeToSubChatCacheEntry(prev, subChatId, mode));
       // Keep the Zustand list in sync so the sidebar sub-chat list shows the new mode.
       useAgentSubChatStore.getState().updateSubChatMode(subChatId, mode);
       // Async DB persist (temp- IDs are optimistic rows that will be replaced).
