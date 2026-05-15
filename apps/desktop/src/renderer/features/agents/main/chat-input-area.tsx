@@ -1,7 +1,7 @@
 'use client';
 
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { ChevronDown, MoreVertical, RefreshCw, Telescope } from 'lucide-react';
+import { ChevronDown, MoreVertical, RefreshCw, RotateCcw, Telescope } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -51,10 +51,12 @@ import {
   subChatCodexThinkingAtomFamily,
   subChatModelIdAtomFamily,
   getNextMode,
+  subChatNonOwnerSetAtom,
   type AgentMode,
   type SubChatFileChange
 } from '../atoms';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
+import { useHarnessSendDispatcher } from '../hooks/use-harness-send-dispatcher';
 import { AgentsSlashCommand, BUILTIN_SLASH_COMMANDS, type SlashCommandOption } from '../commands';
 import { AgentModelSelector } from '../components/agent-model-selector';
 import { AgentSendButton } from '../components/agent-send-button';
@@ -90,6 +92,8 @@ import {
   openSpecPendingCommandAtomFamily,
   openSpecSidebarContextAtomFamily
 } from '../../openspec/atoms';
+import { subChatHardResetHandlerAtomFamily } from '../atoms/stuck-detection';
+import { StallIcon, StallBanner } from '../ui/stall-banner';
 
 // Hook to get available models (including offline models if Ollama is available and debug enabled)
 function useAvailableModels() {
@@ -406,6 +410,11 @@ export const ChatInputArea = memo(function ChatInputArea({
   const [hasContent, setHasContent] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [showStallBanner, setShowStallBanner] = useState(false);
+
+  // Hard-reset handler registered by the owning builtin-harness chat panel (null for CLI harness)
+  const hardResetHandlerAtom = useMemo(() => subChatHardResetHandlerAtomFamily(subChatId), [subChatId]);
+  const hardResetHandler = useAtomValue(hardResetHandlerAtom);
 
   // Mention dropdown state
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
@@ -438,6 +447,22 @@ export const ChatInputArea = memo(function ChatInputArea({
       setModeTooltip(null);
     }
   }, [modeDropdownOpen]);
+
+  const { dispatch: dispatchHarness, isCliHarness } = useHarnessSendDispatcher(subChatId);
+
+  // Panel ownership: non-owner panels have Send disabled
+  const nonOwners = useAtomValue(subChatNonOwnerSetAtom);
+  const isPanelReadOnly = nonOwners.has(subChatId ?? '');
+
+  // Advisory-busy hint for CLI harness: dims the Send button while the CLI is processing.
+  // The idle event from the terminal signals it is ready for more input.
+  // Force-send always works — this is purely visual.
+  const [cliAdvisoryBusy, setCliAdvisoryBusy] = useState(false);
+  const cliPaneId = isCliHarness ? `cli:${subChatId}` : null;
+  trpc.terminal.idle.useSubscription(cliPaneId ?? '', {
+    enabled: !!cliPaneId,
+    onData: () => setCliAdvisoryBusy(false)
+  });
 
   // Model dropdown state
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -968,7 +993,14 @@ export const ChatInputArea = memo(function ChatInputArea({
       // Input empty, queue has items - stop stream and send from queue
       await onStop();
       onSendFromQueue(firstQueueItemId);
+    } else if (isCliHarness) {
+      // CLI harness: write the editor text directly to the embedded terminal PTY
+      setCliAdvisoryBusy(true);
+      dispatchHarness(inputValue);
     } else {
+      if (isOpenSpec) {
+        setOpenSpecPendingCommand(openSpecCurrentStep === 'tasks' ? 'apply' : 'propose');
+      }
       onSend();
     }
   }, [
@@ -981,6 +1013,11 @@ export const ChatInputArea = memo(function ChatInputArea({
     onSendFromQueue,
     firstQueueItemId,
     onStop,
+    isCliHarness,
+    dispatchHarness,
+    isOpenSpec,
+    openSpecCurrentStep,
+    setOpenSpecPendingCommand,
     onSend
   ]);
 
@@ -1319,6 +1356,15 @@ export const ChatInputArea = memo(function ChatInputArea({
       className="px-2 pb-2 shadow-sm shadow-background relative z-10">
       <div className="w-full max-w-5xl mx-auto">
         <div className="relative w-full" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+          {showStallBanner && hardResetHandler && (
+            <StallBanner
+              subChatId={subChatId}
+              onHardReset={() => {
+                setShowStallBanner(false);
+                void hardResetHandler();
+              }}
+            />
+          )}
           <div className="relative w-full cursor-text" onClick={() => editorRef.current?.focus()}>
             <PromptInput
               className={cn(
@@ -1666,79 +1712,97 @@ export const ChatInputArea = memo(function ChatInputArea({
                     </DropdownMenu>
                   )}
 
-                  {/* Agent model selector — hidden in OpenSpec chats, disabled while streaming */}
-                  {!isOpenSpec && (
-                    <div
-                      className={cn(
-                        'group/model-controls flex items-center gap-0.5',
-                        isStreaming && 'opacity-50 pointer-events-none'
-                      )}>
-                      <AgentModelSelector
-                        open={isModelDropdownOpen}
-                        onOpenChange={setIsModelDropdownOpen}
-                        selectedAgentId={provider}
-                        onSelectedAgentIdChange={(nextProvider) => {
-                          if (isStreaming || !!sandboxId) return;
-                          if (nextProvider === provider) return;
-                          onProviderChange?.(nextProvider);
-                        }}
-                        selectedModelLabel={selectedModelLabel}
-                        onOpenModelsSettings={() => {
-                          setSettingsTab('models');
-                          setSettingsOpen(true);
-                        }}
-                        claude={{
-                          models: availableModels.models.filter((m) => !hiddenModels.includes(m.id)),
-                          selectedModelId: selectedModel?.id,
-                          onSelectModel: (modelId) => {
-                            const model =
-                              availableModels.models.find((item) => item.id === modelId) || availableModels.models[0];
-                            if (!model) return;
-                            setSelectedSubChatModelId(model.id);
-                            setLastSelectedModelId(model.id);
-                          },
-                          hasCustomModelConfig: hasCustomClaudeConfig,
-                          isOffline: availableModels.isOffline && availableModels.hasOllama,
-                          ollamaModels: availableModels.ollamaModels,
-                          selectedOllamaModel: currentOllamaModel,
-                          recommendedOllamaModel: availableModels.recommendedModel,
-                          onSelectOllamaModel: setSelectedOllamaModel,
-                          isConnected: isClaudeConnected,
-                          selectedThinking: selectedClaudeThinking,
-                          onSelectThinking: (thinking) => {
-                            setSelectedSubChatClaudeThinking(thinking);
-                            setLastSelectedClaudeThinking(thinking);
-                          }
-                        }}
-                        codex={{
-                          models: codexUiModels,
-                          selectedModelId: selectedCodexModel.id,
-                          onSelectModel: (modelId) => {
-                            const model = codexUiModels.find((item) => item.id === modelId);
-                            if (!model) return;
-                            const nextThinking = model.thinkings.includes(
-                              selectedSubChatCodexThinking as CodexThinkingLevel
-                            )
-                              ? (selectedSubChatCodexThinking as CodexThinkingLevel)
-                              : model.thinkings.includes('high')
-                                ? 'high'
-                                : model.thinkings[0]!;
-
-                            setSelectedSubChatCodexModelId(model.id);
-                            setSelectedSubChatCodexThinking(nextThinking);
-                            setLastSelectedCodexModelId(model.id);
-                            setLastSelectedCodexThinking(nextThinking);
-                          },
-                          selectedThinking: selectedCodexThinking,
-                          onSelectThinking: (thinking) => {
-                            setSelectedSubChatCodexThinking(thinking);
-                            setLastSelectedCodexThinking(thinking);
-                          },
-                          isConnected: codexOnboardingCompleted
-                        }}
-                      />
-                    </div>
+                  {/* Builtin hard-reset button + stall icon — only shown when handler is registered */}
+                  {hardResetHandler && (
+                    <>
+                      <StallIcon subChatId={subChatId} onExpand={() => setShowStallBanner(true)} />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            data-testid="hard-reset-button"
+                            onClick={() => void hardResetHandler()}
+                            className="h-7 w-7 rounded-sm text-muted-foreground hover:text-foreground">
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Hard-reset session</TooltipContent>
+                      </Tooltip>
+                    </>
                   )}
+
+                  {/* Agent model selector — disabled while streaming */}
+                  <div
+                    className={cn(
+                      'group/model-controls flex items-center gap-0.5',
+                      isStreaming && 'opacity-50 pointer-events-none'
+                    )}>
+                    <AgentModelSelector
+                      open={isModelDropdownOpen}
+                      onOpenChange={setIsModelDropdownOpen}
+                      selectedAgentId={provider}
+                      onSelectedAgentIdChange={(nextProvider) => {
+                        if (isStreaming || !!sandboxId) return;
+                        if (nextProvider === provider) return;
+                        onProviderChange?.(nextProvider);
+                      }}
+                      selectedModelLabel={selectedModelLabel}
+                      onOpenModelsSettings={() => {
+                        setSettingsTab('models');
+                        setSettingsOpen(true);
+                      }}
+                      claude={{
+                        models: availableModels.models.filter((m) => !hiddenModels.includes(m.id)),
+                        selectedModelId: selectedModel?.id,
+                        onSelectModel: (modelId) => {
+                          const model =
+                            availableModels.models.find((item) => item.id === modelId) || availableModels.models[0];
+                          if (!model) return;
+                          setSelectedSubChatModelId(model.id);
+                          setLastSelectedModelId(model.id);
+                        },
+                        hasCustomModelConfig: hasCustomClaudeConfig,
+                        isOffline: availableModels.isOffline && availableModels.hasOllama,
+                        ollamaModels: availableModels.ollamaModels,
+                        selectedOllamaModel: currentOllamaModel,
+                        recommendedOllamaModel: availableModels.recommendedModel,
+                        onSelectOllamaModel: setSelectedOllamaModel,
+                        isConnected: isClaudeConnected,
+                        selectedThinking: selectedClaudeThinking,
+                        onSelectThinking: (thinking) => {
+                          setSelectedSubChatClaudeThinking(thinking);
+                          setLastSelectedClaudeThinking(thinking);
+                        }
+                      }}
+                      codex={{
+                        models: codexUiModels,
+                        selectedModelId: selectedCodexModel.id,
+                        onSelectModel: (modelId) => {
+                          const model = codexUiModels.find((item) => item.id === modelId);
+                          if (!model) return;
+                          const nextThinking = model.thinkings.includes(
+                            selectedSubChatCodexThinking as CodexThinkingLevel
+                          )
+                            ? (selectedSubChatCodexThinking as CodexThinkingLevel)
+                            : model.thinkings.includes('high')
+                              ? 'high'
+                              : model.thinkings[0]!;
+
+                          setSelectedSubChatCodexModelId(model.id);
+                          setSelectedSubChatCodexThinking(nextThinking);
+                          setLastSelectedCodexModelId(model.id);
+                          setLastSelectedCodexThinking(nextThinking);
+                        },
+                        selectedThinking: selectedCodexThinking,
+                        onSelectThinking: (thinking) => {
+                          setSelectedSubChatCodexThinking(thinking);
+                          setLastSelectedCodexThinking(thinking);
+                        },
+                        isConnected: codexOnboardingCompleted
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-0.5 ml-auto flex-shrink-0">
@@ -1814,7 +1878,9 @@ export const ChatInputArea = memo(function ChatInputArea({
                       <AgentSendButton
                         isStreaming={isStreaming}
                         isSubmitting={false}
+                        advisory={isCliHarness && cliAdvisoryBusy}
                         disabled={
+                          isPanelReadOnly ||
                           (!hasContent &&
                             images.length === 0 &&
                             files.length === 0 &&
