@@ -163,7 +163,8 @@ export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, sub
     part.result !== undefined ||
     part.state === 'output-available' ||
     part.state === 'result';
-  const buildDisabled = isPending || !hasCompletedPlanWrite;
+  const isActivelyStreaming = chatStatus === 'streaming' || chatStatus === 'submitted';
+  const buildDisabled = isPending || !hasCompletedPlanWrite || isActivelyStreaming;
   const canApprovePlan = plan?.status === 'awaiting_approval' && subChatMode === 'plan';
   const planContent = useMemo(() => (plan ? formatPlanAsMarkdown(plan) : ''), [plan]);
   const virtualPlanPath = useMemo(
