@@ -74,7 +74,7 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
   const viewPlanEnabled = planContent.length > 0;
 
   // Build button disabled during streaming
-  const buildDisabled = shouldShowShimmer;
+  const buildDisabled = shouldShowShimmer || isActivelyStreaming;
 
   // Check if we have content to show
   const hasVisibleContent = planContent.length > 0;

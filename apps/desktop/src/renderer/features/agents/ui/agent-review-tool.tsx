@@ -247,7 +247,7 @@ export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus,
           </Button>
         </div>
 
-        {subChatId && !isPending && (
+        {subChatId && !isPending && !isActivelyStreaming && (
           <Button
             size="sm"
             onClick={handleFixIssues}
