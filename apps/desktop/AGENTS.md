@@ -114,6 +114,67 @@ For the full annotated tree (renderer features, dock subsystem, agent layers), s
 - Keep the new-workspace hero compact. If spacing changes are needed, adjust the wrapper's top padding first instead of adding extra margin above the hero or compressing the inner sections unevenly.
 - **`NewProjectDialog` is the single entry point for adding projects.** The old `SelectRepoPage` and "Add repository" / "Add from GitHub" buttons have been removed. Any UI surface that wants to add a project should open `newProjectDialogOpenAtom` (from `src/renderer/features/new-project/atoms.ts`). The dialog handles three flows: Create (GitHub / Azure DevOps / Local, with CLI detection, auth check, scaffolding, and initial commit), Open (wraps `projects.openFolder`), and Clone (GitHub + Azure DevOps URLs, backed by `cloneIntoRepos`).
 
+## Chat surface router
+
+Each subChat has an immutable `harness` column (`'builtin' | 'claude-cli' | 'codex-cli'`) written once at creation and never updated. The chat panel routes to the correct surface using `(harness, openspecChangeId)`:
+
+| harness | openspecChangeId | main area | sidebar slot |
+|---|---|---|---|
+| `builtin` | null | `AgentsContent` | classic messages |
+| `builtin` | set | `OpenSpecChangeView` | classic messages |
+| `claude-cli` | null | `ChatCliSurface` | — |
+| `codex-cli` | null | `ChatCliSurface` | — |
+| `claude-cli` | set | `OpenSpecChangeView` | `ChatCliSurface` |
+| `codex-cli` | set | `OpenSpecChangeView` | `ChatCliSurface` |
+
+**Immutability rule:** The `harness` column MUST NOT appear in any UPDATE SET clause. Any tRPC mutation that attempts to set `harness` on an existing row is rejected with a `[harness-immutable]` trace and an error naming the rule.
+
+**Harness icon registry:** `src/renderer/features/agents/lib/harness-icons.ts` — single source for icons, labels, and test IDs (`data-testid="harness-icon-builtin"` / `harness-icon-claude-cli` / `harness-icon-codex-cli`). The dock new-menu, wizard agent dropdown, chat tab, and chat header all read from this registry.
+
+**Send dispatcher:** `useHarnessSendDispatcher(subChatId)` in `src/renderer/features/agents/hooks/use-harness-send-dispatcher.ts`. For `builtin`, calls the existing agent-send path. For CLI harnesses, translates slash commands and writes to the terminal PTY via `terminal:write`. All sidebar action buttons (Approve plan, Build plan, Fix review issues) also go through this dispatcher.
+
+**Advisory busy state:** After dispatching to a CLI PTY, the Send button dims (`opacity-40`) until the `terminal:idle` event fires. Force-send still works — this is a visual hint only (`data-advisory` attribute, never a hard `disabled`).
+
+## CLI harness bootstrap layer
+
+`src/main/lib/cli-harness/index.ts` — called by `chats.buildCliBootstrap` tRPC procedure.
+
+**Binary discovery:** bundled binary under `resources/bin/<platform>-<arch>/` first; falls back to PATH lookup + version probe. Results cached per session in an in-memory `Map`. Invalidate with `invalidateBinaryCache()`.
+
+**MCP injection:**
+- `claude-cli`: merges `churro-coder-<subChatId>` entry into `~/.claude.json` atomically (via the existing `Mutex`).
+- `codex-cli`: passes `-c mcp_servers.churro-coder-<subChatId>.url="<url>"` and `-c mcp_servers.churro-coder-<subChatId>.bearer_token_env_var="CHURRO_MCP_BEARER"` in args; bearer is set as `CHURRO_MCP_BEARER` in the PTY env.
+
+**Env injection:** `CHURRO_SUBCHAT_ID=<subChatId>` for both harnesses. `CHURRO_MCP_BEARER=<bearer>` additionally for `codex-cli`.
+
+**Error shape:** `{ kind: 'binary-missing' | 'mcp-unavailable' | 'config-write-failed', ... }` — `ChatCliSurface` renders this with a Retry action. Use `isBootstrapError(result)` to discriminate.
+
+**Traces:** `[harness-bootstrap]` prefix. Logs bootstrap start, success (binary path + pid), and failure (reason). No bearer, no prompt body.
+
+**PTY pane id:** `cli:<subChatId>` — stable, one-to-one with the subChat. All terminal subscriptions use this id.
+
+## Per-subChat MCP routing
+
+The MCP HTTP server routes `/sub/<subChatId>/...` to a per-subChat `McpServer` instance (`createMcpServerForSubChat`). The root route `/...` remains the global server. Both routes validate the bearer on every request (401 on mismatch, no body). Requests to `/sub/<unknown-id>/` return a structured JSON-RPC error with a `[mcp-routing]` trace.
+
+The path-scoped tools (`read_plan`, `read_review`, `write_review`) close over the subChatId at factory time and never accept a `subChatId` argument from the client — a buggy CLI passing `subChatId: 'B'` to a server bound to `A` always writes to `A`'s directory.
+
+## CLI session resilience contract
+
+**Cold-restart-only:** CLI subChats always start a fresh PTY on restart. There is no session-resume (`--resume` flag or similar). Do NOT probe TUI output for session ids; do NOT add a `harnessResumeKey` column.
+
+**Rationale:** TUI output (especially alt-screen) is unreliable as a carrier for session IDs. MCP plan/review files written to `<userData>/sub-chats/<id>/` are the recovery vector — the CLI can read its last plan and continue from there.
+
+**Reattach banner copy:** "Session ended on restart — Reattach (new CLI session; ask it to read the current plan to continue)"
+
+**Lazy respawn:** Restored CLI panels mount in a disconnected state (xterm scrollback + banner). The reattach handler invokes the same bootstrap path used at initial panel creation. No PTY spawns until the panel is activated.
+
+**Config overwrite on respawn:** Every spawn (initial, reattach, or hard-reset) fully overwrites the MCP config file at `<userData>/cli-bootstrap/<subChatId>.<harness>.<ext>` with the current port + bearer read fresh from `<userData>/churro-mcp.json`. This ensures the CLI always talks to the live MCP server, not a stale one from a prior session.
+
+## Dock new-menu registry
+
+`src/renderer/features/dock/new-menu-registry.ts` — 5 entries: `chat`, `chat-claude-cli`, `chat-codex-cli`, `terminal`, `openspec-change`. Each entry has `defaultPinned`. The `dockNewMenuPinnedAtom` persists the user's pinned selection under `dock.newMenu.pinned`. The toolbar component (`dock-new-menu-toolbar.tsx`) renders pinned entries as icon buttons and non-pinned entries in an overflow dropdown.
+
 ## Gotchas
 
 ### Sandbox writable-path changes must be verified across all providers

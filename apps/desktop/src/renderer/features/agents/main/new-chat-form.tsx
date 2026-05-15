@@ -39,6 +39,7 @@ import {
   lastSelectedCodexThinkingAtom,
   lastSelectedBranchesAtom,
   lastSelectedHarnessAtom,
+  lastSelectedAgentHarnessAtom,
   lastSelectedModelIdAtom,
   lastSelectedRepoAtom,
   lastSelectedWorkTypeAtom,
@@ -142,7 +143,13 @@ import {
   type ClaudeThinkingLevel,
   type CodexThinkingLevel
 } from '../lib/models';
-import { deriveWizardState, getWizardStepMap, type Harness, type WorkType } from '../lib/wizard-state';
+import {
+  deriveWizardState,
+  getWizardStepMap,
+  type WizardTemplate,
+  type Harness,
+  type WorkType
+} from '../lib/wizard-state';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
 import { OpenSpecToolsToggle, type OpenspecTool } from './openspec-tools-toggle';
 // import type { PlanType } from "@/lib/config/subscription-plans"
@@ -243,7 +250,7 @@ const workTypeOptions: RadioCardOption<WorkType>[] = [
   }
 ];
 
-const harnessOptions: RadioCardOption<Harness>[] = [
+const harnessOptions: RadioCardOption<WizardTemplate>[] = [
   {
     value: 'vibe-coding',
     label: 'Vibe coding',
@@ -308,6 +315,40 @@ function buildOpenSpecProposeMessage(changeId: string, userRequest: string): str
   const request = userRequest.trim();
   if (request) parts.push(request);
   return parts.join('\n\n');
+}
+
+const AGENT_HARNESS_OPTIONS = [
+  { value: 'builtin' as const, label: 'Built-in' },
+  { value: 'claude-cli' as const, label: 'Claude Code (CLI)' },
+  { value: 'codex-cli' as const, label: 'Codex (CLI)' }
+] as const;
+
+function AgentHarnessDropdown({
+  value,
+  onChange
+}: {
+  value: 'builtin' | 'claude-cli' | 'codex-cli';
+  onChange: (v: 'builtin' | 'claude-cli' | 'codex-cli') => void;
+}) {
+  const selected = AGENT_HARNESS_OPTIONS.find((o) => o.value === value) ?? AGENT_HARNESS_OPTIONS[0];
+  return (
+    <div className="relative inline-flex items-center">
+      <select
+        data-testid="agent-harness-dropdown"
+        value={value}
+        onChange={(e) => onChange(e.target.value as 'builtin' | 'claude-cli' | 'codex-cli')}
+        className="appearance-none flex items-center gap-1.5 px-2 py-1 pr-6 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 cursor-pointer bg-transparent border-0 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
+        {AGENT_HARNESS_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground opacity-50">
+        ▾
+      </span>
+    </div>
+  );
 }
 
 interface NewChatFormProps {
@@ -384,6 +425,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   }, []);
   const [selectedWorkType, setSelectedWorkType] = useAtom(lastSelectedWorkTypeAtom);
   const [selectedHarness, setSelectedHarness] = useAtom(lastSelectedHarnessAtom);
+  const [selectedAgentHarness, setSelectedAgentHarness] = useAtom(lastSelectedAgentHarnessAtom);
   const [selectedOpenspecTools, setSelectedOpenspecTools] = useState<OpenspecTool[]>(['claude', 'codex']);
   const userTouchedOpenspecToolsRef = useRef(false);
   const [selectedSpecId, setSelectedSpecId] = useState<string | null>(null);
@@ -1490,7 +1532,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
             baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
             branchType: workMode === 'worktree' ? selectedBranchType : undefined,
             useWorktree: workMode === 'worktree',
-            mode: 'execute'
+            mode: 'execute',
+            harness: selectedAgentHarness
           });
           chatId = newChat.id;
         } else if (!selectedChatId) {
@@ -1690,6 +1733,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
           branchType: workMode === 'worktree' ? selectedBranchType : undefined,
           useWorktree: workMode === 'worktree',
           mode: agentMode,
+          harness: selectedAgentHarness,
           tempPastedSubChatId: pastedTexts.length > 0 ? tempPastedIdRef.current : undefined
         },
         {
@@ -2626,6 +2670,9 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                           </PopoverContent>
                         </Popover>
                       )}
+
+                      {/* Agent harness dropdown */}
+                      <AgentHarnessDropdown value={selectedAgentHarness} onChange={setSelectedAgentHarness} />
 
                       {/* Create Branch Dialog */}
                       {validatedProject && (

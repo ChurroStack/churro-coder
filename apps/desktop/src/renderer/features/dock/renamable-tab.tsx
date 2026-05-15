@@ -23,6 +23,7 @@ import { requestArchiveChatTab } from './chat-tab-archive';
 import { requestCloseTerminalTab } from './terminal-tab-close';
 import { useStreamingStatusStore } from '../agents/stores/streaming-status-store';
 import { useSubChatNeedsInput } from '../kanban/lib/use-sub-chat-status';
+import { HarnessIcon } from '../agents/lib/harness-icons';
 
 /**
  * Default dockview tab component used by every panel kind. The body renders
@@ -142,7 +143,7 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
         e.preventDefault();
         startEdit();
       }}>
-      <TabIcon panelId={api.id} title={displayTitle} />
+      <TabIcon panelId={api.id} title={displayTitle} harnessOverride={props.params?.harness} />
       {editing ? (
         <RenameInput
           ref={inputRef}
@@ -295,9 +296,15 @@ function panelKind(panelId: string): 'chat' | 'terminal' | null {
   return null;
 }
 
-function ChatTabIcon({ subChatId }: { subChatId: string | null }) {
+function ChatTabIcon({ subChatId, harnessOverride }: { subChatId: string | null; harnessOverride?: string }) {
   const status = useStreamingStatusStore((s) => (subChatId ? (s.statuses[subChatId] ?? 'ready') : 'ready'));
   const needsInput = useSubChatNeedsInput(subChatId);
+  // params.harness (harnessOverride) is authoritative — it survives drag-drop,
+  // tear-out, and layout deserialization before the store hydrates.
+  const storeHarness = useAgentSubChatStore((s) =>
+    subChatId ? (s.allSubChats.find((sc) => sc.id === subChatId)?.harness ?? 'builtin') : 'builtin'
+  );
+  const harness = (harnessOverride as 'builtin' | 'claude-cli' | 'codex-cli' | undefined) ?? storeHarness;
 
   if (status === 'error') {
     return <AlertCircle className="h-3 w-3 flex-shrink-0 text-destructive" />;
@@ -308,7 +315,7 @@ function ChatTabIcon({ subChatId }: { subChatId: string | null }) {
   if (status === 'streaming' || status === 'submitted') {
     return <Loader2 className="h-3 w-3 flex-shrink-0 text-primary animate-spin" />;
   }
-  return <MessageSquare className="h-3 w-3 flex-shrink-0 opacity-70" />;
+  return <HarnessIcon harness={harness} size={12} />;
 }
 
 /**
@@ -318,9 +325,9 @@ function ChatTabIcon({ subChatId }: { subChatId: string | null }) {
  * panel id (`file:${absolutePath}`). Unknown kinds render nothing — the
  * tab still has its title.
  */
-function TabIcon({ panelId, title }: { panelId: string; title: string }) {
+function TabIcon({ panelId, title, harnessOverride }: { panelId: string; title: string; harnessOverride?: string }) {
   if (panelId.startsWith('chat:')) {
-    return <ChatTabIcon subChatId={panelId.slice('chat:'.length)} />;
+    return <ChatTabIcon subChatId={panelId.slice('chat:'.length)} harnessOverride={harnessOverride} />;
   }
   if (panelId === 'main') {
     return <ChatTabIcon subChatId={null} />;

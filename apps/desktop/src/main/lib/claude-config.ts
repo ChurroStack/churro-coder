@@ -116,6 +116,29 @@ export function claudeConfigExists(): boolean {
 }
 
 /**
+ * Remove all churro-coder-* MCP entries from ~/.claude.json.
+ * Called at app startup so orphaned entries from a previous run (crash / force-quit)
+ * don't accumulate in Claude's /mcp list. New entries are re-injected by each CLI
+ * session when it bootstraps.
+ */
+export async function clearOrphanedChurroMcpEntries(): Promise<void> {
+  await updateClaudeConfigAtomic((config) => {
+    if (!config.mcpServers) return config;
+    const before = Object.keys(config.mcpServers).length;
+    for (const key of Object.keys(config.mcpServers)) {
+      if (key.startsWith('churro-coder-')) {
+        delete config.mcpServers[key];
+      }
+    }
+    const removed = before - Object.keys(config.mcpServers).length;
+    if (removed > 0) {
+      console.log(`[claude-config] cleared ${removed} orphaned churro-coder MCP entries on startup`);
+    }
+    return config;
+  });
+}
+
+/**
  * Get MCP servers config for a specific project
  * Automatically resolves worktree paths to original project paths
  */

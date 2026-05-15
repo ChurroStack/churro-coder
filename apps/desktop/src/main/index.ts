@@ -7,8 +7,10 @@ import { AuthManager, initAuthManager, getAuthManager as getAuthManagerFromModul
 import { initAnalytics, shutdown as shutdownAnalytics, trackAppOpened, captureError } from './lib/analytics';
 import { checkForUpdates, downloadUpdate, initAutoUpdater, setupFocusUpdateCheck } from './lib/auto-updater';
 import { closeDatabase, initDatabase } from './lib/db';
+import { sweepOrphanTmpFiles } from './lib/sub-chat-artifacts/orphan-sweep';
 import { getLaunchDirectory, isCliInstalled, installCli, uninstallCli, parseLaunchDirectory } from './lib/cli';
 import { cleanupGitWatchers } from './lib/git/watcher';
+import { clearOrphanedChurroMcpEntries } from './lib/claude-config';
 import { cancelAllPendingOAuth, handleMcpOAuthCallback } from './lib/mcp-auth';
 import { getAllMcpConfigHandler, hasActiveClaudeSessions, abortAllClaudeSessions } from './lib/trpc/routers/claude';
 import {
@@ -294,6 +296,10 @@ if (gotTheLock) {
     // Verify protocol registration after app is ready
     // This helps diagnose first-install issues where the protocol isn't recognized yet
     verifyProtocolRegistration();
+
+    // Purge orphaned churro-coder-* MCP entries left by a prior session (crash / force-quit).
+    // Runs before any CLI session bootstraps so the slate is clean before new entries are written.
+    clearOrphanedChurroMcpEntries().catch((e) => console.warn('[claude-config] startup MCP cleanup failed:', e));
 
     // Start churro-coder MCP HTTP server + register with Codex CLI (self-heals each launch).
     // Claude uses a per-turn SDK instance and doesn't depend on this completing.
@@ -644,6 +650,11 @@ if (gotTheLock) {
     } catch (error) {
       console.error('[App] Failed to initialize database:', error);
     }
+
+    // Sweep orphaned .tmp artifact files left by prior crashed writes
+    sweepOrphanTmpFiles().catch((err) => {
+      console.warn('[App] Orphan .tmp sweep failed (non-fatal):', err);
+    });
 
     // Worktree orphan cleanup is intentionally NOT auto-run. Any automatic
     // deletion risks destroying uncommitted source code if the DB is empty,

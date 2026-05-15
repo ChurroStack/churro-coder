@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { observable } from '@trpc/server/observable';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
 import { ensurePlanWritten, extractPlanTitleFromContent, markApproved, readCurrentPlan } from '../../plans/plan-store';
 import { readCurrentReview } from '../../reviews/review-store';
@@ -30,6 +31,13 @@ import { repairSubChatModeForHydration } from '../../sub-chat-mode';
 import { checkOllamaStatus } from '../../ollama';
 import { getPrompt } from '../../prompts/prompt-service';
 import { terminalManager } from '../../terminal/manager';
+import {
+  claimOwnership,
+  releaseOwnership,
+  takeOverOwnership,
+  getOwner,
+  addOwnershipListener
+} from '../../sub-chat-artifacts/ownership-registry';
 import { publicProcedure, router } from '../index';
 import { abortClaudeSessionsForSubChats } from './claude';
 import { cleanupCodexAppServerSubChat } from './codex';
@@ -44,6 +52,19 @@ type WorktreeSetupFailurePayload = {
   message: string;
   projectId: string;
 };
+
+/**
+ * Immutable-harness rule enforcement (harness-immutable).
+ * Throw if any caller attempts to set `harness` on an existing subChat row.
+ * Zod schemas on current mutations never include `harness`, but this guard
+ * makes the invariant auditable and prevents future regressions.
+ */
+function assertHarnessNotInPatch(patch: object, mutationName: string): void {
+  if ('harness' in patch) {
+    console.error(`[harness-immutable] mutation=${mutationName} attempted to set harness — rejected`);
+    throw new Error('[harness-immutable] harness is write-once; it cannot be updated on an existing subChat');
+  }
+}
 
 function sendWorktreeSetupFailure(windowId: number | null, payload: WorktreeSetupFailurePayload): void {
   const targets: BrowserWindow[] = [];
@@ -605,6 +626,7 @@ export const chatsRouter = router({
         branchType: z.enum(['local', 'remote']).optional(), // Whether baseBranch is local or remote
         useWorktree: z.boolean().default(true), // If false, work directly in project dir
         mode: z.enum(['plan', 'execute', 'explore']).default('execute'),
+        harness: z.enum(['builtin', 'claude-cli', 'codex-cli']).default('builtin'),
         tempPastedSubChatId: z
           .string()
           .regex(/^new-chat-\d+$/)
@@ -660,7 +682,8 @@ export const chatsRouter = router({
         .insert(subChats)
         .values({
           chatId: chat.id,
-          mode: input.mode
+          mode: input.mode,
+          harness: input.harness
         })
         .returning()
         .get();
@@ -1074,7 +1097,8 @@ export const chatsRouter = router({
         id: z.string().optional(),
         chatId: z.string(),
         name: z.string().optional(),
-        mode: z.enum(['plan', 'execute', 'explore']).default('execute')
+        mode: z.enum(['plan', 'execute', 'explore']).default('execute'),
+        harness: z.enum(['builtin', 'claude-cli', 'codex-cli']).default('builtin')
       })
     )
     .mutation(({ input }) => {
@@ -1085,7 +1109,8 @@ export const chatsRouter = router({
           ...(input.id ? { id: input.id } : {}),
           chatId: input.chatId,
           name: input.name,
-          mode: input.mode
+          mode: input.mode,
+          harness: input.harness
         })
         .returning()
         .get();
@@ -1315,6 +1340,7 @@ export const chatsRouter = router({
   updateSubChatSession: publicProcedure
     .input(z.object({ id: z.string(), sessionId: z.string().nullable() }))
     .mutation(({ input }) => {
+      assertHarnessNotInPatch(input, 'updateSubChatSession');
       const db = getDatabase();
       return db.update(subChats).set({ sessionId: input.sessionId }).where(eq(subChats.id, input.id)).returning().get();
     }),
@@ -1331,6 +1357,7 @@ export const chatsRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      assertHarnessNotInPatch(input, 'updateSubChatMode');
       const db = getDatabase();
       const result = db
         .update(subChats)
@@ -1398,6 +1425,7 @@ export const chatsRouter = router({
    * Rename a sub-chat
    */
   renameSubChat: publicProcedure.input(z.object({ id: z.string(), name: z.string().min(1) })).mutation(({ input }) => {
+    assertHarnessNotInPatch(input, 'renameSubChat');
     const db = getDatabase();
     return db.update(subChats).set({ name: input.name }).where(eq(subChats.id, input.id)).returning().get();
   }),
@@ -2596,6 +2624,75 @@ export const chatsRouter = router({
       return { ...result, targetRoot };
     }),
 
+  /**
+   * Build a TerminalBootstrap config for a CLI-harness subChat.
+   * Returns either a bootstrap object or a typed BootstrapError.
+   */
+  buildCliBootstrap: publicProcedure
+    .input(
+      z.object({
+        subChatId: z.string(),
+        harness: z.enum(['claude-cli', 'codex-cli']),
+        cwd: z.string().optional(),
+        /** Direct workspace/chat ID — used as a fallback when the subChat row is missing (e.g. ghost panels after a DB wipe). */
+        chatId: z.string().optional()
+      })
+    )
+    .mutation(async ({ input }) => {
+      // Resolve cwd from the DB when the renderer hasn't provided one — this removes the
+      // race between the renderer's tRPC query and the bootstrap call.
+      let resolvedCwd = input.cwd;
+      console.log(
+        `[buildCliBootstrap] start sub=${input.subChatId} harness=${input.harness} input.cwd=${input.cwd ?? '(omitted)'}`
+      );
+      if (!resolvedCwd) {
+        const db = getDatabase();
+        const subChatRow = db.select().from(subChats).where(eq(subChats.id, input.subChatId)).get();
+        console.log(
+          `[buildCliBootstrap] db-lookup sub=${input.subChatId} subChatRow.chatId=${subChatRow?.chatId ?? '(none)'}`
+        );
+        if (subChatRow?.chatId) {
+          const chatRow = db.select().from(chats).where(eq(chats.id, subChatRow.chatId)).get();
+          console.log(
+            `[buildCliBootstrap] db-lookup sub=${input.subChatId} chatRow.worktreePath=${chatRow?.worktreePath ?? '(none)'} chatRow.projectId=${chatRow?.projectId ?? '(none)'}`
+          );
+          if (chatRow) {
+            resolvedCwd = chatRow.worktreePath || undefined;
+            if (!resolvedCwd && chatRow.projectId) {
+              const projectRow = db.select().from(projects).where(eq(projects.id, chatRow.projectId)).get();
+              console.log(
+                `[buildCliBootstrap] db-lookup sub=${input.subChatId} projectRow.path=${projectRow?.path ?? '(none)'}`
+              );
+              resolvedCwd = projectRow?.path || undefined;
+            }
+          }
+        }
+        // Direct chatId fallback: subChat row missing but workspace chat still exists.
+        // Happens when the dockview layout (localStorage) outlives the subChats table after a DB reset.
+        if (!resolvedCwd && input.chatId) {
+          const chatRow = db.select().from(chats).where(eq(chats.id, input.chatId)).get();
+          console.log(
+            `[buildCliBootstrap] chatId-fallback sub=${input.subChatId} chatId=${input.chatId} worktreePath=${chatRow?.worktreePath ?? '(none)'}`
+          );
+          if (chatRow) {
+            resolvedCwd = chatRow.worktreePath || undefined;
+            if (!resolvedCwd && chatRow.projectId) {
+              const projectRow = db.select().from(projects).where(eq(projects.id, chatRow.projectId)).get();
+              resolvedCwd = projectRow?.path || undefined;
+            }
+          }
+        }
+        if (resolvedCwd) {
+          console.log(`[buildCliBootstrap] resolved cwd from DB sub=${input.subChatId} cwd=${resolvedCwd}`);
+        } else {
+          console.log(`[buildCliBootstrap] cwd-unresolved sub=${input.subChatId} falling back to CLI default`);
+        }
+      }
+      const { buildBootstrap } = await import('../../cli-harness');
+      const result = await buildBootstrap(input.harness, input.subChatId, resolvedCwd);
+      return result;
+    }),
+
   /** Query the current OpenSpec state for a workspace. */
   openspecState: publicProcedure
     .input(
@@ -2620,5 +2717,40 @@ export const chatsRouter = router({
       const persistedTools = chat.openspecTools ? (JSON.parse(chat.openspecTools) as ('claude' | 'codex')[]) : null;
 
       return { ...result, targetRoot, persistedTools };
-    })
+    }),
+
+  // ── Single-writer ownership ────────────────────────────────────────────────
+
+  claimOwnership: publicProcedure
+    .input(z.object({ subChatId: z.string(), paneId: z.string(), windowId: z.number().int() }))
+    .mutation(({ input }) => {
+      return claimOwnership(input);
+    }),
+
+  releaseOwnership: publicProcedure
+    .input(z.object({ subChatId: z.string(), paneId: z.string(), windowId: z.number().int() }))
+    .mutation(({ input }) => {
+      releaseOwnership(input.subChatId, input.windowId, input.paneId);
+    }),
+
+  takeOverOwnership: publicProcedure
+    .input(z.object({ subChatId: z.string(), paneId: z.string(), windowId: z.number().int() }))
+    .mutation(({ input }) => {
+      takeOverOwnership(input);
+    }),
+
+  getOwnership: publicProcedure.input(z.object({ subChatId: z.string() })).query(({ input }) => {
+    return getOwner(input.subChatId);
+  }),
+
+  ownership: publicProcedure.input(z.string().min(1)).subscription(({ input: subChatId }) => {
+    return observable<{ subChatId: string; owner: { windowId: number; paneId: string } | null }>((emit) => {
+      const unsubscribe = addOwnershipListener((event) => {
+        if (event.subChatId === subChatId) {
+          emit.next({ subChatId, owner: event.owner });
+        }
+      });
+      return unsubscribe;
+    });
+  })
 });

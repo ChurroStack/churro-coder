@@ -28,7 +28,16 @@ import { useFindScope } from '../find/use-find-scope';
 import type { TerminalProps, TerminalStreamEvent } from './types';
 import 'xterm/css/xterm.css';
 
-export function Terminal({ paneId, cwd, workspaceId, scopeKey, tabId, initialCommands, initialCwd }: TerminalProps) {
+export function Terminal({
+  paneId,
+  cwd,
+  workspaceId,
+  scopeKey,
+  tabId,
+  initialCommands,
+  initialCwd,
+  bootstrap
+}: TerminalProps) {
   const scopeRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -236,7 +245,8 @@ export function Terminal({ paneId, cwd, workspaceId, scopeKey, tabId, initialCom
         cols: xterm.cols,
         rows: xterm.rows,
         cwd: startupCwd,
-        initialCommands
+        initialCommands,
+        ...(bootstrap ? { bootstrap } : {})
       },
       {
         onSuccess: (result) => {

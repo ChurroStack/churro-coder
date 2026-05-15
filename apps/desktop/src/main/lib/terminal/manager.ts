@@ -4,6 +4,7 @@ import { portManager } from './port-manager';
 import { getProcessTree } from './port-scanner';
 import { createSession, setupInitialCommands } from './session';
 import type { CreateSessionParams, SessionResult, TerminalSession } from './types';
+import { removeClaudeCliMcp } from '../cli-harness';
 
 type KillSignal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP';
 
@@ -92,6 +93,7 @@ export class TerminalManager extends EventEmitter {
     // Create the session
     const session = await createSession(params, (id, data) => {
       this.emit(`data:${id}`, data);
+      this.resetIdleTimer(id);
     });
 
     // Set up initial commands (only for new sessions)
@@ -99,6 +101,11 @@ export class TerminalManager extends EventEmitter {
 
     // Set up exit handler with fallback logic
     this.setupExitHandler(session, params);
+
+    // Start idle detection if configured
+    if (params.bootstrap?.idleDetection) {
+      this.startIdleTimer(paneId, session);
+    }
 
     this.sessions.set(paneId, session);
 
@@ -108,6 +115,24 @@ export class TerminalManager extends EventEmitter {
       isNew: true,
       serializedState: ''
     };
+  }
+
+  private startIdleTimer(paneId: string, session: TerminalSession): void {
+    const silenceMs = session.idleDetection?.silenceMs ?? 30_000;
+    if (session.idleTimer) clearTimeout(session.idleTimer);
+    session.idleTimer = setTimeout(() => {
+      if (session.isAlive) {
+        console.log(`[TerminalManager] idle paneId=${paneId} silenceMs=${silenceMs}`);
+        this.emit(`idle:${paneId}`);
+      }
+    }, silenceMs);
+    session.idleTimer.unref();
+  }
+
+  private resetIdleTimer(paneId: string): void {
+    const session = this.sessions.get(paneId);
+    if (!session?.idleDetection) return;
+    this.startIdleTimer(paneId, session);
   }
 
   private setupExitHandler(
@@ -147,6 +172,14 @@ export class TerminalManager extends EventEmitter {
 
       // Unregister from port manager (also removes detected ports)
       portManager.unregisterSession(paneId);
+
+      // Remove the churro-coder MCP entry from ~/.claude.json for CLI panes.
+      if (paneId.startsWith('cli:')) {
+        const subChatId = paneId.slice('cli:'.length);
+        removeClaudeCliMcp(subChatId).catch((err) =>
+          console.warn(`[TerminalManager] Failed to remove MCP entry for sub=${subChatId}:`, err)
+        );
+      }
 
       this.emit(`exit:${paneId}`, exitCode, signal);
 
@@ -241,6 +274,7 @@ export class TerminalManager extends EventEmitter {
     // Mark dead and evict synchronously so a quick Run-again creates a fresh
     // session via createOrAttach instead of attaching to the still-dying one.
     session.isAlive = false;
+    if (session.idleTimer) clearTimeout(session.idleTimer);
     if (this.sessions.get(paneId) === session) {
       this.sessions.delete(paneId);
     }

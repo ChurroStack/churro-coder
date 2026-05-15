@@ -1,6 +1,7 @@
 import { atom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import { desktopViewAtom as _desktopViewAtom } from '../../features/agents/atoms';
+import { type NewMenuEntryKind, DEFAULT_PINNED } from '../../features/dock/new-menu-registry';
 
 // ============================================
 // RE-EXPORT FROM FEATURES/AGENTS/ATOMS (source of truth)
@@ -935,6 +936,13 @@ export type NewPanelPlacement = 'smart' | 'tab' | 'split-right' | 'split-down' |
 export const newPanelPlacementAtom = atomWithStorage<NewPanelPlacement>(
   'preferences:new-panel-placement',
   'smart',
+  undefined,
+  { getOnInit: true }
+);
+
+export const dockNewMenuPinnedAtom = atomWithStorage<NewMenuEntryKind[]>(
+  'dock.newMenu.pinned',
+  DEFAULT_PINNED,
   undefined,
   { getOnInit: true }
 );

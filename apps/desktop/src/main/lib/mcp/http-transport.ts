@@ -20,8 +20,10 @@ import * as http from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { createMcpServerStateless } from './server';
+import { getDatabase, subChats } from '../db';
+import { createMcpServerForSubChat, createMcpServerStateless } from './server';
 
 interface McpHttpState {
   url: string;
@@ -35,6 +37,19 @@ let state: McpHttpState | null = null;
 let nextRequestId = 1;
 let restartInFlight: Promise<{ url: string; bearer: string; port: number }> | null = null;
 const intentionallyClosingServers = new WeakSet<http.Server>();
+
+/** Test-only: override the DB-backed subChatId validator so tests don't need a real DB. */
+let subChatIdValidatorOverride: ((id: string) => boolean) | null = null;
+export function __setSubChatIdValidatorForTest(fn: ((id: string) => boolean) | null): void {
+  subChatIdValidatorOverride = fn;
+}
+
+function isKnownSubChatId(id: string): boolean {
+  if (subChatIdValidatorOverride) return subChatIdValidatorOverride(id);
+  const db = getDatabase();
+  const row = db.select({ id: subChats.id }).from(subChats).where(eq(subChats.id, id)).get();
+  return !!row;
+}
 
 function getMcpStatePath(): string {
   return join(app.getPath('userData'), 'churro-mcp.json');
@@ -167,7 +182,31 @@ async function startMcpHttpServer(
       console.log(`[churro-coder] MCP HTTP request id=${requestId} method=${req.method} ${summarizeJsonRpcBody(body)}`);
     }
 
-    const mcpServer = createMcpServerStateless();
+    // Path-scoped routing: /sub/<subChatId>/... → per-subChat MCP server
+    const urlPath = req.url ?? '/';
+    let mcpServer;
+    if (urlPath.startsWith('/sub/')) {
+      const afterSub = urlPath.slice('/sub/'.length);
+      const subChatId = afterSub.split('/')[0];
+      if (!subChatId) {
+        sendJsonRpcError(res, 404, -32004, 'Missing subChatId in path');
+        return;
+      }
+      // Verify the subChatId is known to prevent arbitrary tool execution
+      if (!isKnownSubChatId(subChatId)) {
+        const clientIp = req.socket.remoteAddress ?? 'unknown';
+        console.warn(
+          `[churro-coder] MCP path-scoped request id=${requestId} rejected unknown subChatId=${subChatId} ip=${clientIp}`
+        );
+        sendJsonRpcError(res, 404, -32004, 'Unknown subChatId');
+        return;
+      }
+      mcpServer = createMcpServerForSubChat(subChatId);
+    } else {
+      // Root route — stateless (Codex + other non-path-scoped callers)
+      mcpServer = createMcpServerStateless();
+    }
+
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {

@@ -1,32 +1,28 @@
 import type { IDockviewPanelProps } from 'dockview-react';
-import { useSetAtom } from 'jotai';
 import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
-import { pendingBuildPlanSubChatIdAtom } from '../../agents/atoms';
+import { useHarnessSendDispatcher } from '../../agents/hooks/use-harness-send-dispatcher';
 import { useSubChatMode } from '../../agents/hooks/use-sub-chat-mode';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
 import { PlanSection } from '../../details-sidebar/sections/plan-section';
 import type { PlanPanelEntity } from '../atoms';
 
 /**
- * Full-panel view of a plan. Mirrors the sidebar's PlanWidget approve flow:
- * when the active sub-chat is in plan mode, render an "Approve" button that
- * sets `pendingBuildPlanSubChatIdAtom` — exactly the same atom the sidebar's
- * `handleApprovePlanFromSidebar` writes to. ChatViewInner's existing effect
- * picks it up and runs `handleApprovePlan` on the matching sub-chat, so we
- * don't duplicate any approval logic.
+ * Full-panel view of a plan. The "Approve" button routes through
+ * `useHarnessSendDispatcher` so CLI-harness subChats write the approve
+ * instruction to their embedded terminal instead of the builtin agent queue.
  */
 export function PlanPanel({ params, api, containerApi }: IDockviewPanelProps<PlanPanelEntity>) {
-  const setPendingBuildPlan = useSetAtom(pendingBuildPlanSubChatIdAtom);
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   // Reading mode for the active sub-chat tracks the approve-button visibility
   // automatically when the user toggles between plan and agent modes.
   const { mode } = useSubChatMode(activeSubChatId ?? '');
+  const { dispatchBuildPlan } = useHarnessSendDispatcher(activeSubChatId ?? '');
 
   const handleApprove = () => {
     const id = useAgentSubChatStore.getState().activeSubChatId;
     if (!id) return;
-    setPendingBuildPlan(id);
+    dispatchBuildPlan();
     // After approving, navigate back to the chat for this sub-chat (so the
     // user sees the agent start working) and close this plan panel — there
     // is nothing more to review.

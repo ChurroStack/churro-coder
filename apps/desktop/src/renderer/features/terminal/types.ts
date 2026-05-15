@@ -11,6 +11,15 @@ export interface TerminalExitEvent {
 
 export type TerminalEvent = TerminalDataEvent | TerminalExitEvent;
 
+export interface TerminalBootstrapConfig {
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  initialInput?: string;
+  idleDetection?: { silenceMs?: number };
+}
+
 export interface TerminalProps {
   paneId: string;
   cwd: string;
@@ -20,6 +29,8 @@ export interface TerminalProps {
   tabId?: string;
   initialCommands?: string[];
   initialCwd?: string;
+  /** Optional bootstrap config for CLI-harness sessions. */
+  bootstrap?: TerminalBootstrapConfig;
 }
 
 export interface TerminalStreamEvent {

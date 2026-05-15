@@ -10,10 +10,10 @@
  */
 
 import { app } from 'electron';
-import { mkdir, readFile, rename, writeFile, access } from 'node:fs/promises';
+import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
 
 export interface PlanMeta {
   source: string;
@@ -39,7 +39,6 @@ export async function writeCurrentPlan(opts: {
   approvedAt?: string;
 }): Promise<void> {
   const dir = getPlanDir(opts.subChatId);
-  await mkdir(dir, { recursive: true });
 
   const meta: PlanMeta = {
     source: opts.source,
@@ -48,18 +47,10 @@ export async function writeCurrentPlan(opts: {
     ...(opts.approvedAt ? { approvedAt: opts.approvedAt } : {})
   };
 
-  // Each rename is atomic; the pair isn't. A crash between the two renames leaves
-  // metadata stale relative to content, but readers tolerate this (read returns null
-  // if either file is missing, and the worst case is a slightly stale title).
-  const tmpId = randomUUID();
-  const tmpMd = join(dir, `${tmpId}.tmp.md`);
-  const tmpJson = join(dir, `${tmpId}.tmp.json`);
-
-  await writeFile(tmpMd, opts.content, 'utf8');
-  await writeFile(tmpJson, JSON.stringify(meta, null, 2), 'utf8');
-
-  await rename(tmpMd, join(dir, 'current.md'));
-  await rename(tmpJson, join(dir, 'current.meta.json'));
+  // Body then meta — a crash between the two renames leaves meta stale but body
+  // intact. Readers tolerate this (missing meta → null return).
+  await atomicWriteArtifact(join(dir, 'current.md'), opts.content);
+  await atomicWriteArtifact(join(dir, 'current.meta.json'), JSON.stringify(meta, null, 2));
   console.log(
     `[churro-coder] plan persisted sub=${opts.subChatId} source=${opts.source} bytes=${Buffer.byteLength(opts.content, 'utf8')}`
   );
@@ -93,7 +84,7 @@ export async function markApproved(subChatId: string): Promise<void> {
     const raw = await readFile(metaPath, 'utf8');
     const meta = JSON.parse(raw) as PlanMeta;
     meta.approvedAt = new Date().toISOString();
-    await writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+    await atomicWriteArtifact(metaPath, JSON.stringify(meta, null, 2));
   } catch {
     // No plan to approve — silently ignore
   }

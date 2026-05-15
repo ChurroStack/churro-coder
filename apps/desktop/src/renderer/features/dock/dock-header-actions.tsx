@@ -16,6 +16,7 @@ import { useResolvedHotkeyDisplay } from '../../lib/hotkeys';
 import { detailsSidebarOpenAtom } from '../details-sidebar/atoms';
 import { visibleDockLaunchButtonsAtom } from '../../lib/atoms';
 import { usePanelActions } from './use-panel-actions';
+import { HarnessIcon } from '../agents/lib/harness-icons';
 
 /**
  * Group-header actions on the right side of the dockview tab strip.
@@ -103,6 +104,22 @@ export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
               New Terminal
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem
+            disabled={!actions.canNewSubChat}
+            onClick={() => actions.newSubChatWithHarness('claude-cli')}>
+            <span className="mr-2 flex-shrink-0">
+              <HarnessIcon harness="claude-cli" size={16} />
+            </span>
+            New Claude CLI Chat
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!actions.canNewSubChat}
+            onClick={() => actions.newSubChatWithHarness('codex-cli')}>
+            <span className="mr-2 flex-shrink-0">
+              <HarnessIcon harness="codex-cli" size={16} />
+            </span>
+            New Codex CLI Chat
+          </DropdownMenuItem>
           {menuPlan && (
             <DropdownMenuItem disabled={!actions.canOpenPlan} onClick={actions.openPlan}>
               <FileText className="h-4 w-4 mr-2" />
@@ -115,7 +132,7 @@ export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
               Show Changes
             </DropdownMenuItem>
           )}
-          {(menuTerminal || menuPlan || menuChanges) && <DropdownMenuSeparator />}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={actions.resetLayout}>
             <RotateCcw className="h-4 w-4 mr-2" />
             Reset layout

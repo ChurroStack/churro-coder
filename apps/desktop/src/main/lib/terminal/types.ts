@@ -22,6 +22,10 @@ export interface TerminalSession {
    * fresh fallback shell at the same paneId, swallowing the next Run.
    */
   intentionalKill?: boolean;
+  /** Active idle-detection timer (reset on every PTY data chunk). */
+  idleTimer?: ReturnType<typeof setTimeout>;
+  /** Idle detection config, stored for reset-on-data logic in manager. */
+  idleDetection?: TerminalBootstrap['idleDetection'];
 }
 
 export interface TerminalDataEvent {
@@ -43,6 +47,28 @@ export interface SessionResult {
   serializedState: string;
 }
 
+export interface TerminalBootstrap {
+  /** Working directory override (takes precedence over top-level cwd). */
+  cwd?: string;
+  /** Executable to spawn instead of the default user shell. */
+  command?: string;
+  /** Arguments for `command`. Ignored when `command` is absent. */
+  args?: string[];
+  /** Additional env vars merged on top of the standard terminal env. */
+  env?: Record<string, string>;
+  /**
+   * Text written to the PTY once after the first stdout chunk arrives
+   * (or after a 250ms ceiling, whichever comes first).
+   * A trailing newline is appended automatically.
+   */
+  initialInput?: string;
+  /** Optional idle-detection config. */
+  idleDetection?: {
+    /** How long (ms) of PTY silence before emitting an `idle` event. Default 30 000. */
+    silenceMs?: number;
+  };
+}
+
 export interface CreateSessionParams {
   paneId: string;
   tabId?: string;
@@ -56,6 +82,8 @@ export interface CreateSessionParams {
   cols?: number;
   rows?: number;
   initialCommands?: string[];
+  /** Optional bootstrap config for CLI-harness and custom-command sessions. */
+  bootstrap?: TerminalBootstrap;
 }
 
 export interface InternalCreateSessionParams extends CreateSessionParams {

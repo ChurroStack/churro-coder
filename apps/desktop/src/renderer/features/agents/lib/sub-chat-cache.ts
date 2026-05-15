@@ -6,7 +6,7 @@
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import type { AgentMode } from '../atoms';
 
-export function applyModeToSubChatCacheEntry<T extends { id: string; mode: AgentMode } | null | undefined>(
+export function applyModeToSubChatCacheEntry<T extends { id: string } | null | undefined>(
   prev: T,
   id: string,
   mode: AgentMode
@@ -17,7 +17,6 @@ export function applyModeToSubChatCacheEntry<T extends { id: string; mode: Agent
   // A real background fetch overwrites the synthetic with the full row shortly after.
   return {
     id,
-    chatId: store?.chatId ?? '',
     name: store?.name ?? null,
     mode,
     messages: [],

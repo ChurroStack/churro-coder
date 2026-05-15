@@ -7,10 +7,10 @@
  */
 
 import { app } from 'electron';
-import { mkdir, readFile, rename, writeFile, access } from 'node:fs/promises';
+import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
 
 export interface ReviewMeta {
   source: string;
@@ -35,7 +35,6 @@ export async function writeCurrentReview(opts: {
   title: string;
 }): Promise<void> {
   const dir = getReviewDir(opts.subChatId);
-  await mkdir(dir, { recursive: true });
 
   const meta: ReviewMeta = {
     source: opts.source,
@@ -43,15 +42,8 @@ export async function writeCurrentReview(opts: {
     createdAt: new Date().toISOString()
   };
 
-  const tmpId = randomUUID();
-  const tmpMd = join(dir, `${tmpId}.tmp.md`);
-  const tmpJson = join(dir, `${tmpId}.tmp.json`);
-
-  await writeFile(tmpMd, opts.content, 'utf8');
-  await writeFile(tmpJson, JSON.stringify(meta, null, 2), 'utf8');
-
-  await rename(tmpMd, join(dir, 'current.md'));
-  await rename(tmpJson, join(dir, 'current.meta.json'));
+  await atomicWriteArtifact(join(dir, 'current.md'), opts.content);
+  await atomicWriteArtifact(join(dir, 'current.meta.json'), JSON.stringify(meta, null, 2));
   console.log(
     `[churro-coder] review persisted sub=${opts.subChatId} source=${opts.source} bytes=${Buffer.byteLength(opts.content, 'utf8')}`
   );
@@ -83,7 +75,7 @@ export async function markApplied(subChatId: string): Promise<void> {
     const raw = await readFile(metaPath, 'utf8');
     const meta = JSON.parse(raw) as ReviewMeta;
     meta.appliedAt = new Date().toISOString();
-    await writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+    await atomicWriteArtifact(metaPath, JSON.stringify(meta, null, 2));
   } catch {
     // No review to apply — silently ignore
   }

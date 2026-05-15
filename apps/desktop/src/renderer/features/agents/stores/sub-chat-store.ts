@@ -35,11 +35,36 @@ export interface SubChatMeta {
   created_at?: string;
   updated_at?: string;
   mode?: 'plan' | 'execute' | 'explore';
+  harness?: 'builtin' | 'claude-cli' | 'codex-cli';
+  /** Working directory for CLI-harness PTY. Persisted in the harness map so the CLI starts in the correct project dir after app restart. */
+  cwd?: string;
   projectId?: string;
   openspecChangeId?: string | null;
   openspecChangePath?: string;
 }
 
+/**
+ * Restart persistence contract:
+ *
+ * SURVIVES restart (persisted in localStorage, restored on setChatId):
+ *   - openSubChatIds, activeSubChatId, pinnedSubChatIds
+ *   - splitPaneIds, splitRatios
+ *
+ * RECONSTRUCTED from DB (not in localStorage):
+ *   - allSubChats: id, name, mode, harness, openspecChangeId, timestamps
+ *     (populated by the chat-panel init effect after setChatId)
+ *
+ * DROPPED on restart (in-memory only, never persisted):
+ *   - useStreamingStatusStore: in-progress streaming status
+ *   - useMessageQueueStore: pending message queue
+ *   - agentChatStore: per-subChat Claude/Codex chat instances
+ *   - task snapshot cache (clearTaskSnapshotCache)
+ *   - CLI terminal PTY sessions (new PTY spawned on reattach per lazy respawn in §10.3)
+ *
+ * Rule: any in-flight stream (isStreaming=true) or pending queue at the time
+ * of restart is silently dropped. The UI will show only messages persisted to
+ * the DB before the restart. Users see no partial stream; they must re-send.
+ */
 interface AgentSubChatStore {
   // Current parent chat context
   chatId: string | null;
@@ -76,12 +101,12 @@ interface AgentSubChatStore {
 // Prefixed with windowId to isolate state per Electron window
 const getStorageKey = (
   chatId: string,
-  type: 'open' | 'active' | 'pinned' | 'split' | 'splitOrigin' | 'splitPanes' | 'splitRatios'
+  type: 'open' | 'active' | 'pinned' | 'split' | 'splitOrigin' | 'splitPanes' | 'splitRatios' | 'harness'
 ) => `${getWindowId()}:agent-${type}-sub-chats-${chatId}`;
 
 const getLegacyStorageKey = (
   chatId: string,
-  type: 'open' | 'active' | 'pinned' | 'split' | 'splitOrigin' | 'splitPanes' | 'splitRatios'
+  type: 'open' | 'active' | 'pinned' | 'split' | 'splitOrigin' | 'splitPanes' | 'splitRatios' | 'harness'
 ) => `agent-${type}-sub-chats-${chatId}`;
 
 // Custom event for notifying other components when open sub-chats change
@@ -92,7 +117,7 @@ let openSubChatsChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
 const saveToLS = (
   chatId: string,
-  type: 'open' | 'active' | 'pinned' | 'split' | 'splitOrigin' | 'splitPanes' | 'splitRatios',
+  type: 'open' | 'active' | 'pinned' | 'split' | 'splitOrigin' | 'splitPanes' | 'splitRatios' | 'harness',
   value: unknown
 ) => {
   if (typeof window === 'undefined') return;
@@ -131,7 +156,7 @@ const findNumericWindowIdValue = (legacyKey: string, targetKey: string): string 
 
 const loadFromLS = <T>(
   chatId: string,
-  type: 'open' | 'active' | 'pinned' | 'split' | 'splitOrigin' | 'splitPanes' | 'splitRatios',
+  type: 'open' | 'active' | 'pinned' | 'split' | 'splitOrigin' | 'splitPanes' | 'splitRatios' | 'harness',
   fallback: T
 ): T => {
   if (typeof window === 'undefined') return fallback;
@@ -167,6 +192,24 @@ const loadFromLS = <T>(
   }
 };
 
+// Persist all known harnesses so the panel-params fallback (when params.harness
+// is absent from an older dockview snapshot) still resolves correctly.
+// Entry format: { harness, cwd? } for CLI, plain string for others.
+// Old installs may have plain string values; setChatId's stub builder handles both.
+type HarnessMapEntry = 'builtin' | 'claude-cli' | 'codex-cli' | { harness: 'claude-cli' | 'codex-cli'; cwd?: string };
+
+function saveHarnessMap(chatId: string, subChats: SubChatMeta[]): void {
+  const map: Record<string, HarnessMapEntry> = {};
+  for (const sc of subChats) {
+    if (sc.harness === 'claude-cli' || sc.harness === 'codex-cli') {
+      map[sc.id] = sc.cwd ? { harness: sc.harness, cwd: sc.cwd } : sc.harness;
+    } else if (sc.harness === 'builtin') {
+      map[sc.id] = 'builtin';
+    }
+  }
+  saveToLS(chatId, 'harness', map);
+}
+
 export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
   chatId: null,
   activeSubChatId: null,
@@ -190,8 +233,10 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
       return;
     }
 
-    // Load open/active/pinned IDs from localStorage
-    // allSubChats will be populated from DB + placeholders in init effect
+    // Load open/active/pinned IDs from localStorage.
+    // allSubChats is seeded from the harness map so CLI panels route correctly
+    // before async DB hydration completes (ChatPanelSync will overwrite with
+    // full data once the snapshot arrives).
     const openSubChatIds = loadFromLS<string[]>(chatId, 'open', []);
     const activeSubChatId = loadFromLS<string | null>(chatId, 'active', null);
     const pinnedSubChatIds = loadFromLS<string[]>(chatId, 'pinned', []);
@@ -217,7 +262,28 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
       splitRatios = getDefaultRatios(splitPaneIds.length);
     }
 
-    set({ chatId, openSubChatIds, activeSubChatId, pinnedSubChatIds, splitPaneIds, splitRatios, allSubChats: [] });
+    // Pre-populate stubs for CLI subChats so the surface router renders the
+    // correct harness immediately instead of flashing the builtin classic UI.
+    // Entry format: { harness, cwd? } or legacy plain string.
+    const harnessMap = loadFromLS<Record<string, HarnessMapEntry>>(chatId, 'harness', {});
+    const stubSubChats: SubChatMeta[] = openSubChatIds
+      .filter((id) => harnessMap[id])
+      .map((id) => {
+        const entry = harnessMap[id];
+        const harness = typeof entry === 'string' ? entry : entry.harness;
+        const cwd = typeof entry === 'string' ? undefined : entry.cwd;
+        return { id, name: 'New Chat', harness, cwd };
+      });
+
+    set({
+      chatId,
+      openSubChatIds,
+      activeSubChatId,
+      pinnedSubChatIds,
+      splitPaneIds,
+      splitRatios,
+      allSubChats: stubSubChats
+    });
   },
 
   setActiveSubChat: (subChatId, expectedChatId) => {
@@ -324,13 +390,18 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
 
   setAllSubChats: (subChats) => {
     set({ allSubChats: subChats });
+    const { chatId } = get();
+    if (chatId) saveHarnessMap(chatId, subChats);
   },
 
   addToAllSubChats: (subChat) => {
-    const { allSubChats } = get();
+    const { allSubChats, chatId } = get();
     if (allSubChats.some((sc) => sc.id === subChat.id)) return;
-    set({ allSubChats: [...allSubChats, subChat] });
-    // No localStorage persistence - allSubChats is rebuilt from DB + open IDs on init
+    const updated = [...allSubChats, subChat];
+    set({ allSubChats: updated });
+    if (chatId && subChat.harness) {
+      saveHarnessMap(chatId, updated);
+    }
   },
 
   updateSubChatName: (subChatId, name) => {
