@@ -346,8 +346,8 @@ export const api = {
     updateSubChatMode: {
       useMutation: (opts?: { onSuccess?: AnyFn; onError?: AnyFn }) => {
         const mutation = trpc.chats.updateSubChatMode.useMutation({
-          onSuccess: (data) => opts?.onSuccess?.(data),
-          onError: (err) => opts?.onError?.(err)
+          onSuccess: (data, variables, context) => opts?.onSuccess?.(data, variables, context),
+          onError: (err, variables, context) => opts?.onError?.(err, variables, context)
         });
         return {
           mutate: (args?: { subChatId: string; mode: 'plan' | 'execute' | 'explore'; exitPlan?: boolean }) => {
