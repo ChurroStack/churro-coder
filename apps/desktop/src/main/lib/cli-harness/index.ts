@@ -154,6 +154,29 @@ export async function buildBootstrap(
     // Skip the interactive folder-trust dialog — the user explicitly launched
     // this CLI session in their own project, so trust is implicit.
     args.push('--dangerously-skip-permissions');
+    // Pre-authorize MCP tools so Claude never prompts for permission on write_plan
+    // or write_review. The server name includes the subChatId so we build the exact
+    // tool IDs that Claude Code registers for this session.
+    const mcpServerName = `churro-coder-${subChatId}`;
+    args.push(
+      '--allowedTools',
+      `mcp__${mcpServerName}__write_plan,mcp__${mcpServerName}__write_review,mcp__${mcpServerName}__write_tasks,mcp__${mcpServerName}__update_task_status`
+    );
+    // Instruct Claude to persist plans, reviews, and task progress via MCP so
+    // the host app can surface them in the UI without a manual refresh.
+    // Wording is intentionally terse and imperative — verbose rule blocks are
+    // ignored; this phrasing was validated to reliably trigger tool calls.
+    args.push(
+      '--append-system-prompt',
+      [
+        'MCP persistence is mandatory in this session:',
+        '- When in plan mode, you MUST call the write_plan tool with the full plan markdown before calling ExitPlanMode or presenting any approval options to the user. Do not call ExitPlanMode until write_plan has succeeded in the same turn.',
+        '- When producing a code review, you MUST call the write_review tool with the full review markdown before sending your final assistant message.',
+        '- When implementing a plan, you MUST call write_tasks once at the start with all plan steps (each task needs a stable short id, a title, and status: "pending"). Before starting each task call update_task_status with status: "in_progress"; after finishing call it with status: "completed". If the task structure changes, call write_tasks again with the full updated list.',
+        '- These tools are pre-authorized; calling them does not require user approval. Skipping them leaves the user UI blank, which is a failure.'
+      ].join('\n')
+    );
+    console.log(`[harness-bootstrap] append-system-prompt injected sub=${subChatId} arg-count=${args.length}`);
   } else {
     // Codex CLI injects MCP via -c config overrides; bearer goes through an env var
     // to avoid exposing it on the process command line. The right-hand side of
@@ -161,11 +184,15 @@ export async function buildBootstrap(
     // include surrounding double quotes — they are TOML string delimiters, not
     // shell quoting. Args go through execve, not a shell, so no further escaping
     // is needed.
+    // -a never: Codex has no tool-specific allow-list, so we disable the global
+    // approval gate. The user has already consented by opening the embedded session.
     args.push(
       '-c',
       `mcp_servers.churro-coder-${subChatId}.url="${mcpUrl}"`,
       '-c',
-      `mcp_servers.churro-coder-${subChatId}.bearer_token_env_var="CHURRO_MCP_BEARER"`
+      `mcp_servers.churro-coder-${subChatId}.bearer_token_env_var="CHURRO_MCP_BEARER"`,
+      '-a',
+      'never'
     );
   }
 
@@ -180,10 +207,12 @@ export async function buildBootstrap(
     ...(cwd ? { cwd } : {}),
     env,
     idleDetection: {
-      silenceMs: 30_000
+      silenceMs: 1_000
     }
   };
 
-  console.log(`[harness-bootstrap] ok harness=${harness} sub=${subChatId} binary=${binaryPath}`);
+  console.log(
+    `[harness-bootstrap] ok harness=${harness} sub=${subChatId} binary=${binaryPath} args=${JSON.stringify(args)}`
+  );
   return bootstrap;
 }

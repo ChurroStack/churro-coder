@@ -241,7 +241,7 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
             isOwner={isOwner}
           />
         </div>
-        <CliPromptBar subChatId={params.subChatId} isOwner={isOwner} />
+        <CliPromptBar subChatId={params.subChatId} isOwner={isOwner} harness={harness} />
       </div>
     ) : undefined; // undefined → OpenSpecChangePanelContent renders AgentsContent
 
@@ -284,7 +284,7 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
             isOwner={isOwner}
           />
         </div>
-        <CliPromptBar subChatId={params.subChatId} isOwner={isOwner} />
+        <CliPromptBar subChatId={params.subChatId} isOwner={isOwner} harness={harness} />
       </div>
     );
   }

@@ -23,6 +23,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { getDatabase, subChats } from '../db';
+import { updateClaudeConfigAtomic } from '../claude-config';
 import { createMcpServerForSubChat, createMcpServerStateless } from './server';
 
 interface McpHttpState {
@@ -275,6 +276,20 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
   if (state) {
     return { url: state.url, bearer: state.bearer, port: state.port };
   }
+
+  // Sweep stale churro-coder-* entries left by a prior session that crashed or
+  // was force-killed without running the per-CLI exit cleanup. All such entries
+  // are dead: the new server binds to a fresh port, so every old URL is invalid.
+  await updateClaudeConfigAtomic((config) => {
+    if (config.mcpServers) {
+      for (const key of Object.keys(config.mcpServers)) {
+        if (key.startsWith('churro-coder-')) {
+          delete config.mcpServers[key];
+        }
+      }
+    }
+    return config;
+  }).catch((err) => console.warn('[churro-coder] Failed to sweep stale MCP entries on startup:', err));
 
   const bearer = (await loadSavedBearer()) ?? randomUUID();
   state = await startMcpHttpServer(bearer, 0);

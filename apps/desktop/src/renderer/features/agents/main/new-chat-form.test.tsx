@@ -96,7 +96,7 @@ vi.mock('../../../lib/trpc', () => {
 });
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { act, cleanup, fireEvent } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../../../test-utils';
 import { selectedProjectAtom } from '../atoms';
 import { TooltipProvider } from '../../../components/ui/tooltip';
@@ -352,12 +352,13 @@ describe('NewChatForm — wizard axis independence', () => {
   it('vibe-coding + claude-cli: sends with harness=claude-cli', async () => {
     const { container } = renderWithProject();
 
-    const dropdown = container.querySelector(
-      'select[data-testid="agent-harness-dropdown"]'
-    ) as HTMLSelectElement | null;
-    expect(dropdown).not.toBeNull();
+    const trigger = container.querySelector('button[data-testid="agent-harness-dropdown"]') as HTMLButtonElement | null;
+    expect(trigger).not.toBeNull();
     await act(async () => {
-      fireEvent.change(dropdown!, { target: { value: 'claude-cli' } });
+      fireEvent.click(trigger!);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Claude CLI'));
     });
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
@@ -374,12 +375,13 @@ describe('NewChatForm — wizard axis independence', () => {
   it('vibe-coding + codex-cli: sends with harness=codex-cli', async () => {
     const { container } = renderWithProject();
 
-    const dropdown = container.querySelector(
-      'select[data-testid="agent-harness-dropdown"]'
-    ) as HTMLSelectElement | null;
-    expect(dropdown).not.toBeNull();
+    const trigger = container.querySelector('button[data-testid="agent-harness-dropdown"]') as HTMLButtonElement | null;
+    expect(trigger).not.toBeNull();
     await act(async () => {
-      fireEvent.change(dropdown!, { target: { value: 'codex-cli' } });
+      fireEvent.click(trigger!);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Codex CLI'));
     });
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
@@ -423,12 +425,13 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(getByText('Spec-driven'));
     });
 
-    const dropdown = container.querySelector(
-      'select[data-testid="agent-harness-dropdown"]'
-    ) as HTMLSelectElement | null;
-    expect(dropdown).not.toBeNull();
+    const trigger = container.querySelector('button[data-testid="agent-harness-dropdown"]') as HTMLButtonElement | null;
+    expect(trigger).not.toBeNull();
     await act(async () => {
-      fireEvent.change(dropdown!, { target: { value: 'claude-cli' } });
+      fireEvent.click(trigger!);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Claude CLI'));
     });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
@@ -454,12 +457,13 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(getByText('Spec-driven'));
     });
 
-    const dropdown = container.querySelector(
-      'select[data-testid="agent-harness-dropdown"]'
-    ) as HTMLSelectElement | null;
-    expect(dropdown).not.toBeNull();
+    const trigger = container.querySelector('button[data-testid="agent-harness-dropdown"]') as HTMLButtonElement | null;
+    expect(trigger).not.toBeNull();
     await act(async () => {
-      fireEvent.change(dropdown!, { target: { value: 'codex-cli' } });
+      fireEvent.click(trigger!);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Codex CLI'));
     });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;

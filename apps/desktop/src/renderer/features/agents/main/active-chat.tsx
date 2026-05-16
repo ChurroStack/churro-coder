@@ -4085,6 +4085,7 @@ export function ChatView({
     id: string;
     name?: string | null;
     mode?: 'plan' | 'execute' | null;
+    harness?: string | null;
     created_at?: Date | string | null;
     updated_at?: Date | string | null;
     messages?: any;
@@ -4923,6 +4924,9 @@ export function ChatView({
         created_at: createdAt ?? existingLocal?.created_at ?? new Date().toISOString(),
         updated_at: updatedAt ?? existingLocal?.updated_at,
         mode: (sc.mode as 'plan' | 'execute' | undefined) || existingLocal?.mode || 'execute',
+        harness: ((sc.harness as 'builtin' | 'claude-cli' | 'codex-cli' | undefined) ??
+          existingLocal?.harness ??
+          'builtin') as SubChatMeta['harness'],
         projectId: activeProjectId ?? existingLocal?.projectId,
         openspecChangeId,
         openspecChangePath:

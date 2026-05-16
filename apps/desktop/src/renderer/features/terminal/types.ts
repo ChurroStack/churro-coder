@@ -17,6 +17,7 @@ export interface TerminalBootstrapConfig {
   env?: Record<string, string>;
   cwd?: string;
   initialInput?: string;
+  initialInputChunks?: string[];
   idleDetection?: { silenceMs?: number };
 }
 

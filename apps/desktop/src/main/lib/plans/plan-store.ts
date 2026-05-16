@@ -10,10 +10,18 @@
  */
 
 import { app } from 'electron';
+import { EventEmitter } from 'node:events';
 import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
+
+const planWrittenEmitter = new EventEmitter();
+
+export function onPlanWritten(handler: (event: { subChatId: string; filePath: string }) => void): () => void {
+  planWrittenEmitter.on('plan-written', handler);
+  return () => planWrittenEmitter.off('plan-written', handler);
+}
 
 export interface PlanMeta {
   source: string;
@@ -49,11 +57,13 @@ export async function writeCurrentPlan(opts: {
 
   // Body then meta — a crash between the two renames leaves meta stale but body
   // intact. Readers tolerate this (missing meta → null return).
-  await atomicWriteArtifact(join(dir, 'current.md'), opts.content);
+  const planFilePath = join(dir, 'current.md');
+  await atomicWriteArtifact(planFilePath, opts.content);
   await atomicWriteArtifact(join(dir, 'current.meta.json'), JSON.stringify(meta, null, 2));
   console.log(
     `[churro-coder] plan persisted sub=${opts.subChatId} source=${opts.source} bytes=${Buffer.byteLength(opts.content, 'utf8')}`
   );
+  planWrittenEmitter.emit('plan-written', { subChatId: opts.subChatId, filePath: planFilePath });
 }
 
 export async function readCurrentPlan(subChatId: string): Promise<PlanData | null> {

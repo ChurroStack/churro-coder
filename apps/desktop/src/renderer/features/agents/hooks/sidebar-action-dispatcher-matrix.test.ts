@@ -14,7 +14,7 @@ import { renderHook, act } from '@testing-library/react';
 import { createStore } from 'jotai';
 import { Provider as JotaiProvider } from 'jotai';
 import React from 'react';
-import { useHarnessSendDispatcher } from './use-harness-send-dispatcher';
+import { useHarnessSendDispatcher, _resetMcpInjectedSessions } from './use-harness-send-dispatcher';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { pendingBuildPlanSubChatIdAtom, pendingFixReviewIssuesAtom } from '../atoms';
 
@@ -54,6 +54,7 @@ function renderDispatcher() {
 
 beforeEach(() => {
   mockWriteMutate.mockClear();
+  _resetMcpInjectedSessions();
   useAgentSubChatStore.setState({
     chatId: null,
     activeSubChatId: null,
@@ -89,10 +90,12 @@ describe('Sidebar action dispatcher matrix (9 cells)', () => {
     if (action === 'buildPlan') {
       act(() => result.current.dispatchBuildPlan());
       if (isCli) {
-        expect(mockWriteMutate).toHaveBeenCalledOnce();
-        const call = mockWriteMutate.mock.calls[0][0] as { paneId: string; data: string };
-        expect(call.paneId).toBe(`cli:${SC}`);
-        expect(call.data).toContain('approved');
+        expect(mockWriteMutate).toHaveBeenCalled();
+        const allData = (mockWriteMutate.mock.calls as Array<[{ paneId: string; data: string }]>)
+          .map((c) => c[0].data)
+          .join('');
+        expect((mockWriteMutate.mock.calls[0] as [{ paneId: string; data: string }])[0].paneId).toBe(`cli:${SC}`);
+        expect(allData).toContain('approved');
         expect(store.get(pendingBuildPlanSubChatIdAtom)).toBeNull();
       } else {
         expect(mockWriteMutate).not.toHaveBeenCalled();
@@ -111,7 +114,11 @@ describe('Sidebar action dispatcher matrix (9 cells)', () => {
         expect(store.get(pendingFixReviewIssuesAtom)).toEqual({ subChatId: SC, message: 'fix these now' });
       }
     } else {
-      // arbitrary dispatch
+      // arbitrary dispatch — prime MCP injection first so the assertion call is single-line
+      if (isCli) {
+        act(() => result.current.dispatch('prime'));
+        mockWriteMutate.mockClear();
+      }
       act(() => result.current.dispatch('arbitrary text'));
       if (isCli) {
         expect(mockWriteMutate).toHaveBeenCalledOnce();

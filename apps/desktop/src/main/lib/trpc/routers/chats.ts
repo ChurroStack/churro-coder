@@ -1,8 +1,15 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { observable } from '@trpc/server/observable';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
-import { ensurePlanWritten, extractPlanTitleFromContent, markApproved, readCurrentPlan } from '../../plans/plan-store';
+import {
+  ensurePlanWritten,
+  extractPlanTitleFromContent,
+  markApproved,
+  onPlanWritten,
+  readCurrentPlan
+} from '../../plans/plan-store';
 import { readCurrentReview } from '../../reviews/review-store';
+import { onTasksWritten, readTasks } from '../../tasks/task-store';
 import { app, BrowserWindow, safeStorage } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -903,6 +910,16 @@ export const chatsRouter = router({
         }
       }
 
+      // Remove churro-coder MCP entries for all CLI sub-chats in the archived workspace.
+      // removeClaudeCliMcp is idempotent and a no-op for builtin/codex sub-chats.
+      import('../../cli-harness')
+        .then(({ removeClaudeCliMcp }) => {
+          const db2 = getDatabase();
+          const scIds = db2.select({ id: subChats.id }).from(subChats).where(eq(subChats.chatId, input.id)).all();
+          return Promise.all(scIds.map((sc) => removeClaudeCliMcp(sc.id)));
+        })
+        .catch((err) => console.warn(`[chats.archive] MCP cleanup failed for workspace ${input.id}:`, err));
+
       // Invalidate git cache for this worktree
       if (chat?.worktreePath) {
         gitCache.invalidateStatus(chat.worktreePath);
@@ -962,6 +979,19 @@ export const chatsRouter = router({
           console.error(`[chats.archiveBatch] Error killing processes:`, error);
         });
     }
+
+    // Remove churro-coder MCP entries for all CLI sub-chats across all archived workspaces.
+    import('../../cli-harness')
+      .then(({ removeClaudeCliMcp }) => {
+        const db2 = getDatabase();
+        const scIds = db2
+          .select({ id: subChats.id })
+          .from(subChats)
+          .where(inArray(subChats.chatId, input.chatIds))
+          .all();
+        return Promise.all(scIds.map((sc) => removeClaudeCliMcp(sc.id)));
+      })
+      .catch((err) => console.warn(`[chats.archiveBatch] MCP cleanup failed:`, err));
 
     return result;
   }),
@@ -1436,7 +1466,11 @@ export const chatsRouter = router({
   deleteSubChat: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
     const db = getDatabase();
     abortClaudeSessionsForSubChats([input.id]);
-    return db.delete(subChats).where(eq(subChats.id, input.id)).returning().get();
+    const deleted = db.delete(subChats).where(eq(subChats.id, input.id)).returning().get();
+    import('../../cli-harness')
+      .then(({ removeClaudeCliMcp }) => removeClaudeCliMcp(input.id))
+      .catch((err) => console.warn(`[chats.deleteSubChat] MCP cleanup failed for sub=${input.id}:`, err));
+    return deleted;
   }),
 
   /**
@@ -1451,13 +1485,18 @@ export const chatsRouter = router({
     // the truly-untouched (no name, no messages) rows are eligible.
     // Mirrors the shutdown sweep in [main/index.ts]'s before-quit
     // handler.
-    return (
+    const deleted =
       db
         .delete(subChats)
         .where(and(eq(subChats.id, input.id), eq(subChats.messageCount, 0), isNull(subChats.name)))
         .returning()
-        .get() ?? null
-    );
+        .get() ?? null;
+    if (deleted) {
+      import('../../cli-harness')
+        .then(({ removeClaudeCliMcp }) => removeClaudeCliMcp(input.id))
+        .catch((err) => console.warn(`[chats.deleteSubChatIfEmpty] MCP cleanup failed for sub=${input.id}:`, err));
+    }
+    return deleted;
   }),
 
   /**
@@ -1476,6 +1515,11 @@ export const chatsRouter = router({
       .where(and(inArray(subChats.id, input.ids), eq(subChats.messageCount, 0), isNull(subChats.name)))
       .returning()
       .all();
+    if (result.length > 0) {
+      import('../../cli-harness')
+        .then(({ removeClaudeCliMcp }) => Promise.all(result.map((sc) => removeClaudeCliMcp(sc.id))))
+        .catch((err) => console.warn(`[chats.deleteEmptySubChatsByIds] MCP cleanup failed:`, err));
+    }
     return { deleted: result.length };
   }),
 
@@ -2690,8 +2734,70 @@ export const chatsRouter = router({
       }
       const { buildBootstrap } = await import('../../cli-harness');
       const result = await buildBootstrap(input.harness, input.subChatId, resolvedCwd);
+
+      // Inject the initial user message as initialInputChunks so each write
+      // reaches the CLI TUI as an independent PTY read (prevents the TUI from
+      // treating \r characters mid-chunk as newlines instead of submits).
+      //
+      // Chunk layout for claude-cli / plan mode (three writes):
+      //   [0] "/plan\r"            → submits the slash command, switches mode
+      //   [1] bracketed-paste body → text lands in the TUI input buffer
+      //   [2] "\r"                 → standalone Enter submits the message
+      //
+      // For other modes or harnesses: two writes (body + "\r").
+      if (result && !('kind' in result)) {
+        const db = getDatabase();
+        const subChatRow = db
+          .select({ mode: subChats.mode })
+          .from(subChats)
+          .where(eq(subChats.id, input.subChatId))
+          .get();
+        const firstMsg = db
+          .select({ parts: messages.parts })
+          .from(messages)
+          .where(and(eq(messages.subChatId, input.subChatId), eq(messages.role, 'user')))
+          .orderBy(asc(messages.idx))
+          .limit(1)
+          .get();
+        if (firstMsg) {
+          let parts: Array<{ type: string; text?: string }> = [];
+          try {
+            parts = JSON.parse(firstMsg.parts) as Array<{ type: string; text?: string }>;
+          } catch {
+            // ignore parse errors — no initialInputChunks injected
+          }
+          const text = parts.find((p) => p.type === 'text')?.text?.trim();
+          if (text) {
+            const isPlanMode = subChatRow?.mode === 'plan';
+            const mcpReminder =
+              'IMPORTANT: call write_plan before ExitPlanMode; call write_review before your final review message.';
+            const body = isPlanMode ? `${mcpReminder}\n${text}` : text;
+            // Encode body: bracketed-paste when multi-line, plain text otherwise.
+            const normalized = body.replace(/\r\n/g, '\n');
+            const bodyChunk = normalized.includes('\n') ? `\x1b[200~${normalized}\x1b[201~` : normalized;
+            const chunks: string[] =
+              input.harness === 'claude-cli' && isPlanMode ? ['/plan\r', bodyChunk, '\r'] : [bodyChunk, '\r'];
+            result.initialInputChunks = chunks;
+            console.log(
+              `[buildCliBootstrap] initialInputChunks injected sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness}`
+            );
+          }
+        }
+      }
+
       return result;
     }),
+
+  /**
+   * Remove the churro-coder MCP entry from ~/.claude.json for a CLI sub-chat.
+   * Safe to call for codex-cli sessions (no entry exists there, so it's a no-op).
+   * Called by the renderer when the CLI panel is closed via the dockview tab X.
+   */
+  cleanupCliHarness: publicProcedure.input(z.object({ subChatId: z.string() })).mutation(async ({ input }) => {
+    const { removeClaudeCliMcp } = await import('../../cli-harness');
+    await removeClaudeCliMcp(input.subChatId);
+    console.log(`[buildCliBootstrap] harness cleanup sub=${input.subChatId}`);
+  }),
 
   /** Query the current OpenSpec state for a workspace. */
   openspecState: publicProcedure
@@ -2751,6 +2857,32 @@ export const chatsRouter = router({
         }
       });
       return unsubscribe;
+    });
+  }),
+
+  planWritten: publicProcedure.input(z.string().min(1)).subscription(({ input: subChatId }) => {
+    return observable<{ subChatId: string; filePath: string }>((emit) => {
+      return onPlanWritten((event) => {
+        if (event.subChatId === subChatId) {
+          emit.next(event);
+        }
+      });
+    });
+  }),
+
+  getCurrentTasks: publicProcedure.input(z.object({ subChatId: z.string() })).query(async ({ input }) => {
+    const data = await readTasks(input.subChatId);
+    if (!data) return { exists: false as const };
+    return { exists: true as const, tasks: data.tasks, meta: data.meta };
+  }),
+
+  tasksWritten: publicProcedure.input(z.string().min(1)).subscription(({ input: subChatId }) => {
+    return observable<{ subChatId: string; filePath: string }>((emit) => {
+      return onTasksWritten((event) => {
+        if (event.subChatId === subChatId) {
+          emit.next(event);
+        }
+      });
     });
   })
 });

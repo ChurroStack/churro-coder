@@ -123,6 +123,7 @@ export class TerminalManager extends EventEmitter {
     session.idleTimer = setTimeout(() => {
       if (session.isAlive) {
         console.log(`[TerminalManager] idle paneId=${paneId} silenceMs=${silenceMs}`);
+        session.isActiveOutput = false;
         this.emit(`idle:${paneId}`);
       }
     }, silenceMs);
@@ -132,6 +133,11 @@ export class TerminalManager extends EventEmitter {
   private resetIdleTimer(paneId: string): void {
     const session = this.sessions.get(paneId);
     if (!session?.idleDetection) return;
+    // Emit active event on the first data chunk after an idle period (transition only).
+    if (!session.isActiveOutput) {
+      session.isActiveOutput = true;
+      this.emit(`active:${paneId}`);
+    }
     this.startIdleTimer(paneId, session);
   }
 

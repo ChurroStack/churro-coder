@@ -7,14 +7,20 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerReadPlanTool } from './handlers/read-plan';
+import { registerWritePlanTool } from './handlers/write-plan';
 import { registerReadReviewTool } from './handlers/read-review';
 import { registerWriteReviewTool } from './handlers/write-review';
+import { registerWriteTasksTool } from './handlers/write-tasks';
+import { registerUpdateTaskStatusTool } from './handlers/update-task-status';
 
 function buildServer(opts: { boundSubChatId?: string }): McpServer {
   const server = new McpServer({ name: 'churro-coder', version: '0.1.0' });
   registerReadPlanTool(server, opts);
+  registerWritePlanTool(server, opts);
   registerWriteReviewTool(server, opts);
   registerReadReviewTool(server, opts);
+  registerWriteTasksTool(server, opts);
+  registerUpdateTaskStatusTool(server, opts);
   return server;
 }
 

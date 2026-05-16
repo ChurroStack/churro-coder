@@ -14,6 +14,7 @@ const bootstrapSchema = z
     args: z.array(z.string()).optional(),
     env: z.record(z.string()).optional(),
     initialInput: z.string().optional(),
+    initialInputChunks: z.array(z.string()).optional(),
     idleDetection: z
       .object({
         silenceMs: z.number().int().positive().optional()
@@ -231,6 +232,19 @@ export const terminalRouter = router({
       const onIdle = () => emit.next({ paneId });
       terminalManager.on(`idle:${paneId}`, onIdle);
       return () => terminalManager.off(`idle:${paneId}`, onIdle);
+    });
+  }),
+
+  /**
+   * Active subscription: emits when the terminal transitions from idle to
+   * actively producing output (first data chunk after a silent period).
+   * Consumers use this to show "working" state and gate action buttons.
+   */
+  active: publicProcedure.input(z.string().min(1)).subscription(({ input: paneId }) => {
+    return observable<{ paneId: string }>((emit) => {
+      const onActive = () => emit.next({ paneId });
+      terminalManager.on(`active:${paneId}`, onActive);
+      return () => terminalManager.off(`active:${paneId}`, onActive);
     });
   })
 });

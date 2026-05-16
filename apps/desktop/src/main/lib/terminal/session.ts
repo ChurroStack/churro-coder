@@ -166,22 +166,51 @@ export async function createSession(
     onData(paneId, data);
   });
 
-  // Write initialInput once after the first stdout chunk OR after 250ms
-  if (bootstrap?.initialInput) {
-    const input = bootstrap.initialInput.endsWith('\n') ? bootstrap.initialInput : `${bootstrap.initialInput}\n`;
-    let written = false;
-    const write = () => {
-      if (written) return;
-      written = true;
-      if (session.isAlive) {
-        session.pty.write(input);
+  // Write initialInputChunks (preferred) or initialInput once after the first
+  // stdout chunk OR after 250ms. Chunks are written sequentially with a 150ms
+  // gap so the TUI processes each write (and any mode-switch) before the next.
+  const chunks: string[] | null = bootstrap?.initialInputChunks?.length
+    ? bootstrap.initialInputChunks
+    : bootstrap?.initialInput
+      ? [bootstrap.initialInput.replace(/\n/g, '\r').replace(/\r?$/, '\r')]
+      : null;
+
+  if (chunks) {
+    let started = false;
+
+    const writeSequentially = (remaining: string[]) => {
+      if (remaining.length === 0) return;
+      const [head, ...rest] = remaining;
+      if (session.isAlive) session.pty.write(head);
+      if (rest.length > 0) {
+        setTimeout(() => writeSequentially(rest), 150);
       }
     };
-    const ceiling = setTimeout(write, 250);
+
+    const start = () => {
+      if (started) return;
+      started = true;
+      writeSequentially(chunks);
+    };
+
+    // Wait for idle (silenceMs of no output) before writing — the CLI TUI
+    // input handler isn't ready until it has printed its startup banner and
+    // reached its prompt. Fires on the first silence window; the 15s ceiling
+    // is a last-resort fallback so chunks are never dropped silently.
+    const silenceMs = bootstrap?.idleDetection?.silenceMs ?? 1000;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const ceiling = setTimeout(start, 15_000);
     const dataHandle = ptyProcess.onData(() => {
-      clearTimeout(ceiling);
-      dataHandle.dispose();
-      write();
+      if (started) {
+        dataHandle.dispose();
+        clearTimeout(ceiling);
+        return;
+      }
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        clearTimeout(ceiling);
+        start();
+      }, silenceMs);
     });
   }
 

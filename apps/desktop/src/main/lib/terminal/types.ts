@@ -26,6 +26,8 @@ export interface TerminalSession {
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Idle detection config, stored for reset-on-data logic in manager. */
   idleDetection?: TerminalBootstrap['idleDetection'];
+  /** True while the PTY is actively producing output (cleared when idle fires). */
+  isActiveOutput?: boolean;
 }
 
 export interface TerminalDataEvent {
@@ -62,6 +64,13 @@ export interface TerminalBootstrap {
    * A trailing newline is appended automatically.
    */
   initialInput?: string;
+  /**
+   * Sequence of raw PTY writes issued after the first stdout arrives.
+   * Each element is written with a small delay between it and the next so
+   * the TUI processes each chunk (and any resulting mode-switch) before the
+   * next arrives. Takes precedence over `initialInput` when both are set.
+   */
+  initialInputChunks?: string[];
   /** Optional idle-detection config. */
   idleDetection?: {
     /** How long (ms) of PTY silence before emitting an `idle` event. Default 30 000. */

@@ -68,6 +68,20 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   const effectiveSubChatId = activeSubChatId ?? chatId ?? '';
   const planPath = useAtomValue(currentPlanPathAtomFamily(effectiveSubChatId));
   const planRefetchTrigger = useAtomValue(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
+  const setCurrentPlanPath = useSetAtom(currentPlanPathAtomFamily(effectiveSubChatId));
+  const triggerPlanRefetch = useSetAtom(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
+
+  // Live-update: when the CLI MCP write_plan tool writes a plan, the main
+  // process emits this subscription event so we update the path atom and
+  // increment the refetch trigger without requiring a manual refresh.
+  trpc.chats.planWritten.useSubscription(effectiveSubChatId, {
+    enabled: !!effectiveSubChatId,
+    onData({ filePath }) {
+      setCurrentPlanPath(filePath);
+      triggerPlanRefetch();
+      console.log(`[DetailsRail] plan-written sub=${effectiveSubChatId} path=${filePath}`);
+    }
+  });
   const { mode: subChatMode } = useSubChatMode(activeSubChatId ?? '');
   const defaultMode = useAtomValue(defaultAgentModeAtom);
   const currentMode = activeSubChatId ? subChatMode : defaultMode;

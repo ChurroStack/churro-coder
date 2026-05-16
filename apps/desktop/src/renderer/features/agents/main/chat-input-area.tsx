@@ -52,6 +52,7 @@ import {
   subChatModelIdAtomFamily,
   getNextMode,
   subChatNonOwnerSetAtom,
+  agentFinishedTickAtomFamily,
   type AgentMode,
   type SubChatFileChange
 } from '../atoms';
@@ -454,14 +455,27 @@ export const ChatInputArea = memo(function ChatInputArea({
   const nonOwners = useAtomValue(subChatNonOwnerSetAtom);
   const isPanelReadOnly = nonOwners.has(subChatId ?? '');
 
-  // Advisory-busy hint for CLI harness: dims the Send button while the CLI is processing.
-  // The idle event from the terminal signals it is ready for more input.
+  // Advisory-busy hint for CLI harness: dims the Send button while the terminal
+  // is actively producing output (set by active event, cleared by idle event).
+  // The active→idle transition also refreshes the sidebar widgets.
   // Force-send always works — this is purely visual.
   const [cliAdvisoryBusy, setCliAdvisoryBusy] = useState(false);
   const cliPaneId = isCliHarness ? `cli:${subChatId}` : null;
+  const tickSubChat = useSetAtom(useMemo(() => agentFinishedTickAtomFamily(subChatId ?? ''), [subChatId]));
+  const tickChat = useSetAtom(useMemo(() => agentFinishedTickAtomFamily(parentChatId ?? ''), [parentChatId]));
+  trpc.terminal.active.useSubscription(cliPaneId ?? '', {
+    enabled: !!cliPaneId,
+    onData: () => setCliAdvisoryBusy(true)
+  });
   trpc.terminal.idle.useSubscription(cliPaneId ?? '', {
     enabled: !!cliPaneId,
-    onData: () => setCliAdvisoryBusy(false)
+    onData: () => {
+      setCliAdvisoryBusy(false);
+      // Refresh sidebar widgets (git diff, workflow state, plan panel) the same
+      // way the builtin agent does when a run finishes.
+      tickSubChat();
+      tickChat();
+    }
   });
 
   // Model dropdown state

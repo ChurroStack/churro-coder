@@ -11,7 +11,7 @@ import { renderHook, act } from '@testing-library/react';
 import { createStore } from 'jotai';
 import { Provider as JotaiProvider } from 'jotai';
 import React from 'react';
-import { useHarnessSendDispatcher } from './use-harness-send-dispatcher';
+import { useHarnessSendDispatcher, _resetMcpInjectedSessions } from './use-harness-send-dispatcher';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { pendingBuildPlanSubChatIdAtom, pendingFixReviewIssuesAtom } from '../atoms';
 
@@ -59,8 +59,11 @@ function renderDispatcher(subChatId = SUB_CHAT_ID) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+const CLI_MCP_REMINDER = 'IMPORTANT: call write_plan before ExitPlanMode.';
+
 beforeEach(() => {
   mockWriteMutate.mockClear();
+  _resetMcpInjectedSessions();
   useAgentSubChatStore.setState({
     chatId: null,
     activeSubChatId: null,
@@ -97,11 +100,41 @@ describe('useHarnessSendDispatcher — builtin', () => {
 });
 
 describe('useHarnessSendDispatcher — claude-cli', () => {
-  test('dispatch() writes text + newline to cli:<subChatId>', () => {
+  test('dispatch() first message sends bracketed-paste body then standalone \\r', () => {
     seedStore('claude-cli');
     const { result } = renderDispatcher();
     act(() => result.current.dispatch('my prompt'));
+    expect(mockWriteMutate).toHaveBeenCalledTimes(2);
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(1, {
+      paneId: `cli:${SUB_CHAT_ID}`,
+      data: `\x1b[200~${CLI_MCP_REMINDER}\nmy prompt\x1b[201~`
+    });
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(2, { paneId: `cli:${SUB_CHAT_ID}`, data: '\r' });
+  });
+
+  test('dispatch() subsequent message (single-line) uses plain CR', () => {
+    seedStore('claude-cli');
+    const { result } = renderDispatcher();
+    // First call injects MCP reminder; second call does not.
+    act(() => result.current.dispatch('first'));
+    mockWriteMutate.mockClear();
+    act(() => result.current.dispatch('my prompt'));
     expect(mockWriteMutate).toHaveBeenCalledWith({ paneId: `cli:${SUB_CHAT_ID}`, data: 'my prompt\r' });
+  });
+
+  test('dispatch() multi-line user text sends bracketed-paste body then standalone \\r', () => {
+    seedStore('claude-cli');
+    const { result } = renderDispatcher();
+    // Prime MCP injection so this call is not the first message.
+    act(() => result.current.dispatch('prime'));
+    mockWriteMutate.mockClear();
+    act(() => result.current.dispatch('line one\nline two'));
+    expect(mockWriteMutate).toHaveBeenCalledTimes(2);
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(1, {
+      paneId: `cli:${SUB_CHAT_ID}`,
+      data: '\x1b[200~line one\nline two\x1b[201~'
+    });
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(2, { paneId: `cli:${SUB_CHAT_ID}`, data: '\r' });
   });
 
   test('dispatchBuildPlan() writes approve instruction to terminal', () => {
@@ -112,6 +145,23 @@ describe('useHarnessSendDispatcher — claude-cli', () => {
       paneId: `cli:${SUB_CHAT_ID}`,
       data: expect.stringContaining('approved')
     });
+  });
+
+  test('dispatchBuildPlan() approval message contains write_tasks instruction', () => {
+    seedStore('claude-cli');
+    const { result } = renderDispatcher();
+    act(() => result.current.dispatchBuildPlan());
+    const calls = (mockWriteMutate.mock.calls as Array<[{ data: string }]>).map((c) => c[0].data).join('');
+    expect(calls).toContain('write_tasks');
+    expect(calls).toContain('update_task_status');
+  });
+
+  test('dispatchBuildPlan() for builtin sets pendingBuildPlanSubChatIdAtom and does NOT write to PTY', () => {
+    seedStore('builtin');
+    const { result, store } = renderDispatcher();
+    act(() => result.current.dispatchBuildPlan());
+    expect(mockWriteMutate).not.toHaveBeenCalled();
+    expect(store.get(pendingBuildPlanSubChatIdAtom)).toBe(SUB_CHAT_ID);
   });
 
   test('dispatchFixReviewIssues() writes the message to the terminal', () => {
@@ -126,9 +176,12 @@ describe('useHarnessSendDispatcher — claude-cli', () => {
 });
 
 describe('useHarnessSendDispatcher — codex-cli', () => {
-  test('dispatch() routes to terminal for codex-cli', () => {
+  test('dispatch() routes to terminal for codex-cli (subsequent message)', () => {
     seedStore('codex-cli');
     const { result } = renderDispatcher();
+    // Prime MCP injection; second call is single-line plain CR.
+    act(() => result.current.dispatch('prime'));
+    mockWriteMutate.mockClear();
     act(() => result.current.dispatch('codex prompt'));
     expect(mockWriteMutate).toHaveBeenCalledWith({ paneId: `cli:${SUB_CHAT_ID}`, data: 'codex prompt\r' });
   });
