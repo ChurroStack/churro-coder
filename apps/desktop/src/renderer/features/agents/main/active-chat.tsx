@@ -79,17 +79,17 @@ import {
   loadingSubChatsAtom,
   MODEL_ID_MAP,
   pendingAuthRetryMessageAtom,
-  pendingBuildPlanSubChatIdAtom,
-  pendingConflictResolutionMessageAtom,
-  pendingFixReviewIssuesAtom,
-  pendingContinueMessageAtom,
+  pendingBuildPlanAtomFamily,
+  pendingConflictResolutionMessageAtomFamily,
+  pendingFixReviewIssuesAtomFamily,
+  pendingContinueMessageAtomFamily,
   pendingChatHistoryAtom,
   type PendingChatHistory,
   pendingMentionAtom,
-  pendingMergeBaseMessageAtom,
+  pendingMergeBaseMessageAtomFamily,
   pendingPlanApprovalsAtom,
-  pendingPrMessageAtom,
-  pendingReviewMessageAtom,
+  pendingPrMessageAtomFamily,
+  pendingReviewMessageAtomFamily,
   pendingUserQuestionsAtom,
   agentFinishedTickAtomFamily,
   planEditRefetchTriggerAtomFamily,
@@ -753,7 +753,14 @@ export const ChatViewInner = memo(function ChatViewInner({
         return;
       }
 
-      // Revert local state on error to maintain sync with database
+      // Revert local state on error to maintain sync with database.
+      // `variables` can be undefined when the mock-api mutateAsync wrapper
+      // short-circuits before invoking the inner tRPC mutation — guard so
+      // we don't crash the renderer ('Cannot read properties of undefined (reading mode)').
+      if (!variables) {
+        console.error('Failed to update sub-chat mode (no variables):', error.message);
+        return;
+      }
       const revertedMode: AgentMode = variables.mode === 'plan' ? 'execute' : 'plan';
       setSubChatMode(revertedMode);
       // Also update store for consistency
@@ -1335,11 +1342,25 @@ export const ChatViewInner = memo(function ChatViewInner({
     [subChatId, sendMessage, isStreaming]
   );
 
+  // Per-subChat pending atoms — each ChatViewInner mount reads only its own
+  // subChat's atom. The previous global-singleton shape allowed a sibling
+  // subChat's payload to clobber this one mid-render. See AGENTS.md →
+  // Per-subChat isolation invariant. The atom value is just the message body
+  // (or boolean for trigger-only atoms); subChatId is implicit in the family key.
+  const pendingPrAtom = useMemo(() => pendingPrMessageAtomFamily(subChatId), [subChatId]);
+  const pendingReviewAtom = useMemo(() => pendingReviewMessageAtomFamily(subChatId), [subChatId]);
+  const pendingFixReviewIssuesAtomLocal = useMemo(() => pendingFixReviewIssuesAtomFamily(subChatId), [subChatId]);
+  const pendingConflictAtom = useMemo(() => pendingConflictResolutionMessageAtomFamily(subChatId), [subChatId]);
+  const pendingMergeBaseAtom = useMemo(() => pendingMergeBaseMessageAtomFamily(subChatId), [subChatId]);
+  const pendingContinueAtom = useMemo(() => pendingContinueMessageAtomFamily(subChatId), [subChatId]);
+  const pendingBuildPlanAtom = useMemo(() => pendingBuildPlanAtomFamily(subChatId), [subChatId]);
+
   // Watch for pending PR message and send it
-  const [pendingPrMessage, setPendingPrMessage] = useAtom(pendingPrMessageAtom);
+  const [pendingPrMessage, setPendingPrMessage] = useAtom(pendingPrAtom);
   useEffect(() => {
+    const normalized = pendingPrMessage ? { subChatId, message: pendingPrMessage } : null;
     void sendPending(
-      pendingPrMessage,
+      normalized,
       () => setPendingPrMessage(null),
       () => {
         setIsCreatingPr(false);
@@ -1348,50 +1369,52 @@ export const ChatViewInner = memo(function ChatViewInner({
         store.setActiveSubChat(subChatId, parentChatId);
       }
     );
-  }, [pendingPrMessage, sendPending, setPendingPrMessage, setIsCreatingPr, subChatId]);
+  }, [pendingPrMessage, sendPending, setPendingPrMessage, setIsCreatingPr, subChatId, parentChatId]);
 
   // Watch for pending Review message and send it
-  const [pendingReviewMessage, setPendingReviewMessage] = useAtom(pendingReviewMessageAtom);
+  const [pendingReviewMessage, setPendingReviewMessage] = useAtom(pendingReviewAtom);
   useEffect(() => {
-    void sendPending(pendingReviewMessage, () => setPendingReviewMessage(null));
-  }, [pendingReviewMessage, sendPending, setPendingReviewMessage]);
+    const normalized = pendingReviewMessage ? { subChatId, message: pendingReviewMessage } : null;
+    void sendPending(normalized, () => setPendingReviewMessage(null));
+  }, [pendingReviewMessage, sendPending, setPendingReviewMessage, subChatId]);
 
   // Watch for "Fix issues" from review card and send the fix-review-issues prompt
-  const [pendingFixReviewIssues, setPendingFixReviewIssues] = useAtom(pendingFixReviewIssuesAtom);
+  const [pendingFixReviewIssues, setPendingFixReviewIssues] = useAtom(pendingFixReviewIssuesAtomLocal);
   useEffect(() => {
-    void sendPending(pendingFixReviewIssues, () => setPendingFixReviewIssues(null));
-  }, [pendingFixReviewIssues, sendPending, setPendingFixReviewIssues]);
+    const normalized = pendingFixReviewIssues ? { subChatId, message: pendingFixReviewIssues } : null;
+    void sendPending(normalized, () => setPendingFixReviewIssues(null));
+  }, [pendingFixReviewIssues, sendPending, setPendingFixReviewIssues, subChatId]);
 
   // Watch for pending conflict resolution message and send it
-  const [pendingConflictMessage, setPendingConflictMessage] = useAtom(pendingConflictResolutionMessageAtom);
+  const [pendingConflictMessage, setPendingConflictMessage] = useAtom(pendingConflictAtom);
   useEffect(() => {
-    void sendPending(pendingConflictMessage, () => setPendingConflictMessage(null));
-  }, [pendingConflictMessage, sendPending, setPendingConflictMessage]);
+    const normalized = pendingConflictMessage ? { subChatId, message: pendingConflictMessage } : null;
+    void sendPending(normalized, () => setPendingConflictMessage(null));
+  }, [pendingConflictMessage, sendPending, setPendingConflictMessage, subChatId]);
 
   // Watch for pending merge-base message and send it (Status widget action)
-  const [pendingMergeBaseMessage, setPendingMergeBaseMessage] = useAtom(pendingMergeBaseMessageAtom);
+  const [pendingMergeBaseMessage, setPendingMergeBaseMessage] = useAtom(pendingMergeBaseAtom);
   useEffect(() => {
-    void sendPending(pendingMergeBaseMessage, () => setPendingMergeBaseMessage(null));
-  }, [pendingMergeBaseMessage, sendPending, setPendingMergeBaseMessage]);
+    const normalized = pendingMergeBaseMessage ? { subChatId, message: pendingMergeBaseMessage } : null;
+    void sendPending(normalized, () => setPendingMergeBaseMessage(null));
+  }, [pendingMergeBaseMessage, sendPending, setPendingMergeBaseMessage, subChatId]);
 
-  // Watch for pending Continue message and send it. The atom carries a flag
-  // shape (`{ subChatId, ts }`) rather than a message body — the body is the
-  // literal string "Continue", so we override `message` here.
-  const [pendingContinueMessage, setPendingContinueMessage] = useAtom(pendingContinueMessageAtom);
+  // Watch for pending Continue trigger and send the literal "Continue" body.
+  // The atom is now a boolean flag (per-subChat family); the body is hard-coded.
+  const [pendingContinueMessage, setPendingContinueMessage] = useAtom(pendingContinueAtom);
   useEffect(() => {
-    const synthesized = pendingContinueMessage
-      ? { subChatId: pendingContinueMessage.subChatId, message: 'Continue' }
-      : null;
-    void sendPending(synthesized, () => setPendingContinueMessage(null));
-  }, [pendingContinueMessage, sendPending, setPendingContinueMessage]);
+    const synthesized = pendingContinueMessage ? { subChatId, message: 'Continue' } : null;
+    void sendPending(synthesized, () => setPendingContinueMessage(false));
+  }, [pendingContinueMessage, sendPending, setPendingContinueMessage, subChatId]);
 
   const [pendingOpenSpecMessage, setPendingOpenSpecMessage] = useAtom(pendingOpenSpecMessageAtom);
   useEffect(() => {
     void sendPending(pendingOpenSpecMessage, () => setPendingOpenSpecMessage(null));
   }, [pendingOpenSpecMessage, sendPending, setPendingOpenSpecMessage]);
 
-  // Handle pending "Build plan" from sidebar (atom - effect is defined after handleApprovePlan)
-  const [pendingBuildPlanSubChatId, setPendingBuildPlanSubChatId] = useAtom(pendingBuildPlanSubChatIdAtom);
+  // Handle pending "Build plan" from sidebar (per-subChat trigger flag —
+  // effect is defined after handleApprovePlan).
+  const [pendingBuildPlan, setPendingBuildPlan] = useAtom(pendingBuildPlanAtom);
 
   // Pending user questions from AskUserQuestion tool
   const [pendingQuestionsMap, setPendingQuestionsMap] = useAtom(pendingUserQuestionsAtom);
@@ -1882,17 +1905,18 @@ export const ChatViewInner = memo(function ChatViewInner({
   }, [subChatId, planDeps]);
 
   // Handle pending "Build plan" from sidebar / plan-tool Approve button.
-  // `pendingBuildPlanSubChatIdAtom` is module-global. ChatViewInner is mounted
-  // from BOTH the legacy active-chat layout (active-chat.tsx) and the
-  // dockview ChatPanel (chat-panel.tsx → AgentsContent → ChatView). Without
-  // `isActive`, multiple mounts for the same subChatId all dispatch
-  // handleApprovePlan from the same atom write, which races the cross-provider
-  // transport teardown/recreation and crashes the renderer.
+  // The atom is now `pendingBuildPlanAtomFamily(subChatId)` — only mounts of
+  // THIS subChat see a true value, so no cross-subChat guard is needed. The
+  // `isActive` gate still matters because ChatViewInner is mounted from BOTH
+  // the legacy active-chat layout AND the dockview ChatPanel for the SAME
+  // subChatId; without `isActive`, both mounts would dispatch handleApprovePlan
+  // from the same atom write, racing the cross-provider transport
+  // teardown/recreation and crashing the renderer.
   useEffect(() => {
-    if (pendingBuildPlanSubChatId !== subChatId || !isActive) return;
-    setPendingBuildPlanSubChatId(null);
+    if (!pendingBuildPlan || !isActive) return;
+    setPendingBuildPlan(false);
     handleApprovePlan();
-  }, [pendingBuildPlanSubChatId, subChatId, isActive, setPendingBuildPlanSubChatId, handleApprovePlan]);
+  }, [pendingBuildPlan, isActive, setPendingBuildPlan, handleApprovePlan]);
 
   // Detect PR URLs in assistant messages and store them
   // Initialize with existing PR URL to prevent duplicate toast on re-mount
@@ -4663,9 +4687,9 @@ export function ChatView({
     }
   }, [worktreePath, createPrMutation]);
 
-  // Handle Create PR with AI - sends a message to Claude to create the PR
-  const setPendingPrMessage = useSetAtom(pendingPrMessageAtom);
-
+  // Handle Create PR with AI — sends a message to Claude to create the PR.
+  // The target subchat is chosen dynamically (the currently-active one in this
+  // window), so we write through the family atom imperatively via appStore.
   const handleCreatePr = useCallback(async () => {
     if (!chatId) {
       toast.error('Chat ID is required', { position: 'top-center' });
@@ -4696,13 +4720,13 @@ export function ChatView({
 
       // Generate message and set it for ChatViewInner to send
       const message = generatePrMessage(context);
-      setPendingPrMessage({ message, subChatId: activeSubChatId });
+      appStore.set(pendingPrMessageAtomFamily(activeSubChatId), message);
       // Don't reset isCreatingPr here - it will be reset after message is sent
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to prepare PR request', { position: 'top-center' });
       setIsCreatingPr(false);
     }
-  }, [chatId, setPendingPrMessage, setIsCreatingPr]);
+  }, [chatId, setIsCreatingPr]);
 
   // Handle Commit to existing PR - sends a message to Claude to commit and push
   // selectedPaths parameter is optional - if provided, only those files will be mentioned
@@ -4735,7 +4759,7 @@ export function ChatView({
         }
 
         const message = generateCommitToPrMessage(context);
-        setPendingPrMessage({ message, subChatId: activeSubChatId });
+        appStore.set(pendingPrMessageAtomFamily(activeSubChatId), message);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to prepare commit request', {
           position: 'top-center'
@@ -4744,7 +4768,7 @@ export function ChatView({
         setIsCommittingToPr(false);
       }
     },
-    [chatId, setPendingPrMessage, setIsCommittingToPr]
+    [chatId, setIsCommittingToPr]
   );
 
   // Review handler thin wrapper — the chat is already focused so no panel navigation.
@@ -4752,17 +4776,17 @@ export function ChatView({
     await runReview();
   }, [runReview]);
 
-  // Handle Fix Conflicts - sends a message to Claude to sync with main and fix merge conflicts
-  const setPendingConflictResolutionMessage = useSetAtom(pendingConflictResolutionMessageAtom);
-
+  // Handle Fix Conflicts — sends a message to Claude to sync with main and
+  // fix merge conflicts. Target is the dynamically-active subChat in this
+  // window; write through the family atom imperatively via appStore.
   const handleFixConflicts = useCallback(() => {
     if (activeSubChatId) {
-      setPendingConflictResolutionMessage({
-        message: renderBuiltinPrompt('workflow/fix-conflicts'),
-        subChatId: activeSubChatId
-      });
+      appStore.set(
+        pendingConflictResolutionMessageAtomFamily(activeSubChatId),
+        renderBuiltinPrompt('workflow/fix-conflicts')
+      );
     }
-  }, [activeSubChatId, setPendingConflictResolutionMessage]);
+  }, [activeSubChatId]);
 
   // Fetch branch data for diff sidebar header
   const { data: branchData } = trpc.changes.getBranches.useQuery(

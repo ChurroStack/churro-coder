@@ -5,10 +5,9 @@ import React from 'react';
 
 // ── hoisted mock refs (must precede vi.mock calls) ────────────────────────────
 
-const { mockIsStreaming, mockGetCurrentTasksQuery, mockTasksWrittenSubscription } = vi.hoisted(() => ({
+const { mockIsStreaming, mockGetCurrentTasksQuery } = vi.hoisted(() => ({
   mockIsStreaming: vi.fn(() => false),
-  mockGetCurrentTasksQuery: vi.fn(),
-  mockTasksWrittenSubscription: vi.fn()
+  mockGetCurrentTasksQuery: vi.fn()
 }));
 
 // ── streaming status mock ─────────────────────────────────────────────────────
@@ -38,9 +37,6 @@ vi.mock('@/lib/trpc', () => ({
     chats: {
       getCurrentTasks: {
         useQuery: mockGetCurrentTasksQuery
-      },
-      tasksWritten: {
-        useSubscription: mockTasksWrittenSubscription
       }
     }
   }
@@ -62,8 +58,7 @@ afterEach(cleanup);
 
 beforeEach(() => {
   mockIsStreaming.mockReturnValue(false);
-  mockGetCurrentTasksQuery.mockReturnValue({ data: { exists: false }, refetch: vi.fn() });
-  mockTasksWrittenSubscription.mockImplementation(() => undefined);
+  mockGetCurrentTasksQuery.mockReturnValue({ data: { exists: false } });
 });
 
 describe('TasksWidget — plan-progress section [tasks-widget/plan-progress]', () => {
@@ -82,8 +77,7 @@ describe('TasksWidget — plan-progress section [tasks-widget/plan-progress]', (
           { id: 'step-3', title: 'Ship it', status: 'pending' }
         ],
         meta: { source: 'test', updatedAt: new Date().toISOString() }
-      },
-      refetch: vi.fn()
+      }
     });
 
     render(<TasksWidget subChatId="sc-2" />);
@@ -115,8 +109,7 @@ describe('TasksWidget — plan-progress section [tasks-widget/plan-progress]', (
         exists: true,
         tasks: [{ id: 'step-1', title: 'Do the thing', status: 'pending' }],
         meta: { source: 'test', updatedAt: new Date().toISOString() }
-      },
-      refetch: vi.fn()
+      }
     });
 
     render(<TasksWidget subChatId="sc-4" />);

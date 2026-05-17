@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { atom, useAtomValue } from 'jotai';
 import { atomFamily } from 'jotai/utils';
 import { Activity, CheckCircle2, Circle, Loader2 } from 'lucide-react';
@@ -71,13 +71,7 @@ function PlanTaskStatusIcon({ status }: { status: TaskStatus }) {
 }
 
 function PlanProgressCard({ subChatId }: { subChatId: string }) {
-  const { data, refetch } = trpc.chats.getCurrentTasks.useQuery({ subChatId }, { staleTime: 10_000 });
-
-  trpc.chats.tasksWritten.useSubscription(subChatId, {
-    onData() {
-      void refetch();
-    }
-  });
+  const { data } = trpc.chats.getCurrentTasks.useQuery({ subChatId }, { staleTime: 10_000 });
 
   if (!data?.exists || data.tasks.length === 0) return null;
 
@@ -212,10 +206,14 @@ export const TasksWidget = memo(function TasksWidget({ subChatId }: TasksWidgetP
   }, [tasks]);
 
   // Fetch persisted tasks to decide visibility when not streaming.
+  // Refreshes are driven centrally: DetailsRail's artifactWritten subscription
+  // invalidates this query whenever write_tasks/update_task_status fires, and
+  // the terminal-idle handler in chat-input-area also invalidates it.
   const { data: persistedTasksData } = trpc.chats.getCurrentTasks.useQuery(
     { subChatId: key },
     { staleTime: 10_000, enabled: !isStreaming }
   );
+
   const hasPersisted = persistedTasksData?.exists && (persistedTasksData.tasks?.length ?? 0) > 0;
 
   // Show the widget when streaming OR when a persisted task list exists.

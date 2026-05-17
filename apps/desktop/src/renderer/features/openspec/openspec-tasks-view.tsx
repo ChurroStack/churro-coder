@@ -133,7 +133,10 @@ export function OpenSpecTasksView({
                   Stop
                 </Button>
               ) : (
-                <Button size="sm" disabled={isStreaming} onClick={() => void runOpenSpecAction('/opsx:apply', 'apply')}>
+                <Button
+                  size="sm"
+                  disabled={isStreaming}
+                  onClick={() => void runOpenSpecAction({ verb: 'apply', kind: 'apply' })}>
                   {isStreaming ? (
                     <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                   ) : (
@@ -161,8 +164,8 @@ export function OpenSpecTasksView({
               total={sectionTotal}
               allDone={allDone}
               isStreaming={isStreaming}
-              onRunSection={(scope) => void runOpenSpecAction(`/opsx:apply ${scope}`, 'apply')}
-              onRunTask={(scope) => void runOpenSpecAction(`/opsx:apply ${scope}`, 'apply')}
+              onRunSection={(scope) => void runOpenSpecAction({ verb: 'apply', args: scope, kind: 'apply' })}
+              onRunTask={(scope) => void runOpenSpecAction({ verb: 'apply', args: scope, kind: 'apply' })}
               onToggleTask={handleTaskToggle}
             />
           );

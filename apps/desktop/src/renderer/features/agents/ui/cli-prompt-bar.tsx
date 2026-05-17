@@ -1,12 +1,34 @@
-import { useState, useRef, useMemo, useCallback } from 'react';
-import { useAtom } from 'jotai';
-import { ChevronDown, X } from 'lucide-react';
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import { useAtom, useAtomValue } from 'jotai';
+import { ChevronDown, X, RotateCcw } from 'lucide-react';
 import { useHarnessSendDispatcher } from '../hooks/use-harness-send-dispatcher';
+import { HARNESS_LABELS } from '../lib/harness-icons';
 import { AgentSendButton } from '../components/agent-send-button';
 import { VoiceWaveIndicator } from './voice-wave-indicator';
 import { trpc } from '../../../lib/trpc';
 import { CLAUDE_MODELS, formatClaudeThinkingLabel, type ClaudeThinkingLevel } from '../lib/models';
-import { subChatModelIdAtomFamily, subChatClaudeThinkingAtomFamily } from '../atoms';
+import {
+  subChatModelIdAtomFamily,
+  subChatClaudeThinkingAtomFamily,
+  subChatCliRestartHandlerAtomFamily
+} from '../atoms';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '../../../components/ui/alert-dialog';
+import {
+  pendingOpenSpecMessageAtom,
+  openSpecSidebarContextAtomFamily,
+  openSpecCurrentStepAtomFamily
+} from '../../openspec/atoms';
+import { buildOpenSpecCliPrefixedMessage } from '../../openspec/step-prefix';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,11 +84,53 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
   const resolvedHarness = harness ?? storeHarness;
   const isCodexCli = resolvedHarness === 'codex-cli';
 
+  const [showRestartDialog, setShowRestartDialog] = useState(false);
+  const cliRestartHandler = useAtomValue(useMemo(() => subChatCliRestartHandlerAtomFamily(subChatId), [subChatId]));
+
   const modelAtom = useMemo(() => subChatModelIdAtomFamily(subChatId), [subChatId]);
   const [selectedModelId, setSelectedModelId] = useAtom(modelAtom);
 
   const thinkingAtom = useMemo(() => subChatClaudeThinkingAtomFamily(subChatId), [subChatId]);
   const [selectedThinking, setSelectedThinking] = useAtom(thinkingAtom);
+
+  const [pendingOpenSpecMessage, setPendingOpenSpecMessage] = useAtom(pendingOpenSpecMessageAtom);
+  const [cliReadyToReceive, setCliReadyToReceive] = useState(false);
+
+  // OpenSpec context: when the CLI surface is mounted as the sidebar of an
+  // OpenSpec change editor, prefix outgoing prompts with `/opsx:propose` or
+  // `/opsx:apply` based on the active tab so the CLI runs the right workflow.
+  const openSpecContextAtom = useMemo(() => openSpecSidebarContextAtomFamily(subChatId), [subChatId]);
+  const openSpecContext = useAtomValue(openSpecContextAtom);
+  const openSpecCurrentStepAtom = useMemo(() => openSpecCurrentStepAtomFamily(subChatId), [subChatId]);
+  const openSpecCurrentStep = useAtomValue(openSpecCurrentStepAtom);
+  const isOpenSpec = openSpecContext !== null;
+
+  trpc.terminal.state.useSubscription(`cli:${subChatId}`, {
+    enabled: resolvedHarness !== 'builtin' && !cliReadyToReceive,
+    onData: ({ state }) => {
+      if (state === 'idle') setCliReadyToReceive(true);
+    }
+  });
+
+  useEffect(() => {
+    if (!cliReadyToReceive) return;
+    if (!pendingOpenSpecMessage) return;
+    if (pendingOpenSpecMessage.subChatId !== subChatId) return;
+    if (!isOwner) return;
+    if (resolvedHarness === 'builtin') return;
+    const changeIdPrefix = pendingOpenSpecMessage.message.split('\n')[0]?.slice(0, 40) ?? '';
+    console.log(`[openspec/cli-bootstrap] dispatched subChat=${subChatId} changeIdPrefix=${changeIdPrefix}`);
+    dispatch(pendingOpenSpecMessage.message);
+    setPendingOpenSpecMessage(null);
+  }, [
+    cliReadyToReceive,
+    pendingOpenSpecMessage,
+    subChatId,
+    isOwner,
+    resolvedHarness,
+    dispatch,
+    setPendingOpenSpecMessage
+  ]);
 
   const selectedModel = useMemo(
     () => CLAUDE_MODELS.find((m) => m.id === selectedModelId) ?? CLAUDE_MODELS[0]!,
@@ -111,13 +175,19 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
 
     const imageRefs = pastedImages.map((img) => `@${img.path}`).join(' ');
     const fullText = imageRefs ? (trimmed ? `${imageRefs}\n${trimmed}` : imageRefs) : trimmed;
-    dispatch(fullText);
+    const messageToSend = buildOpenSpecCliPrefixedMessage({
+      message: fullText,
+      isOpenSpec,
+      currentStep: openSpecCurrentStep,
+      harness: resolvedHarness
+    });
+    dispatch(messageToSend);
 
     pastedImages.forEach((img) => URL.revokeObjectURL(img.objectUrl));
     setPastedImages([]);
     setText('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-  }, [isOwner, text, pastedImages, dispatch]);
+  }, [isOwner, text, pastedImages, dispatch, isOpenSpec, openSpecCurrentStep, resolvedHarness]);
 
   const handleSlashSelect = useCallback(
     (command: SlashCommandOption) => {
@@ -314,6 +384,23 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
           </>
         )}
 
+        {/* Restart button — visible on CLI harnesses; triggers kill + re-inject */}
+        {(resolvedHarness === 'claude-cli' || resolvedHarness === 'codex-cli') && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label="Restart CLI"
+                data-testid="cli-restart-button"
+                disabled={!isOwner}
+                onClick={() => setShowRestartDialog(true)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded px-1.5 py-1 hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed">
+                <RotateCcw size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Restart CLI session</TooltipContent>
+          </Tooltip>
+        )}
+
         <div className="flex-1" />
 
         {isVoiceRecording && <VoiceWaveIndicator isRecording={isVoiceRecording} audioLevel={voiceAudioLevel} />}
@@ -341,6 +428,32 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
         position={slashPosition}
         projectPath={projectPath}
       />
+
+      {/* Restart CLI confirmation dialog */}
+      <AlertDialog open={showRestartDialog} onOpenChange={setShowRestartDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Restart {HARNESS_LABELS[resolvedHarness as 'claude-cli' | 'codex-cli'] ?? 'CLI'} session?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The CLI will be killed and re-launched, and the first user message will be re-sent.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowRestartDialog(false);
+                if (cliRestartHandler) {
+                  void cliRestartHandler();
+                }
+              }}>
+              Restart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

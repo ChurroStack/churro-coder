@@ -20,24 +20,56 @@ import React from 'react';
 
 const mockBuildCliBootstrap = vi.hoisted(() => vi.fn(async () => ({ command: 'claude', args: [], env: {} })));
 
-vi.mock('@/lib/trpc', () => ({
-  trpc: {
-    chats: {
-      buildCliBootstrap: {
-        useMutation: vi.fn(() => ({
-          mutate: mockBuildCliBootstrap,
-          mutateAsync: mockBuildCliBootstrap,
-          isPending: false
-        }))
+vi.mock('@/lib/trpc', () => {
+  const emptyQuery = () => ({ data: undefined, isLoading: false });
+  const emptyMutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
+  const emptyInvalidate = { invalidate: vi.fn() };
+  return {
+    trpc: {
+      useUtils: vi.fn(() => ({
+        chats: {
+          getPrStatus: emptyInvalidate,
+          getCurrentPlan: emptyInvalidate,
+          getCurrentReview: emptyInvalidate,
+          getReviewContent: emptyInvalidate,
+          getCurrentTasks: emptyInvalidate,
+          get: emptyInvalidate
+        },
+        changes: { getStatus: emptyInvalidate, getBranches: emptyInvalidate }
+      })),
+      chats: {
+        buildCliBootstrap: {
+          useMutation: vi.fn(() => ({
+            mutate: mockBuildCliBootstrap,
+            mutateAsync: mockBuildCliBootstrap,
+            isPending: false
+          }))
+        },
+        getMcpFileChanges: { useQuery: vi.fn(emptyQuery) },
+        cliUserQuestion: { useSubscription: vi.fn() },
+        resolveCliUserQuestion: { useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })) },
+        get: { useQuery: vi.fn(emptyQuery) },
+        getSubChat: { useQuery: vi.fn(emptyQuery) },
+        updateSubChatMode: { useMutation: vi.fn(emptyMutation) },
+        getCurrentPlan: { useQuery: vi.fn(emptyQuery) },
+        getCurrentReview: { useQuery: vi.fn(emptyQuery) },
+        getCurrentTasks: { useQuery: vi.fn(emptyQuery) },
+        getPrStatus: { useQuery: vi.fn(emptyQuery) }
+      },
+      changes: {
+        getStatus: { useQuery: vi.fn(emptyQuery) },
+        push: { useMutation: vi.fn(emptyMutation) },
+        pull: { useMutation: vi.fn(emptyMutation) }
+      },
+      terminal: {
+        write: { useMutation: vi.fn(emptyMutation) },
+        kill: { useMutation: vi.fn(emptyMutation) },
+        clearScrollback: { useMutation: vi.fn(emptyMutation) },
+        stream: { useSubscription: vi.fn() }
       }
-    },
-    terminal: {
-      kill: { useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })) },
-      clearScrollback: { useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })) },
-      stream: { useSubscription: vi.fn() }
     }
-  }
-}));
+  };
+});
 
 vi.mock('../hooks/use-stuck-detection', () => ({ useStuckDetection: vi.fn() }));
 
@@ -47,8 +79,10 @@ vi.mock('@/features/terminal/terminal', () => ({
 
 // ── Imports ───────────────────────────────────────────────────────────────────
 
+import { getDefaultStore } from 'jotai';
 import { ChatCliSurface } from './chat-cli-surface';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
+import { subChatCliRestartHandlerAtomFamily } from '../atoms';
 
 afterEach(() => {
   cleanup();
@@ -143,5 +177,52 @@ describe('11.13(c) — lazy respawn after restart', () => {
     // The Reattach button may render, but bootstrap is not called
     // because doBootstrap checks `isOwner` before calling the mutation
     expect(mockBuildCliBootstrap).not.toHaveBeenCalled();
+  });
+});
+
+// ── (d) Restart handler: ChatCliSurface registers restart handler on mount ────
+
+describe('11.13(d) — restart handler registration and trigger', () => {
+  beforeEach(() => mockBuildCliBootstrap.mockClear());
+
+  test('ChatCliSurface registers restart handler atom on mount', () => {
+    const store = getDefaultStore();
+    const handlerAtom = subChatCliRestartHandlerAtomFamily('sc-handler-mount');
+
+    expect(store.get(handlerAtom)).toBeNull();
+
+    render(<ChatCliSurface subChatId="sc-handler-mount" harness="claude-cli" isOwner={true} />);
+
+    expect(store.get(handlerAtom)).toBeTypeOf('function');
+  });
+
+  test('restart handler calls buildCliBootstrap with trigger=restart', async () => {
+    const store = getDefaultStore();
+    const handlerAtom = subChatCliRestartHandlerAtomFamily('sc-handler-call');
+
+    render(<ChatCliSurface subChatId="sc-handler-call" harness="claude-cli" isOwner={true} />);
+
+    const handler = store.get(handlerAtom);
+    expect(handler).toBeTypeOf('function');
+
+    await act(async () => {
+      await handler!();
+    });
+
+    expect(mockBuildCliBootstrap).toHaveBeenCalledWith(
+      expect.objectContaining({ subChatId: 'sc-handler-call', trigger: 'restart' })
+    );
+  });
+
+  test('restart handler is cleared when ChatCliSurface unmounts', () => {
+    const store = getDefaultStore();
+    const handlerAtom = subChatCliRestartHandlerAtomFamily('sc-handler-unmount');
+
+    const { unmount } = render(<ChatCliSurface subChatId="sc-handler-unmount" harness="claude-cli" isOwner={true} />);
+    expect(store.get(handlerAtom)).toBeTypeOf('function');
+
+    unmount();
+
+    expect(store.get(handlerAtom)).toBeNull();
   });
 });

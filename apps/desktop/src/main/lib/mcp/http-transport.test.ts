@@ -47,6 +47,56 @@ describe('http-transport', () => {
     expect(second).toEqual(first);
   });
 
+  test('initMcpHttpServer coalesces concurrent callers — only one HTTP server is bound', async () => {
+    // Regression for the cross-subChat MCP bootstrap race: two parallel
+    // ensureMcpEndpoint() calls (one per CLI subChat opening in the same
+    // worktree) previously both passed the `if (state)` check while state was
+    // null, both ran the sweep, and both started a fresh HTTP server. The
+    // loser's server was leaked, `state` was overwritten by whichever
+    // assignment landed last, and the loser's subsequent injectClaudeCliMcp
+    // could be wiped by the trailing sweep. With initInFlight coalescing,
+    // both callers must observe the same { url, bearer, port }.
+    const [a, b, c] = await Promise.all([initMcpHttpServer(), initMcpHttpServer(), initMcpHttpServer()]);
+    expect(b).toEqual(a);
+    expect(c).toEqual(a);
+    expect(getMcpHttpEndpoint()).toEqual({ url: a.url, bearer: a.bearer });
+  });
+
+  test('initMcpHttpServer logs [mcp-bootstrap] init started + complete on cold start', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await initMcpHttpServer();
+    const lines = logSpy.mock.calls.map((c) => String(c[0]));
+    logSpy.mockRestore();
+    expect(lines.some((l) => l.includes('[mcp-bootstrap] init started'))).toBe(true);
+    expect(lines.some((l) => l.includes('[mcp-bootstrap] init complete'))).toBe(true);
+  });
+
+  test('initMcpHttpServer awaits restartInFlight instead of starting a parallel server', async () => {
+    // While restartMcpHttpServer is rebuilding (state has been nulled but the
+    // new server hasn't bound yet), a concurrent ensureMcpEndpoint() must NOT
+    // call into a fresh initMcpHttpServer body — that would start a second
+    // server in parallel with the restart's rebuild. The first call after a
+    // synthetic crash returns the SAME url that getMcpHttpEndpoint observed
+    // post-restart, with the same bearer.
+    const first = await initMcpHttpServer();
+
+    // Trigger crash + concurrent init in the same microtask tick. The
+    // restart kicks off synchronously inside the server's 'error' handler;
+    // the immediately-following initMcpHttpServer call should land while
+    // restartInFlight is non-null and resolve to the restart's result.
+    const restartedP = (async () => {
+      await __simulateMcpHttpServerFailureForTest('error');
+    })();
+    const concurrentInit = initMcpHttpServer();
+    await restartedP;
+    const concurrent = await concurrentInit;
+    const endpoint = getMcpHttpEndpoint();
+
+    expect(endpoint).not.toBeNull();
+    expect(concurrent.url).toBe(endpoint!.url);
+    expect(concurrent.bearer).toBe(first.bearer); // bearer persists across restart
+  });
+
   test('getMcpHttpEndpoint returns null before init, populated after', async () => {
     expect(getMcpHttpEndpoint()).toBeNull();
     await initMcpHttpServer();

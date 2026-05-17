@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { writeTasks, type TaskStatus } from '../../tasks/task-store';
+import { SUB_CHAT_ID_MISSING_ERROR, subChatIdRequirementBlurb } from './sub-chat-id-helper';
 
 const taskStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
 
@@ -41,14 +42,7 @@ export function registerWriteTasksTool(server: McpServer, opts: { boundSubChatId
     'write_tasks',
     {
       title: 'Write Tasks',
-      description:
-        'Publish (or replace) the plan task list for this session. ' +
-        'Call once at the start of implementation with all plan steps as "pending" tasks. ' +
-        'Call again only if the structure changes (new tasks discovered, tasks dropped or retitled). ' +
-        'Use update_task_status to flip individual task statuses without re-sending the whole list. ' +
-        (opts.boundSubChatId
-          ? ''
-          : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").'),
+      description: `Publish (or replace) the plan task list for this session. Call once at the start of implementation with all plan steps as "pending" tasks. Call again only if the structure changes (new tasks discovered, tasks dropped or retitled). Use update_task_status to flip individual task statuses without re-sending the whole list. ${subChatIdRequirementBlurb(opts.boundSubChatId)}`,
       inputSchema
     },
     async (rawInput: Record<string, unknown>) => {
@@ -60,15 +54,7 @@ export function registerWriteTasksTool(server: McpServer, opts: { boundSubChatId
       );
 
       if (!id) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: 'Error: subChatId is required. The host app provides it in the prompt context as "Sub-chat id: <value>" — pass that value as the subChatId argument.'
-            }
-          ],
-          isError: true
-        };
+        return SUB_CHAT_ID_MISSING_ERROR;
       }
 
       await writeTasks({

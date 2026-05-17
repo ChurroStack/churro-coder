@@ -1,10 +1,15 @@
 import { useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { trpc } from '@/lib/trpc';
-import { agentFinishedTickAtomFamily, compactingSubChatsAtom, loadingSubChatsAtom } from '@/features/agents/atoms';
+import {
+  agentFinishedTickAtomFamily,
+  cliBusyAtomFamily,
+  compactingSubChatsAtom,
+  loadingSubChatsAtom
+} from '@/features/agents/atoms';
 import { useSubChatMode } from '@/features/agents/hooks/use-sub-chat-mode';
 import { aiEverRespondedAtomFamily, prCreatingAtomFamily } from '@/features/details-sidebar/atoms';
-import type { WorkflowSnapshot, WorkflowActivity } from '@/features/agents/utils/workflow-state';
+import type { TasksInfo, WorkflowSnapshot, WorkflowActivity } from '@/features/agents/utils/workflow-state';
 
 /**
  * Assembles a {@link WorkflowSnapshot} for the given chat/sub-chat pair.
@@ -22,6 +27,7 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
   const compacting = useAtomValue(compactingSubChatsAtom);
   const aiEverResponded = useAtomValue(aiEverRespondedAtomFamily(safeSubChatId));
   const prCreating = useAtomValue(prCreatingAtomFamily(safeSubChatId));
+  const cliBusy = useAtomValue(cliBusyAtomFamily(safeSubChatId));
 
   // Subscribe to the finished-tick atom so snapshot re-evaluates after each AI run.
   useAtomValue(agentFinishedTickAtomFamily(safeChatId));
@@ -32,19 +38,39 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
 
   const { data: planData } = trpc.chats.getCurrentPlan.useQuery({ subChatId: safeSubChatId }, { enabled: !!subChatId });
 
-  // Narrow to just `exists` so changes to review content (e.g. mid-stream
-  // markdown updates) don't re-fan-out to every Status-widget consumer.
-  const { data: reviewExists } = trpc.chats.getCurrentReview.useQuery(
+  // Narrow to just `exists` + meta timestamps so changes to review content don't
+  // re-fan-out to every Status-widget consumer.
+  const { data: reviewData } = trpc.chats.getCurrentReview.useQuery(
     { subChatId: safeSubChatId },
-    { enabled: !!subChatId, select: (d) => (d ? { exists: d.exists } : d) }
+    {
+      enabled: !!subChatId,
+      select: (d) =>
+        d
+          ? d.exists
+            ? { exists: true as const, meta: { createdAt: d.meta?.createdAt, acceptedAt: d.meta?.acceptedAt } }
+            : { exists: false as const }
+          : d
+    }
+  );
+
+  const { data: tasksData } = trpc.chats.getCurrentTasks.useQuery(
+    { subChatId: safeSubChatId },
+    { enabled: !!subChatId }
   );
 
   const { data: chat } = trpc.chats.get.useQuery({ id: safeChatId }, { enabled: !!chatId });
   const worktreePath = chat?.worktreePath ?? null;
 
+  // Derive harness from the active sub-chat row in the chat response.
+  const subChatHarness = useMemo(() => {
+    if (!chat || !subChatId) return 'builtin';
+    const sc = (chat.subChats ?? []).find((s: { id: string; harness?: string }) => s.id === subChatId);
+    return sc?.harness === 'claude-cli' || sc?.harness === 'codex-cli' ? 'cli' : 'builtin';
+  }, [chat, subChatId]) as 'builtin' | 'cli';
+
   const { data: gitStatus } = trpc.changes.getStatus.useQuery(
     { worktreePath: worktreePath ?? '' },
-    { enabled: !!worktreePath, staleTime: 30000 }
+    { enabled: !!worktreePath, staleTime: 30000, refetchOnMount: 'always' }
   );
 
   const { data: prStatusData } = trpc.chats.getPrStatus.useQuery(
@@ -59,12 +85,6 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
       (gitStatus?.staged?.length ?? 0) + (gitStatus?.unstaged?.length ?? 0) + (gitStatus?.untracked?.length ?? 0);
 
     const pr = prStatusData?.pr;
-    // Fall back to the DB-backed prNumber whenever the live query has no data
-    // (either still loading on startup, or returned null because gh CLI is slow /
-    // the query just re-fired after streaming ended). chat.prNumber is written the
-    // moment a PR is created via the app and is cheap to read, so it avoids a
-    // gray badge during the 5-15 s gh CLI round-trip. Once the live query
-    // resolves it takes over with the authoritative state (open/merged/closed).
     const prState: WorkflowSnapshot['pr']['state'] = pr
       ? (pr.state as WorkflowSnapshot['pr']['state'])
       : chat?.prNumber
@@ -75,30 +95,35 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
     const normalizedMode: WorkflowSnapshot['mode'] =
       mode === 'execute' ? 'execute' : mode === 'explore' ? 'explore' : 'plan';
 
+    // Build tasks info — null when query still loading, TasksInfo when resolved.
+    const tasks: TasksInfo | null = tasksData
+      ? tasksData.exists
+        ? {
+            exists: true,
+            total: tasksData.tasks.length,
+            completed: tasksData.tasks.filter((t: { status: string }) => t.status === 'completed').length,
+            updatedAt: tasksData.meta.updatedAt ?? null
+          }
+        : { exists: false, total: 0, completed: 0, updatedAt: null }
+      : null;
+
     return {
       mode: normalizedMode,
       activity,
+      harness: subChatHarness,
+      cliBusy,
       // planData is `undefined` while loading, `{ exists: false }` when no file, `{ exists: true, meta }` when file exists.
       // Map undefined → null so the compute function can distinguish "loading" from "no plan".
       plan: planData ?? null,
-      // reviewExists is undefined while loading, { exists: false } when no file, { exists: true } when file exists.
-      // Map undefined → null so the compute function can distinguish "loading" from "no review", matching plan handling.
-      review: reviewExists ?? null,
+      // reviewData is undefined while loading; map to null for same reason.
+      review: reviewData ?? null,
+      tasks,
       git: {
         changedFiles,
-        // headSha not yet in getStatus — placeholder for PR 5 review-staleness check.
         headSha: '',
-        // A PR (live or DB) is definitive proof a remote exists. OR rather than
-        // ?? to override both the loading case (undefined) and false negatives
-        // from getStatus. prStatusData?.pr covers when getPrStatus has live data
-        // but chats.get cache is still stale (prNumber not yet re-fetched).
         hasRemote: !!gitStatus?.hasRemote || !!prStatusData?.pr || !!chat?.prNumber
       },
       pushCount: gitStatus?.pushCount ?? 0,
-      // A PR (live or DB) proves the branch was pushed — you can't open a PR without
-      // pushing first. Use it as a fallback so the Code pill doesn't flash amber
-      // "Push branch to origin" during the window while getStatus is still in-flight
-      // but prStatusData already resolved from cache.
       hasUpstream: gitStatus?.hasUpstream ?? (!!prStatusData?.pr || !!chat?.prNumber),
       baseBranchBehind: prStatusData?.baseBranchBehind ?? 0,
       pr: { state: prState, reviewDecision, creating: prCreating },
@@ -109,8 +134,11 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
     subChatId,
     mode,
     activity,
+    subChatHarness,
+    cliBusy,
     planData,
-    reviewExists,
+    reviewData,
+    tasksData,
     gitStatus,
     prStatusData,
     prCreating,

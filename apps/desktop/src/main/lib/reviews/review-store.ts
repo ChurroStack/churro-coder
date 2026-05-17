@@ -10,13 +10,26 @@ import { app } from 'electron';
 import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
+import EventEmitter from 'node:events';
 import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
+
+const reviewEmitter = new EventEmitter();
+reviewEmitter.setMaxListeners(50);
+
+export interface ReviewWrittenEvent {
+  subChatId: string;
+}
+
+export function onReviewWritten(handler: (event: ReviewWrittenEvent) => void): () => void {
+  reviewEmitter.on('written', handler);
+  return () => reviewEmitter.off('written', handler);
+}
 
 export interface ReviewMeta {
   source: string;
   title: string;
   createdAt: string;
-  appliedAt?: string;
+  acceptedAt?: string;
 }
 
 export interface ReviewData {
@@ -47,6 +60,7 @@ export async function writeCurrentReview(opts: {
   console.log(
     `[churro-coder] review persisted sub=${opts.subChatId} source=${opts.source} bytes=${Buffer.byteLength(opts.content, 'utf8')}`
   );
+  reviewEmitter.emit('written', { subChatId: opts.subChatId });
 }
 
 export async function readCurrentReview(subChatId: string): Promise<ReviewData | null> {
@@ -68,16 +82,17 @@ export async function readCurrentReview(subChatId: string): Promise<ReviewData |
   }
 }
 
-export async function markApplied(subChatId: string): Promise<void> {
+export async function markAccepted(subChatId: string): Promise<void> {
   const dir = getReviewDir(subChatId);
   const metaPath = join(dir, 'current.meta.json');
   try {
     const raw = await readFile(metaPath, 'utf8');
     const meta = JSON.parse(raw) as ReviewMeta;
-    meta.appliedAt = new Date().toISOString();
+    meta.acceptedAt = new Date().toISOString();
     await atomicWriteArtifact(metaPath, JSON.stringify(meta, null, 2));
+    console.log(`[churro-coder] review accepted sub=${subChatId} acceptedAt=${meta.acceptedAt}`);
   } catch {
-    // No review to apply — silently ignore
+    // No review to accept — silently ignore
   }
 }
 

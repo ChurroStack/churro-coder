@@ -36,7 +36,7 @@ function isSessionFile(filePath: string): boolean {
 }
 
 // Display path = path with sandbox / worktree / absolute prefixes stripped.
-function getDisplayPath(filePath: string, projectPath?: string): string {
+export function getDisplayPath(filePath: string, projectPath?: string): string {
   if (!filePath) return '';
 
   // Strip project path prefix first (most reliable for desktop)

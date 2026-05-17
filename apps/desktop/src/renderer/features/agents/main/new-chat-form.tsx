@@ -124,6 +124,7 @@ import { SpecPickerDialog } from '../components/spec-picker-dialog';
 import { WizardSection } from '../components/wizard-section';
 import { appStore } from '../../../lib/jotai-store';
 import { pendingOpenSpecMessageAtom, pendingOpenSpecPanelAtom } from '../../openspec/atoms';
+import { openSpecCommandPrefix } from '../../openspec/command-prefix';
 import { pendingNewWorkspacePromptAtom } from '../../new-project/pending-prompt-atoms';
 import { AgentSendButton } from '../components/agent-send-button';
 import { formatTimeAgo } from '../utils/format-time-ago';
@@ -311,8 +312,8 @@ function toOpenSpecChangeId(input: string, workType: WorkType, existingIds: Iter
   return `${base}-${Date.now().toString(36)}`;
 }
 
-function buildOpenSpecProposeMessage(changeId: string, userRequest: string): string {
-  const parts = [`/opsx:propose ${changeId}`];
+function buildOpenSpecProposeMessage(changeId: string, userRequest: string, harness: CliHarness): string {
+  const parts = [`${openSpecCommandPrefix('propose', harness)} ${changeId}`];
   const request = userRequest.trim();
   if (request) parts.push(request);
   return parts.join('\n\n');
@@ -1583,7 +1584,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         });
         appStore.set(pendingOpenSpecMessageAtom, {
           subChatId: subChat.id,
-          message: buildOpenSpecProposeMessage(changeId, message)
+          message: buildOpenSpecProposeMessage(changeId, message, selectedAgentHarness)
         });
         console.log(
           `[openspec/new-workspace] initialized target=${targetRoot} changeId=${changeId} subChatId=${subChat.id}`

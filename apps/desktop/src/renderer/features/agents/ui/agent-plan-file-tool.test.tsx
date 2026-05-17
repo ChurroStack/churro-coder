@@ -16,7 +16,7 @@ vi.mock('../../dock/add-or-focus', () => ({
 
 import { renderWithProviders } from '../../../../../test-utils';
 import { TooltipProvider } from '../../../components/ui/tooltip';
-import { pendingBuildPlanSubChatIdAtom } from '../atoms';
+import { pendingBuildPlanAtomFamily } from '../atoms';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { AgentPlanFileTool } from './agent-plan-file-tool';
 
@@ -38,7 +38,7 @@ describe('AgentPlanFileTool — Approve uses subChatId prop, not store', () => {
    * is being rendered. The Approve handler must route to the *prop's*
    * sub-chat (the one this tool instance belongs to), not the store's.
    */
-  it('sets pendingBuildPlanSubChatIdAtom to the subChatId prop, not the store-active id', () => {
+  it('flips pendingBuildPlanAtomFamily(prop) to true, leaving sibling subChats untouched', () => {
     // Store reports a *different* active sub-chat than the prop.
     useAgentSubChatStore.setState({ activeSubChatId: 'other-sub-B' });
 
@@ -53,7 +53,9 @@ describe('AgentPlanFileTool — Approve uses subChatId prop, not store', () => {
 
     fireEvent.click(approveBtn!);
 
-    expect(store.get(pendingBuildPlanSubChatIdAtom)).toBe('my-sub-A');
+    expect(store.get(pendingBuildPlanAtomFamily('my-sub-A'))).toBe(true);
+    // Sibling subChat is unaffected — per-subChat keying invariant.
+    expect(store.get(pendingBuildPlanAtomFamily('other-sub-B'))).toBe(false);
   });
 
   it('still routes via the prop when the store has no active sub-chat', () => {
@@ -68,6 +70,6 @@ describe('AgentPlanFileTool — Approve uses subChatId prop, not store', () => {
     const approveBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Approve'));
     fireEvent.click(approveBtn!);
 
-    expect(store.get(pendingBuildPlanSubChatIdAtom)).toBe('my-sub-A');
+    expect(store.get(pendingBuildPlanAtomFamily('my-sub-A'))).toBe(true);
   });
 });

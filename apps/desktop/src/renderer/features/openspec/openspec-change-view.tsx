@@ -174,13 +174,13 @@ export function OpenSpecChangeView({ chatId, subChatId, changeId, changePath, pr
     const pending = { chatId, subChatId, changeId, startedAt: Date.now() };
     setPendingArchive(pending);
     setPendingArchivesByChat((prev) => ({ ...prev, [changeId]: pending }));
-    void runOpenSpecAction('/opsx:archive', 'execute');
+    void runOpenSpecAction({ verb: 'archive', args: changeId, kind: 'execute' });
     console.log(`[openspec/viewer] archive requested changeId=${changeId} subChatId=${subChatId}`);
   };
 
   const handleVerify = () => {
     console.log(`[openspec/viewer] verify requested changeId=${changeId} subChatId=${subChatId} step=${step}`);
-    void runOpenSpecAction('/opsx:verify', 'execute');
+    void runOpenSpecAction({ verb: 'verify', args: changeId, kind: 'execute' });
   };
 
   const handleCodeReview = () => {

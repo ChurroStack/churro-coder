@@ -846,27 +846,42 @@ export const selectedCommitAtom = atom<SelectedCommit>(null);
 // Exposed as atom so external components (e.g. git activity badges) can switch tabs
 export const diffActiveTabAtom = atom<'changes' | 'history'>('changes');
 
+// Per-subChat pending-message atom families.
+//
+// These were previously six global singletons that carried `{ subChatId, message }`
+// payloads, with a `sendPendingMessage` service rejecting the wrong subChat. That
+// shape was racy when two ChatViewInner panels were mounted simultaneously (split
+// pane, OpenSpec + CLI sidebar, two CLI panels in the same worktree): a setter
+// for subChat B would overwrite a still-pending payload for subChat A, and A's
+// action would silently never fire. The per-subChat keying invariant
+// (apps/desktop/AGENTS.md → Per-subChat isolation invariant) now forbids this
+// pattern: any state whose lifecycle is tied to a single subChat MUST be keyed
+// by subChatId via atomFamily. The atom value is now just the message body
+// (or `true` for the trigger-only Build Plan family); subChatId is implicit in
+// the family key.
+
 // Pending PR message to send to chat
 // Set by ChatView when "Create PR" is clicked, consumed by ChatViewInner
-export const pendingPrMessageAtom = atom<{ message: string; subChatId: string } | null>(null);
+export const pendingPrMessageAtomFamily = atomFamily((_subChatId: string) => atom<string | null>(null));
 
 // Pending Review message to send to chat
 // Set by ChatView when "Review" is clicked, consumed by ChatViewInner
-export const pendingReviewMessageAtom = atom<{ message: string; subChatId: string } | null>(null);
+export const pendingReviewMessageAtomFamily = atomFamily((_subChatId: string) => atom<string | null>(null));
 
 // Pending "Fix issues" from review card — sends a fix-review-issues prompt
 // Set by AgentReviewTool, consumed by ChatViewInner
-export const pendingFixReviewIssuesAtom = atom<{ message: string; subChatId: string } | null>(null);
+export const pendingFixReviewIssuesAtomFamily = atomFamily((_subChatId: string) => atom<string | null>(null));
 
 // Pending merge conflict resolution message to send to chat
 // Set when user clicks "Fix Conflicts" button, consumed by ChatViewInner
-export const pendingConflictResolutionMessageAtom = atom<{ message: string; subChatId: string } | null>(null);
+export const pendingConflictResolutionMessageAtomFamily = atomFamily((_subChatId: string) => atom<string | null>(null));
 
 // Pending merge-base message to send to chat (Status widget "Merge from base" action)
-export const pendingMergeBaseMessageAtom = atom<{ message: string; subChatId: string } | null>(null);
+export const pendingMergeBaseMessageAtomFamily = atomFamily((_subChatId: string) => atom<string | null>(null));
 
-// Pending Continue message to send to chat
-export const pendingContinueMessageAtom = atom<{ subChatId: string } | null>(null);
+// Pending Continue trigger. The body is always the literal string "Continue";
+// the atom is just a boolean flag flipped on by the Continue button.
+export const pendingContinueMessageAtomFamily = atomFamily((_subChatId: string) => atom<boolean>(false));
 
 // Pending auth retry - stores failed message when auth-error occurs
 // After successful OAuth flow, this triggers automatic retry of the message
@@ -979,6 +994,10 @@ export type PendingUserQuestion = {
     options: Array<{ label: string; description: string }>;
     multiSelect: boolean;
   }>;
+  /** Discriminates SDK vs CLI tool-call origin. Absent means SDK. */
+  source?: 'sdk' | 'cli';
+  /** For CLI questions: the requestId used to resolve the pending MCP tool call. */
+  requestId?: string;
 };
 // Map<subChatId, PendingUserQuestion> - supports multiple pending questions across workspaces
 export const pendingUserQuestionsAtom = atom<Map<string, PendingUserQuestion>>(new Map());
@@ -995,9 +1014,11 @@ export const expiredUserQuestionsAtom = atom<Map<string, PendingUserQuestion>>(n
 // Map<subChatId, parentChatId> - allows filtering by workspace
 export const pendingPlanApprovalsAtom = atom<Map<string, string>>(new Map());
 
-// Pending "Build plan" trigger - set by ChatView sidebar, consumed by ChatViewInner
-// Contains subChatId to approve, null when no pending approval
-export const pendingBuildPlanSubChatIdAtom = atom<string | null>(null);
+// Pending "Build plan" trigger — per-subChat boolean flag. Was previously a
+// global `string | null` atom carrying the subChatId; converted to atomFamily
+// so two subChats can have independent pending-approval state (see the
+// per-subChat isolation invariant in apps/desktop/AGENTS.md).
+export const pendingBuildPlanAtomFamily = atomFamily((_subChatId: string) => atom<boolean>(false));
 
 // Store AskUserQuestion results by toolUseId for real-time updates
 // Map<toolUseId, result>
@@ -1109,6 +1130,23 @@ export const agentFinishedTickAtomFamily = atomFamily((scopeId: string) =>
       });
     }
   )
+);
+
+// Per-subChat advisory-busy flag for CLI harnesses. True while the main-process
+// terminal.state subscription is in `'running'` for this pane; false on `'idle'`.
+// Stored in a plain atom per subChat so use-workflow-snapshot can read it without
+// going through ChatInputArea's local state.
+export const cliBusyAtomFamily = atomFamily((_subChatId: string) => atom(false));
+
+// Per-subChat hard-reset dialog open state. Shared between ChatCliSurface (which
+// owns doHardReset and the AlertDialog) and CliPromptBar (which owns the trigger button).
+export const subChatHardResetDialogOpenAtomFamily = atomFamily((_subChatId: string) => atom(false));
+
+// Per-subChat CLI restart handler. Registered by ChatCliSurface on mount; CliPromptBar
+// reads it to trigger an explicit restart (kill + respawn + re-inject first user message).
+// null = not mounted or builtin harness.
+export const subChatCliRestartHandlerAtomFamily = atomFamily((_subChatId: string) =>
+  atom<(() => Promise<void>) | null>(null)
 );
 
 // ============================================================================

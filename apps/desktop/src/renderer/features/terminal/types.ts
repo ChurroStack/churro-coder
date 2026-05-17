@@ -18,6 +18,12 @@ export interface TerminalBootstrapConfig {
   cwd?: string;
   initialInput?: string;
   initialInputChunks?: string[];
+  /**
+   * Set by chats.buildCliBootstrap when the first PTY chunk already contains
+   * the MCP reminder text. The chat-cli-surface uses it to seed the dispatcher
+   * so the renderer doesn't re-inject the reminder on the user's next message.
+   */
+  mcpReminderInjected?: boolean;
   idleDetection?: { silenceMs?: number };
 }
 

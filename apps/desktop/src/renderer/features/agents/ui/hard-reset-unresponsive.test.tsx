@@ -20,28 +20,60 @@ const mockKillMutateAsync = vi.fn(async () => undefined);
 const mockClearScrollbackMutateAsync = vi.fn(async () => undefined);
 const mockBuildCliBootstrapMutate = vi.fn(async () => ({ command: 'claude', args: [] }));
 
-vi.mock('@/lib/trpc', () => ({
-  trpc: {
-    chats: {
-      buildCliBootstrap: {
-        useMutation: vi.fn(() => ({
-          mutate: mockBuildCliBootstrapMutate,
-          mutateAsync: mockBuildCliBootstrapMutate,
-          isPending: false
-        }))
+vi.mock('@/lib/trpc', () => {
+  const emptyQuery = () => ({ data: undefined, isLoading: false });
+  const emptyMutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
+  const emptyInvalidate = { invalidate: vi.fn() };
+  return {
+    trpc: {
+      useUtils: vi.fn(() => ({
+        chats: {
+          getPrStatus: emptyInvalidate,
+          getCurrentPlan: emptyInvalidate,
+          getCurrentReview: emptyInvalidate,
+          getReviewContent: emptyInvalidate,
+          getCurrentTasks: emptyInvalidate,
+          get: emptyInvalidate
+        },
+        changes: { getStatus: emptyInvalidate, getBranches: emptyInvalidate }
+      })),
+      chats: {
+        buildCliBootstrap: {
+          useMutation: vi.fn(() => ({
+            mutate: mockBuildCliBootstrapMutate,
+            mutateAsync: mockBuildCliBootstrapMutate,
+            isPending: false
+          }))
+        },
+        cliUserQuestion: { useSubscription: vi.fn() },
+        resolveCliUserQuestion: { useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })) },
+        getMcpFileChanges: { useQuery: vi.fn(emptyQuery) },
+        get: { useQuery: vi.fn(emptyQuery) },
+        getSubChat: { useQuery: vi.fn(emptyQuery) },
+        updateSubChatMode: { useMutation: vi.fn(emptyMutation) },
+        getCurrentPlan: { useQuery: vi.fn(emptyQuery) },
+        getCurrentReview: { useQuery: vi.fn(emptyQuery) },
+        getCurrentTasks: { useQuery: vi.fn(emptyQuery) },
+        getPrStatus: { useQuery: vi.fn(emptyQuery) }
+      },
+      changes: {
+        getStatus: { useQuery: vi.fn(emptyQuery) },
+        push: { useMutation: vi.fn(emptyMutation) },
+        pull: { useMutation: vi.fn(emptyMutation) }
+      },
+      terminal: {
+        write: { useMutation: vi.fn(emptyMutation) },
+        kill: {
+          useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: mockKillMutateAsync, isPending: false }))
+        },
+        clearScrollback: {
+          useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: mockClearScrollbackMutateAsync, isPending: false }))
+        },
+        stream: { useSubscription: vi.fn() }
       }
-    },
-    terminal: {
-      kill: {
-        useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: mockKillMutateAsync, isPending: false }))
-      },
-      clearScrollback: {
-        useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: mockClearScrollbackMutateAsync, isPending: false }))
-      },
-      stream: { useSubscription: vi.fn() }
     }
-  }
-}));
+  };
+});
 
 vi.mock('../hooks/use-stuck-detection', () => ({
   useStuckDetection: vi.fn()
@@ -54,6 +86,7 @@ vi.mock('@/features/terminal/terminal', () => ({
 // ── Imports ───────────────────────────────────────────────────────────────────
 
 import { ChatCliSurface } from './chat-cli-surface';
+import { subChatHardResetDialogOpenAtomFamily } from '../atoms';
 
 afterEach(() => {
   cleanup();
@@ -74,8 +107,10 @@ describe('Hard-reset under unresponsive conditions — CLI frozen PTY', () => {
       </JotaiProvider>
     );
 
-    // Open the hard-reset confirm dialog
-    fireEvent.click(screen.getByTestId('hard-reset-button'));
+    // Open the hard-reset confirm dialog via the shared atom (button now lives in CliPromptBar)
+    act(() => {
+      store.set(subChatHardResetDialogOpenAtomFamily('sc-frozen'), true);
+    });
 
     // Confirm dialog renders
     expect(screen.getByText(/Reset.*session/i)).toBeTruthy();
@@ -100,7 +135,10 @@ describe('Hard-reset under unresponsive conditions — CLI frozen PTY', () => {
       </JotaiProvider>
     );
 
-    fireEvent.click(screen.getByTestId('hard-reset-button'));
+    // Open the hard-reset confirm dialog via the shared atom
+    act(() => {
+      store.set(subChatHardResetDialogOpenAtomFamily('sc-dead'), true);
+    });
 
     // Should not throw; dialog renders
     expect(screen.getByText(/Reset.*session/i)).toBeTruthy();
@@ -132,12 +170,11 @@ describe('Hard-reset under unresponsive conditions — MCP unavailable', () => {
       </JotaiProvider>
     );
 
-    // Hard-reset button always rendered regardless of MCP health
-    const resetButton = screen.getByTestId('hard-reset-button');
-    expect(resetButton).toBeTruthy();
-    expect(resetButton.hasAttribute('disabled') && resetButton.getAttribute('disabled') !== null).toBeFalsy();
+    // Open dialog via the shared atom (hard-reset button is now in CliPromptBar, not ChatCliSurface)
+    act(() => {
+      store.set(subChatHardResetDialogOpenAtomFamily('sc-mcp-down'), true);
+    });
 
-    fireEvent.click(resetButton);
     await act(async () => {
       fireEvent.click(screen.getByText('Reset'));
     });

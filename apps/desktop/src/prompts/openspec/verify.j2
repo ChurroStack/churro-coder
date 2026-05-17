@@ -4,7 +4,7 @@ Upstream source: https://raw.githubusercontent.com/Fission-AI/OpenSpec/v1.3.1/sr
 Upstream template: getOpsxVerifyCommandTemplate().content
 Reviewed: 2026-05-10
 Local modifications:
-- [manual] None.
+- [manual] Added write_review MCP call at completion; simplified openspec binary invocation to plain `openspec` (no ${OPENSPEC_BIN:-} wrapper).
 #}
 Verify that an implementation matches the change artifacts (specs, tasks, design).
 
@@ -14,7 +14,7 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
 1. **If no change name provided, prompt for selection**
 
-   Run `"${OPENSPEC_BIN:-openspec}" list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
 
    Show changes that have implementation tasks (tasks artifact exists).
    Include the schema used for each change if available.
@@ -163,3 +163,5 @@ Use clear markdown with:
 - Code references in format: `file.ts:123`
 - Specific, actionable recommendations
 - No vague suggestions like "consider reviewing"
+
+**Persist the report**: When the verification report is complete, call the `write_review` tool from the churro-coder MCP server, passing the entire markdown report as the `markdown` argument. This persists the review and makes it visible in the Review tab in the UI.

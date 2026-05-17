@@ -12,6 +12,8 @@ import { registerReadReviewTool } from './handlers/read-review';
 import { registerWriteReviewTool } from './handlers/write-review';
 import { registerWriteTasksTool } from './handlers/write-tasks';
 import { registerUpdateTaskStatusTool } from './handlers/update-task-status';
+import { registerNotifyFilesChangedTool } from './handlers/notify-files-changed';
+import { registerRequestUserInputTool } from './handlers/request-user-input';
 
 function buildServer(opts: { boundSubChatId?: string }): McpServer {
   const server = new McpServer({ name: 'churro-coder', version: '0.1.0' });
@@ -21,6 +23,8 @@ function buildServer(opts: { boundSubChatId?: string }): McpServer {
   registerReadReviewTool(server, opts);
   registerWriteTasksTool(server, opts);
   registerUpdateTaskStatusTool(server, opts);
+  registerNotifyFilesChangedTool(server, opts);
+  registerRequestUserInputTool(server, opts);
   return server;
 }
 

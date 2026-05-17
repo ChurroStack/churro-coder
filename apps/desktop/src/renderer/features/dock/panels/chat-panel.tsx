@@ -12,11 +12,16 @@ import type { ChatPanelEntity } from '../atoms';
 import { useDockWorkspace } from '../workspace-context';
 import { OpenSpecChangePanelContent } from './openspec-change-panel';
 import { useSubChatOwnership } from '../../agents/hooks/use-sub-chat-ownership';
+import { useRefreshWorkflowState } from '../../agents/hooks/use-refresh-workflow-state';
 import { useWindowId } from '../../../contexts/WindowContext';
 import { openSpecStopHandlerAtomFamily } from '../../openspec/atoms';
 import { agentChatStore } from '../../agents/stores/agent-chat-store';
 import { useStuckDetection } from '../../agents/hooks/use-stuck-detection';
+import { useCliBusyTracker } from '../../agents/hooks/use-cli-busy-tracker';
 import { subChatHardResetHandlerAtomFamily } from '../../agents/atoms/stuck-detection';
+
+/** Tracks which chatIds have had their workflow caches refreshed in this renderer session. */
+const sessionRefreshedChats = new Set<string>();
 
 /**
  * ChatPanel — one dockview tab per open sub-chat. Each tab carries
@@ -81,8 +86,26 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
     { enabled: isCliHarnessEarly, staleTime: Infinity }
   );
   const cliCwd = chatData?.worktreePath ?? chatData?.project?.path ?? subChat?.cwd;
-  // Gate bootstrap until the cwd query resolves so the CLI starts in the correct dir.
-  const cliCwdReady = !isCliHarnessEarly || !chatDataLoading;
+
+  // Determine startDisconnected for CLI panels:
+  //   - Query terminal session (in-process PTY state) and the persisted bootstrappedAt stamp.
+  //   - If no live PTY and previously bootstrapped → show Reattach banner (startDisconnected=true).
+  //   - If no live PTY and never bootstrapped → fresh chat, auto-bootstrap normally (false).
+  //   - If live PTY exists → reconnect normally (false).
+  const { data: sessionData, isLoading: sessionLoading } = trpc.terminal.getSession.useQuery(
+    `cli:${params.subChatId}`,
+    { enabled: isCliHarnessEarly, staleTime: Infinity }
+  );
+  const { data: bootstrapState, isLoading: bootstrapStateLoading } = trpc.chats.getSubChatBootstrapState.useQuery(
+    { id: params.subChatId },
+    { enabled: isCliHarnessEarly, staleTime: Infinity }
+  );
+  const cliBootstrapStateReady = !isCliHarnessEarly || (!sessionLoading && !bootstrapStateLoading);
+  const hasLivePty = sessionData?.isAlive === true;
+  const startDisconnected = cliBootstrapStateReady && !hasLivePty && bootstrapState?.bootstrappedAt != null;
+
+  // Gate bootstrap until the cwd query AND bootstrap-state queries resolve.
+  const cliCwdReady = !isCliHarnessEarly || (!chatDataLoading && cliBootstrapStateReady);
 
   // Dockview can restore a panel as the active tab without emitting the
   // visibility/active events to an already-mounted custom panel component.
@@ -168,6 +191,11 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
   // Stuck-session detection for builtin harness (heuristic 4: stream silence >120s)
   useStuckDetection({ subChatId: params.subChatId, harness });
 
+  // Populate cliBusyAtomFamily from terminal active/idle events so the status
+  // widget's blue in_progress pill fires for CLI subChats even when
+  // ChatInputArea is not mounted (e.g. OpenSpec change panels).
+  useCliBusyTracker({ subChatId: params.subChatId, parentChatId: params.chatId, isCliHarness });
+
   const hardResetHandlerAtom = useMemo(() => subChatHardResetHandlerAtomFamily(params.subChatId), [params.subChatId]);
   const setHardResetHandler = useSetAtom(hardResetHandlerAtom);
 
@@ -200,6 +228,17 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
     (activeSubChatId === params.subChatId || (!activeSubChatId && openSubChatIds[0] === params.subChatId));
   const shouldMountContent = isVisible || isStoreActivePanel;
 
+  // Auto-refresh workflow caches once per chatId per app session when the panel
+  // becomes visible so the Status widget reflects current disk state without a
+  // manual Refresh click.
+  const { refresh: refreshWorkflowState } = useRefreshWorkflowState(params.chatId);
+  useEffect(() => {
+    if (!isWorkspaceActive || !shouldMountContent || !params.chatId) return;
+    if (sessionRefreshedChats.has(params.chatId)) return;
+    sessionRefreshedChats.add(params.chatId);
+    void refreshWorkflowState();
+  }, [isWorkspaceActive, shouldMountContent, params.chatId, refreshWorkflowState]);
+
   // Surface router — 6-cell table from specs/chat-surface-router/spec.md:
   //
   //   harness      | openspecChangeId | Main surface
@@ -231,15 +270,18 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
     const sidebarContent = isCliHarness ? (
       <div className="h-full flex flex-col overflow-hidden">
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ChatCliSurface
-            subChatId={params.subChatId}
-            harness={harness}
-            chatId={params.chatId}
-            cwd={cliCwd}
-            cwdReady={cliCwdReady}
-            shouldMountContent={shouldMountContent}
-            isOwner={isOwner}
-          />
+          {cliBootstrapStateReady && (
+            <ChatCliSurface
+              subChatId={params.subChatId}
+              harness={harness}
+              chatId={params.chatId}
+              cwd={cliCwd}
+              cwdReady={cliCwdReady}
+              shouldMountContent={shouldMountContent}
+              isOwner={isOwner}
+              startDisconnected={startDisconnected}
+            />
+          )}
         </div>
         <CliPromptBar subChatId={params.subChatId} isOwner={isOwner} harness={harness} />
       </div>
@@ -274,15 +316,18 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
         style={{ contain: 'layout style' }}>
         {nonOwnerBanner}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ChatCliSurface
-            subChatId={params.subChatId}
-            harness={harness}
-            chatId={params.chatId}
-            cwd={cliCwd}
-            cwdReady={cliCwdReady}
-            shouldMountContent={shouldMountContent}
-            isOwner={isOwner}
-          />
+          {cliBootstrapStateReady && (
+            <ChatCliSurface
+              subChatId={params.subChatId}
+              harness={harness}
+              chatId={params.chatId}
+              cwd={cliCwd}
+              cwdReady={cliCwdReady}
+              shouldMountContent={shouldMountContent}
+              isOwner={isOwner}
+              startDisconnected={startDisconnected}
+            />
+          )}
         </div>
         <CliPromptBar subChatId={params.subChatId} isOwner={isOwner} harness={harness} />
       </div>

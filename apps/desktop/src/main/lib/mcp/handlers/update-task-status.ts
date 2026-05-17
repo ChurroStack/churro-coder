@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { updateTaskStatus } from '../../tasks/task-store';
+import { SUB_CHAT_ID_MISSING_ERROR, subChatIdRequirementBlurb } from './sub-chat-id-helper';
 
 const taskStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
 
@@ -25,12 +26,7 @@ export function registerUpdateTaskStatusTool(server: McpServer, opts: { boundSub
     'update_task_status',
     {
       title: 'Update Task Status',
-      description:
-        'Flip a single task\'s status. Call with status:"in_progress" before starting a task; call with status:"completed" after finishing it. ' +
-        'The task must already exist in the list published by write_tasks. ' +
-        (opts.boundSubChatId
-          ? ''
-          : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").'),
+      description: `Flip a single task's status. Call with status:"in_progress" before starting a task; call with status:"completed" after finishing it. The task must already exist in the list published by write_tasks. ${subChatIdRequirementBlurb(opts.boundSubChatId)}`,
       inputSchema
     },
     async (rawInput: Record<string, unknown>) => {
@@ -41,15 +37,7 @@ export function registerUpdateTaskStatusTool(server: McpServer, opts: { boundSub
       );
 
       if (!id) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: 'Error: subChatId is required. The host app provides it in the prompt context as "Sub-chat id: <value>" — pass that value as the subChatId argument.'
-            }
-          ],
-          isError: true
-        };
+        return SUB_CHAT_ID_MISSING_ERROR;
       }
 
       const result = await updateTaskStatus({

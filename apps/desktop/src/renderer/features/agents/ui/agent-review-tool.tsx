@@ -1,7 +1,6 @@
 'use client';
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { useSetAtom } from 'jotai';
 import { ChatMarkdownRenderer } from '../../../components/chat-markdown-renderer';
 import { CheckIcon, ClipboardIcon, CollapseIcon, CopyIcon, ExpandIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
@@ -9,7 +8,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/
 import { Button } from '../../../components/ui/button';
 import { cn } from '../../../lib/utils';
 import { trpc } from '../../../lib/trpc';
-import { pendingFixReviewIssuesAtom } from '../atoms';
+import { appStore } from '../../../lib/jotai-store';
+import { pendingFixReviewIssuesAtomFamily } from '../atoms';
 import { addOrFocus } from '../../dock/add-or-focus';
 import { useDockApi } from '../../dock/dock-context';
 import { getToolStatus } from './agent-tool-registry';
@@ -39,7 +39,6 @@ export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus,
   const [isExpanded, setIsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const { isPending } = getToolStatus(part, chatStatus);
-  const setPendingFixReviewIssues = useSetAtom(pendingFixReviewIssuesAtom);
   const dockApi = useDockApi();
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -101,13 +100,26 @@ export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus,
     addOrFocus(dockApi, { kind: 'review', data: { subChatId } });
   }, [dockApi, subChatId]);
 
+  const markReviewAccepted = trpc.chats.markReviewAccepted.useMutation();
+  const trpcUtils = trpc.useUtils();
+
   const handleFixIssues = useCallback(() => {
     if (!subChatId) return;
-    setPendingFixReviewIssues({
-      subChatId,
-      message: renderBuiltinPrompt('workflow/fix-review-issues', { subChatId })
-    });
-  }, [subChatId, setPendingFixReviewIssues]);
+    // Mark review accepted (sets acceptedAt timestamp → Review pill turns green)
+    // then invalidate so the snapshot picks up the new acceptedAt immediately.
+    markReviewAccepted.mutate(
+      { subChatId },
+      {
+        onSettled: () => {
+          void trpcUtils.chats.getCurrentReview.invalidate({ subChatId });
+        }
+      }
+    );
+    appStore.set(
+      pendingFixReviewIssuesAtomFamily(subChatId),
+      renderBuiltinPrompt('workflow/fix-review-issues', { subChatId })
+    );
+  }, [subChatId, markReviewAccepted, trpcUtils]);
 
   if (!hasVisibleContent) {
     return (

@@ -37,6 +37,7 @@ interface McpHttpState {
 let state: McpHttpState | null = null;
 let nextRequestId = 1;
 let restartInFlight: Promise<{ url: string; bearer: string; port: number }> | null = null;
+let initInFlight: Promise<{ url: string; bearer: string; port: number }> | null = null;
 const intentionallyClosingServers = new WeakSet<http.Server>();
 
 /** Test-only: override the DB-backed subChatId validator so tests don't need a real DB. */
@@ -273,32 +274,108 @@ async function startMcpHttpServer(
 }
 
 export async function initMcpHttpServer(): Promise<{ url: string; bearer: string; port: number }> {
+  // Coalesce against any in-flight crash-restart. A concurrent caller during a
+  // restart window (state has been nulled while the new server is being bound)
+  // must wait for the restart instead of starting a parallel server — otherwise
+  // we leak HTTP servers and race the per-subChat MCP injects against the sweep.
+  if (restartInFlight) {
+    console.log('[mcp-bootstrap] init awaiting restart');
+    return restartInFlight;
+  }
   if (state) {
     return { url: state.url, bearer: state.bearer, port: state.port };
   }
+  if (initInFlight) {
+    console.log('[mcp-bootstrap] init reused in-flight');
+    return initInFlight;
+  }
 
-  // Sweep stale churro-coder-* entries left by a prior session that crashed or
-  // was force-killed without running the per-CLI exit cleanup. All such entries
-  // are dead: the new server binds to a fresh port, so every old URL is invalid.
-  await updateClaudeConfigAtomic((config) => {
-    if (config.mcpServers) {
-      for (const key of Object.keys(config.mcpServers)) {
-        if (key.startsWith('churro-coder-')) {
-          delete config.mcpServers[key];
+  console.log('[mcp-bootstrap] init started');
+  initInFlight = (async () => {
+    // Sweep stale churro-coder-* entries left by a prior session that crashed
+    // or was force-killed without running the per-CLI exit cleanup. All such
+    // entries are dead: the new server binds to a fresh port, so every old URL
+    // is invalid, and each live CLI re-bootstraps to re-inject its entry.
+    // Coalescing through initInFlight guarantees this sweep runs exactly once
+    // per server lifetime and strictly BEFORE any caller's subsequent
+    // injectClaudeCliMcp — so a sibling subChat's inject can never be wiped
+    // by a parallel init's sweep.
+    await updateClaudeConfigAtomic((config) => {
+      if (config.mcpServers) {
+        for (const key of Object.keys(config.mcpServers)) {
+          if (key.startsWith('churro-coder-')) {
+            delete config.mcpServers[key];
+          }
         }
       }
-    }
-    return config;
-  }).catch((err) => console.warn('[churro-coder] Failed to sweep stale MCP entries on startup:', err));
+      return config;
+    }).catch((err) => console.warn('[churro-coder] Failed to sweep stale MCP entries on startup:', err));
 
-  const bearer = (await loadSavedBearer()) ?? randomUUID();
-  state = await startMcpHttpServer(bearer, 0);
-  return { url: state.url, bearer: state.bearer, port: state.port };
+    const bearer = (await loadSavedBearer()) ?? randomUUID();
+    state = await startMcpHttpServer(bearer, 0);
+    console.log(`[mcp-bootstrap] init complete port=${state.port} restartCount=${state.restartCount}`);
+    return { url: state.url, bearer: state.bearer, port: state.port };
+  })();
+
+  try {
+    return await initInFlight;
+  } finally {
+    initInFlight = null;
+  }
 }
 
 export function getMcpHttpEndpoint(): { url: string; bearer: string } | null {
   if (!state) return null;
   return { url: state.url, bearer: state.bearer };
+}
+
+/**
+ * Verify the cached MCP HTTP server is actually reachable. Used by callers
+ * (cli-harness bootstrap on hard-reset / restart) that must NOT hand out a
+ * stale URL to a freshly-spawned CLI process: if the server was force-killed
+ * by the OS (sleep/wake, OOM, etc.) without our `error`/`close` handlers
+ * firing, `state` may still point at a dead socket. Any TCP-level response —
+ * even a 401 — proves the server is alive; only a connection failure or
+ * timeout counts as dead.
+ */
+async function pingMcpHttpServer(timeoutMs = 1000): Promise<boolean> {
+  if (!state) return false;
+  const url = state.url;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    return res.status > 0;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Like {@link initMcpHttpServer} but verifies the cached server is actually
+ * alive before handing back its endpoint. If the cached server is unreachable
+ * (force-killed, socket leaked, etc.) this closes the stale state and starts
+ * a fresh server. Callers that are about to spawn a CLI process — most
+ * importantly hard-reset / restart paths — should use this so the new CLI
+ * gets a live URL written into its config file.
+ */
+export async function ensureMcpHttpServerAlive(): Promise<{ url: string; bearer: string; port: number }> {
+  if (state) {
+    const alive = await pingMcpHttpServer();
+    if (alive) {
+      console.log('[mcp-bootstrap] ensure-alive: cached server responsive');
+      return { url: state.url, bearer: state.bearer, port: state.port };
+    }
+    console.warn('[mcp-bootstrap] ensure-alive: cached server unreachable, forcing close + reinit');
+    try {
+      await closeMcpHttpServer();
+    } catch (err) {
+      console.warn('[mcp-bootstrap] ensure-alive: close failed (continuing with reinit):', err);
+    }
+  }
+  return initMcpHttpServer();
 }
 
 async function restartMcpHttpServer(params: {

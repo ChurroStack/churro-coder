@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { buildOpenSpecStepPrefixedPrompt } from './step-prefix';
+import { buildOpenSpecCliPrefixedMessage, buildOpenSpecStepPrefixedPrompt } from './step-prefix';
 import type { OpenSpecSidebarContext } from './atoms';
 
 const context: OpenSpecSidebarContext = {
@@ -151,5 +151,73 @@ describe('buildOpenSpecStepPrefixedPrompt', () => {
         pendingCommand: 'propose'
       })
     ).toEqual({ prompt: '/opsx:propose Add auth', sentStep: null });
+  });
+});
+
+describe('buildOpenSpecCliPrefixedMessage', () => {
+  test('non-openspec context leaves message untouched', () => {
+    expect(buildOpenSpecCliPrefixedMessage({ message: 'hello', isOpenSpec: false, currentStep: 'tasks' })).toBe(
+      'hello'
+    );
+  });
+
+  test('proposal tab → /opsx:propose prefix', () => {
+    expect(buildOpenSpecCliPrefixedMessage({ message: 'refine this', isOpenSpec: true, currentStep: 'proposal' })).toBe(
+      '/opsx:propose\nrefine this'
+    );
+  });
+
+  test('design tab → /opsx:propose prefix (proposal+design share the propose workflow)', () => {
+    expect(buildOpenSpecCliPrefixedMessage({ message: 'update arch', isOpenSpec: true, currentStep: 'design' })).toBe(
+      '/opsx:propose\nupdate arch'
+    );
+  });
+
+  test('tasks tab → /opsx:apply prefix', () => {
+    expect(buildOpenSpecCliPrefixedMessage({ message: 'fix it', isOpenSpec: true, currentStep: 'tasks' })).toBe(
+      '/opsx:apply\nfix it'
+    );
+  });
+
+  test('user-typed slash command — left as-is (no double prefix)', () => {
+    expect(buildOpenSpecCliPrefixedMessage({ message: '/clear', isOpenSpec: true, currentStep: 'tasks' })).toBe(
+      '/clear'
+    );
+    expect(
+      buildOpenSpecCliPrefixedMessage({ message: '/opsx:apply manually', isOpenSpec: true, currentStep: 'tasks' })
+    ).toBe('/opsx:apply manually');
+  });
+
+  test('codex-cli harness: tasks tab → $openspec-apply-change prefix', () => {
+    expect(
+      buildOpenSpecCliPrefixedMessage({
+        message: 'fix it',
+        isOpenSpec: true,
+        currentStep: 'tasks',
+        harness: 'codex-cli'
+      })
+    ).toBe('$openspec-apply-change\nfix it');
+  });
+
+  test('codex-cli harness: proposal tab → $openspec-propose prefix', () => {
+    expect(
+      buildOpenSpecCliPrefixedMessage({
+        message: 'refine',
+        isOpenSpec: true,
+        currentStep: 'proposal',
+        harness: 'codex-cli'
+      })
+    ).toBe('$openspec-propose\nrefine');
+  });
+
+  test('codex-cli harness: user already typed $openspec-* — left as-is', () => {
+    expect(
+      buildOpenSpecCliPrefixedMessage({
+        message: '$openspec-apply-change 1.2',
+        isOpenSpec: true,
+        currentStep: 'tasks',
+        harness: 'codex-cli'
+      })
+    ).toBe('$openspec-apply-change 1.2');
   });
 });

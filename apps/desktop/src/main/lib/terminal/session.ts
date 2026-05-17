@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as pty from 'node-pty';
+import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { buildTerminalEnv, FALLBACK_SHELL, getDefaultShell } from './env';
 import type { InternalCreateSessionParams, TerminalSession } from './types';
 
@@ -146,6 +147,14 @@ export async function createSession(
     });
   }
 
+  // Headless parser used by TerminalManager's cursor-activity sampler. We
+  // create one only when the bootstrap opts into idle detection — non-CLI
+  // shells don't need to pay the parser cost. scrollback:0 keeps memory
+  // minimal; we only read cursor position, never buffer contents.
+  const headlessTerminal = bootstrap?.idleDetection
+    ? new HeadlessTerminal({ cols: terminalCols, rows: terminalRows, scrollback: 0, allowProposedApi: true })
+    : undefined;
+
   const session: TerminalSession = {
     pty: ptyProcess,
     paneId,
@@ -159,7 +168,8 @@ export async function createSession(
     shell,
     startTime: Date.now(),
     usedFallback: useFallbackShell,
-    idleDetection: bootstrap?.idleDetection
+    idleDetection: bootstrap?.idleDetection,
+    headlessTerminal
   };
 
   ptyProcess.onData((data) => {

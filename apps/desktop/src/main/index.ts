@@ -788,7 +788,6 @@ if (gotTheLock) {
     // Remove all churro-coder MCP entries from ~/.claude.json so stale servers
     // left from prior sessions don't pollute the user's Claude CLI config.
     try {
-      const { clearOrphanedChurroMcpEntries } = await import('./lib/claude-config');
       await Promise.race([
         clearOrphanedChurroMcpEntries(),
         new Promise<void>((resolve) =>

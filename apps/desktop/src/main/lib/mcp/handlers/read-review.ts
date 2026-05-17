@@ -74,7 +74,7 @@ export function registerReadReviewTool(server: McpServer, opts: { boundSubChatId
 
       const header = [
         `# ${review.meta.title || 'Review'}`,
-        `Source: ${review.meta.source} | Created: ${review.meta.createdAt}${review.meta.appliedAt ? ` | Applied: ${review.meta.appliedAt}` : ''}`,
+        `Source: ${review.meta.source} | Created: ${review.meta.createdAt}${review.meta.acceptedAt ? ` | Accepted: ${review.meta.acceptedAt}` : ''}`,
         ''
       ].join('\n');
 

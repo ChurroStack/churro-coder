@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { updateClaudeConfigAtomic } from '../claude-config';
-import { getMcpHttpEndpoint, initMcpHttpServer } from '../mcp/http-transport';
+import { ensureMcpHttpServerAlive } from '../mcp/http-transport';
 import type { TerminalBootstrap } from '../terminal/types';
 
 const execFileAsync = promisify(execFile);
@@ -84,9 +84,12 @@ export function invalidateBinaryCache(): void {
 }
 
 async function ensureMcpEndpoint(): Promise<{ url: string; bearer: string }> {
-  const existing = getMcpHttpEndpoint();
-  if (existing) return existing;
-  return initMcpHttpServer();
+  // Every CLI spawn (initial, restart, hard-reset) must hand the new process
+  // a URL that's *actually* reachable. ensureMcpHttpServerAlive pings the
+  // cached server and force-restarts it if dead — so a server killed during
+  // OS sleep/wake or by a sandbox without our close/error handler firing
+  // can't poison the next bootstrap with a stale port.
+  return ensureMcpHttpServerAlive();
 }
 
 async function injectClaudeCliMcp(subChatId: string, mcpUrl: string, bearer: string): Promise<void> {
@@ -160,7 +163,7 @@ export async function buildBootstrap(
     const mcpServerName = `churro-coder-${subChatId}`;
     args.push(
       '--allowedTools',
-      `mcp__${mcpServerName}__write_plan,mcp__${mcpServerName}__write_review,mcp__${mcpServerName}__write_tasks,mcp__${mcpServerName}__update_task_status`
+      `mcp__${mcpServerName}__write_plan,mcp__${mcpServerName}__write_review,mcp__${mcpServerName}__write_tasks,mcp__${mcpServerName}__update_task_status,mcp__${mcpServerName}__notify_files_changed,mcp__${mcpServerName}__request_user_input`
     );
     // Instruct Claude to persist plans, reviews, and task progress via MCP so
     // the host app can surface them in the UI without a manual refresh.
@@ -173,6 +176,8 @@ export async function buildBootstrap(
         '- When in plan mode, you MUST call the write_plan tool with the full plan markdown before calling ExitPlanMode or presenting any approval options to the user. Do not call ExitPlanMode until write_plan has succeeded in the same turn.',
         '- When producing a code review, you MUST call the write_review tool with the full review markdown before sending your final assistant message.',
         '- When implementing a plan, you MUST call write_tasks once at the start with all plan steps (each task needs a stable short id, a title, and status: "pending"). Before starting each task call update_task_status with status: "in_progress"; after finishing call it with status: "completed". If the task structure changes, call write_tasks again with the full updated list.',
+        '- After every successful file create, edit, or delete (or a batch of them in one turn), you MUST call notify_files_changed with the affected paths and actions. Batch all files from a single turn into one call. This is how the host app tracks changes in the Changes widget.',
+        '- When you need to ask the user a clarifying question or get a decision, you MUST call the request_user_input MCP tool with 1-4 structured questions. The host renders the questions as a UI widget above the CLI prompt; do NOT type a question into the terminal and wait for stdin — the user will not see it.',
         '- These tools are pre-authorized; calling them does not require user approval. Skipping them leaves the user UI blank, which is a failure.'
       ].join('\n')
     );
@@ -184,15 +189,27 @@ export async function buildBootstrap(
     // include surrounding double quotes — they are TOML string delimiters, not
     // shell quoting. Args go through execve, not a shell, so no further escaping
     // is needed.
-    // -a never: Codex has no tool-specific allow-list, so we disable the global
-    // approval gate. The user has already consented by opening the embedded session.
+    // -a never: see "Codex CLI: no per-tool allow-list" in apps/desktop/AGENTS.md
+    // for the security rationale (the user consents by opening the embedded session).
+    // -s workspace-write: keeps the OS sandbox enforced (reads anywhere, writes only
+    // inside workspace cwd + $TMPDIR, network blocked) while removing the sandbox-
+    // escalation prompts that -a never alone cannot suppress when the default
+    // read-only sandbox tries to allow any write operation.
+    // default_tools_approval_mode="always": -a never suppresses shell-command approval
+    // prompts but not MCP tool-call approval prompts — those are controlled by a
+    // separate per-server config field. Setting it to "always" on the injected server
+    // pre-authorizes every tool call from this server without an interactive dialog.
     args.push(
       '-c',
       `mcp_servers.churro-coder-${subChatId}.url="${mcpUrl}"`,
       '-c',
       `mcp_servers.churro-coder-${subChatId}.bearer_token_env_var="CHURRO_MCP_BEARER"`,
+      '-c',
+      `mcp_servers.churro-coder-${subChatId}.default_tools_approval_mode="approve"`,
       '-a',
-      'never'
+      'never',
+      '-s',
+      'workspace-write'
     );
   }
 
@@ -207,7 +224,7 @@ export async function buildBootstrap(
     ...(cwd ? { cwd } : {}),
     env,
     idleDetection: {
-      silenceMs: 1_000
+      silenceMs: 1_500
     }
   };
 

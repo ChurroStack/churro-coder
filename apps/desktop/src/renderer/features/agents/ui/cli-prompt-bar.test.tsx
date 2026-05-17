@@ -8,6 +8,16 @@ const mockDispatch = vi.hoisted(() => vi.fn());
 const mockWritePastedImage = vi.hoisted(() => vi.fn());
 const mockWritePastedText = vi.hoisted(() => vi.fn());
 
+// Mutable state for openspec-bootstrap tests — readable inside vi.mock factory closures
+const mockPendingOpenSpecMsgState = vi.hoisted(() => ({
+  value: null as { subChatId: string; message: string } | null
+}));
+const mockSetPendingOpenSpecMessage = vi.hoisted(() => vi.fn());
+// Callback registered by trpc.terminal.state.useSubscription — tests call it to simulate idle
+const mockStateSubscriptionCallbacks = vi.hoisted(() => ({
+  onData: null as ((evt: { paneId: string; state: 'idle' | 'running' }) => void) | null
+}));
+
 // Capture the AgentsSlashCommand props so tests can inspect and trigger it
 let capturedSlashProps: {
   isOpen: boolean;
@@ -50,6 +60,21 @@ vi.mock('../../../lib/trpc', () => ({
       list: {
         useQuery: vi.fn(() => ({ data: [], isLoading: false }))
       }
+    },
+    terminal: {
+      state: {
+        useSubscription: vi.fn(
+          (
+            _paneId: string,
+            opts: {
+              enabled?: boolean;
+              onData?: (evt: { paneId: string; state: 'idle' | 'running' }) => void;
+            }
+          ) => {
+            if (opts?.onData) mockStateSubscriptionCallbacks.onData = opts.onData;
+          }
+        )
+      }
     }
   }
 }));
@@ -67,7 +92,22 @@ vi.mock('../../../lib/hooks/use-voice-input', () => ({
 
 vi.mock('../atoms', () => ({
   subChatModelIdAtomFamily: vi.fn(() => ({ init: 'claude-sonnet-4-6' })),
-  subChatClaudeThinkingAtomFamily: vi.fn(() => ({ init: 'off' }))
+  subChatClaudeThinkingAtomFamily: vi.fn(() => ({ init: 'off' })),
+  subChatCliRestartHandlerAtomFamily: vi.fn(() => ({ _tag: 'cli-restart-handler', init: null }))
+}));
+
+// Mutable state for openspec context/step tests — readable inside vi.mock factory closures
+const mockOpenSpecContextState = vi.hoisted(() => ({
+  value: null as { chatId: string; projectId: string; changeId: string; changePath: string } | null
+}));
+const mockOpenSpecCurrentStepState = vi.hoisted(() => ({
+  value: 'proposal' as 'proposal' | 'design' | 'tasks'
+}));
+
+vi.mock('../../openspec/atoms', () => ({
+  pendingOpenSpecMessageAtom: { _tag: 'pending-openspec-msg', init: null },
+  openSpecSidebarContextAtomFamily: vi.fn(() => ({ _tag: 'openspec-context' })),
+  openSpecCurrentStepAtomFamily: vi.fn(() => ({ _tag: 'openspec-current-step' }))
 }));
 
 vi.mock('jotai', async () => {
@@ -75,11 +115,25 @@ vi.mock('jotai', async () => {
   return {
     ...actual,
     useAtom: vi.fn((atom: unknown) => {
+      if (atom && typeof atom === 'object' && '_tag' in atom) {
+        if ((atom as { _tag: string })._tag === 'pending-openspec-msg') {
+          return [mockPendingOpenSpecMsgState.value, mockSetPendingOpenSpecMessage];
+        }
+      }
       if (atom && typeof atom === 'object' && 'init' in atom) {
         if ((atom as { init: string }).init === 'claude-sonnet-4-6') return ['claude-sonnet-4-6', vi.fn()];
         if ((atom as { init: string }).init === 'off') return ['off', vi.fn()];
       }
       return [undefined, vi.fn()];
+    }),
+    useAtomValue: vi.fn((atom: unknown) => {
+      if (atom && typeof atom === 'object' && '_tag' in atom) {
+        const tag = (atom as { _tag: string })._tag;
+        if (tag === 'openspec-context') return mockOpenSpecContextState.value;
+        if (tag === 'openspec-current-step') return mockOpenSpecCurrentStepState.value;
+        if (tag === 'cli-restart-handler') return null;
+      }
+      return undefined;
     })
   };
 });
@@ -138,6 +192,12 @@ vi.mock('./voice-wave-indicator', () => ({
   VoiceWaveIndicator: () => null
 }));
 
+vi.mock('../../../components/ui/tooltip', () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => <span data-testid="tooltip-content">{children}</span>
+}));
+
 vi.mock('../../../components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -148,7 +208,7 @@ vi.mock('../../../components/ui/dropdown-menu', () => ({
 }));
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { CliPromptBar } from './cli-prompt-bar';
 
@@ -157,6 +217,11 @@ afterEach(() => {
   capturedSlashProps = null;
   mockDispatch.mockClear();
   mockWritePastedImage.mockClear();
+  mockSetPendingOpenSpecMessage.mockClear();
+  mockPendingOpenSpecMsgState.value = null;
+  mockStateSubscriptionCallbacks.onData = null;
+  mockOpenSpecContextState.value = null;
+  mockOpenSpecCurrentStepState.value = 'proposal';
 });
 
 describe('CliPromptBar — slash command autocomplete [cli-prompt-bar/slash-autocomplete]', () => {
@@ -292,5 +357,166 @@ describe('CliPromptBar — image thumbnail chips [cli-prompt-bar/image-thumbnail
     fireEvent.click(getByTestId('send-button'));
 
     expect(mockDispatch).toHaveBeenCalledWith('@/tmp/sub-chats/sc-1/pasted-abc.png\nwhat is this?');
+  });
+});
+
+describe('CliPromptBar — openspec tab prefix [cli-prompt-bar/openspec-tab-prefix]', () => {
+  beforeEach(() => {
+    mockOpenSpecContextState.value = {
+      chatId: 'chat-1',
+      projectId: 'project-1',
+      changeId: 'add-login',
+      changePath: 'openspec/changes/add-login'
+    };
+  });
+
+  it('prefixes /opsx:propose when current tab is proposal (Enter)', () => {
+    mockOpenSpecCurrentStepState.value = 'proposal';
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
+    const textarea = getByTestId('cli-prompt-input');
+    fireEvent.change(textarea, { target: { value: 'refine this proposal' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(mockDispatch).toHaveBeenCalledWith('/opsx:propose\nrefine this proposal');
+  });
+
+  it('prefixes /opsx:propose when current tab is design (Send button)', () => {
+    mockOpenSpecCurrentStepState.value = 'design';
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
+    const textarea = getByTestId('cli-prompt-input');
+    fireEvent.change(textarea, { target: { value: 'update the architecture' } });
+    fireEvent.click(getByTestId('send-button'));
+    expect(mockDispatch).toHaveBeenCalledWith('/opsx:propose\nupdate the architecture');
+  });
+
+  it('prefixes /opsx:apply when current tab is tasks (Enter)', () => {
+    mockOpenSpecCurrentStepState.value = 'tasks';
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
+    const textarea = getByTestId('cli-prompt-input');
+    fireEvent.change(textarea, { target: { value: 'fix the failing task' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(mockDispatch).toHaveBeenCalledWith('/opsx:apply\nfix the failing task');
+  });
+
+  it('skips prefix when the user already typed a slash command', () => {
+    mockOpenSpecCurrentStepState.value = 'tasks';
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
+    const textarea = getByTestId('cli-prompt-input');
+    fireEvent.change(textarea, { target: { value: '/clear' } });
+    // /clear matches bare-/command regex, so the slash dropdown opens — close it and submit
+    fireEvent.keyDown(textarea, { key: 'Escape' });
+    fireEvent.click(getByTestId('send-button'));
+    expect(mockDispatch).toHaveBeenCalledWith('/clear');
+  });
+
+  it('does not prefix outside an OpenSpec editor', () => {
+    mockOpenSpecContextState.value = null;
+    mockOpenSpecCurrentStepState.value = 'tasks';
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
+    const textarea = getByTestId('cli-prompt-input');
+    fireEvent.change(textarea, { target: { value: 'just a normal prompt' } });
+    fireEvent.click(getByTestId('send-button'));
+    expect(mockDispatch).toHaveBeenCalledWith('just a normal prompt');
+  });
+});
+
+describe('CliPromptBar — openspec CLI bootstrap [cli-prompt-bar/openspec-bootstrap]', () => {
+  it('dispatches pendingOpenSpecMessage and clears the atom when terminal state goes idle', async () => {
+    mockPendingOpenSpecMsgState.value = {
+      subChatId: 'sc-1',
+      message: '/opsx:propose change-abc\n\nBuild a feature'
+    };
+
+    render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      mockStateSubscriptionCallbacks.onData?.({ paneId: 'cli:sc-1', state: 'idle' });
+    });
+
+    await waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledWith('/opsx:propose change-abc\n\nBuild a feature');
+      expect(mockSetPendingOpenSpecMessage).toHaveBeenCalledWith(null);
+    });
+  });
+
+  it('does not dispatch before terminal state goes idle', () => {
+    mockPendingOpenSpecMsgState.value = {
+      subChatId: 'sc-1',
+      message: '/opsx:propose change-abc\n\nBuild a feature'
+    };
+
+    render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockSetPendingOpenSpecMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch on running state — only idle latches ready', async () => {
+    mockPendingOpenSpecMsgState.value = {
+      subChatId: 'sc-1',
+      message: '/opsx:propose change-abc\n\nBuild a feature'
+    };
+
+    render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      mockStateSubscriptionCallbacks.onData?.({ paneId: 'cli:sc-1', state: 'running' });
+    });
+
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockSetPendingOpenSpecMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch when subChatId does not match', async () => {
+    mockPendingOpenSpecMsgState.value = {
+      subChatId: 'sc-OTHER',
+      message: '/opsx:propose change-abc\n\nBuild a feature'
+    };
+
+    render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      mockStateSubscriptionCallbacks.onData?.({ paneId: 'cli:sc-1', state: 'idle' });
+    });
+
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockSetPendingOpenSpecMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ── Restart button [cli-prompt-bar/restart-button] ───────────────────────────
+
+describe('CliPromptBar — Restart button [cli-prompt-bar/restart-button]', () => {
+  it('renders Restart CLI button for claude-cli harness', () => {
+    const { getByLabelText } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    expect(getByLabelText('Restart CLI')).toBeTruthy();
+  });
+
+  it('renders Restart CLI button for codex-cli harness', () => {
+    const { getByLabelText } = render(<CliPromptBar subChatId="sc-1" harness="codex-cli" isOwner />);
+    expect(getByLabelText('Restart CLI')).toBeTruthy();
+  });
+
+  it('Restart CLI button is disabled when isOwner=false', () => {
+    const { getByLabelText } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner={false} />);
+    expect((getByLabelText('Restart CLI') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('clicking Restart button opens a confirmation dialog', async () => {
+    const { getByLabelText } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    await act(async () => {
+      fireEvent.click(getByLabelText('Restart CLI'));
+    });
+    expect(screen.getByText(/Restart.*session\?/i)).toBeTruthy();
+  });
+
+  it('cancel button dismisses the dialog', async () => {
+    const { getByLabelText } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    await act(async () => {
+      fireEvent.click(getByLabelText('Restart CLI'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    expect(screen.queryByText(/Restart.*session\?/i)).toBeNull();
   });
 });

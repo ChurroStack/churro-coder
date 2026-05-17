@@ -1,3 +1,12 @@
+// React Query cache contract (see apps/desktop/AGENTS.md → Query cache contract):
+// the renderer process intentionally does NOT persist React Query state across
+// app sessions — every cold start gets a fresh QueryClient via the
+// `useState(() => new QueryClient(...))` below. Per-subChat / per-worktree
+// data refreshes naturally on remount, and explicit `invalidateQueries`
+// covers in-session server-side mutations. Do NOT introduce `persistQueryClient`:
+// it would resurrect stale state from a prior process lifetime, which can
+// surface as "the subChat panel shows old plan / review / file-changes data
+// even though the server-side artifacts have moved on".
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ipcLink } from 'trpc-electron/renderer';

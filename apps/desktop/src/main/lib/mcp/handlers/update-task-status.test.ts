@@ -116,7 +116,12 @@ describe('update_task_status tool — bound server', () => {
   test('concurrent write_tasks + update_task_status produces consistent result', async () => {
     await seedTasks('sub-conc');
 
-    // Dispatch both simultaneously via the store API (bypasses MCP transport serialisation).
+    // Dispatch both simultaneously via the store API. The serialised per-sub-chat
+    // queue in task-store enforces FIFO: writeTasks() is enqueued synchronously
+    // first; updateTaskStatus() lands after the dynamic import resolves a
+    // microtask later. So the deterministic outcome is: writeTasks replaces the
+    // list with 3 tasks, then update flips step-1 (which is still present in the
+    // new list) to in_progress.
     const [, updateResult] = await Promise.all([
       writeTasks({
         subChatId: 'sub-conc',
@@ -127,21 +132,19 @@ describe('update_task_status tool — bound server', () => {
         ],
         source: 'test'
       }),
-      // This update targets the old list; it will either win or lose the race but
-      // must never corrupt the file (no partial write).
       import('../../tasks/task-store').then((m) =>
         m.updateTaskStatus({ subChatId: 'sub-conc', id: 'step-1', status: 'in_progress', source: 'test' })
       )
     ]);
 
+    expect(updateResult.ok).toBe(true);
+
     const data = await readTasks('sub-conc');
     expect(data).not.toBeNull();
-    // File must be valid JSON with an array — never undefined or corrupt.
-    expect(Array.isArray(data!.tasks)).toBe(true);
-    // The update either applied to the old 2-item list (ok:true) or found the
-    // id missing in the new 3-item list after write_tasks replaced it (ok:false).
-    // Either way the result is typed and not an exception.
-    expect(typeof updateResult).toBe('object');
+    expect(data!.tasks).toHaveLength(3);
+    expect(data!.tasks[0]).toMatchObject({ id: 'step-1', status: 'in_progress' });
+    expect(data!.tasks[1]).toMatchObject({ id: 'step-2', status: 'pending' });
+    expect(data!.tasks[2]).toMatchObject({ id: 'step-3', status: 'pending' });
   });
 });
 

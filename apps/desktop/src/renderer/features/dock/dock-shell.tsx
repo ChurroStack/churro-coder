@@ -9,6 +9,7 @@ import { DockHeaderLeftActions } from './dock-header-left-actions';
 import { RenamableTab } from './renamable-tab';
 import { terminalsAtom, activeTerminalIdAtom } from '../terminal/atoms';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
+import { forgetMcpInjected } from '../agents/hooks/use-harness-send-dispatcher';
 import { trpc } from '../../lib/trpc';
 
 export interface DockShellProps {
@@ -154,6 +155,7 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
               if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
               capturedKillTerminal.mutate({ paneId: removedPanelId });
               capturedCleanupCliHarness.mutate({ subChatId });
+              forgetMcpInjected(subChatId);
               useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId);
             });
           }
