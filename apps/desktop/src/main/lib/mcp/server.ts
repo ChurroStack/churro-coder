@@ -1,8 +1,12 @@
 /**
  * churro-coder MCP server factory.
  *
- * Phase 1 ships only `read_plan`. Future tools (read_memory, read_decision_log, etc.)
- * drop in as new files under `handlers/` with one-line registration here.
+ * Single shared server: one logical MCP entry registered in Claude/Codex
+ * config, one factory invocation per HTTP request. Every tool requires
+ * `subChatId` as an argument; the value is injected into the CLI context
+ * via the bootstrap layer (system prompt, first-turn reminder, dispatcher
+ * messages — see `apps/desktop/src/main/lib/cli-harness/index.ts` and
+ * `apps/desktop/src/renderer/features/agents/hooks/use-harness-send-dispatcher.ts`).
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -15,25 +19,15 @@ import { registerUpdateTaskStatusTool } from './handlers/update-task-status';
 import { registerNotifyFilesChangedTool } from './handlers/notify-files-changed';
 import { registerRequestUserInputTool } from './handlers/request-user-input';
 
-function buildServer(opts: { boundSubChatId?: string }): McpServer {
+export function createMcpServer(): McpServer {
   const server = new McpServer({ name: 'churro-coder', version: '0.1.0' });
-  registerReadPlanTool(server, opts);
-  registerWritePlanTool(server, opts);
-  registerWriteReviewTool(server, opts);
-  registerReadReviewTool(server, opts);
-  registerWriteTasksTool(server, opts);
-  registerUpdateTaskStatusTool(server, opts);
-  registerNotifyFilesChangedTool(server, opts);
-  registerRequestUserInputTool(server, opts);
+  registerReadPlanTool(server);
+  registerWritePlanTool(server);
+  registerWriteReviewTool(server);
+  registerReadReviewTool(server);
+  registerWriteTasksTool(server);
+  registerUpdateTaskStatusTool(server);
+  registerNotifyFilesChangedTool(server);
+  registerRequestUserInputTool(server);
   return server;
-}
-
-/** For Claude — subChatId is closed over; the agent never needs to pass it. */
-export function createMcpServerForSubChat(subChatId: string): McpServer {
-  return buildServer({ boundSubChatId: subChatId });
-}
-
-/** For Codex and HTTP transport — agent must pass subChatId in the tool args. */
-export function createMcpServerStateless(): McpServer {
-  return buildServer({});
 }

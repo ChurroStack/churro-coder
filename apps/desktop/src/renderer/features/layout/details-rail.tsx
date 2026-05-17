@@ -71,6 +71,21 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   const setCurrentPlanPath = useSetAtom(currentPlanPathAtomFamily(effectiveSubChatId));
   const triggerPlanRefetch = useSetAtom(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
 
+  // Cold-start hydration: currentPlanPathAtomFamily is in-memory only, so on
+  // app restart the Plan widget would render empty even though the MCP plan
+  // file is on disk. Seed the atom from getCurrentPlan whenever the local
+  // path is null. Dedupes with the same query fired by useWorkflowSnapshot.
+  const { data: currentPlanData } = trpc.chats.getCurrentPlan.useQuery(
+    { subChatId: effectiveSubChatId },
+    { enabled: !!effectiveSubChatId }
+  );
+  useEffect(() => {
+    if (!planPath && currentPlanData?.exists && currentPlanData.filePath) {
+      console.log(`[DetailsRail] plan-path-hydrated sub=${effectiveSubChatId} path=${currentPlanData.filePath}`);
+      setCurrentPlanPath(currentPlanData.filePath);
+    }
+  }, [currentPlanData, planPath, setCurrentPlanPath, effectiveSubChatId]);
+
   const trpcUtils = trpc.useUtils();
 
   // Central sidebar refresh: fires on write_plan, write_tasks, update_task_status,

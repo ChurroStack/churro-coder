@@ -4,7 +4,6 @@ import { portManager } from './port-manager';
 import { getProcessTree } from './port-scanner';
 import { createSession, setupInitialCommands } from './session';
 import type { CreateSessionParams, SessionResult, TerminalOutputState, TerminalSession } from './types';
-import { removeClaudeCliMcp } from '../cli-harness';
 
 /**
  * Idle-detection tuning. Each session that opts in samples activity every
@@ -280,14 +279,6 @@ export class TerminalManager extends EventEmitter {
 
       // Unregister from port manager (also removes detected ports)
       portManager.unregisterSession(paneId);
-
-      // Remove the churro-coder MCP entry from ~/.claude.json for CLI panes.
-      if (paneId.startsWith('cli:')) {
-        const subChatId = paneId.slice('cli:'.length);
-        removeClaudeCliMcp(subChatId).catch((err) =>
-          console.warn(`[TerminalManager] Failed to remove MCP entry for sub=${subChatId}:`, err)
-        );
-      }
 
       this.emit(`exit:${paneId}`, exitCode, signal);
 

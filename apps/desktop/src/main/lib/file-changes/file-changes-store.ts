@@ -10,7 +10,7 @@ export interface FileChangeEntry {
   path: string;
   action: FileChangeAction;
   reportedAt: string;
-  source: 'claude-sdk' | 'codex-http';
+  source: string;
 }
 
 export interface FileChangesData {
@@ -50,7 +50,7 @@ function enqueue(subChatId: string, fn: () => Promise<void>): Promise<void> {
 export async function notifyFilesChanged(opts: {
   subChatId: string;
   files: Array<{ path: string; action: FileChangeAction }>;
-  source: 'claude-sdk' | 'codex-http';
+  source: string;
 }): Promise<void> {
   return enqueue(opts.subChatId, async () => {
     let existing: FileChangesData = { entries: [] };

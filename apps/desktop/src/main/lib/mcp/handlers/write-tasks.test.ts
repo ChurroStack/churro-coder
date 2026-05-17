@@ -17,9 +17,9 @@ vi.mock('electron', () => ({
 import { readTasks, onTasksWritten } from '../../tasks/task-store';
 import { registerWriteTasksTool } from './write-tasks';
 
-async function makeClientServer(boundSubChatId?: string) {
+async function makeClientServer() {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerWriteTasksTool(server, { boundSubChatId });
+  registerWriteTasksTool(server);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -41,10 +41,13 @@ const SAMPLE_TASKS = [
   { id: 'step-2', title: 'Second step', status: 'pending' as const }
 ];
 
-describe('write_tasks tool — bound server', () => {
+describe('write_tasks tool', () => {
   test('writes tasks and returns confirmation', async () => {
-    const { client } = await makeClientServer('sub-bound');
-    const result = await client.callTool({ name: 'write_tasks', arguments: { tasks: SAMPLE_TASKS } });
+    const { client } = await makeClientServer();
+    const result = await client.callTool({
+      name: 'write_tasks',
+      arguments: { subChatId: 'sub-bound', tasks: SAMPLE_TASKS }
+    });
 
     expect(result.isError).toBeFalsy();
     const content = result.content as Array<{ type: string; text: string }>;
@@ -53,8 +56,8 @@ describe('write_tasks tool — bound server', () => {
   });
 
   test('written tasks can be read back identically', async () => {
-    const { client } = await makeClientServer('sub-readback');
-    await client.callTool({ name: 'write_tasks', arguments: { tasks: SAMPLE_TASKS } });
+    const { client } = await makeClientServer();
+    await client.callTool({ name: 'write_tasks', arguments: { subChatId: 'sub-readback', tasks: SAMPLE_TASKS } });
 
     const data = await readTasks('sub-readback');
     expect(data).not.toBeNull();
@@ -64,11 +67,14 @@ describe('write_tasks tool — bound server', () => {
   });
 
   test('second write_tasks call fully replaces the list', async () => {
-    const { client } = await makeClientServer('sub-replace');
-    await client.callTool({ name: 'write_tasks', arguments: { tasks: SAMPLE_TASKS } });
+    const { client } = await makeClientServer();
+    await client.callTool({ name: 'write_tasks', arguments: { subChatId: 'sub-replace', tasks: SAMPLE_TASKS } });
     await client.callTool({
       name: 'write_tasks',
-      arguments: { tasks: [{ id: 'only', title: 'Only task', status: 'in_progress' }] }
+      arguments: {
+        subChatId: 'sub-replace',
+        tasks: [{ id: 'only', title: 'Only task', status: 'in_progress' }]
+      }
     });
 
     const data = await readTasks('sub-replace');
@@ -77,10 +83,11 @@ describe('write_tasks tool — bound server', () => {
   });
 
   test('rejects duplicate ids within the payload', async () => {
-    const { client } = await makeClientServer('sub-dup');
+    const { client } = await makeClientServer();
     const result = await client.callTool({
       name: 'write_tasks',
       arguments: {
+        subChatId: 'sub-dup',
         tasks: [
           { id: 'dup', title: 'A', status: 'pending' },
           { id: 'dup', title: 'B', status: 'pending' }
@@ -93,10 +100,10 @@ describe('write_tasks tool — bound server', () => {
   });
 
   test('rejects invalid status enum value', async () => {
-    const { client } = await makeClientServer('sub-enum');
+    const { client } = await makeClientServer();
     const result = await client.callTool({
       name: 'write_tasks',
-      arguments: { tasks: [{ id: 'x', title: 'X', status: 'done' }] }
+      arguments: { subChatId: 'sub-enum', tasks: [{ id: 'x', title: 'X', status: 'done' }] }
     });
     expect(result.isError).toBe(true);
   });
@@ -105,28 +112,15 @@ describe('write_tasks tool — bound server', () => {
     const events: string[] = [];
     const off = onTasksWritten((e) => events.push(e.subChatId));
 
-    const { client } = await makeClientServer('sub-event');
-    await client.callTool({ name: 'write_tasks', arguments: { tasks: SAMPLE_TASKS } });
+    const { client } = await makeClientServer();
+    await client.callTool({ name: 'write_tasks', arguments: { subChatId: 'sub-event', tasks: SAMPLE_TASKS } });
 
     off();
     expect(events).toContain('sub-event');
   });
-});
 
-describe('write_tasks tool — stateless server', () => {
-  test('uses input.subChatId when server is unbound', async () => {
-    const { client } = await makeClientServer(undefined);
-    const result = await client.callTool({
-      name: 'write_tasks',
-      arguments: { subChatId: 'free-sub', tasks: SAMPLE_TASKS }
-    });
-    expect(result.isError).toBeFalsy();
-    const data = await readTasks('free-sub');
-    expect(data!.tasks).toHaveLength(2);
-  });
-
-  test('errors when unbound and no subChatId provided', async () => {
-    const { client } = await makeClientServer(undefined);
+  test('errors when subChatId is missing from arguments', async () => {
+    const { client } = await makeClientServer();
     const result = await client.callTool({ name: 'write_tasks', arguments: { tasks: SAMPLE_TASKS } });
     expect(result.isError).toBe(true);
     const content = result.content as Array<{ type: string; text: string }>;

@@ -3,7 +3,7 @@ import { useSetAtom } from 'jotai';
 import { trpc } from '../../../lib/trpc';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { pendingBuildPlanAtomFamily, pendingFixReviewIssuesAtomFamily } from '../atoms';
-import { CLI_MCP_REMINDER } from '../../../../shared/cli-mcp-reminder';
+import { cliMcpReminder } from '../../../../shared/cli-mcp-reminder';
 
 // Tracks which CLI subChat sessions have had the MCP instruction injected into
 // their first user message. Module-level so it resets on app restart (matching
@@ -75,7 +75,7 @@ export function submitToCli(args: {
   let payload = args.payload;
   if (injectMcpReminderIfFirst && !mcpInjectedSessions.has(subChatId)) {
     mcpInjectedSessions.add(subChatId);
-    payload = `${CLI_MCP_REMINDER}\n${payload}`;
+    payload = `${cliMcpReminder(subChatId)}\n${payload}`;
   }
   for (const chunk of encodeForCliSubmit(payload, forceBracketedPaste)) {
     writeMutation.mutate({ paneId: `cli:${subChatId}`, data: chunk });
@@ -135,10 +135,10 @@ export function useHarnessSendDispatcher(subChatId: string, harnessOverride?: 'b
 
   const dispatchBuildPlan = useCallback(() => {
     if (isCliHarness) {
-      const mcpServerName = `churro-coder-${subChatId}`;
       const codexMsg =
         'The plan has been approved. Implement it now.\n\n' +
-        `You MUST use the MCP tools from the ${mcpServerName} server to retrieve the plan and track progress:\n` +
+        `Sub-chat id: ${subChatId}. Pass this exact string as subChatId on every churro-coder MCP tool call.\n\n` +
+        'You MUST use the MCP tools from the churro-coder server to retrieve the plan and track progress:\n' +
         '1. Call read_plan to retrieve the full approved plan text.\n' +
         '2. Call write_tasks with the complete list of plan steps (each step needs a stable short id, a title, and status: "pending").\n' +
         '3. Before starting each step, call update_task_status with status: "in_progress".\n' +
@@ -147,6 +147,7 @@ export function useHarnessSendDispatcher(subChatId: string, harnessOverride?: 'b
         'Skipping these tool calls leaves the user UI blank — that is a failure. Start by calling read_plan now.';
       const claudeMsg =
         'The plan has been approved. Please implement everything described in the plan.\n' +
+        `Sub-chat id: ${subChatId}. Pass this exact string as subChatId on every churro-coder MCP tool call.\n` +
         'Track progress with the MCP task tools:\n' +
         '(1) call write_tasks once with the initial list of plan steps (each task needs a stable short id, a title, and status: "pending");\n' +
         '(2) before starting a task call update_task_status with status: "in_progress"; after finishing call it again with status: "completed";\n' +
@@ -173,12 +174,13 @@ export function useHarnessSendDispatcher(subChatId: string, harnessOverride?: 'b
     writeChunks(
       `cli:${subChatId}`,
       'Please write a code review of the changes in the current branch compared to the base branch.\n\n' +
+        `Sub-chat id: ${subChatId}. Pass this exact string as subChatId on every churro-coder MCP tool call.\n\n` +
         'Run a git command such as `git diff origin/HEAD` or `git log --oneline -10` to see what changed. ' +
         'Then write a markdown review with:\n' +
         '1. A brief summary of what the changes do\n' +
         '2. A table of issues with columns: severity (🔴 high, 🟡 medium, 🟢 low), file:line, issue, suggestion\n' +
         '3. If no issues: state the code looks good\n\n' +
-        'When complete, call the `write_review` tool from the churro-coder MCP server (pass the entire markdown as the `markdown` argument). ' +
+        'When complete, call the `write_review` tool from the churro-coder MCP server (pass the entire markdown as the `markdown` argument, and the sub-chat id above as `subChatId`). ' +
         'This persists the review and updates the Review milestone in the UI.'
     );
   }, [isCliHarness, subChatId, writeChunks]);

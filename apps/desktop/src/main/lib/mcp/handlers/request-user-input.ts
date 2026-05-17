@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { SUB_CHAT_ID_MISSING_ERROR, subChatIdRequirementBlurb } from './sub-chat-id-helper';
+import { SUB_CHAT_ID_MISSING_ERROR, requireKnownSubChatId } from './sub-chat-id-helper';
 import { pendingCliQuestions, emitCliUserQuestion } from '../pending-cli-questions';
 
 export const USER_SKIPPED_MARKER = '<USER_SKIPPED>';
@@ -18,12 +18,14 @@ const questionSchema = z.object({
   multiSelect: z.boolean().describe('If true, the user can pick multiple options.')
 });
 
-export function registerRequestUserInputTool(server: McpServer, opts: { boundSubChatId?: string }): void {
-  const inputSchema: Record<string, z.ZodTypeAny> = opts.boundSubChatId
-    ? {
-        questions: z.array(questionSchema).min(1).max(4).describe('1-4 questions to present to the user.')
-      }
-    : {
+export function registerRequestUserInputTool(server: McpServer): void {
+  server.registerTool(
+    'request_user_input',
+    {
+      title: 'Request User Input',
+      description:
+        'Ask the user 1-4 structured questions via the host UI. The host renders the questions as a widget above the CLI prompt bar; the user selects options and submits. The tool blocks until the user answers or skips — do NOT call it for information you already have. Use this instead of prompting via the terminal whenever you need a clarification or decision from the user. You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").',
+      inputSchema: {
         subChatId: z
           .string()
           .min(1)
@@ -31,14 +33,7 @@ export function registerRequestUserInputTool(server: McpServer, opts: { boundSub
             'REQUIRED. The sub-chat ID. The host app provides this in the prompt context as "Sub-chat id: <value>".'
           ),
         questions: z.array(questionSchema).min(1).max(4).describe('1-4 questions to present to the user.')
-      };
-
-  server.registerTool(
-    'request_user_input',
-    {
-      title: 'Request User Input',
-      description: `Ask the user 1-4 structured questions via the host UI. The host renders the questions as a widget above the CLI prompt bar; the user selects options and submits. The tool blocks until the user answers or skips — do NOT call it for information you already have. Use this instead of prompting via the terminal whenever you need a clarification or decision from the user. ${subChatIdRequirementBlurb(opts.boundSubChatId)}`,
-      inputSchema
+      }
     },
     (rawInput: Record<string, unknown>) => {
       const input = rawInput as {
@@ -50,14 +45,14 @@ export function registerRequestUserInputTool(server: McpServer, opts: { boundSub
           multiSelect: boolean;
         }>;
       };
-      const subChatId = opts.boundSubChatId ?? input.subChatId;
+      const subChatId = input.subChatId;
       console.log(
-        `[mcp:request_user_input] invoked sub=${subChatId ?? 'missing'} bound=${Boolean(opts.boundSubChatId)} questionCount=${input.questions?.length ?? 0}`
+        `[mcp:request_user_input] invoked sub=${subChatId ?? 'missing'} questionCount=${input.questions?.length ?? 0}`
       );
 
-      if (!subChatId) {
-        return Promise.resolve(SUB_CHAT_ID_MISSING_ERROR);
-      }
+      if (!subChatId) return Promise.resolve(SUB_CHAT_ID_MISSING_ERROR);
+      const check = requireKnownSubChatId(subChatId);
+      if (!check.ok) return Promise.resolve(check.errorContent);
 
       const requestId = randomUUID();
 

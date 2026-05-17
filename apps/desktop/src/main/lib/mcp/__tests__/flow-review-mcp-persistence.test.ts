@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { createMcpServerForSubChat } from '../server';
+import { createMcpServer } from '../server';
 import { hasReview, readCurrentReview, writeCurrentReview } from '../../reviews/review-store';
 import { closeMcpHttpServer, initMcpHttpServer } from '../http-transport';
 
@@ -17,8 +17,8 @@ vi.mock('electron', () => ({
   }
 }));
 
-async function connectBoundClient(subChatId: string) {
-  const server = createMcpServerForSubChat(subChatId);
+async function connectInMemoryClient() {
+  const server = createMcpServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -35,12 +35,12 @@ afterEach(async () => {
 });
 
 describe('review MCP persistence flow', () => {
-  test('bound write_review persists the review to disk', async () => {
-    const client = await connectBoundClient('write-1');
+  test('write_review persists the review to disk', async () => {
+    const client = await connectInMemoryClient();
     try {
       const result = await client.callTool({
         name: 'write_review',
-        arguments: { markdown: '# Code Review\n\n- Looks solid', title: 'Code Review' }
+        arguments: { subChatId: 'write-1', markdown: '# Code Review\n\n- Looks solid', title: 'Code Review' }
       });
       expect(result.isError).toBeFalsy();
 
@@ -48,18 +48,18 @@ describe('review MCP persistence flow', () => {
       const stored = await readCurrentReview('write-1');
       expect(stored?.content).toBe('# Code Review\n\n- Looks solid');
       expect(stored?.meta.title).toBe('Code Review');
-      expect(stored?.meta.source).toBe('claude-sdk');
+      expect(stored?.meta.source).toBe('mcp');
     } finally {
       await client.close();
     }
   });
 
-  test('bound write_review extracts title from heading when omitted', async () => {
-    const client = await connectBoundClient('write-2');
+  test('write_review extracts title from heading when omitted', async () => {
+    const client = await connectInMemoryClient();
     try {
       const result = await client.callTool({
         name: 'write_review',
-        arguments: { markdown: '# Inferred Title\n\nbody' }
+        arguments: { subChatId: 'write-2', markdown: '# Inferred Title\n\nbody' }
       });
       expect(result.isError).toBeFalsy();
 
@@ -70,17 +70,17 @@ describe('review MCP persistence flow', () => {
     }
   });
 
-  test('bound read_review returns the previously persisted review', async () => {
+  test('read_review returns the previously persisted review', async () => {
     await writeCurrentReview({
       subChatId: 'persist-1',
       content: '# Persisted Review\n\n- Step one',
-      source: 'claude-sdk',
+      source: 'mcp',
       title: 'Persisted Review'
     });
 
-    const client = await connectBoundClient('persist-1');
+    const client = await connectInMemoryClient();
     try {
-      const result = await client.callTool({ name: 'read_review', arguments: {} });
+      const result = await client.callTool({ name: 'read_review', arguments: { subChatId: 'persist-1' } });
       expect(result.isError).toBeFalsy();
       const content = result.content as Array<{ type: string; text: string }>;
       expect(content[0].text).toContain('# Persisted Review');
@@ -90,10 +90,10 @@ describe('review MCP persistence flow', () => {
     }
   });
 
-  test('bound read_review surfaces an error when no review exists', async () => {
-    const client = await connectBoundClient('empty-1');
+  test('read_review surfaces an error when no review exists', async () => {
+    const client = await connectInMemoryClient();
     try {
-      const result = await client.callTool({ name: 'read_review', arguments: {} });
+      const result = await client.callTool({ name: 'read_review', arguments: { subChatId: 'empty-1' } });
       expect(result.isError).toBe(true);
       const content = result.content as Array<{ type: string; text: string }>;
       expect(content[0].text).toMatch(/No review/);
@@ -118,7 +118,7 @@ describe('review MCP persistence flow', () => {
       expect(writeResult.isError).toBeFalsy();
       const stored = await readCurrentReview('http-1');
       expect(stored?.content).toContain('# HTTP Review');
-      expect(stored?.meta.source).toBe('codex-http');
+      expect(stored?.meta.source).toBe('mcp');
 
       const readResult = await client.callTool({
         name: 'read_review',

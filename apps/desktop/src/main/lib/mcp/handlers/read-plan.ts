@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { chats, getDatabase, projects, subChats } from '../../db';
 import { buildOpenspecEnvOverrides, getOpenspecBinDir } from '../../openspec/openspec-bin-path';
 import { readCurrentPlan } from '../../plans/plan-store';
+import { SUB_CHAT_ID_MISSING_ERROR } from './sub-chat-id-helper';
 
 const execFileAsync = promisify(execFile);
 
@@ -229,22 +230,19 @@ function renderOpenSpecPlan(plan: OpenSpecPlan): string {
   return header + body;
 }
 
-export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?: string }): void {
-  // Schema branches on bound vs unbound:
-  //  - bound (Claude per-turn SDK instance): subChatId is closed over, the agent
-  //    must NOT pass it. Schema omits the field so the agent doesn't see it.
-  //  - unbound (Codex via HTTP transport): the agent MUST pass subChatId. Schema
-  //    marks it required so the model's tool-call layer doesn't silently drop it
-  //    when the model neglects to read the prompt-side hint.
-  const inputSchema: Record<string, z.ZodTypeAny> = opts.boundSubChatId
-    ? {
-        revision: z
-          .literal('current')
-          .optional()
-          .default('current')
-          .describe('Plan revision to fetch. Only "current" is supported.')
-      }
-    : {
+export function registerReadPlanTool(server: McpServer): void {
+  server.registerTool(
+    'read_plan',
+    {
+      title: 'Read Plan',
+      description:
+        'Retrieve the approved plan for the current sub-chat. ' +
+        'Call this whenever you need to consult the plan — including after compaction or a provider switch. ' +
+        'For sub-chats bound to an OpenSpec change, this tool returns the OpenSpec apply-instructions context ' +
+        '(proposal, design, specs, tasks) rendered from the bundled `openspec instructions apply` CLI. ' +
+        'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>"). ' +
+        'Do NOT pass the OpenSpec changeId as subChatId — they are different identifiers.',
+      inputSchema: {
         subChatId: z
           .string()
           .min(1)
@@ -257,40 +255,15 @@ export function registerReadPlanTool(server: McpServer, opts: { boundSubChatId?:
           .optional()
           .default('current')
           .describe('Plan revision to fetch. Only "current" is supported.')
-      };
-
-  server.registerTool(
-    'read_plan',
-    {
-      title: 'Read Plan',
-      description:
-        'Retrieve the approved plan for the current sub-chat. ' +
-        'Call this whenever you need to consult the plan — including after compaction or a provider switch. ' +
-        'For sub-chats bound to an OpenSpec change, this tool returns the OpenSpec apply-instructions context ' +
-        '(proposal, design, specs, tasks) rendered from the bundled `openspec instructions apply` CLI. ' +
-        (opts.boundSubChatId
-          ? ''
-          : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>"). ' +
-            'Do NOT pass the OpenSpec changeId as subChatId — they are different identifiers.'),
-      inputSchema
+      }
     },
     async (input: { subChatId?: string; revision?: 'current' }) => {
-      const id = opts.boundSubChatId ?? input.subChatId;
+      const id = input.subChatId;
       const inputKeys = Object.keys(input).join(',') || 'none';
       console.log(
-        `[churro-coder] read_plan called sub=${id ?? 'missing'} bound=${Boolean(opts.boundSubChatId)} inputKeys=${inputKeys} revision=${input.revision ?? 'current'}`
+        `[churro-coder] read_plan called sub=${id ?? 'missing'} inputKeys=${inputKeys} revision=${input.revision ?? 'current'}`
       );
-      if (!id) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: 'Error: subChatId is required. The host app provides it in the prompt context as "Sub-chat id: <value>" — pass that value as the subChatId argument.'
-            }
-          ],
-          isError: true
-        };
-      }
+      if (!id) return SUB_CHAT_ID_MISSING_ERROR;
 
       let lookup: OpenSpecPlanLookup;
       try {

@@ -10,9 +10,10 @@
  * the SDK's `simpleStatelessStreamableHttp` example — a single shared
  * transport returns 500s under concurrent or repeated requests.
  *
- * Named "http-transport" (not "codex-transport") so future non-SDK providers
- * that can't use per-turn SDK instance injection can reuse this same HTTP
- * endpoint.
+ * Single shared endpoint: all authenticated requests build a server via
+ * `createMcpServer()`. Every tool requires `subChatId` as an argument; the
+ * bootstrap layer is responsible for delivering subChatId to the CLI context
+ * (system prompt, first-turn reminder, dispatcher messages).
  */
 
 import { app } from 'electron';
@@ -20,11 +21,8 @@ import * as http from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { getDatabase, subChats } from '../db';
-import { updateClaudeConfigAtomic } from '../claude-config';
-import { createMcpServerForSubChat, createMcpServerStateless } from './server';
+import { createMcpServer } from './server';
 
 interface McpHttpState {
   url: string;
@@ -39,19 +37,6 @@ let nextRequestId = 1;
 let restartInFlight: Promise<{ url: string; bearer: string; port: number }> | null = null;
 let initInFlight: Promise<{ url: string; bearer: string; port: number }> | null = null;
 const intentionallyClosingServers = new WeakSet<http.Server>();
-
-/** Test-only: override the DB-backed subChatId validator so tests don't need a real DB. */
-let subChatIdValidatorOverride: ((id: string) => boolean) | null = null;
-export function __setSubChatIdValidatorForTest(fn: ((id: string) => boolean) | null): void {
-  subChatIdValidatorOverride = fn;
-}
-
-function isKnownSubChatId(id: string): boolean {
-  if (subChatIdValidatorOverride) return subChatIdValidatorOverride(id);
-  const db = getDatabase();
-  const row = db.select({ id: subChats.id }).from(subChats).where(eq(subChats.id, id)).get();
-  return !!row;
-}
 
 function getMcpStatePath(): string {
   return join(app.getPath('userData'), 'churro-mcp.json');
@@ -184,31 +169,7 @@ async function startMcpHttpServer(
       console.log(`[churro-coder] MCP HTTP request id=${requestId} method=${req.method} ${summarizeJsonRpcBody(body)}`);
     }
 
-    // Path-scoped routing: /sub/<subChatId>/... → per-subChat MCP server
-    const urlPath = req.url ?? '/';
-    let mcpServer;
-    if (urlPath.startsWith('/sub/')) {
-      const afterSub = urlPath.slice('/sub/'.length);
-      const subChatId = afterSub.split('/')[0];
-      if (!subChatId) {
-        sendJsonRpcError(res, 404, -32004, 'Missing subChatId in path');
-        return;
-      }
-      // Verify the subChatId is known to prevent arbitrary tool execution
-      if (!isKnownSubChatId(subChatId)) {
-        const clientIp = req.socket.remoteAddress ?? 'unknown';
-        console.warn(
-          `[churro-coder] MCP path-scoped request id=${requestId} rejected unknown subChatId=${subChatId} ip=${clientIp}`
-        );
-        sendJsonRpcError(res, 404, -32004, 'Unknown subChatId');
-        return;
-      }
-      mcpServer = createMcpServerForSubChat(subChatId);
-    } else {
-      // Root route — stateless (Codex + other non-path-scoped callers)
-      mcpServer = createMcpServerStateless();
-    }
-
+    const mcpServer = createMcpServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {
@@ -275,9 +236,9 @@ async function startMcpHttpServer(
 
 export async function initMcpHttpServer(): Promise<{ url: string; bearer: string; port: number }> {
   // Coalesce against any in-flight crash-restart. A concurrent caller during a
-  // restart window (state has been nulled while the new server is being bound)
-  // must wait for the restart instead of starting a parallel server — otherwise
-  // we leak HTTP servers and race the per-subChat MCP injects against the sweep.
+  // restart window (state nulled while the new server is being bound) must
+  // wait for the restart instead of starting a parallel server — two parallel
+  // HTTP servers would leak the loser's socket and overwrite the state singleton.
   if (restartInFlight) {
     console.log('[mcp-bootstrap] init awaiting restart');
     return restartInFlight;
@@ -292,25 +253,6 @@ export async function initMcpHttpServer(): Promise<{ url: string; bearer: string
 
   console.log('[mcp-bootstrap] init started');
   initInFlight = (async () => {
-    // Sweep stale churro-coder-* entries left by a prior session that crashed
-    // or was force-killed without running the per-CLI exit cleanup. All such
-    // entries are dead: the new server binds to a fresh port, so every old URL
-    // is invalid, and each live CLI re-bootstraps to re-inject its entry.
-    // Coalescing through initInFlight guarantees this sweep runs exactly once
-    // per server lifetime and strictly BEFORE any caller's subsequent
-    // injectClaudeCliMcp — so a sibling subChat's inject can never be wiped
-    // by a parallel init's sweep.
-    await updateClaudeConfigAtomic((config) => {
-      if (config.mcpServers) {
-        for (const key of Object.keys(config.mcpServers)) {
-          if (key.startsWith('churro-coder-')) {
-            delete config.mcpServers[key];
-          }
-        }
-      }
-      return config;
-    }).catch((err) => console.warn('[churro-coder] Failed to sweep stale MCP entries on startup:', err));
-
     const bearer = (await loadSavedBearer()) ?? randomUUID();
     state = await startMcpHttpServer(bearer, 0);
     console.log(`[mcp-bootstrap] init complete port=${state.port} restartCount=${state.restartCount}`);

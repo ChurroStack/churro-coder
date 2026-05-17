@@ -17,9 +17,9 @@ vi.mock('electron', () => ({
 import { readFileChanges, onFileChangesNotified } from '../../file-changes/file-changes-store';
 import { registerNotifyFilesChangedTool } from './notify-files-changed';
 
-async function makeClientServer(boundSubChatId?: string) {
+async function makeClientServer() {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerNotifyFilesChangedTool(server, { boundSubChatId });
+  registerNotifyFilesChangedTool(server);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -36,13 +36,14 @@ afterEach(async () => {
   await rm(tmpRoot, { recursive: true, force: true });
 });
 
-describe('notify_files_changed tool — bound server', () => {
+describe('notify_files_changed tool', () => {
   test('persists file entries and returns success text', async () => {
-    const { client } = await makeClientServer('sub-bound');
+    const { client } = await makeClientServer();
 
     const result = await client.callTool({
       name: 'notify_files_changed',
       arguments: {
+        subChatId: 'sub-bound',
         files: [
           { path: '/repo/src/foo.ts', action: 'create' },
           { path: '/repo/src/bar.ts', action: 'update' }
@@ -64,48 +65,29 @@ describe('notify_files_changed tool — bound server', () => {
     const events: string[] = [];
     const off = onFileChangesNotified((e) => events.push(e.subChatId));
 
-    const { client } = await makeClientServer('sub-ev');
+    const { client } = await makeClientServer();
     await client.callTool({
       name: 'notify_files_changed',
-      arguments: { files: [{ path: '/repo/foo.ts', action: 'update' }] }
+      arguments: { subChatId: 'sub-ev', files: [{ path: '/repo/foo.ts', action: 'update' }] }
     });
 
     off();
     expect(events).toContain('sub-ev');
   });
 
-  test('source is claude-sdk for bound server', async () => {
-    const { client } = await makeClientServer('sub-src');
+  test('source is "mcp" for stateless single-server design', async () => {
+    const { client } = await makeClientServer();
     await client.callTool({
       name: 'notify_files_changed',
-      arguments: { files: [{ path: '/repo/x.ts', action: 'create' }] }
+      arguments: { subChatId: 'sub-src', files: [{ path: '/repo/x.ts', action: 'create' }] }
     });
 
     const data = await readFileChanges('sub-src');
-    expect(data!.entries[0]!.source).toBe('claude-sdk');
-  });
-});
-
-describe('notify_files_changed tool — stateless server', () => {
-  test('uses input.subChatId when server is unbound', async () => {
-    const { client } = await makeClientServer(undefined);
-
-    const result = await client.callTool({
-      name: 'notify_files_changed',
-      arguments: {
-        subChatId: 'free-sub',
-        files: [{ path: '/repo/y.ts', action: 'delete' }]
-      }
-    });
-
-    expect(result.isError).toBeFalsy();
-    const data = await readFileChanges('free-sub');
-    expect(data!.entries[0]!.action).toBe('delete');
-    expect(data!.entries[0]!.source).toBe('codex-http');
+    expect(data!.entries[0]!.source).toBe('mcp');
   });
 
-  test('errors when unbound and no subChatId provided', async () => {
-    const { client } = await makeClientServer(undefined);
+  test('errors when subChatId is missing from arguments', async () => {
+    const { client } = await makeClientServer();
 
     const result = await client.callTool({
       name: 'notify_files_changed',

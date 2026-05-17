@@ -65,7 +65,7 @@ function renderDispatcher(subChatId = SUB_CHAT_ID) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-const CLI_MCP_REMINDER = 'IMPORTANT: call write_plan before ExitPlanMode.';
+const CLI_MCP_REMINDER = `IMPORTANT: Pass subChatId: "${SUB_CHAT_ID}" to every churro-coder MCP tool call. Call write_plan before ExitPlanMode.`;
 
 beforeEach(() => {
   mockWriteMutate.mockClear();

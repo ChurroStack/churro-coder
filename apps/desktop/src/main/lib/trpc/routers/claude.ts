@@ -73,7 +73,7 @@ import { getPrompt } from '../../prompts/prompt-service';
 import { renderBuiltinPrompt } from '../../../../prompts/render';
 import { expandOpsxCommand } from '../../openspec/prompt-expansion';
 import { evaluateClaudeModeToolPolicy, resolveClaudePermissionMode } from './claude-mode-policy';
-import { createMcpServerForSubChat } from '../../mcp/server';
+import { createMcpServer } from '../../mcp/server';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
 import {
@@ -1613,7 +1613,7 @@ export const claudeRouter = router({
                       'churro-coder': {
                         type: 'sdk' as const,
                         name: 'churro-coder',
-                        instance: createMcpServerForSubChat(input.subChatId)
+                        instance: createMcpServer()
                       }
                     };
                   }
@@ -1784,6 +1784,9 @@ ${prompt}
                 // System prompt config - use preset for both Claude and Ollama
                 // If AGENTS.md exists, append its content to the system prompt
                 const hasPlanForSubChat = input.mode === 'execute' && (await hasPlan(input.subChatId));
+                // Tell Claude the subChatId so it can pass it to every churro-coder MCP tool call.
+                // The shared single-registration MCP server requires subChatId as a tool argument.
+                const subChatIdHint = `\n\nSub-chat id: ${input.subChatId}. Pass this exact string as the \`subChatId\` argument to every \`churro-coder\` MCP tool call. Re-read this line before each call.`;
                 const planHint = hasPlanForSubChat
                   ? '\n\nAn approved plan governs this sub-chat. Use the `read_plan` tool (MCP server `churro-coder`) only when you need to recover that already-approved plan later, including after compaction, a provider switch, or a fresh session.'
                   : '';
@@ -1815,7 +1818,8 @@ ${prompt}
                       }
                     }))
                   : '';
-                const systemAppend = agentsAppend + planHint + openSpecReadPlanHint + modeInstruction + openSpecAppend;
+                const systemAppend =
+                  subChatIdHint + agentsAppend + planHint + openSpecReadPlanHint + modeInstruction + openSpecAppend;
                 const systemPromptConfig = systemAppend
                   ? {
                       type: 'preset' as const,

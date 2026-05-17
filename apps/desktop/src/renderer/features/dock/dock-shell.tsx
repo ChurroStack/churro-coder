@@ -28,7 +28,6 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
   const setTerminals = useSetAtom(terminalsAtom);
   const setActiveTerminalIds = useSetAtom(activeTerminalIdAtom);
   const killTerminal = trpc.terminal.kill.useMutation();
-  const cleanupCliHarness = trpc.chats.cleanupCliHarness.useMutation();
 
   // Custom DockviewTheme objects so the dockview root carries OUR class name,
   // not vendor's `dockview-theme-light/-dark`. This is per dockview's documented
@@ -142,19 +141,17 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
           }
         }
 
-        // CLI harness cleanup — when a `cli:` panel is closed, kill the PTY
-        // and remove the churro-coder MCP entry from ~/.claude.json so the
-        // agent no longer sees the server as available. Safe for codex-cli
-        // too (no ~/.claude.json entry exists there, so the call is a no-op).
+        // CLI harness cleanup — when a `cli:` panel is closed, kill the PTY.
+        // The churro-coder MCP entry in ~/.claude.json is shared across all
+        // CLI subchats (single registration), so we don't touch it here —
+        // the next launch will rewrite it with the current url+bearer.
         if (removedPanelId.startsWith('cli:')) {
           const subChatId = removedPanelId.slice('cli:'.length);
           if (subChatId) {
             const capturedKillTerminal = killTerminal;
-            const capturedCleanupCliHarness = cleanupCliHarness;
             queueMicrotask(() => {
               if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
               capturedKillTerminal.mutate({ paneId: removedPanelId });
-              capturedCleanupCliHarness.mutate({ subChatId });
               forgetMcpInjected(subChatId);
               useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId);
             });
@@ -166,7 +163,7 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
       // The subscription lives as long as the api does.
       void sub;
     },
-    [onApiReady, setReady, setMap, setTerminals, setActiveTerminalIds, killTerminal, cleanupCliHarness]
+    [onApiReady, setReady, setMap, setTerminals, setActiveTerminalIds, killTerminal]
   );
 
   return (

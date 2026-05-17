@@ -1,17 +1,18 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readCurrentReview } from '../../reviews/review-store';
+import { SUB_CHAT_ID_MISSING_ERROR, requireKnownSubChatId } from './sub-chat-id-helper';
 
-export function registerReadReviewTool(server: McpServer, opts: { boundSubChatId?: string }): void {
-  const inputSchema: Record<string, z.ZodTypeAny> = opts.boundSubChatId
-    ? {
-        revision: z
-          .literal('current')
-          .optional()
-          .default('current')
-          .describe('Review revision to fetch. Only "current" is supported.')
-      }
-    : {
+export function registerReadReviewTool(server: McpServer): void {
+  server.registerTool(
+    'read_review',
+    {
+      title: 'Read Review',
+      description:
+        'Retrieve the review document for the current sub-chat. ' +
+        'Call this to consult the review before applying its suggestions. ' +
+        'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").',
+      inputSchema: {
         subChatId: z
           .string()
           .min(1)
@@ -24,39 +25,19 @@ export function registerReadReviewTool(server: McpServer, opts: { boundSubChatId
           .optional()
           .default('current')
           .describe('Review revision to fetch. Only "current" is supported.')
-      };
-
-  server.registerTool(
-    'read_review',
-    {
-      title: 'Read Review',
-      description:
-        'Retrieve the review document for the current sub-chat. ' +
-        'Call this to consult the review before applying its suggestions. ' +
-        (opts.boundSubChatId
-          ? ''
-          : 'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>").'),
-      inputSchema
+      }
     },
     async (rawInput: Record<string, unknown>) => {
       const input = rawInput as { subChatId?: string; revision?: 'current' };
-      const id = opts.boundSubChatId ?? input.subChatId;
+      const id = input.subChatId;
       const inputKeys = Object.keys(input).join(',') || 'none';
       console.log(
-        `[churro-coder] read_review called sub=${id ?? 'missing'} bound=${Boolean(opts.boundSubChatId)} inputKeys=${inputKeys} revision=${input.revision ?? 'current'}`
+        `[churro-coder] read_review called sub=${id ?? 'missing'} inputKeys=${inputKeys} revision=${input.revision ?? 'current'}`
       );
 
-      if (!id) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: 'Error: subChatId is required. The host app provides it in the prompt context as "Sub-chat id: <value>" — pass that value as the subChatId argument.'
-            }
-          ],
-          isError: true
-        };
-      }
+      if (!id) return SUB_CHAT_ID_MISSING_ERROR;
+      const check = requireKnownSubChatId(id);
+      if (!check.ok) return check.errorContent;
 
       const review = await readCurrentReview(id);
       if (!review) {

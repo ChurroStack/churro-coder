@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { createMcpServerForSubChat } from '../server';
-import { writeCurrentPlan } from '../../plans/plan-store';
+import { createMcpServer } from '../server';
+import { getPlanFilePath, writeCurrentPlan } from '../../plans/plan-store';
 import { closeMcpHttpServer, initMcpHttpServer } from '../http-transport';
 
 let tmpRoot: string;
@@ -17,8 +17,8 @@ vi.mock('electron', () => ({
   }
 }));
 
-async function connectBoundClient(subChatId: string) {
-  const server = createMcpServerForSubChat(subChatId);
+async function connectInMemoryClient() {
+  const server = createMcpServer();
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 describe('plan MCP persistence flow', () => {
-  test('fresh bound server can read a previously persisted plan', async () => {
+  test('fresh shared server can read a previously persisted plan by subChatId arg', async () => {
     await writeCurrentPlan({
       subChatId: 'persist-1',
       content: '# Persisted Plan\n\n1. Step one',
@@ -43,9 +43,9 @@ describe('plan MCP persistence flow', () => {
       title: 'Persisted Plan'
     });
 
-    const client = await connectBoundClient('persist-1');
+    const client = await connectInMemoryClient();
     try {
-      const result = await client.callTool({ name: 'read_plan', arguments: {} });
+      const result = await client.callTool({ name: 'read_plan', arguments: { subChatId: 'persist-1' } });
       expect(result.isError).toBeFalsy();
       const content = result.content as Array<{ type: string; text: string }>;
       expect(content[0].text).toContain('# Persisted Plan');
@@ -53,6 +53,21 @@ describe('plan MCP persistence flow', () => {
     } finally {
       await client.close();
     }
+  });
+
+  test('getPlanFilePath points at the file writeCurrentPlan just wrote', async () => {
+    await writeCurrentPlan({
+      subChatId: 'persist-filepath',
+      content: '# Survives Restart\n\nbody',
+      source: 'claude:ExitPlanMode',
+      title: 'Survives Restart'
+    });
+
+    const planPath = getPlanFilePath('persist-filepath');
+    expect(planPath.endsWith(join('sub-chats', 'persist-filepath', 'plans', 'current.md'))).toBe(true);
+
+    const onDisk = await readFile(planPath, 'utf8');
+    expect(onDisk).toContain('# Survives Restart');
   });
 
   test('fresh HTTP client can read the persisted plan by subChatId', async () => {

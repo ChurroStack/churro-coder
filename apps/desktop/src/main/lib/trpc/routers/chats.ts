@@ -1,10 +1,11 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { observable } from '@trpc/server/observable';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
-import { CLI_MCP_REMINDER } from '../../../../shared/cli-mcp-reminder';
+import { cliMcpReminder } from '../../../../shared/cli-mcp-reminder';
 import {
   ensurePlanWritten,
   extractPlanTitleFromContent,
+  getPlanFilePath,
   hasPlan,
   markApproved,
   onPlanWritten,
@@ -51,7 +52,6 @@ import {
 import { publicProcedure, router } from '../index';
 import { abortClaudeSessionsForSubChats } from './claude';
 import { cleanupCodexAppServerSubChat } from './codex';
-import { removeClaudeCliMcp } from '../../cli-harness';
 import { onCliUserQuestion, pendingCliQuestions, rejectAllForSubChat } from '../../mcp/pending-cli-questions';
 import type { CliUserQuestionEntry } from '../../mcp/pending-cli-questions';
 import {
@@ -916,17 +916,6 @@ export const chatsRouter = router({
         }
       }
 
-      // Remove churro-coder MCP entries for all CLI sub-chats in the archived workspace.
-      // removeClaudeCliMcp is idempotent and a no-op for builtin/codex sub-chats. Kept
-      // fire-and-forget: an unwritable ~/.claude.json must not block the archive
-      // mutation (the orphan sweeper at app start re-cleans stale entries anyway).
-      {
-        const scIds = db.select({ id: subChats.id }).from(subChats).where(eq(subChats.chatId, input.id)).all();
-        Promise.all(scIds.map((sc) => removeClaudeCliMcp(sc.id))).catch((err) =>
-          console.warn(`[chats.archive] MCP cleanup failed for workspace ${input.id}:`, err)
-        );
-      }
-
       // Invalidate git cache for this worktree
       if (chat?.worktreePath) {
         gitCache.invalidateStatus(chat.worktreePath);
@@ -985,15 +974,6 @@ export const chatsRouter = router({
         .catch((error) => {
           console.error(`[chats.archiveBatch] Error killing processes:`, error);
         });
-    }
-
-    // Remove churro-coder MCP entries for all CLI sub-chats across all archived workspaces.
-    // Fire-and-forget: same rationale as chats.archive.
-    {
-      const scIds = db.select({ id: subChats.id }).from(subChats).where(inArray(subChats.chatId, input.chatIds)).all();
-      Promise.all(scIds.map((sc) => removeClaudeCliMcp(sc.id))).catch((err) =>
-        console.warn(`[chats.archiveBatch] MCP cleanup failed:`, err)
-      );
     }
 
     return result;
@@ -1441,7 +1421,11 @@ export const chatsRouter = router({
   getCurrentPlan: publicProcedure.input(z.object({ subChatId: z.string() })).query(async ({ input }) => {
     const plan = await readCurrentPlan(input.subChatId);
     if (!plan) return { exists: false as const };
-    return { exists: true as const, meta: { createdAt: plan.meta.createdAt, approvedAt: plan.meta.approvedAt } };
+    return {
+      exists: true as const,
+      filePath: getPlanFilePath(input.subChatId),
+      meta: { createdAt: plan.meta.createdAt, approvedAt: plan.meta.approvedAt }
+    };
   }),
 
   getCurrentReview: publicProcedure.input(z.object({ subChatId: z.string() })).query(async ({ input }) => {
@@ -1487,9 +1471,6 @@ export const chatsRouter = router({
     abortClaudeSessionsForSubChats([input.id]);
     rejectAllForSubChat(input.id, 'sub-chat-closed');
     const deleted = db.delete(subChats).where(eq(subChats.id, input.id)).returning().get();
-    removeClaudeCliMcp(input.id).catch((err) =>
-      console.warn(`[chats.deleteSubChat] MCP cleanup failed for sub=${input.id}:`, err)
-    );
     return deleted;
   }),
 
@@ -1511,11 +1492,6 @@ export const chatsRouter = router({
         .where(and(eq(subChats.id, input.id), eq(subChats.messageCount, 0), isNull(subChats.name)))
         .returning()
         .get() ?? null;
-    if (deleted) {
-      removeClaudeCliMcp(input.id).catch((err) =>
-        console.warn(`[chats.deleteSubChatIfEmpty] MCP cleanup failed for sub=${input.id}:`, err)
-      );
-    }
     return deleted;
   }),
 
@@ -1535,11 +1511,6 @@ export const chatsRouter = router({
       .where(and(inArray(subChats.id, input.ids), eq(subChats.messageCount, 0), isNull(subChats.name)))
       .returning()
       .all();
-    if (result.length > 0) {
-      Promise.all(result.map((sc) => removeClaudeCliMcp(sc.id))).catch((err) =>
-        console.warn(`[chats.deleteEmptySubChatsByIds] MCP cleanup failed:`, err)
-      );
-    }
     return { deleted: result.length };
   }),
 
@@ -2835,7 +2806,7 @@ export const chatsRouter = router({
               const text = parts.find((p) => p.type === 'text')?.text?.trim();
               if (text) {
                 const isPlanMode = subChatRow?.mode === 'plan';
-                const body = isPlanMode ? `${CLI_MCP_REMINDER}\n${text}` : text;
+                const body = isPlanMode ? `${cliMcpReminder(input.subChatId)}\n${text}` : text;
                 // Encode body: bracketed-paste when multi-line, plain text otherwise.
                 const normalized = body.replace(/\r\n/g, '\n');
                 const bodyChunk = normalized.includes('\n') ? `\x1b[200~${normalized}\x1b[201~` : normalized;
@@ -2862,16 +2833,6 @@ export const chatsRouter = router({
 
       return result;
     }),
-
-  /**
-   * Remove the churro-coder MCP entry from ~/.claude.json for a CLI sub-chat.
-   * Safe to call for codex-cli sessions (no entry exists there, so it's a no-op).
-   * Called by the renderer when the CLI panel is closed via the dockview tab X.
-   */
-  cleanupCliHarness: publicProcedure.input(z.object({ subChatId: z.string() })).mutation(async ({ input }) => {
-    await removeClaudeCliMcp(input.subChatId);
-    console.log(`[buildCliBootstrap] harness cleanup sub=${input.subChatId}`);
-  }),
 
   /** Query the current OpenSpec state for a workspace. */
   openspecState: publicProcedure

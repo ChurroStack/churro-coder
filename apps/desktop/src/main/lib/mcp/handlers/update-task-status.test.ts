@@ -17,9 +17,9 @@ vi.mock('electron', () => ({
 import { writeTasks, readTasks, onTasksWritten } from '../../tasks/task-store';
 import { registerUpdateTaskStatusTool } from './update-task-status';
 
-async function makeClientServer(boundSubChatId?: string) {
+async function makeClientServer() {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerUpdateTaskStatusTool(server, { boundSubChatId });
+  registerUpdateTaskStatusTool(server);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -47,14 +47,14 @@ async function seedTasks(subChatId: string) {
   });
 }
 
-describe('update_task_status tool — bound server', () => {
+describe('update_task_status tool', () => {
   test('mutates only the targeted task status, preserving order and titles', async () => {
     await seedTasks('sub-mut');
-    const { client } = await makeClientServer('sub-mut');
+    const { client } = await makeClientServer();
 
     const result = await client.callTool({
       name: 'update_task_status',
-      arguments: { id: 'step-1', status: 'in_progress' }
+      arguments: { subChatId: 'sub-mut', id: 'step-1', status: 'in_progress' }
     });
 
     expect(result.isError).toBeFalsy();
@@ -65,8 +65,11 @@ describe('update_task_status tool — bound server', () => {
 
   test('marks a task completed', async () => {
     await seedTasks('sub-done');
-    const { client } = await makeClientServer('sub-done');
-    await client.callTool({ name: 'update_task_status', arguments: { id: 'step-2', status: 'completed' } });
+    const { client } = await makeClientServer();
+    await client.callTool({
+      name: 'update_task_status',
+      arguments: { subChatId: 'sub-done', id: 'step-2', status: 'completed' }
+    });
 
     const data = await readTasks('sub-done');
     expect(data!.tasks[1]!.status).toBe('completed');
@@ -74,11 +77,11 @@ describe('update_task_status tool — bound server', () => {
 
   test('errors with unknown-id message when id not in list', async () => {
     await seedTasks('sub-unk');
-    const { client } = await makeClientServer('sub-unk');
+    const { client } = await makeClientServer();
 
     const result = await client.callTool({
       name: 'update_task_status',
-      arguments: { id: 'nonexistent', status: 'completed' }
+      arguments: { subChatId: 'sub-unk', id: 'nonexistent', status: 'completed' }
     });
 
     expect(result.isError).toBe(true);
@@ -88,11 +91,11 @@ describe('update_task_status tool — bound server', () => {
   });
 
   test('errors with no-list message when no task list exists yet', async () => {
-    const { client } = await makeClientServer('sub-nolist');
+    const { client } = await makeClientServer();
 
     const result = await client.callTool({
       name: 'update_task_status',
-      arguments: { id: 'step-1', status: 'in_progress' }
+      arguments: { subChatId: 'sub-nolist', id: 'step-1', status: 'in_progress' }
     });
 
     expect(result.isError).toBe(true);
@@ -106,8 +109,11 @@ describe('update_task_status tool — bound server', () => {
     const events: string[] = [];
     const off = onTasksWritten((e) => events.push(e.subChatId));
 
-    const { client } = await makeClientServer('sub-ev2');
-    await client.callTool({ name: 'update_task_status', arguments: { id: 'step-1', status: 'in_progress' } });
+    const { client } = await makeClientServer();
+    await client.callTool({
+      name: 'update_task_status',
+      arguments: { subChatId: 'sub-ev2', id: 'step-1', status: 'in_progress' }
+    });
 
     off();
     expect(events).toContain('sub-ev2');
@@ -146,23 +152,9 @@ describe('update_task_status tool — bound server', () => {
     expect(data!.tasks[1]).toMatchObject({ id: 'step-2', status: 'pending' });
     expect(data!.tasks[2]).toMatchObject({ id: 'step-3', status: 'pending' });
   });
-});
 
-describe('update_task_status tool — stateless server', () => {
-  test('uses input.subChatId when server is unbound', async () => {
-    await seedTasks('free-sub');
-    const { client } = await makeClientServer(undefined);
-    const result = await client.callTool({
-      name: 'update_task_status',
-      arguments: { subChatId: 'free-sub', id: 'step-1', status: 'completed' }
-    });
-    expect(result.isError).toBeFalsy();
-    const data = await readTasks('free-sub');
-    expect(data!.tasks[0]!.status).toBe('completed');
-  });
-
-  test('errors when unbound and no subChatId provided', async () => {
-    const { client } = await makeClientServer(undefined);
+  test('errors when subChatId is missing from arguments', async () => {
+    const { client } = await makeClientServer();
     const result = await client.callTool({
       name: 'update_task_status',
       arguments: { id: 'step-1', status: 'completed' }

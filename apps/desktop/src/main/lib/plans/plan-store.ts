@@ -39,6 +39,10 @@ function getPlanDir(subChatId: string): string {
   return join(app.getPath('userData'), 'sub-chats', subChatId, 'plans');
 }
 
+export function getPlanFilePath(subChatId: string): string {
+  return join(getPlanDir(subChatId), 'current.md');
+}
+
 export async function writeCurrentPlan(opts: {
   subChatId: string;
   content: string;

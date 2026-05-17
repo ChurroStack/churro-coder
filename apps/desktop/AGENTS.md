@@ -145,9 +145,17 @@ Each subChat has an immutable `harness` column (`'builtin' | 'claude-cli' | 'cod
 
 **Binary discovery:** bundled binary under `resources/bin/<platform>-<arch>/` first; falls back to PATH lookup + version probe. Results cached per session in an in-memory `Map`. Invalidate with `invalidateBinaryCache()`.
 
-**MCP injection:**
-- `claude-cli`: merges `churro-coder-<subChatId>` entry into `~/.claude.json` atomically (via the existing `Mutex`).
-- `codex-cli`: passes `-c mcp_servers.churro-coder-<subChatId>.url="<url>"` and `-c mcp_servers.churro-coder-<subChatId>.bearer_token_env_var="CHURRO_MCP_BEARER"` in args; bearer is set as `CHURRO_MCP_BEARER` in the PTY env.
+**MCP injection (single shared registration):**
+- The MCP HTTP server is a singleton with one stable logical entry per CLI host: `mcpServers.churro-coder` (Claude) / `mcp_servers.churro-coder.*` (Codex). subChatId is **not** in the entry name — it's a required argument on every tool call.
+- `claude-cli`: `ensureChurroMcpRegistered(url, bearer)` upserts the single `churro-coder` entry into `~/.claude.json` atomically (coalesced via an in-flight promise so parallel boots share the write) and deletes any legacy `churro-coder-<id>` keys in the same write.
+- `codex-cli`: passes `-c mcp_servers.churro-coder.url="<url>"`, `-c mcp_servers.churro-coder.bearer_token_env_var="CHURRO_MCP_BEARER"`, and `-c mcp_servers.churro-coder.default_tools_approval_mode="approve"` per spawn; bearer is set as `CHURRO_MCP_BEARER` in the PTY env.
+
+**subChatId delivery (3 layers, defense-in-depth):**
+- **L1 system prompt (Claude only):** `--append-system-prompt` includes `Sub-chat id: <X>. You MUST pass this exact string as the subChatId argument…`. The builtin Claude SDK path (`trpc/routers/claude.ts`) injects the same line into its `systemAppend`.
+- **L2 first-turn reminder (both harnesses):** `cliMcpReminder(subChatId)` from `apps/desktop/src/shared/cli-mcp-reminder.ts` is prepended to the first user-turn payload (main-process initial PTY chunks for plan-mode bootstraps, and the renderer `submitToCli` path on the first dispatch). Tracked per-subChat via `mcpInjectedSessions` so it fires exactly once per CLI session lifetime.
+- **L3 dispatcher action prompts (both harnesses):** `dispatchBuildPlan` / `dispatchReview` (`use-harness-send-dispatcher.ts`) embed `Sub-chat id: <X>` into the natural-language instruction.
+
+When subChatId is missing or unknown, every handler returns a structured JSON-RPC error (`SUB_CHAT_ID_MISSING_ERROR` / `requireKnownSubChatId` from `mcp/handlers/sub-chat-id-helper.ts`). Fail-loudly is intentional — no PID inspection, no last-active fallback.
 
 **Env injection:** `CHURRO_SUBCHAT_ID=<subChatId>` for both harnesses. `CHURRO_MCP_BEARER=<bearer>` additionally for `codex-cli`.
 
@@ -157,13 +165,11 @@ Each subChat has an immutable `harness` column (`'builtin' | 'claude-cli' | 'cod
 
 **PTY pane id:** `cli:<subChatId>` — stable, one-to-one with the subChat. All terminal subscriptions use this id.
 
-## Per-subChat MCP routing
+## MCP HTTP server
 
-The MCP HTTP server routes `/sub/<subChatId>/...` to a per-subChat `McpServer` instance (`createMcpServerForSubChat`). The root route `/...` remains the global server. Both routes validate the bearer on every request (401 on mismatch, no body). Requests to `/sub/<unknown-id>/` return a structured JSON-RPC error with a `[mcp-routing]` trace.
+The MCP HTTP server is a singleton bound to `127.0.0.1` on an OS-picked port; all authenticated requests build a fresh `createMcpServer()` per POST (stateless mode — a shared transport returns 500s under repeated requests). Bearer-auth is checked on every request (401 on mismatch, no body). subChatId routes are gone — every tool requires `subChatId` as an argument and the handler validates it against the `subChats` table.
 
-The path-scoped tools (`read_plan`, `read_review`, `write_review`) close over the subChatId at factory time and never accept a `subChatId` argument from the client — a buggy CLI passing `subChatId: 'B'` to a server bound to `A` always writes to `A`'s directory.
-
-`initMcpHttpServer` coalesces concurrent callers via an `initInFlight` promise and also returns `restartInFlight` if a crash-restart is in progress. This is load-bearing: two CLI subChats bootstrapping in parallel must share the same MCP HTTP server lifetime, otherwise each gets its own server, the `state` singleton is overwritten by whichever assignment lands last, the loser's `~/.claude.json` entry can be wiped by the second sweep, and the loser's Claude CLI hangs on an MCP handshake (presenting as a blank PTY). The startup sweep itself is intentional — new server lifetime = fresh port, so every prior `churro-coder-*` URL is dead and each live CLI re-bootstraps to re-inject — but it MUST run exactly once per lifetime before any subChat's inject.
+`initMcpHttpServer` coalesces concurrent callers via an `initInFlight` promise and returns `restartInFlight` if a crash-restart is in progress. This is load-bearing: two CLI subChats bootstrapping in parallel must share the same MCP HTTP server lifetime, otherwise each starts its own server, the `state` singleton is overwritten by whichever assignment lands last, and the loser's socket leaks.
 
 ## Per-subChat isolation invariant
 
@@ -172,7 +178,7 @@ The project hierarchy is **project → worktree → subChat**. Two subChats in t
 - **Renderer atoms:** use `atomFamily(subChatId)`. Never a global atom carrying `subChatId` in its payload — every mounted consumer rerenders when the atom changes, the `wrong-sub-chat` guards become required, and a second writer can clobber the first writer's value before the first writer's effect drains it. The historical bug class was the `pending*MessageAtom` family (PR #51, plus the round of fixes that introduced this invariant).
 - **Main-process maps/sets:** `Map<subChatId, …>` with explicit cleanup on subChat deletion, panel unmount, or `terminal:exit`. Module-level Sets keyed by subChatId are fine *only* if every code path that ends the subChat's lifetime also calls the corresponding `forget*(subChatId)` — see `mcpInjectedSessions` in `use-harness-send-dispatcher.ts`.
 - **PTY pane ids:** `cli:<subChatId>` only. Never `cli:<cwd>` or `cli:<workspaceId>` — two subChats can share a worktree.
-- **MCP routing:** `/sub/<subChatId>/...` on the HTTP transport; per-subChat servers close over the `subChatId` at factory time and never accept it from the client.
+- **MCP isolation:** the MCP HTTP server is a shared singleton — each tool call carries `subChatId` as a required argument, validated by `requireKnownSubChatId` in `mcp/handlers/sub-chat-id-helper.ts`. Persistence (plans, reviews, tasks, file changes) is keyed by that argument, so an attacker who could forge tool calls (i.e. anyone holding the bearer) could write to any sub-chat's directory — bearer protection is the actual perimeter, not routing.
 - **xterm instances:** one `Terminal` component per paneId; xterm/fitAddon/serializeAddon refs live in `useRef` inside `terminal.tsx` and are never shared across mounts. A future refactor that reuses a single xterm canvas across panels would reintroduce the cross-talk class — push back on it in review.
 
 Worktree-keyed state (e.g. `git-cache.ts`, the workflow snapshot query) is permitted only when the value is intrinsically a property of the worktree, not of a specific subChat. Global singletons (the MCP HTTP server, the CLI binary cache) are permitted only for app-level resources and MUST guard their lifecycle transitions (init / restart / close) with a mutex or in-flight promise.
@@ -186,7 +192,7 @@ Worktree-keyed state (e.g. `git-cache.ts`, the workflow snapshot query) is permi
 - `terminalManager` methods like `killByWorkspaceId`, `getSessionCountByWorkspaceId`, `refreshPromptsForWorkspace` walk all PTYs and filter by `workspaceId`. The `workspaceId` is window-derived (one workspace per chat/window) — colliding it between two windows would mass-kill PTYs across both, so never derive it from anything user-controllable (cwd, project name).
 - `ownership-registry` keys by `subChatId` with a single-owner model. When two windows open the same subChat, only one drives at a time; takeover transfers ownership and notifies the loser via an event whose payload includes `subChatId`.
 
-Per-subChat draft text (`drafts.ts`) and per-subChat trigger atoms (the `pending*AtomFamily` set) are **per-window by design** — same subChat in two windows has two independent draft buffers. Per-subChat shared state (messages, plan, review) lives in SQLite and is shared via tRPC / per-subChat MCP routes.
+Per-subChat draft text (`drafts.ts`) and per-subChat trigger atoms (the `pending*AtomFamily` set) are **per-window by design** — same subChat in two windows has two independent draft buffers. Per-subChat shared state (messages, plan, review) lives in SQLite and is shared via tRPC / the single shared MCP server (with `subChatId` passed per call).
 
 ## Query cache contract
 
@@ -220,7 +226,7 @@ Codex CLI has no equivalent of Claude Code's `--allowedTools` flag, so `buildBoo
 - `workspace-write` allows reads anywhere, writes inside the workspace cwd and `$TMPDIR`, and keeps network blocked by default. It is the standard Codex "sandboxed-but-functional" tier and does **not** disable the OS sandbox.
 - Do not replace `-s workspace-write` with `danger-full-access` — that disables the sandbox entirely. Do not use `--full-auto` either — it is shorthand for `-a on-failure -s workspace-write`, and `on-failure` would reintroduce prompts on failed commands.
 
-`buildBootstrap` also sets `default_tools_approval_mode="approve"` on the injected MCP server. **This is necessary because `-a never` only suppresses shell-command approval prompts — MCP tool-call approval is a separate gate controlled by a per-server config field.** Without it, every `write_plan`, `write_review`, etc. call shows an interactive approval prompt in the embedded TUI. The field is set only on the per-subChat server (not globally), so it has no effect on any other MCP server the user may have configured.
+`buildBootstrap` also sets `default_tools_approval_mode="approve"` on the injected MCP server. **This is necessary because `-a never` only suppresses shell-command approval prompts — MCP tool-call approval is a separate gate controlled by a per-server config field.** Without it, every `write_plan`, `write_review`, etc. call shows an interactive approval prompt in the embedded TUI. The field is set only on the `churro-coder` entry (not globally), so it has no effect on any other MCP server the user may have configured.
 
 The Claude path uses `--allowedTools` to pre-authorize just the MCP write tools (`write_plan`, `write_review`, `write_tasks`, `update_task_status`); everything else still goes through Claude's normal approval flow.
 
