@@ -68,6 +68,55 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   const effectiveSubChatId = activeSubChatId ?? chatId ?? '';
   const planPath = useAtomValue(currentPlanPathAtomFamily(effectiveSubChatId));
   const planRefetchTrigger = useAtomValue(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
+  const setCurrentPlanPath = useSetAtom(currentPlanPathAtomFamily(effectiveSubChatId));
+  const triggerPlanRefetch = useSetAtom(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
+
+  // Cold-start hydration: currentPlanPathAtomFamily is in-memory only, so on
+  // app restart the Plan widget would render empty even though the MCP plan
+  // file is on disk. Seed the atom from getCurrentPlan whenever the local
+  // path is null. Dedupes with the same query fired by useWorkflowSnapshot.
+  const { data: currentPlanData } = trpc.chats.getCurrentPlan.useQuery(
+    { subChatId: effectiveSubChatId },
+    { enabled: !!effectiveSubChatId }
+  );
+  useEffect(() => {
+    if (!planPath && currentPlanData?.exists && currentPlanData.filePath) {
+      console.log(`[DetailsRail] plan-path-hydrated sub=${effectiveSubChatId} path=${currentPlanData.filePath}`);
+      setCurrentPlanPath(currentPlanData.filePath);
+    }
+  }, [currentPlanData, planPath, setCurrentPlanPath, effectiveSubChatId]);
+
+  const trpcUtils = trpc.useUtils();
+
+  // Central sidebar refresh: fires on write_plan, write_tasks, update_task_status,
+  // or write_review from any CLI MCP call. Invalidates all sidebar queries in one
+  // place so each widget doesn't need its own subscription.
+  trpc.chats.artifactWritten.useSubscription(effectiveSubChatId, {
+    enabled: !!effectiveSubChatId,
+    onData({ kind, filePath }) {
+      // Update plan path atom and trigger plan panel refetch on plan writes.
+      if (kind === 'plan' && filePath) {
+        setCurrentPlanPath(filePath);
+        triggerPlanRefetch();
+      }
+      // Invalidate all sidebar queries regardless of artifact type. Guard each
+      // call so we don't issue invalidations with empty keys when ids are null.
+      if (effectiveSubChatId) {
+        void trpcUtils.chats.getCurrentPlan.invalidate({ subChatId: effectiveSubChatId });
+        void trpcUtils.chats.getCurrentTasks.invalidate({ subChatId: effectiveSubChatId });
+        void trpcUtils.chats.getCurrentReview.invalidate({ subChatId: effectiveSubChatId });
+        void trpcUtils.chats.getReviewContent.invalidate({ subChatId: effectiveSubChatId });
+        if (kind === 'files-changed') {
+          void trpcUtils.chats.getMcpFileChanges.invalidate({ subChatId: effectiveSubChatId });
+        }
+      }
+      if (chatId) {
+        void trpcUtils.chats.getPrStatus.invalidate({ chatId });
+        void trpcUtils.chats.get.invalidate({ id: chatId });
+      }
+      console.log(`[DetailsRail] artifact-written kind=${kind} sub=${effectiveSubChatId}`);
+    }
+  });
   const { mode: subChatMode } = useSubChatMode(activeSubChatId ?? '');
   const defaultMode = useAtomValue(defaultAgentModeAtom);
   const currentMode = activeSubChatId ? subChatMode : defaultMode;
@@ -86,7 +135,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     isLoading: isGitStatusLoading
   } = trpc.changes.getStatus.useQuery(
     { worktreePath: worktreePath ?? '' },
-    { enabled: !!worktreePath, staleTime: 30000 }
+    { enabled: !!worktreePath, staleTime: 30000, refetchOnMount: 'always' }
   );
   // Dedup'd against useWorkflowState's own subscription below — used purely
   // as a cold-load fallback for hasUpstream (see the Push action wiring).

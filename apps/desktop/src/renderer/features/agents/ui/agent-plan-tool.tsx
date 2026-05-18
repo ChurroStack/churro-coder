@@ -10,7 +10,8 @@ import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { cn } from '../../../lib/utils';
 import { useChatAttentionStore } from '../stores/chat-attention-store';
-import { pendingBuildPlanSubChatIdAtom, virtualPlanContentAtomFamily } from '../atoms';
+import { pendingBuildPlanAtomFamily, virtualPlanContentAtomFamily } from '../atoms';
+import { appStore } from '../../../lib/jotai-store';
 import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { addOrFocus } from '../../dock/add-or-focus';
 import { useDockApi } from '../../dock/dock-context';
@@ -157,7 +158,6 @@ export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, sub
   const plan = getPlanFromPlanWritePart(part);
   const targetSubChatId = subChatId || '';
   const { mode: subChatMode } = useSubChatMode(targetSubChatId);
-  const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom);
   const hasCompletedPlanWrite =
     part.output !== undefined ||
     part.result !== undefined ||
@@ -180,10 +180,10 @@ export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, sub
       event.stopPropagation();
       const targetSubChatId = subChatId || useAgentSubChatStore.getState().activeSubChatId;
       if (targetSubChatId) {
-        setPendingBuildPlanSubChatId(targetSubChatId);
+        appStore.set(pendingBuildPlanAtomFamily(targetSubChatId), true);
       }
     },
-    [setPendingBuildPlanSubChatId, subChatId]
+    [subChatId]
   );
 
   const handleCopy = useCallback(

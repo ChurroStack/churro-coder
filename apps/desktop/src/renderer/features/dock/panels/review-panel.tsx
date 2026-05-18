@@ -10,7 +10,7 @@ import type { ReviewPanelEntity } from '../atoms';
 /**
  * Full-panel view of a review artifact. Mirrors PlanPanel: a header bar with
  * the action button on top, scrollable markdown body below. The Fix button
- * uses the same `pendingFixReviewIssuesAtom` flow as the inline chat card —
+ * uses the same `pendingFixReviewIssuesAtomFamily(subChatId)` flow as the inline chat card —
  * ChatViewInner picks up the pending message and runs the agent against the
  * persisted review (which is read back via the `read_review` MCP tool).
  */
@@ -22,6 +22,8 @@ export function ReviewPanel({ params, api, containerApi }: IDockviewPanelProps<R
   const content = data?.exists ? data.content : null;
 
   const { dispatchFixReviewIssues } = useHarnessSendDispatcher(params.subChatId ?? '');
+  const markReviewAccepted = trpc.chats.markReviewAccepted.useMutation();
+  const trpcUtils = trpc.useUtils();
 
   const contentRef = useRef<HTMLDivElement>(null);
   const topGradientRef = useRef<HTMLDivElement>(null);
@@ -52,14 +54,24 @@ export function ReviewPanel({ params, api, containerApi }: IDockviewPanelProps<R
 
   const handleFix = useCallback(() => {
     if (!params.subChatId) return;
-    const message = renderBuiltinPrompt('workflow/fix-review-issues', { subChatId: params.subChatId });
+    const subChatId = params.subChatId;
+    // Mark accepted (sets acceptedAt → Review pill turns green) then invalidate.
+    markReviewAccepted.mutate(
+      { subChatId },
+      {
+        onSettled: () => {
+          void trpcUtils.chats.getCurrentReview.invalidate({ subChatId });
+        }
+      }
+    );
+    const message = renderBuiltinPrompt('workflow/fix-review-issues', { subChatId });
     dispatchFixReviewIssues(message);
     // Navigate back to the chat for this sub-chat (so the user sees the agent
     // start working) and close this panel — same UX as PlanPanel's Approve.
-    const chatPanel = containerApi.getPanel(`chat:${params.subChatId}`);
+    const chatPanel = containerApi.getPanel(`chat:${subChatId}`);
     if (chatPanel) chatPanel.api.setActive();
     api.close();
-  }, [params.subChatId, dispatchFixReviewIssues, api, containerApi]);
+  }, [params.subChatId, dispatchFixReviewIssues, markReviewAccepted, trpcUtils, api, containerApi]);
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden border-t border-border">

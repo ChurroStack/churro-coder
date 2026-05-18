@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { router, publicProcedure } from '../index';
 import { observable } from '@trpc/server/observable';
 import { terminalManager } from '../../terminal/manager';
-import type { TerminalEvent } from '../../terminal/types';
+import type { TerminalEvent, TerminalOutputState } from '../../terminal/types';
 import { TRPCError } from '@trpc/server';
 
 const bootstrapSchema = z
@@ -14,6 +14,7 @@ const bootstrapSchema = z
     args: z.array(z.string()).optional(),
     env: z.record(z.string()).optional(),
     initialInput: z.string().optional(),
+    initialInputChunks: z.array(z.string()).optional(),
     idleDetection: z
       .object({
         silenceMs: z.number().int().positive().optional()
@@ -222,15 +223,18 @@ export const terminalRouter = router({
   }),
 
   /**
-   * Advisory idle subscription: emits when the terminal session has been
-   * silent for the configured `silenceMs` (requires idleDetection in bootstrap).
-   * Consumers may disable the Send button as a hint; force-send must always work.
+   * Single source of truth for CLI idle/running state. Emits the current
+   * state immediately on subscribe so late mounters see the right value
+   * without waiting for the next transition, then emits on every flip.
+   * Only flips fire — never idle→idle or running→running.
    */
-  idle: publicProcedure.input(z.string().min(1)).subscription(({ input: paneId }) => {
-    return observable<{ paneId: string }>((emit) => {
-      const onIdle = () => emit.next({ paneId });
-      terminalManager.on(`idle:${paneId}`, onIdle);
-      return () => terminalManager.off(`idle:${paneId}`, onIdle);
+  state: publicProcedure.input(z.string().min(1)).subscription(({ input: paneId }) => {
+    return observable<{ paneId: string; state: TerminalOutputState }>((emit) => {
+      const current = terminalManager.getOutputState(paneId);
+      if (current) emit.next({ paneId, state: current });
+      const onState = (state: TerminalOutputState) => emit.next({ paneId, state });
+      terminalManager.on(`state:${paneId}`, onState);
+      return () => terminalManager.off(`state:${paneId}`, onState);
     });
   })
 });

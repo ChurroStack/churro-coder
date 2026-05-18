@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ArrowRight, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../../components/ui/button';
-import { pendingContinueMessageAtom } from '../atoms';
+import { pendingContinueMessageAtomFamily } from '../atoms';
 import { agentChatStore } from '../stores/agent-chat-store';
 import { getPerChatMessageKey, messageAtomFamily, messageIdsPerChatAtom } from '../stores/message-store';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
@@ -52,7 +52,7 @@ export function ContinueButton({ subChatId }: ContinueButtonProps) {
   const lastId = ids.length > 0 ? ids[ids.length - 1] : '';
   const lastMessage = useAtomValue(messageAtomFamily(lastId ? getPerChatMessageKey(subChatId, lastId) : ''));
   const isStreaming = useStreamingStatusStore((s) => s.isStreaming(subChatId));
-  const setPendingContinueMessage = useSetAtom(pendingContinueMessageAtom);
+  const setPendingContinueMessage = useSetAtom(useMemo(() => pendingContinueMessageAtomFamily(subChatId), [subChatId]));
   const stuckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Clear the stuck-detection timer on unmount (streaming started → component hides)
@@ -81,7 +81,7 @@ export function ContinueButton({ subChatId }: ContinueButtonProps) {
   };
 
   const handleContinue = () => {
-    setPendingContinueMessage({ subChatId });
+    setPendingContinueMessage(true);
 
     // If streaming doesn't begin within STUCK_TIMEOUT_MS, warn the user.
     if (stuckTimerRef.current !== null) clearTimeout(stuckTimerRef.current);

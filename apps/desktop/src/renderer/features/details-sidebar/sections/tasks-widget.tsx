@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { atom, useAtomValue } from 'jotai';
 import { atomFamily } from 'jotai/utils';
-import { Activity, Loader2 } from 'lucide-react';
+import { Activity, CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   getPerChatMessageKey,
@@ -13,6 +13,8 @@ import {
 } from '@/features/agents/stores/message-store';
 import { useStreamingStatusStore } from '@/features/agents/stores/streaming-status-store';
 import { resolvePartStartedAt, summarizeToolInput } from '@/features/agents/ui/agent-tool-utils';
+import { trpc } from '@/lib/trpc';
+import type { TaskStatus } from '../../../../main/lib/tasks/task-store';
 
 interface TasksWidgetProps {
   subChatId: string | null;
@@ -61,6 +63,49 @@ const lastAssistantMessageForSubChatAtomFamily = atomFamily((subChatId: string) 
     return null;
   })
 );
+
+function PlanTaskStatusIcon({ status }: { status: TaskStatus }) {
+  if (status === 'completed') return <CheckCircle2 className="h-3 w-3 text-green-500 flex-shrink-0" />;
+  if (status === 'in_progress') return <Loader2 className="h-3 w-3 animate-spin text-blue-400 flex-shrink-0" />;
+  return <Circle className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" />;
+}
+
+function PlanProgressCard({ subChatId }: { subChatId: string }) {
+  const { data } = trpc.chats.getCurrentTasks.useQuery({ subChatId }, { staleTime: 10_000 });
+
+  if (!data?.exists || data.tasks.length === 0) return null;
+
+  const { tasks } = data;
+  const completed = tasks.filter((t) => t.status === 'completed').length;
+
+  return (
+    <div className="mx-2 mb-2">
+      <div className="rounded-t-lg border border-b-0 border-border/50 bg-muted/30 px-2 h-8 flex items-center">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <Activity className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+          <span className="text-xs font-medium text-foreground">Plan progress</span>
+          <span className="text-xs text-muted-foreground flex-1 truncate tabular-nums">
+            {completed}/{tasks.length}
+          </span>
+        </div>
+      </div>
+      <div className="rounded-b-lg border border-border/50 border-t-0 py-0.5">
+        {tasks.map((task) => (
+          <div key={task.id} className="flex items-center gap-2 px-2 py-1.5 text-xs">
+            <PlanTaskStatusIcon status={task.status} />
+            <span
+              className={cn(
+                'truncate min-w-0',
+                task.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'
+              )}>
+              {task.title}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export const TasksWidget = memo(function TasksWidget({ subChatId }: TasksWidgetProps) {
   const key = subChatId || 'default';
@@ -160,34 +205,48 @@ export const TasksWidget = memo(function TasksWidget({ subChatId }: TasksWidgetP
     return n;
   }, [tasks]);
 
-  // Hide the widget only when the sub-chat is fully idle. While streaming, keep
-  // the card mounted (with an empty-state body during inter-tool gaps) so the
-  // sidebar layout doesn't flicker as tools start and finish.
-  if (!isStreaming) return null;
+  // Fetch persisted tasks to decide visibility when not streaming.
+  // Refreshes are driven centrally: DetailsRail's artifactWritten subscription
+  // invalidates this query whenever write_tasks/update_task_status fires, and
+  // the terminal-idle handler in chat-input-area also invalidates it.
+  const { data: persistedTasksData } = trpc.chats.getCurrentTasks.useQuery(
+    { subChatId: key },
+    { staleTime: 10_000, enabled: !isStreaming }
+  );
+
+  const hasPersisted = persistedTasksData?.exists && (persistedTasksData.tasks?.length ?? 0) > 0;
+
+  // Show the widget when streaming OR when a persisted task list exists.
+  if (!isStreaming && !hasPersisted) return null;
 
   return (
-    <div className="mx-2 mb-2">
-      <div className="rounded-t-lg border border-b-0 border-border/50 bg-muted/30 px-2 h-8 flex items-center">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <Activity className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-          <span className="text-xs font-medium text-foreground">Tasks</span>
-          <span className="text-xs text-muted-foreground flex-1 truncate">
-            {total > 0 ? 'Running now' : 'Waiting…'}
-          </span>
-          {total > 0 && <span className="text-xs text-muted-foreground tabular-nums flex-shrink-0">{total}</span>}
-        </div>
-      </div>
-      <div className="rounded-b-lg border border-border/50 border-t-0 py-0.5">
-        {tasks.length > 0 ? (
-          tasks.map((task) => <TaskRow key={task.toolCallId} task={task} depth={0} />)
-        ) : (
-          <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/70" />
-            <span>Agent is thinking…</span>
+    <>
+      {subChatId && <PlanProgressCard subChatId={subChatId} />}
+      {isStreaming && (
+        <div className="mx-2 mb-2">
+          <div className="rounded-t-lg border border-b-0 border-border/50 bg-muted/30 px-2 h-8 flex items-center">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Activity className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+              <span className="text-xs font-medium text-foreground">Tasks</span>
+              <span className="text-xs text-muted-foreground flex-1 truncate">
+                {total > 0 ? 'Running now' : 'Waiting…'}
+              </span>
+              {total > 0 && <span className="text-xs text-muted-foreground tabular-nums flex-shrink-0">{total}</span>}
+            </div>
           </div>
-        )}
-      </div>
-    </div>
+          <div className="rounded-b-lg border border-border/50 border-t-0 py-0.5">
+            {tasks.length > 0 ? (
+              tasks.map((task) => <TaskRow key={task.toolCallId} task={task} depth={0} />)
+            ) : (
+              <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/70" />
+                <span>Agent is thinking…</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 });
 

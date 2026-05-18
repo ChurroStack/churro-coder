@@ -14,9 +14,7 @@ vi.mock('electron', () => ({
 }));
 
 import { writeCurrentPlan } from '../plans/plan-store';
-import { readCurrentReview } from '../reviews/review-store';
 import {
-  __setSubChatIdValidatorForTest,
   __simulateMcpHttpServerFailureForTest,
   closeMcpHttpServer,
   getMcpHttpEndpoint,
@@ -45,6 +43,56 @@ describe('http-transport', () => {
     const first = await initMcpHttpServer();
     const second = await initMcpHttpServer();
     expect(second).toEqual(first);
+  });
+
+  test('initMcpHttpServer coalesces concurrent callers — only one HTTP server is bound', async () => {
+    // Regression for the cross-subChat MCP bootstrap race: two parallel
+    // ensureMcpEndpoint() calls (one per CLI subChat opening in the same
+    // worktree) previously both passed the `if (state)` check while state was
+    // null, both ran the sweep, and both started a fresh HTTP server. The
+    // loser's server was leaked, `state` was overwritten by whichever
+    // assignment landed last, and the loser's subsequent injectClaudeCliMcp
+    // could be wiped by the trailing sweep. With initInFlight coalescing,
+    // both callers must observe the same { url, bearer, port }.
+    const [a, b, c] = await Promise.all([initMcpHttpServer(), initMcpHttpServer(), initMcpHttpServer()]);
+    expect(b).toEqual(a);
+    expect(c).toEqual(a);
+    expect(getMcpHttpEndpoint()).toEqual({ url: a.url, bearer: a.bearer });
+  });
+
+  test('initMcpHttpServer logs [mcp-bootstrap] init started + complete on cold start', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await initMcpHttpServer();
+    const lines = logSpy.mock.calls.map((c) => String(c[0]));
+    logSpy.mockRestore();
+    expect(lines.some((l) => l.includes('[mcp-bootstrap] init started'))).toBe(true);
+    expect(lines.some((l) => l.includes('[mcp-bootstrap] init complete'))).toBe(true);
+  });
+
+  test('initMcpHttpServer awaits restartInFlight instead of starting a parallel server', async () => {
+    // While restartMcpHttpServer is rebuilding (state has been nulled but the
+    // new server hasn't bound yet), a concurrent ensureMcpEndpoint() must NOT
+    // call into a fresh initMcpHttpServer body — that would start a second
+    // server in parallel with the restart's rebuild. The first call after a
+    // synthetic crash returns the SAME url that getMcpHttpEndpoint observed
+    // post-restart, with the same bearer.
+    const first = await initMcpHttpServer();
+
+    // Trigger crash + concurrent init in the same microtask tick. The
+    // restart kicks off synchronously inside the server's 'error' handler;
+    // the immediately-following initMcpHttpServer call should land while
+    // restartInFlight is non-null and resolve to the restart's result.
+    const restartedP = (async () => {
+      await __simulateMcpHttpServerFailureForTest('error');
+    })();
+    const concurrentInit = initMcpHttpServer();
+    await restartedP;
+    const concurrent = await concurrentInit;
+    const endpoint = getMcpHttpEndpoint();
+
+    expect(endpoint).not.toBeNull();
+    expect(concurrent.url).toBe(endpoint!.url);
+    expect(concurrent.bearer).toBe(first.bearer); // bearer persists across restart
   });
 
   test('getMcpHttpEndpoint returns null before init, populated after', async () => {
@@ -234,105 +282,5 @@ describe('http-transport', () => {
     } finally {
       await client.close();
     }
-  });
-});
-
-describe('path-scoped routing /sub/<subChatId>/', () => {
-  afterEach(() => {
-    __setSubChatIdValidatorForTest(null);
-  });
-
-  test('known id + bearer: write_review writes only that subchat directory', async () => {
-    const knownId = 'path-sub-1';
-    const otherId = 'path-sub-2';
-    __setSubChatIdValidatorForTest((id) => id === knownId);
-
-    const { url, bearer } = await initMcpHttpServer();
-    const subUrl = new URL(`sub/${knownId}/`, url);
-
-    const transport = new StreamableHTTPClientTransport(subUrl, {
-      requestInit: { headers: { Authorization: `Bearer ${bearer}` } }
-    });
-    const client = new Client({ name: 'test-client', version: '0.0.0' });
-    await client.connect(transport);
-
-    try {
-      // write_review on a path-scoped server takes only markdown (subChatId is bound)
-      const result = await client.callTool({
-        name: 'write_review',
-        arguments: { markdown: '# Path Review\n\nOnly this subchat.' }
-      });
-      expect(result.isError).toBeFalsy();
-    } finally {
-      await client.close();
-    }
-
-    // knownId review file must exist
-    const review = await readCurrentReview(knownId);
-    expect(review).not.toBeNull();
-    expect(review!.content).toContain('# Path Review');
-
-    // otherId must be untouched
-    const otherReview = await readCurrentReview(otherId);
-    expect(otherReview).toBeNull();
-  });
-
-  test('unknown id + bearer: returns 404 JSON-RPC error (-32004)', async () => {
-    __setSubChatIdValidatorForTest(() => false);
-
-    const { url, bearer } = await initMcpHttpServer();
-    const res = await fetch(new URL('sub/unknown-id/', url), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${bearer}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
-    });
-
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body).toMatchObject({
-      jsonrpc: '2.0',
-      error: { code: -32004, message: 'Unknown subChatId' }
-    });
-  });
-
-  test('known id without bearer: returns 401 (bearer guards all routes)', async () => {
-    const knownId = 'path-sub-auth';
-    __setSubChatIdValidatorForTest((id) => id === knownId);
-
-    const { url } = await initMcpHttpServer();
-    const res = await fetch(new URL(`sub/${knownId}/`, url), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
-    });
-
-    expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body).toMatchObject({
-      jsonrpc: '2.0',
-      error: { code: -32001, message: 'Unauthorized' }
-    });
-  });
-
-  test('/sub/ with no subChatId segment returns 404 (-32004)', async () => {
-    const { url, bearer } = await initMcpHttpServer();
-    const res = await fetch(new URL('sub/', url), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${bearer}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
-    });
-
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body).toMatchObject({
-      jsonrpc: '2.0',
-      error: { code: -32004, message: 'Missing subChatId in path' }
-    });
   });
 });

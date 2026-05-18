@@ -91,6 +91,7 @@ export const subChats = sqliteTable(
     // Denormalized counters kept in sync by all message write paths
     messageCount: integer('message_count').notNull().default(0),
     lastMessageIdx: integer('last_message_idx'), // NULL when empty
+    bootstrappedAt: integer('bootstrapped_at', { mode: 'timestamp' }),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
   },

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { updateClaudeConfigAtomic } from '../claude-config';
-import { getMcpHttpEndpoint, initMcpHttpServer } from '../mcp/http-transport';
+import { ensureMcpHttpServerAlive } from '../mcp/http-transport';
 import type { TerminalBootstrap } from '../terminal/types';
 
 const execFileAsync = promisify(execFile);
@@ -23,6 +23,19 @@ export function isBootstrapError(v: unknown): v is BootstrapError {
 }
 
 const binaryCache = new Map<string, string | null>();
+
+/**
+ * Stable single registration key. Every CLI session in this app shares this
+ * one entry in `~/.claude.json` (Claude) / Codex config. The MCP server is a
+ * singleton HTTP endpoint; subChatId is passed by the model as a tool
+ * argument on each call.
+ */
+const MCP_SERVER_NAME = 'churro-coder';
+
+/** Last URL+bearer we wrote into claude config. Avoids redundant writes when
+ * the endpoint is unchanged across CLI spawns in the same app run. */
+let claudeMcpLastWritten: { url: string; bearer: string } | null = null;
+let claudeMcpWriteInFlight: Promise<void> | null = null;
 
 function bundledBinaryPath(name: 'claude' | 'codex'): string | null {
   const binName = process.platform === 'win32' ? `${name}.exe` : name;
@@ -84,33 +97,78 @@ export function invalidateBinaryCache(): void {
 }
 
 async function ensureMcpEndpoint(): Promise<{ url: string; bearer: string }> {
-  const existing = getMcpHttpEndpoint();
-  if (existing) return existing;
-  return initMcpHttpServer();
+  // Every CLI spawn (initial, restart, hard-reset) must hand the new process
+  // a URL that's *actually* reachable. ensureMcpHttpServerAlive pings the
+  // cached server and force-restarts it if dead — so a server killed during
+  // OS sleep/wake or by a sandbox without our close/error handler firing
+  // can't poison the next bootstrap with a stale port.
+  return ensureMcpHttpServerAlive();
 }
 
-async function injectClaudeCliMcp(subChatId: string, mcpUrl: string, bearer: string): Promise<void> {
-  await updateClaudeConfigAtomic((config) => {
-    if (!config.mcpServers) config.mcpServers = {};
-    config.mcpServers[`churro-coder-${subChatId}`] = {
-      type: 'http',
-      url: mcpUrl,
-      headers: { Authorization: `Bearer ${bearer}` }
-    };
-    return config;
-  });
-  console.log(`[harness-bootstrap] claude-cli MCP config written sub=${subChatId} url=${mcpUrl}`);
-}
-
-export async function removeClaudeCliMcp(subChatId: string): Promise<void> {
-  const key = `churro-coder-${subChatId}`;
-  await updateClaudeConfigAtomic((config) => {
-    if (config.mcpServers?.[key]) {
-      delete config.mcpServers[key];
-      console.log(`[harness-bootstrap] claude-cli MCP config removed sub=${subChatId}`);
+/**
+ * Ensure the single `churro-coder` MCP entry is present in `~/.claude.json`
+ * with the current url + bearer, and remove any legacy
+ * `churro-coder-<subChatId>` keys left over from the pre-shared-MCP era
+ * (folded into the same atomic write so upgraders self-heal without a
+ * separate startup sweep).
+ *
+ * Coalesces concurrent callers — two parallel subChat boots share one
+ * config write.
+ */
+async function ensureChurroMcpRegistered(mcpUrl: string, bearer: string): Promise<void> {
+  if (claudeMcpLastWritten && claudeMcpLastWritten.url === mcpUrl && claudeMcpLastWritten.bearer === bearer) {
+    return;
+  }
+  if (claudeMcpWriteInFlight) {
+    await claudeMcpWriteInFlight;
+    if (claudeMcpLastWritten && claudeMcpLastWritten.url === mcpUrl && claudeMcpLastWritten.bearer === bearer) {
+      return;
     }
-    return config;
-  });
+  }
+
+  claudeMcpWriteInFlight = (async () => {
+    await updateClaudeConfigAtomic((config) => {
+      if (!config.mcpServers) config.mcpServers = {};
+      // Drop legacy per-subChat keys (`churro-coder-<id>`). Hyphen-prefixed
+      // match keeps the bare `churro-coder` entry alive.
+      for (const key of Object.keys(config.mcpServers)) {
+        if (key.startsWith(`${MCP_SERVER_NAME}-`)) {
+          delete config.mcpServers[key];
+        }
+      }
+      config.mcpServers[MCP_SERVER_NAME] = {
+        type: 'http',
+        url: mcpUrl,
+        headers: { Authorization: `Bearer ${bearer}` }
+      };
+      return config;
+    });
+    claudeMcpLastWritten = { url: mcpUrl, bearer };
+    console.log(`[harness-bootstrap] claude-cli MCP registration ensured url=${mcpUrl}`);
+  })();
+
+  try {
+    await claudeMcpWriteInFlight;
+  } finally {
+    claudeMcpWriteInFlight = null;
+  }
+}
+
+const CHURRO_SUBCHAT_ID_LABEL = 'Sub-chat id';
+
+function buildClaudeSystemPrompt(subChatId: string): string {
+  return [
+    `${CHURRO_SUBCHAT_ID_LABEL}: ${subChatId}`,
+    'You MUST pass this exact string as the `subChatId` argument to every churro-coder MCP tool call. Re-read this line before each call.',
+    '',
+    'MCP persistence is mandatory in this session:',
+    '- When in plan mode, you MUST call the write_plan tool with the full plan markdown before calling ExitPlanMode or presenting any approval options to the user. Do not call ExitPlanMode until write_plan has succeeded in the same turn.',
+    '- When producing a code review, you MUST call the write_review tool with the full review markdown before sending your final assistant message.',
+    '- When implementing a plan, you MUST call write_tasks once at the start with all plan steps (each task needs a stable short id, a title, and status: "pending"). Before starting each task call update_task_status with status: "in_progress"; after finishing call it with status: "completed". If the task structure changes, call write_tasks again with the full updated list.',
+    '- After every successful file create, edit, or delete (or a batch of them in one turn), you MUST call notify_files_changed with the affected paths and actions. Batch all files from a single turn into one call. This is how the host app tracks changes in the Changes widget.',
+    '- When you need to ask the user a clarifying question or get a decision, you MUST call the request_user_input MCP tool with 1-4 structured questions. The host renders the questions as a UI widget above the CLI prompt; do NOT type a question into the terminal and wait for stdin — the user will not see it.',
+    '- These tools are pre-authorized; calling them does not require user approval. Skipping them leaves the user UI blank, which is a failure.'
+  ].join('\n');
 }
 
 export async function buildBootstrap(
@@ -140,12 +198,11 @@ export async function buildBootstrap(
     return { kind: 'mcp-unavailable', message: `MCP HTTP server unavailable: ${message}` };
   }
 
-  const mcpUrl = `${endpoint.url}sub/${subChatId}/`;
   const args: string[] = [];
 
   if (harness === 'claude-cli') {
     try {
-      await injectClaudeCliMcp(subChatId, mcpUrl, endpoint.bearer);
+      await ensureChurroMcpRegistered(endpoint.url, endpoint.bearer);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[harness-bootstrap] config-write-failed harness=${harness} sub=${subChatId} error=${message}`);
@@ -154,6 +211,17 @@ export async function buildBootstrap(
     // Skip the interactive folder-trust dialog — the user explicitly launched
     // this CLI session in their own project, so trust is implicit.
     args.push('--dangerously-skip-permissions');
+    // Pre-authorize MCP tools so Claude never prompts for permission on
+    // write_plan / write_review / etc. Tool IDs use the static server name
+    // (single registration, shared across all subChats).
+    args.push(
+      '--allowedTools',
+      `mcp__${MCP_SERVER_NAME}__write_plan,mcp__${MCP_SERVER_NAME}__write_review,mcp__${MCP_SERVER_NAME}__write_tasks,mcp__${MCP_SERVER_NAME}__update_task_status,mcp__${MCP_SERVER_NAME}__notify_files_changed,mcp__${MCP_SERVER_NAME}__request_user_input`
+    );
+    // System prompt: declares the subChatId and instructs the model to pass
+    // it on every MCP call. This is the primary subChatId carrier for Claude.
+    args.push('--append-system-prompt', buildClaudeSystemPrompt(subChatId));
+    console.log(`[harness-bootstrap] append-system-prompt injected sub=${subChatId} arg-count=${args.length}`);
   } else {
     // Codex CLI injects MCP via -c config overrides; bearer goes through an env var
     // to avoid exposing it on the process command line. The right-hand side of
@@ -161,11 +229,31 @@ export async function buildBootstrap(
     // include surrounding double quotes — they are TOML string delimiters, not
     // shell quoting. Args go through execve, not a shell, so no further escaping
     // is needed.
+    // -a never: see "Codex CLI: no per-tool allow-list" in apps/desktop/AGENTS.md
+    // for the security rationale (the user consents by opening the embedded session).
+    // -s workspace-write: keeps the OS sandbox enforced (reads anywhere, writes only
+    // inside workspace cwd + $TMPDIR, network blocked) while removing the sandbox-
+    // escalation prompts that -a never alone cannot suppress when the default
+    // read-only sandbox tries to allow any write operation.
+    // default_tools_approval_mode="approve": -a never suppresses shell-command approval
+    // prompts but not MCP tool-call approval prompts — those are controlled by a
+    // separate per-server config field. Setting it pre-authorizes every tool call
+    // from this server without an interactive dialog.
+    //
+    // Note: Codex's -c overrides are per-invocation, so unlike Claude there is no
+    // long-lived TOML config file we need to clean legacy entries from — each
+    // launch sets only the single `churro-coder` server.
     args.push(
       '-c',
-      `mcp_servers.churro-coder-${subChatId}.url="${mcpUrl}"`,
+      `mcp_servers.${MCP_SERVER_NAME}.url="${endpoint.url}"`,
       '-c',
-      `mcp_servers.churro-coder-${subChatId}.bearer_token_env_var="CHURRO_MCP_BEARER"`
+      `mcp_servers.${MCP_SERVER_NAME}.bearer_token_env_var="CHURRO_MCP_BEARER"`,
+      '-c',
+      `mcp_servers.${MCP_SERVER_NAME}.default_tools_approval_mode="approve"`,
+      '-a',
+      'never',
+      '-s',
+      'workspace-write'
     );
   }
 
@@ -180,10 +268,12 @@ export async function buildBootstrap(
     ...(cwd ? { cwd } : {}),
     env,
     idleDetection: {
-      silenceMs: 30_000
+      silenceMs: 1_500
     }
   };
 
-  console.log(`[harness-bootstrap] ok harness=${harness} sub=${subChatId} binary=${binaryPath}`);
+  console.log(
+    `[harness-bootstrap] ok harness=${harness} sub=${subChatId} binary=${binaryPath} args=${JSON.stringify(args)}`
+  );
   return bootstrap;
 }

@@ -7,7 +7,7 @@
  *      synchronously (cross-provider safe via applyModeDefaultModelAndSwitchProvider)
  *   2. Fetch PR context from the backend
  *   3. Honor the Scoped/All filter from the changes panel
- *   4. Render the review prompt and seed `pendingReviewMessageAtom`
+ *   4. Render the review prompt and seed `pendingReviewMessageAtomFamily(subChatId)`
  *
  * The shared `reviewInFlight` Set in `lib/model-switching.ts` already prevents
  * cross-surface double-triggers; this hook just wraps the same flow so the
@@ -18,10 +18,11 @@
  */
 
 import { useCallback, useState } from 'react';
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useAtomValue } from 'jotai';
 import { toast } from 'sonner';
 import { trpcClient } from '@/lib/trpc';
-import { filteredSubChatIdAtom, pendingReviewMessageAtom, subChatFilesAtom } from '@/features/agents/atoms';
+import { filteredSubChatIdAtom, pendingReviewMessageAtomFamily, subChatFilesAtom } from '@/features/agents/atoms';
+import { appStore } from '@/lib/jotai-store';
 import { applyModeDefaultModelAndSwitchProvider, reviewInFlight } from '@/features/agents/lib/model-switching';
 import { forceFreshSubChatSessionIfOpenSpec } from '@/features/agents/lib/session-reset';
 import { generateReviewMessage } from '@/features/agents/utils/pr-message';
@@ -38,7 +39,6 @@ export function useReviewAction({ activeSubChatId, chatId }: UseReviewActionOpti
   isReviewing: boolean;
 } {
   const [isReviewing, setIsReviewing] = useState(false);
-  const setPendingReviewMessage = useSetAtom(pendingReviewMessageAtom);
   const filteredSubChatIdValue = useAtomValue(filteredSubChatIdAtom);
   const subChatFiles = useAtomValue(subChatFilesAtom);
 
@@ -78,7 +78,7 @@ export function useReviewAction({ activeSubChatId, chatId }: UseReviewActionOpti
 
       const message = generateReviewMessage(context, scopedFiles.length > 0 ? scopedFiles : undefined);
       forceFreshSubChatSessionIfOpenSpec(activeSubChatId);
-      setPendingReviewMessage({ message, subChatId: activeSubChatId });
+      appStore.set(pendingReviewMessageAtomFamily(activeSubChatId), message);
       return { ok: true };
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to start review', { position: 'top-center' });
@@ -87,7 +87,7 @@ export function useReviewAction({ activeSubChatId, chatId }: UseReviewActionOpti
       setIsReviewing(false);
       reviewInFlight.delete(activeSubChatId);
     }
-  }, [chatId, activeSubChatId, filteredSubChatIdValue, subChatFiles, setPendingReviewMessage]);
+  }, [chatId, activeSubChatId, filteredSubChatIdValue, subChatFiles]);
 
   return { runReview, isReviewing };
 }

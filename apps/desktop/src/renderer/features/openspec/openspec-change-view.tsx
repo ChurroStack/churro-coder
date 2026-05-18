@@ -3,7 +3,6 @@ import { Archive, ChevronRight, Check, ShieldCheck, ArrowRight, Square, Loader2 
 import { toast } from 'sonner';
 import { trpc } from '../../lib/trpc';
 import { Button } from '../../components/ui/button';
-import { Badge } from '../../components/ui/badge';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -175,13 +174,13 @@ export function OpenSpecChangeView({ chatId, subChatId, changeId, changePath, pr
     const pending = { chatId, subChatId, changeId, startedAt: Date.now() };
     setPendingArchive(pending);
     setPendingArchivesByChat((prev) => ({ ...prev, [changeId]: pending }));
-    void runOpenSpecAction('/opsx:archive', 'execute');
+    void runOpenSpecAction({ verb: 'archive', args: changeId, kind: 'execute' });
     console.log(`[openspec/viewer] archive requested changeId=${changeId} subChatId=${subChatId}`);
   };
 
   const handleVerify = () => {
     console.log(`[openspec/viewer] verify requested changeId=${changeId} subChatId=${subChatId} step=${step}`);
-    void runOpenSpecAction('/opsx:verify', 'execute');
+    void runOpenSpecAction({ verb: 'verify', args: changeId, kind: 'execute' });
   };
 
   const handleCodeReview = () => {
@@ -189,7 +188,6 @@ export function OpenSpecChangeView({ chatId, subChatId, changeId, changePath, pr
     void dispatchWorkflowAction(workflow?.review.actionKind ?? 'reviewLocal');
   };
 
-  const capabilities = change?.capabilities ?? [];
   const modifiedAt = change?.modifiedAt ? formatRelativeTime(change.modifiedAt) : null;
 
   return (
@@ -214,11 +212,6 @@ export function OpenSpecChangeView({ chatId, subChatId, changeId, changePath, pr
             </BreadcrumbList>
           </Breadcrumb>
           <div className="flex items-center gap-2">
-            {capabilities.length > 0 && (
-              <Badge variant="secondary" className="text-xs">
-                {capabilities.join(' · ')}
-              </Badge>
-            )}
             {modifiedAt && <span className="text-xs text-muted-foreground">Updated {modifiedAt}</span>}
           </div>
         </div>

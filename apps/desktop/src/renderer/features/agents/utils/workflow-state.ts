@@ -35,11 +35,19 @@ export interface WorkflowState {
 
 export interface PlanInfo {
   exists: boolean;
-  meta?: { approvedAt?: string };
+  meta?: { createdAt?: string; approvedAt?: string };
 }
 
 export interface ReviewInfo {
   exists: boolean;
+  meta?: { createdAt?: string; acceptedAt?: string };
+}
+
+export interface TasksInfo {
+  exists: boolean;
+  total: number;
+  completed: number;
+  updatedAt: string | null;
 }
 
 export type WorkflowActivity = 'idle' | 'streaming' | 'compacting';
@@ -53,20 +61,25 @@ export type WorkflowActivity = 'idle' | 'streaming' | 'compacting';
  * Fields:
  * - `plan` — artifact existence from `chats.getCurrentPlan`. `null` = query
  *   still loading; `{ exists: false }` = no plan file on disk; `{ exists: true,
- *   meta: { approvedAt } }` = plan file exists.
- * - `review` — artifact existence from `chats.getCurrentReview` (PR 5). `null`
- *   = loading; `{ exists: false }` = no review file yet.
- * - `git.headSha` — HEAD commit SHA at snapshot time, used by the Review
- *   milestone staleness check (PR 5).
- * - `hasHistory` — true once the AI has completed at least one streaming response
- *   in this sub-chat. Prevents the Code milestone from showing "Up to date"
- *   before any AI work has occurred.
+ *   meta: { createdAt, approvedAt } }` = plan file exists.
+ * - `review` — artifact existence from `chats.getCurrentReview`. `null`
+ *   = loading; `{ exists: false }` = no review file yet; `{ exists: true,
+ *   meta: { createdAt, acceptedAt } }` = review exists.
+ * - `tasks` — from `chats.getCurrentTasks`. `null` = loading; `{ exists: false }`
+ *   = no tasks file; `{ exists: true, total, completed, updatedAt }` = tasks exist.
+ * - `harness` — 'builtin' | 'cli'. CLI harnesses never get plan-mode atoms.
+ * - `cliBusy` — true while `terminal.state` is `'running'` for a CLI sub-chat.
+ * - `git.headSha` — HEAD commit SHA at snapshot time.
+ * - `hasHistory` — true once the AI has completed at least one streaming response.
  */
 export interface WorkflowSnapshot {
   mode: 'plan' | 'execute' | 'explore' | 'review';
   activity: WorkflowActivity;
+  harness?: 'builtin' | 'cli';
+  cliBusy?: boolean;
   plan: PlanInfo | null;
   review: ReviewInfo | null;
+  tasks?: TasksInfo | null;
   git: {
     changedFiles: number;
     headSha: string;
@@ -83,7 +96,77 @@ export interface WorkflowSnapshot {
   hasHistory: boolean;
 }
 
-export function computeWorkflowState(s: WorkflowSnapshot): WorkflowState {
+// ── Timestamp helpers ────────────────────────────────────────────────────────
+
+// Sentinel: any artifact lacking a timestamp is treated as epoch-0 so that
+// newer timestamps always compare as "more recent". This is lenient for legacy
+// plans that were written before createdAt was tracked.
+const EPOCH = '1970-01-01T00:00:00.000Z';
+
+function ts(value: string | null | undefined): number {
+  if (!value) return 0;
+  const t = Date.parse(value);
+  return isNaN(t) ? 0 : t;
+}
+
+// T(plan) = plan.meta.createdAt (epoch-0 when missing → always ≤ any real timestamp)
+function tPlan(s: WorkflowSnapshot): number {
+  return ts(s.plan?.meta?.createdAt ?? EPOCH);
+}
+
+// T(tasks) = tasks.updatedAt (epoch-0 when tasks don't exist)
+function tTasks(s: WorkflowSnapshot): number {
+  return ts(s.tasks?.updatedAt ?? null);
+}
+
+// T(approve) = plan.meta.approvedAt
+function tApprove(s: WorkflowSnapshot): number {
+  return ts(s.plan?.meta?.approvedAt ?? null);
+}
+
+// T(review) = review.meta.createdAt
+function tReview(s: WorkflowSnapshot): number {
+  return ts(s.review?.meta?.createdAt ?? null);
+}
+
+// T(accept) = review.meta.acceptedAt
+function tAccept(s: WorkflowSnapshot): number {
+  return ts(s.review?.meta?.acceptedAt ?? null);
+}
+
+// tasksForCurrentPlan: tasks exist AND were written after (or at) the plan
+function tasksForCurrentPlan(s: WorkflowSnapshot): boolean {
+  return !!s.tasks?.exists && tTasks(s) >= tPlan(s);
+}
+
+// reviewForCurrentWork: review exists with a real createdAt AND was written after plan AND tasks.
+// Legacy reviews with no createdAt fall through to the legacy done path below.
+function reviewForCurrentWork(s: WorkflowSnapshot): boolean {
+  if (!s.review?.exists) return false;
+  if (!s.review.meta?.createdAt) return false;
+  const refTime = Math.max(tPlan(s), tTasks(s));
+  return tReview(s) >= refTime;
+}
+
+// reviewAcceptedForCurrentReview: acceptedAt is set AND >= review createdAt
+function reviewAcceptedForCurrentReview(s: WorkflowSnapshot): boolean {
+  if (!s.review?.exists) return false;
+  if (!s.review.meta?.acceptedAt) return false; // must have an explicit acceptedAt
+  return tAccept(s) >= tReview(s);
+}
+
+// ── Main entry ───────────────────────────────────────────────────────────────
+
+export function computeWorkflowState(raw: WorkflowSnapshot): WorkflowState {
+  // Normalize: fill in defaults for new optional fields so callers that don't
+  // set them (e.g. legacy tests, callers before migration) still work correctly.
+  const s: WorkflowSnapshot = {
+    harness: 'builtin',
+    cliBusy: false,
+    tasks: null,
+    ...raw
+  };
+
   const plan = computePlan(s);
   const code = computeCode(s, plan.status);
   const review = computeReview(s, code.status);
@@ -119,62 +202,118 @@ export function computeWorkflowState(s: WorkflowSnapshot): WorkflowState {
   return { plan, code, review, pr, next };
 }
 
+// ── Plan ─────────────────────────────────────────────────────────────────────
+
 function computePlan(s: WorkflowSnapshot): MilestoneState {
-  if (s.mode !== 'plan') {
-    // Artifact-driven: done when the plan file exists and we've left plan mode.
-    // approvedAt is set by the approval flow for new plans; older plans that lack
-    // it are still considered done because exiting plan mode is the approval act.
-    if (s.plan?.exists) {
-      return { id: 'plan', status: 'done', label: 'Plan', hint: 'Plan approved' };
+  const hasPlan = !!s.plan?.exists;
+
+  // in_progress: builtin streaming in plan mode, or CLI busy before tasks appear
+  if (s.harness === 'builtin') {
+    if (s.mode === 'plan') {
+      if (s.activity === 'streaming' || s.activity === 'compacting') {
+        return { id: 'plan', status: 'in_progress', label: 'Plan', hint: 'Drafting plan…' };
+      }
+      // Plan artifact exists but not yet approved → ready to approve.
+      if (hasPlan) {
+        return {
+          id: 'plan',
+          status: 'attention',
+          label: 'Plan',
+          hint: 'Plan ready — review and approve',
+          actionKind: 'expandPlan'
+        };
+      }
+      return { id: 'plan', status: 'idle', label: 'Plan', hint: 'Start chatting to begin' };
+    }
+
+    // Builtin, not in plan mode: artifact-driven
+    if (hasPlan) {
+      // Green when: tasks exist for this plan, OR plan was explicitly approved
+      if (tasksForCurrentPlan(s) || tApprove(s) >= tPlan(s)) {
+        return { id: 'plan', status: 'done', label: 'Plan', hint: 'Plan approved' };
+      }
+      // Plan written but no tasks and no approval → orange
+      return {
+        id: 'plan',
+        status: 'attention',
+        label: 'Plan',
+        hint: 'Plan ready — review and approve',
+        actionKind: 'expandPlan'
+      };
     }
     return { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (execute mode)' };
   }
 
-  // mode === 'plan'. Treat compacting as in-progress too — the user expects the
-  // Plan pill to stay animated while the AI is doing work behind the scenes,
-  // not flip back to "Start chatting" mid-flight.
-  if (s.activity === 'streaming' || s.activity === 'compacting') {
+  // CLI harness: pure artifact + timestamp rules
+  if (s.cliBusy && !s.tasks?.exists) {
     return { id: 'plan', status: 'in_progress', label: 'Plan', hint: 'Drafting plan…' };
   }
 
-  // Plan artifact exists but not yet approved → ready to approve.
-  if (s.plan?.exists) {
-    return {
-      id: 'plan',
-      status: 'attention',
-      label: 'Plan',
-      hint: 'Plan ready — review and approve',
-      actionKind: 'expandPlan'
-    };
+  if (!hasPlan) {
+    return { id: 'plan', status: 'idle', label: 'Plan', hint: 'No plan yet' };
   }
 
-  // No plan artifact yet, not streaming → blank/new chat.
-  return { id: 'plan', status: 'idle', label: 'Plan', hint: 'Start chatting to begin' };
+  // Plan written: green when tasks for current plan exist OR approved
+  if (tasksForCurrentPlan(s) || tApprove(s) >= tPlan(s)) {
+    return { id: 'plan', status: 'done', label: 'Plan', hint: 'Plan approved' };
+  }
+
+  // Plan written but no tasks and no approval
+  return {
+    id: 'plan',
+    status: 'attention',
+    label: 'Plan',
+    hint: 'Plan written — tasks not yet created',
+    actionKind: 'expandPlan'
+  };
 }
 
+// ── Code ─────────────────────────────────────────────────────────────────────
+
 function computeCode(s: WorkflowSnapshot, planStatus: MilestoneStatus): MilestoneState {
-  // While the workspace is still in plan mode, nothing downstream can be
-  // "done". The kanban groups this workspace under "Planning" — keeping Code
-  // idle here keeps the Status widget consistent with that grouping.
-  // (planStatus alone is insufficient: when the user has chatted in plan mode
-  // without producing a plan artifact, planStatus is 'idle' and we'd otherwise
-  // wrongly fall through to the "Up to date" branch.)
-  if (s.mode === 'plan' || planStatus === 'in_progress' || planStatus === 'attention') {
-    return {
-      id: 'code',
-      status: 'idle',
-      label: 'Code',
-      hint: 'Waiting on plan'
-    };
+  // Code is gated on plan being done or idle (idle = no plan used)
+  if (planStatus === 'in_progress' || planStatus === 'attention') {
+    return { id: 'code', status: 'idle', label: 'Code', hint: 'Waiting on plan' };
   }
-  if (s.activity === 'streaming') {
-    return {
-      id: 'code',
-      status: 'in_progress',
-      label: 'Code',
-      hint: 'Execute mode is editing…'
-    };
+
+  const hasTasks = tasksForCurrentPlan(s);
+
+  // Tasks-based path: when tasks exist for the current plan, use task completion
+  if (hasTasks) {
+    const total = s.tasks!.total;
+    const completed = s.tasks!.completed;
+
+    // in_progress: CLI busy, or builtin streaming in execute mode
+    if (
+      (s.harness === 'cli' && s.cliBusy) ||
+      (s.harness === 'builtin' && s.activity === 'streaming' && s.mode !== 'plan')
+    ) {
+      return { id: 'code', status: 'in_progress', label: 'Code', hint: 'Executing tasks…' };
+    }
+
+    if (total === 0) {
+      return { id: 'code', status: 'attention', label: 'Code', hint: 'Task list is empty' };
+    }
+    if (completed < total) {
+      return {
+        id: 'code',
+        status: 'attention',
+        label: 'Code',
+        hint: `${completed}/${total} tasks complete`
+      };
+    }
+    return { id: 'code', status: 'done', label: 'Code', hint: `All ${total} tasks complete` };
   }
+
+  // No-tasks fallback: builtin git-based rules (keeps classic flow working)
+  if (s.mode === 'plan') {
+    return { id: 'code', status: 'idle', label: 'Code', hint: 'Waiting on plan' };
+  }
+
+  if (s.harness === 'builtin' && s.activity === 'streaming') {
+    return { id: 'code', status: 'in_progress', label: 'Code', hint: 'Execute mode is editing…' };
+  }
+
   if (s.baseBranchBehind > 0) {
     return {
       id: 'code',
@@ -184,14 +323,8 @@ function computeCode(s: WorkflowSnapshot, planStatus: MilestoneStatus): Mileston
       actionKind: 'mergeBase'
     };
   }
-  // No remote at all → can't push; treat as done and let the user proceed to Review
   if (!s.git.hasRemote) {
-    return {
-      id: 'code',
-      status: 'done',
-      label: 'Code',
-      hint: 'Changes ready (no remote)'
-    };
+    return { id: 'code', status: 'done', label: 'Code', hint: 'Changes ready (no remote)' };
   }
   if (!s.hasUpstream) {
     return {
@@ -211,28 +344,29 @@ function computeCode(s: WorkflowSnapshot, planStatus: MilestoneStatus): Mileston
       actionKind: 'pushBranch'
     };
   }
-  // baseBranchBehind === 0 already guaranteed by the early return above.
   if (s.git.changedFiles === 0 && s.pushCount === 0) {
-    // Clean tree once the AI has done work → done. Use "Up to date" rather than
-    // "All changes pushed" because a text-only AI response leaves the tree clean
-    // without anything actually being pushed. Only show idle when no AI run yet.
     if (s.hasHistory) {
       return { id: 'code', status: 'done', label: 'Code', hint: 'Up to date' };
     }
     return { id: 'code', status: 'idle', label: 'Code', hint: 'No changes' };
   }
-  return {
-    id: 'code',
-    status: 'done',
-    label: 'Code',
-    hint: 'All changes pushed'
-  };
+  return { id: 'code', status: 'done', label: 'Code', hint: 'All changes pushed' };
 }
 
+// ── Review ────────────────────────────────────────────────────────────────────
+
 function computeReview(s: WorkflowSnapshot, codeStatus: MilestoneStatus): MilestoneState {
+  // Acceptance check is unconditional: once the user clicks Fix, the review stays
+  // done even while the fix run is in progress (Code amber, tasks partially complete).
+  // A new write_review call resets createdAt to after acceptedAt, naturally un-doing.
+  if (reviewAcceptedForCurrentReview(s)) {
+    return { id: 'review', status: 'done', label: 'Review', hint: 'Reviewed' };
+  }
+
   if (codeStatus !== 'done') {
     return { id: 'review', status: 'idle', label: 'Review', hint: 'Waiting on code' };
   }
+
   // Stale-PR mirror: when a PR exists but the tree has new work, the previous
   // review only covered what's already in the PR. Surface review as attention
   // so the user re-reviews the delta locally before commit+push.
@@ -264,9 +398,6 @@ function computeReview(s: WorkflowSnapshot, codeStatus: MilestoneStatus): Milest
     return { id: 'review', status: 'done', label: 'Review', hint: 'PR merged' };
   }
   if (s.pr.state === 'open') {
-    // A PR being open means the author has reviewed the work and it is ready for
-    // external review. Reviewer activity surfaces via reviewDecision (changes_requested /
-    // approved) which are handled above — no need to prompt again here.
     return { id: 'review', status: 'done', label: 'Review', hint: 'PR open' };
   }
   if (s.pr.state === 'draft') {
@@ -278,16 +409,26 @@ function computeReview(s: WorkflowSnapshot, codeStatus: MilestoneStatus): Milest
       actionKind: 'reviewPr'
     };
   }
-  // prState === 'closed' with no new work → informational; the closed PR is the latest signal.
-  // With new work (unpushed commits or unstaged changes), treat as 'none' so the user can
-  // re-review and open a fresh PR — falling through to the review.exists / reviewLocal paths.
   if (s.pr.state === 'closed' && s.git.changedFiles === 0 && s.pushCount === 0) {
     return { id: 'review', status: 'info', label: 'Review', hint: 'PR closed' };
   }
-  // Artifact-driven: review artifact (PR 5) or fallback to session-local signal.
-  if (s.review?.exists && (s.pr.state === 'none' || s.pr.state === 'closed')) {
+  if (reviewForCurrentWork(s)) {
+    return {
+      id: 'review',
+      status: 'attention',
+      label: 'Review',
+      hint: 'Review written — click Fix to accept',
+      actionKind: 'reviewLocal'
+    };
+  }
+
+  // Legacy: review exists with no createdAt timestamp (pre-timestamp artifacts).
+  // Treat as done to avoid regressing classic builtin flows. If createdAt exists,
+  // the timestamp check already ran above — don't re-admit it here as "done".
+  if (s.review?.exists && !s.review.meta?.createdAt && (s.pr.state === 'none' || s.pr.state === 'closed')) {
     return { id: 'review', status: 'done', label: 'Review', hint: 'Reviewed' };
   }
+
   return {
     id: 'review',
     status: 'attention',
@@ -297,26 +438,12 @@ function computeReview(s: WorkflowSnapshot, codeStatus: MilestoneStatus): Milest
   };
 }
 
+// ── PR ────────────────────────────────────────────────────────────────────────
+
 function computePr(s: WorkflowSnapshot, codeStatus: MilestoneStatus, reviewStatus: MilestoneStatus): MilestoneState {
-  // A PR requires a remote — show idle immediately if none is configured.
   if (!s.git.hasRemote) {
-    return {
-      id: 'pr',
-      status: 'idle',
-      label: 'PR',
-      hint: 'No remote configured'
-    };
+    return { id: 'pr', status: 'idle', label: 'PR', hint: 'No remote configured' };
   }
-  // Stale PR: a PR exists (open or merged) but the local tree has new work
-  // that isn't yet in the PR. Surfacing as `done` would falsely imply the
-  // PR contains everything; surface as attention with the same `createPr`
-  // actionKind. The dispatch handler reuses the message pattern to commit+
-  // push instead of opening a duplicate PR (it's a no-op when the PR already
-  // exists).
-  //
-  // Note: pushCount is only meaningful with hasUpstream. Without an upstream
-  // we can't measure unpushed commits, so only consider changedFilesCount in
-  // that case. (hasRemote === false is filtered above.)
   if (s.pr.state === 'open' || s.pr.state === 'merged') {
     const hasUncommitted = s.git.changedFiles > 0;
     const hasUnpushed = s.hasUpstream && s.pushCount > 0;
@@ -336,33 +463,19 @@ function computePr(s: WorkflowSnapshot, codeStatus: MilestoneStatus, reviewStatu
     }
   }
   if (s.pr.state === 'merged') {
-    return {
-      id: 'pr',
-      status: 'done',
-      label: 'PR',
-      hint: 'PR merged',
-      actionKind: 'openPr'
-    };
+    return { id: 'pr', status: 'done', label: 'PR', hint: 'PR merged', actionKind: 'openPr' };
   }
   if (s.pr.state === 'open') {
-    // PR exists and is ready for review — the author's work on this step is done.
     return { id: 'pr', status: 'done', label: 'PR', hint: 'PR open', actionKind: 'openPr' };
   }
   if (s.pr.state === 'draft') {
     return { id: 'pr', status: 'info', label: 'PR', hint: 'Draft PR open', actionKind: 'openPr' };
   }
-  // Closed PR with no new work → terminal info state. With unpushed/uncommitted work,
-  // fall through so the user can open a fresh PR from this branch.
   if (s.pr.state === 'closed' && s.git.changedFiles === 0 && s.pushCount === 0) {
     return { id: 'pr', status: 'info', label: 'PR', hint: 'PR closed', actionKind: 'openPr' };
   }
   if (s.pr.creating) {
-    return {
-      id: 'pr',
-      status: 'in_progress',
-      label: 'PR',
-      hint: 'Creating PR…'
-    };
+    return { id: 'pr', status: 'in_progress', label: 'PR', hint: 'Creating PR…' };
   }
   if (codeStatus === 'done' && (reviewStatus === 'done' || reviewStatus === 'attention')) {
     return {
@@ -373,10 +486,5 @@ function computePr(s: WorkflowSnapshot, codeStatus: MilestoneStatus, reviewStatu
       actionKind: 'createPr'
     };
   }
-  return {
-    id: 'pr',
-    status: 'idle',
-    label: 'PR',
-    hint: 'Waiting on code/review'
-  };
+  return { id: 'pr', status: 'idle', label: 'PR', hint: 'Waiting on code/review' };
 }

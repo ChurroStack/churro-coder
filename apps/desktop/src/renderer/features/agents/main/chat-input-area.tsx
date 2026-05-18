@@ -52,6 +52,7 @@ import {
   subChatModelIdAtomFamily,
   getNextMode,
   subChatNonOwnerSetAtom,
+  cliBusyAtomFamily,
   type AgentMode,
   type SubChatFileChange
 } from '../atoms';
@@ -63,6 +64,7 @@ import { AgentSendButton } from '../components/agent-send-button';
 import { OpenSpecSendButton } from '../components/openspec-send-button';
 import type { UploadedFile, UploadedImage } from '../hooks/use-agents-file-upload';
 import { useSubChatMode } from '../hooks/use-sub-chat-mode';
+import { useCliBusyTracker } from '../hooks/use-cli-busy-tracker';
 import { clearSubChatDraft, saveSubChatDraftWithAttachments } from '../lib/drafts';
 import { CLAUDE_MODELS, CODEX_MODELS, type ClaudeThinkingLevel, type CodexThinkingLevel } from '../lib/models';
 import { applyModeDefaultModel } from '../lib/model-switching';
@@ -92,6 +94,7 @@ import {
   openSpecPendingCommandAtomFamily,
   openSpecSidebarContextAtomFamily
 } from '../../openspec/atoms';
+import { buildOpenSpecCliPrefixedMessage } from '../../openspec/step-prefix';
 import { subChatHardResetHandlerAtomFamily } from '../atoms/stuck-detection';
 import { StallIcon, StallBanner } from '../ui/stall-banner';
 
@@ -454,15 +457,13 @@ export const ChatInputArea = memo(function ChatInputArea({
   const nonOwners = useAtomValue(subChatNonOwnerSetAtom);
   const isPanelReadOnly = nonOwners.has(subChatId ?? '');
 
-  // Advisory-busy hint for CLI harness: dims the Send button while the CLI is processing.
-  // The idle event from the terminal signals it is ready for more input.
-  // Force-send always works — this is purely visual.
-  const [cliAdvisoryBusy, setCliAdvisoryBusy] = useState(false);
-  const cliPaneId = isCliHarness ? `cli:${subChatId}` : null;
-  trpc.terminal.idle.useSubscription(cliPaneId ?? '', {
-    enabled: !!cliPaneId,
-    onData: () => setCliAdvisoryBusy(false)
-  });
+  // Advisory-busy hint for CLI harness: dims the Send button while the terminal
+  // is actively producing output. cliBusyAtomFamily is written by useCliBusyTracker
+  // (mounted here and also at chat-panel level so CLI panels without ChatInputArea
+  // still get the in_progress pill in the status widget).
+  const cliBusyAtom = useMemo(() => cliBusyAtomFamily(subChatId), [subChatId]);
+  const [cliAdvisoryBusy] = useAtom(cliBusyAtom);
+  useCliBusyTracker({ subChatId, parentChatId, isCliHarness });
 
   // Model dropdown state
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -511,6 +512,7 @@ export const ChatInputArea = memo(function ChatInputArea({
   const apiKeyOnboardingCompleted = useAtomValue(apiKeyOnboardingCompletedAtom);
   const codexOnboardingCompleted = useAtomValue(codexOnboardingCompletedAtom);
   const { data: claudeCodeIntegration } = trpc.claudeCode.getIntegration.useQuery();
+  const trpcUtils = trpc.useUtils();
   const codexUiModels = useMemo(() => {
     let models = hasAppCodexApiKey ? CODEX_MODELS.filter((model) => model.id !== 'gpt-5.3-codex') : CODEX_MODELS;
     return models.filter((model) => !hiddenModels.includes(model.id));
@@ -994,9 +996,16 @@ export const ChatInputArea = memo(function ChatInputArea({
       await onStop();
       onSendFromQueue(firstQueueItemId);
     } else if (isCliHarness) {
-      // CLI harness: write the editor text directly to the embedded terminal PTY
+      // CLI harness: write the editor text directly to the embedded terminal PTY.
+      // In an OpenSpec editor, prefix `/opsx:propose|apply` based on the active tab
+      // since there is no transport that reads `pendingCommand` for CLI paths.
       setCliAdvisoryBusy(true);
-      dispatchHarness(inputValue);
+      const messageToSend = buildOpenSpecCliPrefixedMessage({
+        message: inputValue,
+        isOpenSpec,
+        currentStep: openSpecCurrentStep
+      });
+      dispatchHarness(messageToSend);
     } else {
       if (isOpenSpec) {
         setOpenSpecPendingCommand(openSpecCurrentStep === 'tasks' ? 'apply' : 'propose');
@@ -1231,8 +1240,6 @@ export const ChatInputArea = memo(function ChatInputArea({
 
   // Image extensions that should be handled as attachments (base64)
   const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']);
-
-  const trpcUtils = trpc.useUtils();
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {

@@ -43,7 +43,7 @@ import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { resolveSandboxPolicy } from '../../sandbox/policy';
 import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-codex-plan';
-import { getMcpHttpEndpoint, initMcpHttpServer } from '../../mcp/http-transport';
+import { ensureMcpHttpServerAlive, getMcpHttpEndpoint } from '../../mcp/http-transport';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
 import {
@@ -2649,7 +2649,7 @@ export function getChurroCoderMcpStatus(): ChurroCoderMcpStatus {
  * does not require re-registration — the CLI entry stays valid.
  */
 async function bootstrapChurroCoderMcpInternal(): Promise<void> {
-  const { url, bearer } = await initMcpHttpServer();
+  const { url, bearer } = await ensureMcpHttpServerAlive();
   process.env.CHURRO_MCP_BEARER = bearer;
 
   const serverName = getAppOwnedChurroCoderMcpServerName();

@@ -10,9 +10,10 @@
  * the SDK's `simpleStatelessStreamableHttp` example — a single shared
  * transport returns 500s under concurrent or repeated requests.
  *
- * Named "http-transport" (not "codex-transport") so future non-SDK providers
- * that can't use per-turn SDK instance injection can reuse this same HTTP
- * endpoint.
+ * Single shared endpoint: all authenticated requests build a server via
+ * `createMcpServer()`. Every tool requires `subChatId` as an argument; the
+ * bootstrap layer is responsible for delivering subChatId to the CLI context
+ * (system prompt, first-turn reminder, dispatcher messages).
  */
 
 import { app } from 'electron';
@@ -20,10 +21,8 @@ import * as http from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { getDatabase, subChats } from '../db';
-import { createMcpServerForSubChat, createMcpServerStateless } from './server';
+import { createMcpServer } from './server';
 
 interface McpHttpState {
   url: string;
@@ -36,20 +35,8 @@ interface McpHttpState {
 let state: McpHttpState | null = null;
 let nextRequestId = 1;
 let restartInFlight: Promise<{ url: string; bearer: string; port: number }> | null = null;
+let initInFlight: Promise<{ url: string; bearer: string; port: number }> | null = null;
 const intentionallyClosingServers = new WeakSet<http.Server>();
-
-/** Test-only: override the DB-backed subChatId validator so tests don't need a real DB. */
-let subChatIdValidatorOverride: ((id: string) => boolean) | null = null;
-export function __setSubChatIdValidatorForTest(fn: ((id: string) => boolean) | null): void {
-  subChatIdValidatorOverride = fn;
-}
-
-function isKnownSubChatId(id: string): boolean {
-  if (subChatIdValidatorOverride) return subChatIdValidatorOverride(id);
-  const db = getDatabase();
-  const row = db.select({ id: subChats.id }).from(subChats).where(eq(subChats.id, id)).get();
-  return !!row;
-}
 
 function getMcpStatePath(): string {
   return join(app.getPath('userData'), 'churro-mcp.json');
@@ -182,31 +169,7 @@ async function startMcpHttpServer(
       console.log(`[churro-coder] MCP HTTP request id=${requestId} method=${req.method} ${summarizeJsonRpcBody(body)}`);
     }
 
-    // Path-scoped routing: /sub/<subChatId>/... → per-subChat MCP server
-    const urlPath = req.url ?? '/';
-    let mcpServer;
-    if (urlPath.startsWith('/sub/')) {
-      const afterSub = urlPath.slice('/sub/'.length);
-      const subChatId = afterSub.split('/')[0];
-      if (!subChatId) {
-        sendJsonRpcError(res, 404, -32004, 'Missing subChatId in path');
-        return;
-      }
-      // Verify the subChatId is known to prevent arbitrary tool execution
-      if (!isKnownSubChatId(subChatId)) {
-        const clientIp = req.socket.remoteAddress ?? 'unknown';
-        console.warn(
-          `[churro-coder] MCP path-scoped request id=${requestId} rejected unknown subChatId=${subChatId} ip=${clientIp}`
-        );
-        sendJsonRpcError(res, 404, -32004, 'Unknown subChatId');
-        return;
-      }
-      mcpServer = createMcpServerForSubChat(subChatId);
-    } else {
-      // Root route — stateless (Codex + other non-path-scoped callers)
-      mcpServer = createMcpServerStateless();
-    }
-
+    const mcpServer = createMcpServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {
@@ -272,18 +235,89 @@ async function startMcpHttpServer(
 }
 
 export async function initMcpHttpServer(): Promise<{ url: string; bearer: string; port: number }> {
+  // Coalesce against any in-flight crash-restart. A concurrent caller during a
+  // restart window (state nulled while the new server is being bound) must
+  // wait for the restart instead of starting a parallel server — two parallel
+  // HTTP servers would leak the loser's socket and overwrite the state singleton.
+  if (restartInFlight) {
+    console.log('[mcp-bootstrap] init awaiting restart');
+    return restartInFlight;
+  }
   if (state) {
     return { url: state.url, bearer: state.bearer, port: state.port };
   }
+  if (initInFlight) {
+    console.log('[mcp-bootstrap] init reused in-flight');
+    return initInFlight;
+  }
 
-  const bearer = (await loadSavedBearer()) ?? randomUUID();
-  state = await startMcpHttpServer(bearer, 0);
-  return { url: state.url, bearer: state.bearer, port: state.port };
+  console.log('[mcp-bootstrap] init started');
+  initInFlight = (async () => {
+    const bearer = (await loadSavedBearer()) ?? randomUUID();
+    state = await startMcpHttpServer(bearer, 0);
+    console.log(`[mcp-bootstrap] init complete port=${state.port} restartCount=${state.restartCount}`);
+    return { url: state.url, bearer: state.bearer, port: state.port };
+  })();
+
+  try {
+    return await initInFlight;
+  } finally {
+    initInFlight = null;
+  }
 }
 
 export function getMcpHttpEndpoint(): { url: string; bearer: string } | null {
   if (!state) return null;
   return { url: state.url, bearer: state.bearer };
+}
+
+/**
+ * Verify the cached MCP HTTP server is actually reachable. Used by callers
+ * (cli-harness bootstrap on hard-reset / restart) that must NOT hand out a
+ * stale URL to a freshly-spawned CLI process: if the server was force-killed
+ * by the OS (sleep/wake, OOM, etc.) without our `error`/`close` handlers
+ * firing, `state` may still point at a dead socket. Any TCP-level response —
+ * even a 401 — proves the server is alive; only a connection failure or
+ * timeout counts as dead.
+ */
+async function pingMcpHttpServer(timeoutMs = 1000): Promise<boolean> {
+  if (!state) return false;
+  const url = state.url;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    return res.status > 0;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Like {@link initMcpHttpServer} but verifies the cached server is actually
+ * alive before handing back its endpoint. If the cached server is unreachable
+ * (force-killed, socket leaked, etc.) this closes the stale state and starts
+ * a fresh server. Callers that are about to spawn a CLI process — most
+ * importantly hard-reset / restart paths — should use this so the new CLI
+ * gets a live URL written into its config file.
+ */
+export async function ensureMcpHttpServerAlive(): Promise<{ url: string; bearer: string; port: number }> {
+  if (state) {
+    const alive = await pingMcpHttpServer();
+    if (alive) {
+      console.log('[mcp-bootstrap] ensure-alive: cached server responsive');
+      return { url: state.url, bearer: state.bearer, port: state.port };
+    }
+    console.warn('[mcp-bootstrap] ensure-alive: cached server unreachable, forcing close + reinit');
+    try {
+      await closeMcpHttpServer();
+    } catch (err) {
+      console.warn('[mcp-bootstrap] ensure-alive: close failed (continuing with reinit):', err);
+    }
+  }
+  return initMcpHttpServer();
 }
 
 async function restartMcpHttpServer(params: {

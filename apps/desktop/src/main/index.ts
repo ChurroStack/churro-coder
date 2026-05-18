@@ -785,6 +785,22 @@ if (gotTheLock) {
       console.warn('[App] Empty sub-chat cleanup failed:', error);
     }
 
+    // Remove all churro-coder MCP entries from ~/.claude.json so stale servers
+    // left from prior sessions don't pollute the user's Claude CLI config.
+    try {
+      await Promise.race([
+        clearOrphanedChurroMcpEntries(),
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            console.warn('[App] clearOrphanedChurroMcpEntries() exceeded timeout; continuing shutdown');
+            resolve();
+          }, 1000)
+        )
+      ]);
+    } catch (err) {
+      console.warn('[App] clearOrphanedChurroMcpEntries() threw during shutdown:', err);
+    }
+
     await closeDatabase();
   });
 

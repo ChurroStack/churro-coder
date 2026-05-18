@@ -34,7 +34,7 @@ import { createTestStore, renderWithProviders } from '../../../../../test-utils'
 import { agentChatStore } from '../stores/agent-chat-store';
 import { getPerChatMessageKey, messageAtomFamily, messageIdsPerChatAtom, type Message } from '../stores/message-store';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
-import { pendingContinueMessageAtom } from '../atoms';
+import { pendingContinueMessageAtomFamily } from '../atoms';
 import { ContinueButton, hardRestartSubChat } from './continue-button';
 
 const SUB = 'test-sub';
@@ -117,7 +117,7 @@ describe('ContinueButton', () => {
 
     fireEvent.click(container.querySelectorAll('button')[0]);
 
-    expect(store.get(pendingContinueMessageAtom)).toEqual({ subChatId: SUB });
+    expect(store.get(pendingContinueMessageAtomFamily(SUB))).toBe(true);
   });
 
   it('fires the stuck warning after 10s when status remains ready', () => {

@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
 import {
   extractReviewTitleFromContent,
   hasReview,
-  markApplied,
+  markAccepted,
   readCurrentReview,
   writeCurrentReview
 } from './review-store';
@@ -42,7 +42,7 @@ describe('review-store', () => {
     expect(result!.meta.source).toBe('claude-sdk');
     expect(result!.meta.title).toBe('My Review');
     expect(typeof result!.meta.createdAt).toBe('string');
-    expect(result!.meta.appliedAt).toBeUndefined();
+    expect(result!.meta.acceptedAt).toBeUndefined();
   });
 
   test('readCurrentReview returns null when no review exists', async () => {
@@ -55,18 +55,18 @@ describe('review-store', () => {
     expect(await hasReview('sub-2')).toBe(true);
   });
 
-  test('markApplied sets appliedAt without touching content', async () => {
+  test('markAccepted sets acceptedAt without touching content', async () => {
     await writeCurrentReview({ subChatId: 'sub-3', content: 'body', source: 's', title: 't' });
-    await markApplied('sub-3');
+    await markAccepted('sub-3');
 
     const result = await readCurrentReview('sub-3');
     expect(result!.content).toBe('body');
-    expect(result!.meta.appliedAt).toBeDefined();
-    expect(typeof result!.meta.appliedAt).toBe('string');
+    expect(result!.meta.acceptedAt).toBeDefined();
+    expect(typeof result!.meta.acceptedAt).toBe('string');
   });
 
-  test('markApplied silently no-ops when no review exists', async () => {
-    await expect(markApplied('no-review')).resolves.toBeUndefined();
+  test('markAccepted silently no-ops when no review exists', async () => {
+    await expect(markAccepted('no-review')).resolves.toBeUndefined();
   });
 
   test('writing twice overwrites the previous review (latest-only semantics)', async () => {

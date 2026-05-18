@@ -1,8 +1,19 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { observable } from '@trpc/server/observable';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
-import { ensurePlanWritten, extractPlanTitleFromContent, markApproved, readCurrentPlan } from '../../plans/plan-store';
-import { readCurrentReview } from '../../reviews/review-store';
+import { cliMcpReminder } from '../../../../shared/cli-mcp-reminder';
+import {
+  ensurePlanWritten,
+  extractPlanTitleFromContent,
+  getPlanFilePath,
+  hasPlan,
+  markApproved,
+  onPlanWritten,
+  readCurrentPlan
+} from '../../plans/plan-store';
+import { hasReview, readCurrentReview, onReviewWritten, markAccepted } from '../../reviews/review-store';
+import { onTasksWritten, readTasks } from '../../tasks/task-store';
+import { onFileChangesNotified, readFileChanges } from '../../file-changes/file-changes-store';
 import { app, BrowserWindow, safeStorage } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -41,6 +52,8 @@ import {
 import { publicProcedure, router } from '../index';
 import { abortClaudeSessionsForSubChats } from './claude';
 import { cleanupCodexAppServerSubChat } from './codex';
+import { onCliUserQuestion, pendingCliQuestions, rejectAllForSubChat } from '../../mcp/pending-cli-questions';
+import type { CliUserQuestionEntry } from '../../mcp/pending-cli-questions';
 import {
   parseClaudeCommitResponse,
   parseOllamaCommitResponse,
@@ -1085,6 +1098,17 @@ export const chatsRouter = router({
     return { ...subChat, messages: subChatMessages, chat: chat ? { ...chat, project } : null };
   }),
 
+  /** Returns only the bootstrappedAt timestamp for a CLI sub-chat (lightweight — used by chat-panel to compute startDisconnected). */
+  getSubChatBootstrapState: publicProcedure.input(z.object({ id: z.string() })).query(({ input }) => {
+    const db = getDatabase();
+    const row = db
+      .select({ bootstrappedAt: subChats.bootstrappedAt })
+      .from(subChats)
+      .where(eq(subChats.id, input.id))
+      .get();
+    return { bootstrappedAt: row?.bootstrappedAt ?? null };
+  }),
+
   /**
    * Create a new sub-chat
    *
@@ -1397,13 +1421,22 @@ export const chatsRouter = router({
   getCurrentPlan: publicProcedure.input(z.object({ subChatId: z.string() })).query(async ({ input }) => {
     const plan = await readCurrentPlan(input.subChatId);
     if (!plan) return { exists: false as const };
-    return { exists: true as const, meta: { approvedAt: plan.meta.approvedAt } };
+    return {
+      exists: true as const,
+      filePath: getPlanFilePath(input.subChatId),
+      meta: { createdAt: plan.meta.createdAt, approvedAt: plan.meta.approvedAt }
+    };
   }),
 
   getCurrentReview: publicProcedure.input(z.object({ subChatId: z.string() })).query(async ({ input }) => {
     const review = await readCurrentReview(input.subChatId);
     if (!review) return { exists: false as const };
-    return { exists: true as const, meta: { appliedAt: review.meta.appliedAt } };
+    return { exists: true as const, meta: { createdAt: review.meta.createdAt, acceptedAt: review.meta.acceptedAt } };
+  }),
+
+  markReviewAccepted: publicProcedure.input(z.object({ subChatId: z.string() })).mutation(async ({ input }) => {
+    await markAccepted(input.subChatId);
+    console.log(`[churro-coder] markReviewAccepted sub=${input.subChatId}`);
   }),
 
   /**
@@ -1417,7 +1450,7 @@ export const chatsRouter = router({
     return {
       exists: true as const,
       content: review.content,
-      meta: { title: review.meta.title, createdAt: review.meta.createdAt, appliedAt: review.meta.appliedAt }
+      meta: { title: review.meta.title, createdAt: review.meta.createdAt, acceptedAt: review.meta.acceptedAt }
     };
   }),
 
@@ -1436,7 +1469,9 @@ export const chatsRouter = router({
   deleteSubChat: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
     const db = getDatabase();
     abortClaudeSessionsForSubChats([input.id]);
-    return db.delete(subChats).where(eq(subChats.id, input.id)).returning().get();
+    rejectAllForSubChat(input.id, 'sub-chat-closed');
+    const deleted = db.delete(subChats).where(eq(subChats.id, input.id)).returning().get();
+    return deleted;
   }),
 
   /**
@@ -1451,13 +1486,13 @@ export const chatsRouter = router({
     // the truly-untouched (no name, no messages) rows are eligible.
     // Mirrors the shutdown sweep in [main/index.ts]'s before-quit
     // handler.
-    return (
+    const deleted =
       db
         .delete(subChats)
         .where(and(eq(subChats.id, input.id), eq(subChats.messageCount, 0), isNull(subChats.name)))
         .returning()
-        .get() ?? null
-    );
+        .get() ?? null;
+    return deleted;
   }),
 
   /**
@@ -2635,7 +2670,9 @@ export const chatsRouter = router({
         harness: z.enum(['claude-cli', 'codex-cli']),
         cwd: z.string().optional(),
         /** Direct workspace/chat ID — used as a fallback when the subChat row is missing (e.g. ghost panels after a DB wipe). */
-        chatId: z.string().optional()
+        chatId: z.string().optional(),
+        /** 'initial': first spawn — inject bootstrap prompt (skipped if already bootstrapped). 'reattach'/'hard-reset': skip injection. 'restart': force-inject even if previously bootstrapped. */
+        trigger: z.enum(['initial', 'reattach', 'hard-reset', 'restart']).optional().default('initial')
       })
     )
     .mutation(async ({ input }) => {
@@ -2690,6 +2727,110 @@ export const chatsRouter = router({
       }
       const { buildBootstrap } = await import('../../cli-harness');
       const result = await buildBootstrap(input.harness, input.subChatId, resolvedCwd);
+
+      // Inject the initial user message as initialInputChunks so each write
+      // reaches the CLI TUI as an independent PTY read (prevents the TUI from
+      // treating \r characters mid-chunk as newlines instead of submits).
+      //
+      // Chunk layout for claude-cli / plan mode (three writes):
+      //   [0] "/plan\r"            → submits the slash command, switches mode
+      //   [1] bracketed-paste body → text lands in the TUI input buffer
+      //   [2] "\r"                 → standalone Enter submits the message
+      //
+      // For other modes or harnesses: two writes (body + "\r").
+      const isInitial = input.trigger === 'initial';
+      const isRestart = input.trigger === 'restart';
+      console.log(
+        `[buildCliBootstrap] trigger=${input.trigger} sub=${input.subChatId} inject=${isInitial || isRestart}`
+      );
+      if (result && !('kind' in result) && (isInitial || isRestart)) {
+        const db = getDatabase();
+        const subChatRow = db
+          .select({
+            mode: subChats.mode,
+            openspecChangeId: subChats.openspecChangeId,
+            bootstrappedAt: subChats.bootstrappedAt
+          })
+          .from(subChats)
+          .where(eq(subChats.id, input.subChatId))
+          .get();
+
+        // Defense-in-depth: skip injection on repeat 'initial' if already bootstrapped.
+        if (isInitial && subChatRow?.bootstrappedAt != null) {
+          console.log(`[buildCliBootstrap] skip-injection reason=already-bootstrapped sub=${input.subChatId}`);
+        } else {
+          // For 'initial': also check plan/review/tasks guard (skip if work has already progressed).
+          // For 'restart': bypass plan/review/tasks guard — user explicitly wants a fresh start.
+          let skipDueToProgress = false;
+          if (isInitial) {
+            const [planExists, reviewExists, tasksData] = await Promise.all([
+              hasPlan(input.subChatId),
+              hasReview(input.subChatId),
+              readTasks(input.subChatId)
+            ]);
+            const tasksExist = tasksData !== null;
+            if (planExists || reviewExists || tasksExist) {
+              console.log(
+                `[buildCliBootstrap] skip-injection reason=already-progressed sub=${input.subChatId} plan=${planExists} review=${reviewExists} tasks=${tasksExist}`
+              );
+              skipDueToProgress = true;
+            }
+          }
+
+          if (!skipDueToProgress) {
+            // OpenSpec-bound sub-chats: the first stored user message is `/opsx:propose <id> …`,
+            // which is stateful (the change directory under openspec/changes/<id> is the source
+            // of truth). Re-injecting it on restart would re-run propose and clobber the user's
+            // in-progress work. The renderer's pendingOpenSpecMessageAtom path dispatches it
+            // exactly once at create time; restart relies on the CLI reading the change folder.
+            if (subChatRow?.openspecChangeId) {
+              console.log(
+                `[buildCliBootstrap] skip-injection reason=openspec-bound sub=${input.subChatId} change=${subChatRow.openspecChangeId}`
+              );
+              return result;
+            }
+            const firstMsg = db
+              .select({ parts: messages.parts })
+              .from(messages)
+              .where(and(eq(messages.subChatId, input.subChatId), eq(messages.role, 'user')))
+              .orderBy(asc(messages.idx))
+              .limit(1)
+              .get();
+            if (firstMsg) {
+              let parts: Array<{ type: string; text?: string }> = [];
+              try {
+                parts = JSON.parse(firstMsg.parts) as Array<{ type: string; text?: string }>;
+              } catch {
+                // ignore parse errors — no initialInputChunks injected
+              }
+              const text = parts.find((p) => p.type === 'text')?.text?.trim();
+              if (text) {
+                const isPlanMode = subChatRow?.mode === 'plan';
+                const body = isPlanMode ? `${cliMcpReminder(input.subChatId)}\n${text}` : text;
+                // Encode body: bracketed-paste when multi-line, plain text otherwise.
+                const normalized = body.replace(/\r\n/g, '\n');
+                const bodyChunk = normalized.includes('\n') ? `\x1b[200~${normalized}\x1b[201~` : normalized;
+                const chunks: string[] = isPlanMode ? ['/plan\r', bodyChunk, '\r'] : [bodyChunk, '\r'];
+                result.initialInputChunks = chunks;
+                result.mcpReminderInjected = isPlanMode;
+                if (isRestart) {
+                  console.log(
+                    `[buildCliBootstrap] force-inject reason=user-restart sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode}`
+                  );
+                } else {
+                  console.log(
+                    `[buildCliBootstrap] initialInputChunks injected sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode}`
+                  );
+                  // Stamp bootstrappedAt on first successful injection.
+                  db.update(subChats).set({ bootstrappedAt: new Date() }).where(eq(subChats.id, input.subChatId)).run();
+                  console.log(`[buildCliBootstrap] mark-bootstrapped sub=${input.subChatId}`);
+                }
+              }
+            }
+          }
+        }
+      }
+
       return result;
     }),
 
@@ -2752,5 +2893,86 @@ export const chatsRouter = router({
       });
       return unsubscribe;
     });
-  })
+  }),
+
+  getCurrentTasks: publicProcedure.input(z.object({ subChatId: z.string() })).query(async ({ input }) => {
+    const data = await readTasks(input.subChatId);
+    if (!data) return { exists: false as const };
+    return { exists: true as const, tasks: data.tasks, meta: data.meta };
+  }),
+
+  getMcpFileChanges: publicProcedure.input(z.object({ subChatId: z.string() })).query(async ({ input }) => {
+    const data = await readFileChanges(input.subChatId);
+    if (!data) return { exists: false as const };
+    return { exists: true as const, entries: data.entries };
+  }),
+
+  /**
+   * Merged event stream: fires whenever write_plan, write_tasks, update_task_status,
+   * write_review, or notify_files_changed MCP tools write an artifact for this sub-chat.
+   * Use this in the sidebar to invalidate all widgets in one place rather than
+   * subscribing to each artifact type separately.
+   */
+  artifactWritten: publicProcedure.input(z.string().min(1)).subscription(({ input: subChatId }) => {
+    return observable<{ subChatId: string; kind: 'plan' | 'tasks' | 'review' | 'files-changed'; filePath?: string }>(
+      (emit) => {
+        const unsubPlan = onPlanWritten((event) => {
+          if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'plan', filePath: event.filePath });
+        });
+        const unsubTasks = onTasksWritten((event) => {
+          if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'tasks', filePath: event.filePath });
+        });
+        const unsubReview = onReviewWritten((event) => {
+          if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'review' });
+        });
+        const unsubFiles = onFileChangesNotified((event) => {
+          if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'files-changed' });
+        });
+        return () => {
+          unsubPlan();
+          unsubTasks();
+          unsubReview();
+          unsubFiles();
+        };
+      }
+    );
+  }),
+
+  /**
+   * Subscription: fires when an MCP request_user_input tool call arrives for this sub-chat.
+   * The renderer subscribes, inserts into pendingUserQuestionsAtom, and renders AgentUserQuestion.
+   */
+  cliUserQuestion: publicProcedure.input(z.string().min(1)).subscription(({ input: subChatId }) => {
+    return observable<{ requestId: string; subChatId: string; questions: CliUserQuestionEntry[] }>((emit) => {
+      const unsub = onCliUserQuestion((event) => {
+        if (event.subChatId === subChatId) {
+          emit.next(event);
+        }
+      });
+      return unsub;
+    });
+  }),
+
+  /**
+   * Mutation: called by the renderer when the user answers or skips a CLI user-input request.
+   * Resolves the awaiting MCP tool call so the CLI process unblocks.
+   */
+  resolveCliUserQuestion: publicProcedure
+    .input(
+      z.object({
+        requestId: z.string().min(1),
+        answers: z.record(z.string()).optional(),
+        skip: z.boolean().optional()
+      })
+    )
+    .mutation(({ input }) => {
+      const entry = pendingCliQuestions.get(input.requestId);
+      if (!entry) {
+        console.log(`[chats.resolveCliUserQuestion] already-resolved requestId=${input.requestId}`);
+        return { ok: false as const, reason: 'already-resolved' as const };
+      }
+      entry.resolve(input.skip ? null : (input.answers ?? null));
+      console.log(`[chats.resolveCliUserQuestion] resolved requestId=${input.requestId} skip=${Boolean(input.skip)}`);
+      return { ok: true as const };
+    })
 });

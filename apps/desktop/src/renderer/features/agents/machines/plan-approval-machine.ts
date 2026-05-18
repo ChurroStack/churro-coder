@@ -196,7 +196,7 @@ export function runPlanApproval(
 /**
  * Single-flight check used by callers to decide whether to drop a duplicate
  * `APPROVE_REQUESTED` event (e.g., two ChatViewInner mounts firing the same
- * pendingBuildPlanSubChatIdAtom write at once — the bug fixed by PR #51's
+ * pendingBuildPlanAtomFamily(subChatId) write at once — the bug fixed by PR #51's
  * isActive guard).
  */
 export function isInFlight(state: PlanApprovalState): boolean {

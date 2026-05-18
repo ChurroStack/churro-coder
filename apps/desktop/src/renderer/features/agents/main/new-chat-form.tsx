@@ -116,6 +116,7 @@ import { PromptInput, PromptInputActions, PromptInputContextItems } from '../../
 import { agentsSidebarOpenAtom, agentsUnseenChangesAtom, newWorkspaceViewerFileAtom } from '../atoms';
 import { AgentModeSelector } from '../components/agent-mode-selector';
 import { AgentModelSelector } from '../components/agent-model-selector';
+import { HarnessIcon, HARNESS_LABELS, type Harness as CliHarness } from '../lib/harness-icons';
 import { ContinueFromSpecStrip } from '../components/continue-from-spec-strip';
 import { CreateBranchDialog } from '../components/create-branch-dialog';
 import { RadioCardGroup, type RadioCardOption } from '../components/radio-card-group';
@@ -123,6 +124,7 @@ import { SpecPickerDialog } from '../components/spec-picker-dialog';
 import { WizardSection } from '../components/wizard-section';
 import { appStore } from '../../../lib/jotai-store';
 import { pendingOpenSpecMessageAtom, pendingOpenSpecPanelAtom } from '../../openspec/atoms';
+import { openSpecCommandPrefix } from '../../openspec/command-prefix';
 import { pendingNewWorkspacePromptAtom } from '../../new-project/pending-prompt-atoms';
 import { AgentSendButton } from '../components/agent-send-button';
 import { formatTimeAgo } from '../utils/format-time-ago';
@@ -310,44 +312,48 @@ function toOpenSpecChangeId(input: string, workType: WorkType, existingIds: Iter
   return `${base}-${Date.now().toString(36)}`;
 }
 
-function buildOpenSpecProposeMessage(changeId: string, userRequest: string): string {
-  const parts = [`/opsx:propose ${changeId}`];
+function buildOpenSpecProposeMessage(changeId: string, userRequest: string, harness: CliHarness): string {
+  const parts = [`${openSpecCommandPrefix('propose', harness)} ${changeId}`];
   const request = userRequest.trim();
   if (request) parts.push(request);
   return parts.join('\n\n');
 }
 
-const AGENT_HARNESS_OPTIONS = [
-  { value: 'builtin' as const, label: 'Built-in' },
-  { value: 'claude-cli' as const, label: 'Claude Code (CLI)' },
-  { value: 'codex-cli' as const, label: 'Codex (CLI)' }
-] as const;
+const AGENT_HARNESS_OPTIONS: { value: CliHarness; label: string }[] = [
+  { value: 'builtin', label: HARNESS_LABELS['builtin'] },
+  { value: 'claude-cli', label: HARNESS_LABELS['claude-cli'] },
+  { value: 'codex-cli', label: HARNESS_LABELS['codex-cli'] }
+];
 
-function AgentHarnessDropdown({
-  value,
-  onChange
-}: {
-  value: 'builtin' | 'claude-cli' | 'codex-cli';
-  onChange: (v: 'builtin' | 'claude-cli' | 'codex-cli') => void;
-}) {
-  const selected = AGENT_HARNESS_OPTIONS.find((o) => o.value === value) ?? AGENT_HARNESS_OPTIONS[0];
+function AgentHarnessDropdown({ value, onChange }: { value: CliHarness; onChange: (v: CliHarness) => void }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="relative inline-flex items-center">
-      <select
-        data-testid="agent-harness-dropdown"
-        value={value}
-        onChange={(e) => onChange(e.target.value as 'builtin' | 'claude-cli' | 'codex-cli')}
-        className="appearance-none flex items-center gap-1.5 px-2 py-1 pr-6 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 cursor-pointer bg-transparent border-0 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          data-testid="agent-harness-dropdown"
+          className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 cursor-pointer">
+          <HarnessIcon harness={value} size={12} />
+          <span>{HARNESS_LABELS[value]}</span>
+          <IconChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[180px] p-1" align="start">
         {AGENT_HARNESS_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
+          <button
+            key={opt.value}
+            onClick={() => {
+              onChange(opt.value);
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted transition-colors">
+            <HarnessIcon harness={opt.value} size={12} />
+            <span className="flex-1 text-left">{opt.label}</span>
+            {opt.value === value && <CheckIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />}
+          </button>
         ))}
-      </select>
-      <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground opacity-50">
-        ▾
-      </span>
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1578,7 +1584,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         });
         appStore.set(pendingOpenSpecMessageAtom, {
           subChatId: subChat.id,
-          message: buildOpenSpecProposeMessage(changeId, message)
+          message: buildOpenSpecProposeMessage(changeId, message, selectedAgentHarness)
         });
         console.log(
           `[openspec/new-workspace] initialized target=${targetRoot} changeId=${changeId} subChatId=${subChat.id}`

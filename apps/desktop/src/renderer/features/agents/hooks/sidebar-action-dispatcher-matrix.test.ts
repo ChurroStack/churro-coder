@@ -14,9 +14,9 @@ import { renderHook, act } from '@testing-library/react';
 import { createStore } from 'jotai';
 import { Provider as JotaiProvider } from 'jotai';
 import React from 'react';
-import { useHarnessSendDispatcher } from './use-harness-send-dispatcher';
+import { useHarnessSendDispatcher, _resetMcpInjectedSessions } from './use-harness-send-dispatcher';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
-import { pendingBuildPlanSubChatIdAtom, pendingFixReviewIssuesAtom } from '../atoms';
+import { pendingBuildPlanAtomFamily, pendingFixReviewIssuesAtomFamily } from '../atoms';
 
 // ── tRPC mock ─────────────────────────────────────────────────────────────────
 
@@ -54,6 +54,7 @@ function renderDispatcher() {
 
 beforeEach(() => {
   mockWriteMutate.mockClear();
+  _resetMcpInjectedSessions();
   useAgentSubChatStore.setState({
     chatId: null,
     activeSubChatId: null,
@@ -89,35 +90,45 @@ describe('Sidebar action dispatcher matrix (9 cells)', () => {
     if (action === 'buildPlan') {
       act(() => result.current.dispatchBuildPlan());
       if (isCli) {
-        expect(mockWriteMutate).toHaveBeenCalledOnce();
-        const call = mockWriteMutate.mock.calls[0][0] as { paneId: string; data: string };
-        expect(call.paneId).toBe(`cli:${SC}`);
-        expect(call.data).toContain('approved');
-        expect(store.get(pendingBuildPlanSubChatIdAtom)).toBeNull();
+        expect(mockWriteMutate).toHaveBeenCalled();
+        const allData = (mockWriteMutate.mock.calls as Array<[{ paneId: string; data: string }]>)
+          .map((c) => c[0].data)
+          .join('');
+        expect((mockWriteMutate.mock.calls[0] as [{ paneId: string; data: string }])[0].paneId).toBe(`cli:${SC}`);
+        expect(allData).toContain('approved');
+        expect(store.get(pendingBuildPlanAtomFamily(SC))).toBe(false);
       } else {
         expect(mockWriteMutate).not.toHaveBeenCalled();
-        expect(store.get(pendingBuildPlanSubChatIdAtom)).toBe(SC);
+        expect(store.get(pendingBuildPlanAtomFamily(SC))).toBe(true);
       }
     } else if (action === 'fixReview') {
       act(() => result.current.dispatchFixReviewIssues('fix these now'));
       if (isCli) {
-        expect(mockWriteMutate).toHaveBeenCalledOnce();
-        const call = mockWriteMutate.mock.calls[0][0] as { paneId: string; data: string };
-        expect(call.paneId).toBe(`cli:${SC}`);
-        expect(call.data).toBe('fix these now\r');
-        expect(store.get(pendingFixReviewIssuesAtom)).toBeNull();
+        expect(mockWriteMutate).toHaveBeenCalledTimes(2);
+        const firstCall = mockWriteMutate.mock.calls[0][0] as { paneId: string; data: string };
+        const secondCall = mockWriteMutate.mock.calls[1][0] as { paneId: string; data: string };
+        expect(firstCall.paneId).toBe(`cli:${SC}`);
+        expect(firstCall.data).toBe('fix these now');
+        expect(secondCall.data).toBe('\r');
+        expect(store.get(pendingFixReviewIssuesAtomFamily(SC))).toBeNull();
       } else {
         expect(mockWriteMutate).not.toHaveBeenCalled();
-        expect(store.get(pendingFixReviewIssuesAtom)).toEqual({ subChatId: SC, message: 'fix these now' });
+        expect(store.get(pendingFixReviewIssuesAtomFamily(SC))).toBe('fix these now');
       }
     } else {
-      // arbitrary dispatch
+      // arbitrary dispatch — prime MCP injection first so the assertion call is single-line
+      if (isCli) {
+        act(() => result.current.dispatch('prime'));
+        mockWriteMutate.mockClear();
+      }
       act(() => result.current.dispatch('arbitrary text'));
       if (isCli) {
-        expect(mockWriteMutate).toHaveBeenCalledOnce();
-        const call = mockWriteMutate.mock.calls[0][0] as { paneId: string; data: string };
-        expect(call.paneId).toBe(`cli:${SC}`);
-        expect(call.data).toBe('arbitrary text\r');
+        expect(mockWriteMutate).toHaveBeenCalledTimes(2);
+        const firstCall = mockWriteMutate.mock.calls[0][0] as { paneId: string; data: string };
+        const secondCall = mockWriteMutate.mock.calls[1][0] as { paneId: string; data: string };
+        expect(firstCall.paneId).toBe(`cli:${SC}`);
+        expect(firstCall.data).toBe('arbitrary text');
+        expect(secondCall.data).toBe('\r');
       } else {
         expect(mockWriteMutate).not.toHaveBeenCalled();
       }

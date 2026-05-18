@@ -9,6 +9,7 @@ import { DockHeaderLeftActions } from './dock-header-left-actions';
 import { RenamableTab } from './renamable-tab';
 import { terminalsAtom, activeTerminalIdAtom } from '../terminal/atoms';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
+import { forgetMcpInjected } from '../agents/hooks/use-harness-send-dispatcher';
 import { trpc } from '../../lib/trpc';
 
 export interface DockShellProps {
@@ -136,6 +137,23 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
             queueMicrotask(() => {
               if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
               useAgentSubChatStore.getState().removeFromOpenSubChats(scId);
+            });
+          }
+        }
+
+        // CLI harness cleanup — when a `cli:` panel is closed, kill the PTY.
+        // The churro-coder MCP entry in ~/.claude.json is shared across all
+        // CLI subchats (single registration), so we don't touch it here —
+        // the next launch will rewrite it with the current url+bearer.
+        if (removedPanelId.startsWith('cli:')) {
+          const subChatId = removedPanelId.slice('cli:'.length);
+          if (subChatId) {
+            const capturedKillTerminal = killTerminal;
+            queueMicrotask(() => {
+              if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
+              capturedKillTerminal.mutate({ paneId: removedPanelId });
+              forgetMcpInjected(subChatId);
+              useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId);
             });
           }
         }

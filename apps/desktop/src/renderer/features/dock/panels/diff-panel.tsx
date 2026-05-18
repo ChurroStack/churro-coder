@@ -12,15 +12,17 @@ import {
   diffActiveTabAtom,
   selectedCommitAtom,
   isCreatingPrAtom,
-  pendingPrMessageAtom,
-  pendingConflictResolutionMessageAtom,
+  pendingPrMessageAtomFamily,
+  pendingConflictResolutionMessageAtomFamily,
   subChatFilesAtom,
   selectedDiffFilePathAtom,
   type SelectedCommit
 } from '../../agents/atoms';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
 import { generatePrMessage } from '../../agents/utils/pr-message';
+import { appStore } from '../../../lib/jotai-store';
 import { useReviewAction } from '../../agents/hooks/use-review-action';
+import { useHarnessSendDispatcher } from '../../agents/hooks/use-harness-send-dispatcher';
 import { usePRStatus } from '../../../hooks/usePRStatus';
 import { trpc, trpcClient } from '../../../lib/trpc';
 import { computeSubChatFiles } from '../../agents/hooks/use-changed-files-tracking';
@@ -230,8 +232,6 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   const [viewedCount, setViewedCount] = useState(0);
   const [isFixingConflicts, setIsFixingConflicts] = useState(false);
   const [isCreatingPr, setIsCreatingPr] = useAtom(isCreatingPrAtom);
-  const setPendingPrMessage = useSetAtom(pendingPrMessageAtom);
-  const setPendingConflictResolutionMessage = useSetAtom(pendingConflictResolutionMessageAtom);
 
   // PR status drives the Publish / Merge / Fix-conflicts buttons.
   const { pr } = usePRStatus({
@@ -284,15 +284,17 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
     bumpDiffRefreshTick((n) => n + 1);
   }, [chatId, trpcUtils, worktreePath, bumpDiffRefreshTick]);
 
-  // Review — single canonical implementation lives in `useReviewAction`.
-  // The diff panel adds its own pre/post navigation: open the chat tab
-  // optimistically, then activate it after the prompt is queued so the
-  // user sees the AI start working.
+  // Review — routes to the correct implementation based on harness.
+  // CLI harnesses dispatch a review message to the PTY via the harness
+  // dispatcher. Builtin uses useReviewAction (model-switch + pending atom).
   const activeSubChatIdForReview = useAgentSubChatStore((s) => s.activeSubChatId);
   const { runReview, isReviewing: isReviewActionRunning } = useReviewAction({
     activeSubChatId: activeSubChatIdForReview,
     chatId
   });
+  const { isCliHarness: isCliHarnessForReview, dispatchReview } = useHarnessSendDispatcher(
+    activeSubChatIdForReview ?? ''
+  );
   const handleReview = useCallback(async () => {
     const id = useAgentSubChatStore.getState().activeSubChatId;
     if (!id) {
@@ -300,11 +302,16 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
       return;
     }
     useAgentSubChatStore.getState().addToOpenSubChats(id);
-    const result = await runReview();
-    if (result.ok) {
+    if (isCliHarnessForReview) {
+      dispatchReview();
       await activateChatPanelWhenReady(dockApi, id);
+    } else {
+      const result = await runReview();
+      if (result.ok) {
+        await activateChatPanelWhenReady(dockApi, id);
+      }
     }
-  }, [runReview, dockApi]);
+  }, [runReview, dispatchReview, isCliHarnessForReview, dockApi]);
 
   // Create PR — direct mutation (opens GitHub's PR-create page).
   const handleCreatePrDirect = useCallback(async () => {
@@ -342,14 +349,14 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
         return;
       }
       const message = generatePrMessage(context);
-      setPendingPrMessage({ message, subChatId: activeSubChatId });
+      appStore.set(pendingPrMessageAtomFamily(activeSubChatId), message);
       await activateChatPanelWhenReady(dockApi, activeSubChatId);
       // isCreatingPr is reset by ChatViewInner once the message is sent.
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to prepare PR request', { position: 'top-center' });
       setIsCreatingPr(false);
     }
-  }, [chatId, dockApi, setPendingPrMessage, setIsCreatingPr]);
+  }, [chatId, dockApi, setIsCreatingPr]);
 
   const handleMergePr = useCallback(() => {
     mergePrMutation.mutate({ chatId, method: 'squash' });
@@ -370,12 +377,12 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
 4. Push the changes to update the PR
 
 Make sure to preserve all functionality from both branches when resolving conflicts.`;
-      setPendingConflictResolutionMessage({ message, subChatId: activeSubChatId });
+      appStore.set(pendingConflictResolutionMessageAtomFamily(activeSubChatId), message);
       await activateChatPanelWhenReady(dockApi, activeSubChatId);
     } finally {
       setIsFixingConflicts(false);
     }
-  }, [dockApi, setPendingConflictResolutionMessage]);
+  }, [dockApi]);
 
   const handleExpandAll = useCallback(() => {
     diffViewRef.current?.expandAll();

@@ -4,30 +4,57 @@
 
 const mockBuildCliBootstrap = vi.hoisted(() => vi.fn(async () => ({ command: 'claude', args: [] })));
 
-vi.mock('../../../lib/trpc', () => ({
-  trpc: {
-    chats: {
-      buildCliBootstrap: {
-        useMutation: vi.fn(() => ({
-          mutate: mockBuildCliBootstrap,
-          mutateAsync: mockBuildCliBootstrap,
-          isPending: false
-        }))
-      }
-    },
-    terminal: {
-      kill: {
-        useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }))
+vi.mock('../../../lib/trpc', () => {
+  const emptyQuery = () => ({ data: undefined, isLoading: false });
+  const emptyMutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
+  const emptyInvalidate = { invalidate: vi.fn() };
+  return {
+    trpc: {
+      useUtils: vi.fn(() => ({
+        chats: {
+          getPrStatus: emptyInvalidate,
+          getCurrentPlan: emptyInvalidate,
+          getCurrentReview: emptyInvalidate,
+          getReviewContent: emptyInvalidate,
+          getCurrentTasks: emptyInvalidate,
+          get: emptyInvalidate
+        },
+        changes: { getStatus: emptyInvalidate, getBranches: emptyInvalidate }
+      })),
+      chats: {
+        buildCliBootstrap: {
+          useMutation: vi.fn(() => ({
+            mutate: mockBuildCliBootstrap,
+            mutateAsync: mockBuildCliBootstrap,
+            isPending: false
+          }))
+        },
+        cliUserQuestion: { useSubscription: vi.fn() },
+        resolveCliUserQuestion: { useMutation: vi.fn(emptyMutation) },
+        getMcpFileChanges: { useQuery: vi.fn(emptyQuery) },
+        // Workflow notch chain — useWorkflowState / useWorkflowSnapshot:
+        get: { useQuery: vi.fn(emptyQuery) },
+        getSubChat: { useQuery: vi.fn(emptyQuery) },
+        updateSubChatMode: { useMutation: vi.fn(emptyMutation) },
+        getCurrentPlan: { useQuery: vi.fn(emptyQuery) },
+        getCurrentReview: { useQuery: vi.fn(emptyQuery) },
+        getCurrentTasks: { useQuery: vi.fn(emptyQuery) },
+        getPrStatus: { useQuery: vi.fn(emptyQuery) }
       },
-      clearScrollback: {
-        useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }))
+      changes: {
+        getStatus: { useQuery: vi.fn(emptyQuery) },
+        push: { useMutation: vi.fn(emptyMutation) },
+        pull: { useMutation: vi.fn(emptyMutation) }
       },
-      stream: {
-        useSubscription: vi.fn()
+      terminal: {
+        write: { useMutation: vi.fn(emptyMutation) },
+        kill: { useMutation: vi.fn(emptyMutation) },
+        clearScrollback: { useMutation: vi.fn(emptyMutation) },
+        stream: { useSubscription: vi.fn() }
       }
     }
-  }
-}));
+  };
+});
 
 vi.mock('../hooks/use-stuck-detection', () => ({
   useStuckDetection: vi.fn()

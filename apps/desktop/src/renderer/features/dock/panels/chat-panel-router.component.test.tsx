@@ -50,6 +50,10 @@ vi.mock('../../agents/hooks/use-stuck-detection', () => ({
   useStuckDetection: vi.fn()
 }));
 
+vi.mock('../../agents/hooks/use-cli-busy-tracker', () => ({
+  useCliBusyTracker: vi.fn()
+}));
+
 vi.mock('../../agents/ui/stall-banner', () => ({
   StallIcon: () => null,
   StallBanner: () => null
@@ -61,8 +65,25 @@ vi.mock('../../agents/ui/cli-prompt-bar', () => ({
 
 vi.mock('../../../lib/trpc', () => ({
   trpc: {
+    useUtils: () => ({
+      chats: {
+        get: { invalidate: vi.fn() },
+        getPrStatus: { invalidate: vi.fn() },
+        getCurrentPlan: { invalidate: vi.fn() },
+        getCurrentReview: { invalidate: vi.fn() },
+        getReviewContent: { invalidate: vi.fn() }
+      },
+      changes: { getStatus: { invalidate: vi.fn() } }
+    }),
     chats: {
-      get: { useQuery: () => ({ data: undefined }) }
+      get: { useQuery: () => ({ data: undefined }) },
+      getSubChatBootstrapState: { useQuery: () => ({ data: { bootstrappedAt: null }, isLoading: false }) },
+      refreshWorkflowCaches: {
+        useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue(undefined) })
+      }
+    },
+    terminal: {
+      getSession: { useQuery: () => ({ data: null, isLoading: false }) }
     }
   }
 }));

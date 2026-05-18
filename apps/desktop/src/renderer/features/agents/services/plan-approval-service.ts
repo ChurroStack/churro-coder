@@ -2,7 +2,7 @@
  * Plan-approval orchestrator service.
  *
  * Wraps `handleApprovePlan` from `active-chat.tsx` (the body of the
- * `useEffect` consuming `pendingBuildPlanSubChatIdAtom` calls into here).
+ * `useEffect` consuming `pendingBuildPlanAtomFamily(subChatId)` calls into here).
  * The service composes the pure FSM in `machines/plan-approval-machine.ts`
  * with injected side-effect deps so the orchestration is testable end-to-end
  * without touching React, Jotai, or tRPC.
@@ -36,8 +36,9 @@
  *      deferred send so a stale session can't be resumed.
  *
  *   6. **PR #51** — single-flight per subChatId. Two ChatViewInner mounts
- *      (legacy layout + dock panel) racing on the same `pendingBuildPlanSubChatIdAtom`
- *      write would crash the renderer. The service consults `isInFlight`
+ *      (legacy layout + dock panel) racing on the same
+ *      `pendingBuildPlanAtomFamily(subChatId)` write would crash the renderer.
+ *      The service consults `isInFlight`
  *      synchronously at entry and returns `{ ok: false, reason: "in-flight" }`
  *      on re-entry without performing any writes.
  *

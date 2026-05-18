@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Terminal } from '@/features/terminal/terminal';
 import { trpc } from '@/lib/trpc';
-import { HarnessIcon, HARNESS_LABELS, type Harness } from '../lib/harness-icons';
+import { HARNESS_LABELS, type Harness } from '../lib/harness-icons';
 import type { TerminalBootstrapConfig } from '@/features/terminal/types';
 import {
   AlertDialog,
@@ -16,7 +16,20 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useStuckDetection } from '../hooks/use-stuck-detection';
-import { StallIcon, StallBanner } from './stall-banner';
+import { markMcpInjected, forgetMcpInjected } from '../hooks/use-harness-send-dispatcher';
+import { useMcpFileChangesTracking } from '../hooks/use-mcp-file-changes-tracking';
+import {
+  subChatHardResetDialogOpenAtomFamily,
+  subChatCliRestartHandlerAtomFamily,
+  pendingUserQuestionsAtom,
+  subChatFilesAtom,
+  cliBusyAtomFamily
+} from '../atoms';
+import type { PendingUserQuestion } from '../atoms';
+import { AgentUserQuestion } from './agent-user-question';
+import { SubChatStatusCard } from './sub-chat-status-card';
+import { useWorkflowState, useWorkflowActions } from '../hooks/use-workflow-state';
+import type { WorkflowActionKind } from '../utils/workflow-state';
 
 interface ChatCliSurfaceProps {
   subChatId: string;
@@ -88,11 +101,59 @@ export function ChatCliSurface({
   const [bootstrapState, setBootstrapState] = useState<BootstrapState>(
     startDisconnected ? { status: 'disconnected' } : { status: 'idle' }
   );
-  const [showHardResetDialog, setShowHardResetDialog] = useState(false);
+  const [showHardResetDialog, setShowHardResetDialog] = useAtom(subChatHardResetDialogOpenAtomFamily(subChatId));
   const [hardResetClearScrollback, setHardResetClearScrollback] = useState(false);
+  const [pendingQuestions, setPendingQuestions] = useAtom(pendingUserQuestionsAtom);
+  const pendingQuestion = pendingQuestions.get(subChatId);
+
+  const resolveCliUserQuestion = trpc.chats.resolveCliUserQuestion.useMutation();
+
+  trpc.chats.cliUserQuestion.useSubscription(subChatId, {
+    onData: (event) => {
+      const entry = event as { requestId: string; subChatId: string; questions: PendingUserQuestion['questions'] };
+      console.log(`[chat-cli-surface] cliUserQuestion sub=${subChatId} requestId=${entry.requestId}`);
+      setPendingQuestions((prev) => {
+        const next = new Map(prev);
+        next.set(subChatId, {
+          subChatId,
+          parentChatId: chatId ?? '',
+          toolUseId: entry.requestId,
+          questions: entry.questions,
+          source: 'cli',
+          requestId: entry.requestId
+        });
+        return next;
+      });
+    }
+  });
+
+  const handleCliAnswer = useCallback(
+    (answers: Record<string, string>) => {
+      if (!pendingQuestion?.requestId) return;
+      resolveCliUserQuestion.mutate({ requestId: pendingQuestion.requestId, answers });
+      setPendingQuestions((prev) => {
+        const next = new Map(prev);
+        next.delete(subChatId);
+        return next;
+      });
+    },
+    [pendingQuestion, resolveCliUserQuestion, setPendingQuestions, subChatId]
+  );
+
+  const handleCliSkip = useCallback(() => {
+    if (!pendingQuestion?.requestId) return;
+    resolveCliUserQuestion.mutate({ requestId: pendingQuestion.requestId, skip: true });
+    setPendingQuestions((prev) => {
+      const next = new Map(prev);
+      next.delete(subChatId);
+      return next;
+    });
+  }, [pendingQuestion, resolveCliUserQuestion, setPendingQuestions, subChatId]);
 
   const killMutation = trpc.terminal.kill.useMutation();
   const clearScrollbackMutation = trpc.terminal.clearScrollback.useMutation();
+
+  useMcpFileChangesTracking(subChatId, cwd !== '~' ? cwd : undefined);
 
   const buildBootstrapMutation = trpc.chats.buildCliBootstrap.useMutation({
     onSuccess: (result: unknown) => {
@@ -100,7 +161,14 @@ export function ChatCliSurface({
         const err = result as { kind: string; message: string; hint?: string };
         setBootstrapState({ status: 'error', kind: err.kind, message: err.message, hint: err.hint });
       } else {
-        setBootstrapState({ status: 'ready', bootstrap: result as TerminalBootstrapConfig });
+        const bootstrap = result as TerminalBootstrapConfig;
+        // If buildBootstrap already prepended the MCP reminder to the first PTY
+        // chunk (plan mode w/ an initial user message), seed the dispatcher's
+        // "already injected" set so dispatch() doesn't re-inject on message #2.
+        if (bootstrap?.mcpReminderInjected) {
+          markMcpInjected(subChatId);
+        }
+        setBootstrapState({ status: 'ready', bootstrap });
       }
     },
     onError: (err: { message: string }) => {
@@ -109,7 +177,7 @@ export function ChatCliSurface({
   });
 
   const doBootstrap = useCallback(
-    (trigger: 'initial' | 'reattach' = 'initial') => {
+    (trigger: 'initial' | 'reattach' | 'hard-reset' | 'restart' = 'initial') => {
       setBootstrapState({ status: 'loading' });
       const cwdArg = cwd !== '~' ? cwd : undefined;
       console.log(
@@ -122,7 +190,8 @@ export function ChatCliSurface({
         subChatId,
         harness: harness as 'claude-cli' | 'codex-cli',
         cwd: cwdArg,
-        chatId
+        chatId,
+        trigger
       });
     },
     [subChatId, harness, cwd, buildBootstrapMutation]
@@ -143,16 +212,86 @@ export function ChatCliSurface({
         // Non-fatal
       }
     }
+    // Clear the "MCP reminder already injected" tracker so the next bootstrap
+    // re-seeds it correctly (or the dispatcher re-injects if no initial msg).
+    forgetMcpInjected(subChatId);
     setHardResetClearScrollback(false);
-    setBootstrapState({ status: 'idle' });
+    // Call directly with 'hard-reset' trigger so the server skips prompt re-injection.
+    // Bypassing the 'idle' state avoids the useEffect firing with trigger='initial'.
+    doBootstrap('hard-reset');
   };
 
   const paneId = `cli:${subChatId}`;
   const label = HARNESS_LABELS[harness];
   const ptyActive = bootstrapState.status === 'ready';
-  const [showStallBanner, setShowStallBanner] = useState(false);
+
+  const setCliRestartHandler = useSetAtom(useMemo(() => subChatCliRestartHandlerAtomFamily(subChatId), [subChatId]));
+
+  // Register a restart handler so CliPromptBar can trigger kill + re-inject.
+  useEffect(() => {
+    const handler = async () => {
+      console.log(`[resilience] subChat=${subChatId} event=cli-restart`);
+      try {
+        await killMutation.mutateAsync({ paneId });
+      } catch {
+        // PTY may already be dead; proceed with respawn regardless
+      }
+      forgetMcpInjected(subChatId);
+      doBootstrap('restart');
+    };
+    setCliRestartHandler(() => handler);
+    return () => setCliRestartHandler(null);
+  }, [subChatId, paneId, killMutation, doBootstrap, setCliRestartHandler]);
 
   useStuckDetection({ subChatId, harness, paneId, ptyActive });
+
+  // On panel unmount (subChat closed, dock removed the panel, app quit),
+  // drop the MCP-injection tracking for this subChat so a future panel mount
+  // re-injects the reminder on its first message. Matches the lifecycle of
+  // the cli:<subChatId> PTY — both die when the panel goes away.
+  useEffect(() => {
+    return () => {
+      forgetMcpInjected(subChatId);
+    };
+  }, [subChatId]);
+
+  // When the PTY exits (process crashed, user ran /exit, etc.) the next user
+  // keystroke triggers a renderer-side restartTerminal() that spawns a fresh
+  // PTY without re-running buildBootstrap. That fresh session is a new
+  // conversation and the MCP reminder needs to be re-injected on its first
+  // message — but the module-level mcpInjectedSessions Set still says "done".
+  // Clear it here so submitToCli re-injects on the next user message.
+  trpc.terminal.stream.useSubscription(paneId, {
+    onData: (event) => {
+      if (event.type === 'exit') {
+        forgetMcpInjected(subChatId);
+      }
+    },
+    enabled: !!subChatId
+  });
+
+  // Workflow notch — same atoms/dispatcher the builtin status card uses.
+  // Mounted between the terminal body and the pending-question slot so it
+  // sits just above the CLI prompt input (also covers the OpenSpec sidebar
+  // mount automatically since this surface is the sidebar's CLI host).
+  const workflow = useWorkflowState(chatId ?? null, subChatId);
+  const {
+    dispatch: dispatchWorkflowAction,
+    pushDialog: workflowPushDialog,
+    isActionPending
+  } = useWorkflowActions(chatId ?? null, subChatId);
+  const isNextActionPending = workflow?.next ? !!isActionPending[workflow.next.actionKind] : false;
+  const cliBusy = useAtomValue(useMemo(() => cliBusyAtomFamily(subChatId), [subChatId]));
+  const subChatFiles = useAtomValue(subChatFilesAtom);
+  const changedFiles = useMemo(() => subChatFiles.get(subChatId) ?? [], [subChatFiles, subChatId]);
+  const handleNotchAction = useCallback(
+    (kind: WorkflowActionKind) => {
+      console.log(`[cli-notch] subChat=${subChatId} harness=${harness} action=${kind} outcome=invoked`);
+      void dispatchWorkflowAction(kind);
+    },
+    [dispatchWorkflowAction, subChatId, harness]
+  );
+  const worktreePath = cwd !== '~' ? cwd : undefined;
 
   // Trigger bootstrap when entering idle state with owner + resolved cwd. Kept in
   // an effect so a StrictMode double-render doesn't fire the mutation twice (which
@@ -167,34 +306,6 @@ export function ChatCliSurface({
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden bg-background" data-testid="chat-cli-surface">
-      {/* Harness header badge */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border flex-shrink-0">
-        <HarnessIcon harness={harness} size={14} />
-        <span className="text-xs text-muted-foreground font-medium">{label}</span>
-        <div className="ml-auto flex items-center gap-1">
-          <StallIcon subChatId={subChatId} onExpand={() => setShowStallBanner(true)} />
-          <button
-            data-testid="hard-reset-button"
-            onClick={() => isOwner && setShowHardResetDialog(true)}
-            disabled={!isOwner}
-            title="Hard-reset session"
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            <RotateCcw size={12} />
-          </button>
-        </div>
-      </div>
-
-      {/* Stall advisory banner */}
-      {showStallBanner && (
-        <StallBanner
-          subChatId={subChatId}
-          onHardReset={() => {
-            setShowStallBanner(false);
-            void doHardReset();
-          }}
-        />
-      )}
-
       {/* Hard-reset confirm dialog */}
       <AlertDialog open={showHardResetDialog} onOpenChange={setShowHardResetDialog}>
         <AlertDialogContent className="w-[360px]">
@@ -256,6 +367,36 @@ export function ChatCliSurface({
           </div>
         )}
       </div>
+
+      {/* Workflow notch — same widget used above the builtin chat textarea.
+          The card hides itself when there's nothing actionable (no next step,
+          no changed files, not busy) so it doesn't add visual weight at rest. */}
+      {chatId && (
+        <div className="px-2 -mb-6 relative z-10">
+          <div className="w-full max-w-5xl mx-auto px-2">
+            <SubChatStatusCard
+              chatId={chatId}
+              subChatId={subChatId}
+              isStreaming={cliBusy}
+              changedFiles={changedFiles}
+              worktreePath={worktreePath}
+              workflow={workflow}
+              isNextActionPending={isNextActionPending}
+              onWorkflowAction={handleNotchAction}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Push dialog hosted by useWorkflowActions (mounts on REMOTE_AHEAD). */}
+      {workflowPushDialog}
+
+      {/* User question widget — appears above CliPromptBar when request_user_input is active */}
+      {pendingQuestion && pendingQuestion.source === 'cli' && (
+        <div className="px-4">
+          <AgentUserQuestion pendingQuestions={pendingQuestion} onAnswer={handleCliAnswer} onSkip={handleCliSkip} />
+        </div>
+      )}
     </div>
   );
 }

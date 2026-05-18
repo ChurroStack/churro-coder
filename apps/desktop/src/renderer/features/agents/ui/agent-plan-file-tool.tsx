@@ -9,7 +9,7 @@ import { Kbd } from '../../../components/ui/kbd';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { cn } from '../../../lib/utils';
-import { currentPlanPathAtomFamily, pendingBuildPlanSubChatIdAtom } from '../atoms';
+import { currentPlanPathAtomFamily, pendingBuildPlanAtomFamily } from '../atoms';
 import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { addOrFocus } from '../../dock/add-or-focus';
 import { useDockApi } from '../../dock/dock-context';
@@ -47,7 +47,7 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
   const { isPending } = getToolStatus(part, chatStatus);
   const isWrite = part.type === 'tool-Write';
   const { mode: subChatMode } = useSubChatMode(subChatId);
-  const setPendingBuildPlanSubChatId = useSetAtom(pendingBuildPlanSubChatIdAtom);
+  const setPendingBuildPlan = useSetAtom(useMemo(() => pendingBuildPlanAtomFamily(subChatId), [subChatId]));
 
   // Refs for scroll gradients (avoid re-renders)
   const contentRef = useRef<HTMLDivElement>(null);
@@ -133,10 +133,11 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
     });
   }, [filePath, dockApi, subChatId]);
 
-  // Handle build plan - triggers via atom, consumed by ChatViewInner
+  // Handle build plan — flips this subChat's pendingBuildPlan flag; the
+  // ChatViewInner mount for the same subChatId consumes it.
   const handleBuildPlan = useCallback(() => {
-    setPendingBuildPlanSubChatId(subChatId);
-  }, [setPendingBuildPlanSubChatId, subChatId]);
+    setPendingBuildPlan(true);
+  }, [setPendingBuildPlan]);
 
   // Handle copy plan
   const handleCopy = useCallback(() => {

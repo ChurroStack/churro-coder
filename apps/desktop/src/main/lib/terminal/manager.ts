@@ -3,8 +3,29 @@ import { FALLBACK_SHELL, SHELL_CRASH_THRESHOLD_MS } from './env';
 import { portManager } from './port-manager';
 import { getProcessTree } from './port-scanner';
 import { createSession, setupInitialCommands } from './session';
-import type { CreateSessionParams, SessionResult, TerminalSession } from './types';
-import { removeClaudeCliMcp } from '../cli-harness';
+import type { CreateSessionParams, SessionResult, TerminalOutputState, TerminalSession } from './types';
+
+/**
+ * Idle-detection tuning. Each session that opts in samples activity every
+ * windowMs. A window is "active" if it saw any cursor moves on the
+ * @xterm/headless mirror OR any raw PTY bytes. The dual signal matters:
+ * Claude/Codex sometimes emit bytes (hide cursor, write spinner glyph in
+ * place, restore) that don't move the cursor, AND sometimes go quiet for
+ * a second or two mid-thinking with no bytes at all. Combining both
+ * signals plus hysteresis below makes the running state stable.
+ *
+ * - windowMs: sampler tick interval.
+ * - runningWindowsRequired: consecutive active windows needed to flip
+ *   idle→running. 1 = flip on the first detected activity.
+ * - idleWindowsRequired: consecutive inactive windows needed to flip
+ *   running→idle. 16 × 250ms = 4s of true silence — covers thinking
+ *   pauses while still feeling responsive when the model actually stops.
+ */
+const IDLE_TUNING = {
+  windowMs: 250,
+  runningWindowsRequired: 1,
+  idleWindowsRequired: 16
+} as const;
 
 type KillSignal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP';
 
@@ -93,7 +114,22 @@ export class TerminalManager extends EventEmitter {
     // Create the session
     const session = await createSession(params, (id, data) => {
       this.emit(`data:${id}`, data);
-      this.resetIdleTimer(id);
+      const target = this.sessions.get(id);
+      if (!target?.idleDetection) return;
+      // Activity-meter signal #1: raw PTY byte volume. Counts even when the
+      // TUI rewrites in place without moving the cursor (claude's spinner
+      // does this — hide cursor, overwrite glyph at the same column, show).
+      target.pendingBytes = (target.pendingBytes ?? 0) + data.length;
+      // Activity-meter signal #2: cursor moves on the headless mirror — fed
+      // by writing the same chunk into the parser. onCursorMove counts how
+      // many positions the TUI actually re-positioned to.
+      if (target.headlessTerminal) {
+        try {
+          target.headlessTerminal.write(data);
+        } catch (err) {
+          console.warn(`[TerminalManager] headlessTerminal.write failed for ${id}:`, err);
+        }
+      }
     });
 
     // Set up initial commands (only for new sessions)
@@ -102,9 +138,9 @@ export class TerminalManager extends EventEmitter {
     // Set up exit handler with fallback logic
     this.setupExitHandler(session, params);
 
-    // Start idle detection if configured
+    // Wire activity tracking when the bootstrap opts in
     if (params.bootstrap?.idleDetection) {
-      this.startIdleTimer(paneId, session);
+      this.startActivityTracking(session);
     }
 
     this.sessions.set(paneId, session);
@@ -117,22 +153,92 @@ export class TerminalManager extends EventEmitter {
     };
   }
 
-  private startIdleTimer(paneId: string, session: TerminalSession): void {
-    const silenceMs = session.idleDetection?.silenceMs ?? 30_000;
-    if (session.idleTimer) clearTimeout(session.idleTimer);
-    session.idleTimer = setTimeout(() => {
-      if (session.isAlive) {
-        console.log(`[TerminalManager] idle paneId=${paneId} silenceMs=${silenceMs}`);
-        this.emit(`idle:${paneId}`);
-      }
-    }, silenceMs);
-    session.idleTimer.unref();
+  /**
+   * Only place that mutates session.outputState. Skips the emit when the
+   * incoming value matches the current one, so subscribers never see
+   * idle→idle or running→running events.
+   */
+  private transitionTo(session: TerminalSession, next: TerminalOutputState): void {
+    if (session.outputState === next) return;
+    session.outputState = next;
+    this.emit(`state:${session.paneId}`, next);
   }
 
-  private resetIdleTimer(paneId: string): void {
+  private startActivityTracking(session: TerminalSession): void {
+    session.outputState = 'idle';
+    session.pendingMoves = 0;
+    session.pendingBytes = 0;
+    session.recentMoves = [];
+
+    if (session.headlessTerminal) {
+      session.headlessTerminal.onCursorMove(() => {
+        session.pendingMoves = (session.pendingMoves ?? 0) + 1;
+      });
+    }
+
+    session.idleSamplerInterval = setInterval(() => this.evaluateWindow(session.paneId), IDLE_TUNING.windowMs);
+    session.idleSamplerInterval.unref();
+  }
+
+  private evaluateWindow(paneId: string): void {
     const session = this.sessions.get(paneId);
-    if (!session?.idleDetection) return;
-    this.startIdleTimer(paneId, session);
+    if (!session?.isAlive || !session.idleDetection) return;
+
+    const moves = session.pendingMoves ?? 0;
+    const bytes = session.pendingBytes ?? 0;
+    session.pendingMoves = 0;
+    session.pendingBytes = 0;
+
+    // Window is "active" if EITHER the headless parser saw a cursor move
+    // OR the PTY pushed any bytes through. Either signal alone is enough
+    // to keep the session in running.
+    const active = moves > 0 || bytes > 0 ? 1 : 0;
+
+    const ring = session.recentMoves ?? [];
+    const ringLimit = Math.max(IDLE_TUNING.runningWindowsRequired, IDLE_TUNING.idleWindowsRequired);
+    ring.push(active);
+    if (ring.length > ringLimit) ring.shift();
+    session.recentMoves = ring;
+
+    if (session.outputState === 'idle') {
+      // Need N consecutive active windows at the tail of the ring.
+      const need = IDLE_TUNING.runningWindowsRequired;
+      if (ring.length < need) return;
+      for (let i = ring.length - need; i < ring.length; i++) {
+        if (ring[i] !== 1) return;
+      }
+      this.transitionTo(session, 'running');
+    } else {
+      // Need N consecutive inactive windows at the tail of the ring.
+      const need = IDLE_TUNING.idleWindowsRequired;
+      if (ring.length < need) return;
+      for (let i = ring.length - need; i < ring.length; i++) {
+        if (ring[i] !== 0) return;
+      }
+      this.transitionTo(session, 'idle');
+    }
+  }
+
+  private teardownActivityTracking(session: TerminalSession): void {
+    if (session.idleSamplerInterval) {
+      clearInterval(session.idleSamplerInterval);
+      session.idleSamplerInterval = undefined;
+    }
+    if (session.headlessTerminal) {
+      try {
+        session.headlessTerminal.dispose();
+      } catch (err) {
+        console.warn(`[TerminalManager] headlessTerminal.dispose failed for ${session.paneId}:`, err);
+      }
+      session.headlessTerminal = undefined;
+    }
+  }
+
+  /** Snapshot of the current state for late subscribers (tRPC `state` sub). */
+  getOutputState(paneId: string): TerminalOutputState | null {
+    const session = this.sessions.get(paneId);
+    if (!session?.idleDetection) return null;
+    return session.outputState ?? 'idle';
   }
 
   private setupExitHandler(
@@ -143,6 +249,7 @@ export class TerminalManager extends EventEmitter {
 
     session.pty.onExit(async ({ exitCode, signal }) => {
       session.isAlive = false;
+      this.teardownActivityTracking(session);
 
       // Check if shell crashed quickly - try fallback. Skip when the user
       // asked us to kill this session: SIGKILL/SIGTERM look like a "crash"
@@ -172,14 +279,6 @@ export class TerminalManager extends EventEmitter {
 
       // Unregister from port manager (also removes detected ports)
       portManager.unregisterSession(paneId);
-
-      // Remove the churro-coder MCP entry from ~/.claude.json for CLI panes.
-      if (paneId.startsWith('cli:')) {
-        const subChatId = paneId.slice('cli:'.length);
-        removeClaudeCliMcp(subChatId).catch((err) =>
-          console.warn(`[TerminalManager] Failed to remove MCP entry for sub=${subChatId}:`, err)
-        );
-      }
 
       this.emit(`exit:${paneId}`, exitCode, signal);
 
@@ -229,6 +328,13 @@ export class TerminalManager extends EventEmitter {
       session.cols = cols;
       session.rows = rows;
       session.lastActive = Date.now();
+      if (session.headlessTerminal) {
+        try {
+          session.headlessTerminal.resize(cols, rows);
+        } catch (err) {
+          console.warn(`[TerminalManager] headlessTerminal.resize failed for ${paneId}:`, err);
+        }
+      }
     } catch (error) {
       console.error(`[TerminalManager] Failed to resize terminal ${paneId} (cols=${cols}, rows=${rows}):`, error);
     }
@@ -274,7 +380,7 @@ export class TerminalManager extends EventEmitter {
     // Mark dead and evict synchronously so a quick Run-again creates a fresh
     // session via createOrAttach instead of attaching to the still-dying one.
     session.isAlive = false;
-    if (session.idleTimer) clearTimeout(session.idleTimer);
+    this.teardownActivityTracking(session);
     if (this.sessions.get(paneId) === session) {
       this.sessions.delete(paneId);
     }
@@ -433,7 +539,7 @@ export class TerminalManager extends EventEmitter {
   detachAllListeners(): void {
     for (const event of this.eventNames()) {
       const name = String(event);
-      if (name.startsWith('data:') || name.startsWith('exit:')) {
+      if (name.startsWith('data:') || name.startsWith('exit:') || name.startsWith('state:')) {
         this.removeAllListeners(event);
       }
     }
@@ -465,6 +571,7 @@ export class TerminalManager extends EventEmitter {
         exitPromises.push(exitPromise);
         // Suppress fallback-shell recovery during shutdown.
         session.intentionalKill = true;
+        this.teardownActivityTracking(session);
         // Kill the whole tree; on app shutdown SIGKILL is the right hammer
         // because we can't afford to wait 2s per terminal for SIGTERM.
         void killProcessTree(session, 'SIGKILL');

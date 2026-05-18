@@ -8,8 +8,8 @@ import {
   filteredDiffFilesAtom,
   filteredSubChatIdAtom,
   loadingSubChatsAtom,
-  pendingMergeBaseMessageAtom,
-  pendingPrMessageAtom,
+  pendingMergeBaseMessageAtomFamily,
+  pendingPrMessageAtomFamily,
   currentPlanPathAtomFamily
 } from '@/features/agents/atoms';
 import { addOrFocus } from '@/features/dock/add-or-focus';
@@ -25,6 +25,7 @@ import {
   type WorkflowState
 } from '@/features/agents/utils/workflow-state';
 import { useWorkflowSnapshot } from './use-workflow-snapshot';
+import { useHarnessSendDispatcher } from './use-harness-send-dispatcher';
 
 const IDLE_WORKFLOW_STATE: WorkflowState = {
   plan: { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (execute mode)' },
@@ -159,8 +160,10 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
   const safeChatId = chatId ?? '';
   const safeSubChatId = subChatId ?? '';
 
-  const setPendingPrMessage = useSetAtom(pendingPrMessageAtom);
-  const setPendingMergeBaseMessage = useSetAtom(pendingMergeBaseMessageAtom);
+  const setPendingPrMessage = useSetAtom(useMemo(() => pendingPrMessageAtomFamily(safeSubChatId), [safeSubChatId]));
+  const setPendingMergeBaseMessage = useSetAtom(
+    useMemo(() => pendingMergeBaseMessageAtomFamily(safeSubChatId), [safeSubChatId])
+  );
   const setPrCreating = useSetAtom(prCreatingAtomFamily(safeSubChatId));
   const setFilteredDiffFiles = useSetAtom(filteredDiffFilesAtom);
   const setFilteredSubChatId = useSetAtom(filteredSubChatIdAtom);
@@ -176,7 +179,7 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
 
   const { data: gitStatus } = trpc.changes.getStatus.useQuery(
     { worktreePath: worktreePath ?? '' },
-    { enabled: !!worktreePath, staleTime: 30000 }
+    { enabled: !!worktreePath, staleTime: 30000, refetchOnMount: 'always' }
   );
   // Dedup'd against useWorkflowState's getPrStatus subscription — used purely
   // as a cold-load fallback for hasUpstream below.
@@ -189,6 +192,8 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
   // for a branch that already has tracking configured. Mirrors the same
   // asymmetric-fallback fix applied in use-workflow-snapshot.ts.
   const hasUpstream = gitStatus?.hasUpstream ?? (!!prStatusDataForUpstream?.pr || !!chat?.prNumber);
+
+  const { isCliHarness, dispatch: dispatchCliText, dispatchReview, harness } = useHarnessSendDispatcher(safeSubChatId);
 
   const {
     push: pushBranch,
@@ -221,18 +226,24 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
           }
           break;
 
-        case 'mergeBase':
-          appStore.set(openSpecSkipNextStepPrefixAtomFamily(subChatId), true);
-          forceFreshSubChatSessionIfOpenSpec(subChatId);
-          setPendingMergeBaseMessage({
-            message: renderBuiltinPrompt('workflow/merge-base', { baseBranch }),
-            subChatId
-          });
+        case 'mergeBase': {
+          const mergeMsg = renderBuiltinPrompt('workflow/merge-base', { baseBranch });
+          if (isCliHarness) {
+            dispatchCliText(mergeMsg);
+            console.log(
+              `[cli-notch] subChat=${subChatId} harness=${harness} action=mergeBase outcome=dispatched-to-pty`
+            );
+          } else {
+            appStore.set(openSpecSkipNextStepPrefixAtomFamily(subChatId), true);
+            forceFreshSubChatSessionIfOpenSpec(subChatId);
+            setPendingMergeBaseMessage(mergeMsg);
+          }
           trpcUtils.chats.getPrStatus.invalidate({ chatId });
           if (worktreePath) {
             trpcUtils.changes.getStatus.invalidate({ worktreePath });
           }
           break;
+        }
 
         case 'pushBranch':
           pushBranch();
@@ -247,17 +258,20 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
         case 'reviewLocal':
         case 'reviewPr': {
           // If a review artifact exists, open the review dock panel so the
-          // user can read it. Otherwise fall back to opening the changes
-          // view, where the canonical "Review" button lives.
+          // user can read it. For CLI without a review: dispatch a review
+          // message to the PTY. For builtin without a review: open the diff
+          // sidebar where the canonical AI-triggered Review button lives.
           let reviewExists = false;
           try {
             const review = await trpcUtils.chats.getCurrentReview.fetch({ subChatId });
             reviewExists = !!review?.exists;
           } catch {
-            // ignore — fall back to diff sidebar
+            // ignore — fall back below
           }
           if (reviewExists && dockApi) {
             addOrFocus(dockApi, { kind: 'review', data: { subChatId } });
+          } else if (isCliHarness) {
+            dispatchReview();
           } else {
             setFilteredSubChatId(subChatId);
             setFilteredDiffFiles(null);
@@ -270,10 +284,17 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
           setPrCreating(true);
           // Reuse `createPr` even when a PR already exists: the user intent is
           // still "get my latest work into the PR" and the prompt handles both paths.
-          appStore.set(openSpecSkipNextStepPrefixAtomFamily(subChatId), true);
-          forceFreshSubChatSessionIfOpenSpec(subChatId);
           const message = renderBuiltinPrompt('workflow/create-pr-clean', { baseBranch });
-          setPendingPrMessage({ message, subChatId });
+          if (isCliHarness) {
+            dispatchCliText(message);
+            console.log(
+              `[cli-notch] subChat=${subChatId} harness=${harness} action=createPr outcome=dispatched-to-pty`
+            );
+          } else {
+            appStore.set(openSpecSkipNextStepPrefixAtomFamily(subChatId), true);
+            forceFreshSubChatSessionIfOpenSpec(subChatId);
+            setPendingPrMessage(message);
+          }
           break;
         }
 
@@ -299,7 +320,11 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
       setFilteredDiffFiles,
       setDiffSidebarOpen,
       setPrCreating,
-      setPendingPrMessage
+      setPendingPrMessage,
+      isCliHarness,
+      dispatchCliText,
+      dispatchReview,
+      harness
     ]
   );
 

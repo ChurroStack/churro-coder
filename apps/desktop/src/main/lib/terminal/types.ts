@@ -1,4 +1,7 @@
 import type * as pty from 'node-pty';
+import type { Terminal as HeadlessTerminal } from '@xterm/headless';
+
+export type TerminalOutputState = 'idle' | 'running';
 
 export interface TerminalSession {
   pty: pty.IPty;
@@ -22,10 +25,30 @@ export interface TerminalSession {
    * fresh fallback shell at the same paneId, swallowing the next Run.
    */
   intentionalKill?: boolean;
-  /** Active idle-detection timer (reset on every PTY data chunk). */
-  idleTimer?: ReturnType<typeof setTimeout>;
-  /** Idle detection config, stored for reset-on-data logic in manager. */
+  /**
+   * Idle detection config presence flag. When set, the manager runs a
+   * cursor-activity sampler against {@link headlessTerminal} and emits
+   * `state:` events on idle↔running transitions.
+   */
   idleDetection?: TerminalBootstrap['idleDetection'];
+  /**
+   * Current observed CLI output state. Mutated only by the manager's
+   * transitionTo() — also the only place that emits the `state:` event.
+   */
+  outputState?: TerminalOutputState;
+  /** Mirror parser used to count cursor moves per sampling window. */
+  headlessTerminal?: HeadlessTerminal;
+  /** Sampler that evaluates cursor-move rate every IDLE_TUNING.windowMs. */
+  idleSamplerInterval?: ReturnType<typeof setInterval>;
+  /** Cursor-move count accumulator for the current sampling window. */
+  pendingMoves?: number;
+  /** Raw PTY byte count accumulator for the current sampling window. */
+  pendingBytes?: number;
+  /**
+   * Ring of the last N windows' "active" flags (1 if the window saw any
+   * cursor moves OR any PTY bytes; 0 otherwise). Newest pushed at tail.
+   */
+  recentMoves?: number[];
 }
 
 export interface TerminalDataEvent {
@@ -62,9 +85,29 @@ export interface TerminalBootstrap {
    * A trailing newline is appended automatically.
    */
   initialInput?: string;
-  /** Optional idle-detection config. */
+  /**
+   * Sequence of raw PTY writes issued after the first stdout arrives.
+   * Each element is written with a small delay between it and the next so
+   * the TUI processes each chunk (and any resulting mode-switch) before the
+   * next arrives. Takes precedence over `initialInput` when both are set.
+   */
+  initialInputChunks?: string[];
+  /**
+   * Signal from the CLI-harness bootstrap that the first PTY chunk already
+   * contains the MCP reminder text. The renderer reads this to seed its
+   * per-session "already injected" set so it doesn't re-inject on the user's
+   * next typed message.
+   */
+  mcpReminderInjected?: boolean;
+  /**
+   * Presence of this object opts the session into cursor-activity-based idle
+   * detection (runs an @xterm/headless mirror, emits `state:` transitions).
+   * `silenceMs` is only consulted by the initial-input-chunks startup gate in
+   * session.ts — steady-state detection uses fixed tuning constants in
+   * manager.ts.
+   */
   idleDetection?: {
-    /** How long (ms) of PTY silence before emitting an `idle` event. Default 30 000. */
+    /** Startup gate only: ms of PTY silence before initial input is written. */
     silenceMs?: number;
   };
 }

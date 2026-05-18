@@ -1,3 +1,9 @@
+// Per-subChat isolation invariant (see apps/desktop/AGENTS.md):
+// one Terminal instance per paneId — xterm/fitAddon/serializeAddon refs MUST
+// live in useRef inside this component and never be reused across panels.
+// Two ChatCliSurface panels with distinct paneIds mount two independent
+// xterm instances; reintroducing instance reuse would let subChat A's PTY
+// bytes write into subChat B's canvas.
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import type { Terminal as XTerm } from 'xterm';
 import type { FitAddon } from '@xterm/addon-fit';

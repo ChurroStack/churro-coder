@@ -92,8 +92,12 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
     { worktreePath: worktreePath || '', defaultBranch: 'main' },
     {
       enabled: !!worktreePath && changedFiles.length > 0 && !isBusy,
-      // No polling - updates triggered by file-changed events from Claude tools
+      // No polling - updates triggered by file-changed events from Claude tools.
+      // refetchOnMount: 'always' refreshes the value when the status card
+      // re-mounts (panel switch / sub-chat reactivation) so we never display
+      // stale committed-vs-uncommitted classification.
       staleTime: 30000,
+      refetchOnMount: 'always',
       placeholderData: (prev) => prev
     }
   );

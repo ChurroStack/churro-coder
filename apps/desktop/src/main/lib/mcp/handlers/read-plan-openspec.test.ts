@@ -77,9 +77,9 @@ vi.mock('node:child_process', async () => {
 
 import { registerReadPlanTool } from './read-plan';
 
-async function makeClientServer(boundSubChatId?: string) {
+async function makeClientServer() {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerReadPlanTool(server, { boundSubChatId });
+  registerReadPlanTool(server);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -113,7 +113,7 @@ afterEach(async () => {
 
 describe('read_plan tool OpenSpec changes', () => {
   test('tool description advertises OpenSpec polymorphism', async () => {
-    const { client } = await makeClientServer('sub-1');
+    const { client } = await makeClientServer();
     const tools = await client.listTools();
     const readPlanTool = tools.tools.find((t) => t.name === 'read_plan');
     expect(readPlanTool).toBeDefined();
@@ -123,8 +123,8 @@ describe('read_plan tool OpenSpec changes', () => {
 
   test('not-bound: row exists but changeId null falls through to no-plan message', async () => {
     mocks.row = { chatId: 'chat-1', changeId: null, worktreePath: null, projectPath: tmpRoot };
-    const { client } = await makeClientServer('sub-1');
-    const result = await client.callTool({ name: 'read_plan', arguments: {} });
+    const { client } = await makeClientServer();
+    const result = await client.callTool({ name: 'read_plan', arguments: { subChatId: 'sub-1' } });
 
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
@@ -134,8 +134,8 @@ describe('read_plan tool OpenSpec changes', () => {
 
   test('no-subchat: row null returns actionable error with sub-chat id', async () => {
     mocks.row = null;
-    const { client } = await makeClientServer('ghost-id');
-    const result = await client.callTool({ name: 'read_plan', arguments: {} });
+    const { client } = await makeClientServer();
+    const result = await client.callTool({ name: 'read_plan', arguments: { subChatId: 'ghost-id' } });
 
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
@@ -147,8 +147,8 @@ describe('read_plan tool OpenSpec changes', () => {
 
   test('change-missing: row bound but change directory absent returns named error', async () => {
     // mocks.row already has changeId='add-test' but we do NOT create the change dir
-    const { client } = await makeClientServer('sub-1');
-    const result = await client.callTool({ name: 'read_plan', arguments: {} });
+    const { client } = await makeClientServer();
+    const result = await client.callTool({ name: 'read_plan', arguments: { subChatId: 'sub-1' } });
 
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
@@ -181,8 +181,8 @@ describe('read_plan tool OpenSpec changes', () => {
     );
     await writeChangeFile(tmpRoot, 'add-test', 'tasks.md', '## 1. Work\n\n- [ ] 1.1 Implement widget\n');
 
-    const { client } = await makeClientServer('sub-1');
-    const result = await client.callTool({ name: 'read_plan', arguments: {} });
+    const { client } = await makeClientServer();
+    const result = await client.callTool({ name: 'read_plan', arguments: { subChatId: 'sub-1' } });
 
     expect(result.isError).toBeFalsy();
     const text = (result.content as Array<{ type: string; text: string }>)[0].text;
@@ -198,30 +198,12 @@ describe('read_plan tool OpenSpec changes', () => {
     expect(text).toContain('- [ ] 1.1 Implement widget');
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('source=openspec found=true'));
   });
-});
-
-describe('read_plan OpenSpec — unbound (Codex HTTP-equivalent) flow', () => {
-  test('passing the correct subChatId UUID returns the OpenSpec context', async () => {
-    await writeChangeFile(tmpRoot, 'add-test', '.openspec.yaml', 'name: spec-driven\nversion: 1\n');
-    await writeChangeFile(tmpRoot, 'add-test', 'proposal.md', '# Proposal\n\nThe feature.\n');
-    await writeChangeFile(tmpRoot, 'add-test', 'tasks.md', '## 1. Work\n\n- [ ] 1.1 Do the thing\n');
-
-    // Unbound server: agent must pass subChatId explicitly (simulates Codex HTTP transport)
-    const { client } = await makeClientServer(undefined);
-    const result = await client.callTool({ name: 'read_plan', arguments: { subChatId: 'sub-1' } });
-
-    expect(result.isError).toBeFalsy();
-    const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-    expect(text).toContain('# OpenSpec Change: add-test');
-    expect(text).toContain('The feature.');
-    expect(text).toContain('- [ ] 1.1 Do the thing');
-  });
 
   test('passing changeId instead of subChatId returns actionable no-subchat error', async () => {
     // Simulate the regression: agent guesses changeId as subChatId
     // mocks.row is null when queried with 'add-test' (not a real subChatId UUID)
     mocks.row = null;
-    const { client } = await makeClientServer(undefined);
+    const { client } = await makeClientServer();
     const result = await client.callTool({ name: 'read_plan', arguments: { subChatId: 'add-test' } });
 
     expect(result.isError).toBe(true);

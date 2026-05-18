@@ -7,8 +7,11 @@ import type { WorkflowSnapshot } from './workflow-state';
 const base: WorkflowSnapshot = {
   mode: 'execute',
   activity: 'idle',
-  plan: { exists: true, meta: { approvedAt: '2026-01-01T00:00:00.000Z' } },
+  harness: 'builtin',
+  cliBusy: false,
+  plan: { exists: true, meta: { createdAt: '2026-01-01T00:00:00.000Z', approvedAt: '2026-01-01T00:01:00.000Z' } },
   review: { exists: false },
+  tasks: null,
   hasHistory: true,
   git: { changedFiles: 1, headSha: 'abc123', hasRemote: true },
   pushCount: 0,
@@ -632,5 +635,198 @@ describe('computeWorkflowState — stale PR review mirror', () => {
     expect(s.review.status).toBe('attention');
     expect(s.review.hint).toBe('Review delta before pushing');
     expect(s.review.actionKind).toBe('reviewLocal');
+  });
+});
+
+// ── CLI harness rules ──────────────────────────────────────────────────────
+
+const cliBase: WorkflowSnapshot = {
+  ...base,
+  harness: 'cli',
+  cliBusy: false,
+  mode: 'execute', // CLI has no plan-mode atom
+  plan: null,
+  tasks: null
+};
+
+describe('computeWorkflowState — CLI harness plan milestone', () => {
+  test('CLI + no plan → plan idle', () => {
+    const s = computeWorkflowState({ ...cliBase, plan: { exists: false } });
+    expect(s.plan.status).toBe('idle');
+  });
+
+  test('CLI + plan written, no tasks, no approval → plan attention', () => {
+    const s = computeWorkflowState({
+      ...cliBase,
+      plan: { exists: true, meta: { createdAt: '2026-01-01T00:00:00.000Z' } }
+    });
+    expect(s.plan.status).toBe('attention');
+    expect(s.plan.hint).toContain('tasks not yet created');
+  });
+
+  test('CLI + plan written + tasks written after plan → plan green', () => {
+    const s = computeWorkflowState({
+      ...cliBase,
+      plan: { exists: true, meta: { createdAt: '2026-01-01T00:00:00.000Z' } },
+      tasks: { exists: true, total: 3, completed: 0, updatedAt: '2026-01-01T01:00:00.000Z' }
+    });
+    expect(s.plan.status).toBe('done');
+    expect(s.plan.hint).toBe('Plan approved');
+  });
+
+  test('CLI + cliBusy + no tasks → plan in_progress', () => {
+    const s = computeWorkflowState({
+      ...cliBase,
+      cliBusy: true,
+      plan: { exists: true, meta: { createdAt: '2026-01-01T00:00:00.000Z' } }
+    });
+    expect(s.plan.status).toBe('in_progress');
+    expect(s.plan.hint).toBe('Drafting plan…');
+  });
+
+  test('CLI + write_plan makes plan green go back to orange (regression rule)', () => {
+    // Start: plan approved via tasks, then a new write_plan with a later createdAt
+    const newPlanTime = '2026-01-01T02:00:00.000Z';
+    const oldTasksTime = '2026-01-01T01:00:00.000Z'; // tasks older than new plan
+    const s = computeWorkflowState({
+      ...cliBase,
+      plan: { exists: true, meta: { createdAt: newPlanTime } },
+      tasks: { exists: true, total: 2, completed: 2, updatedAt: oldTasksTime }
+    });
+    // T(tasks) < T(plan) → tasksForCurrentPlan = false → plan back to attention
+    expect(s.plan.status).toBe('attention');
+  });
+});
+
+describe('computeWorkflowState — CLI harness code milestone', () => {
+  const cliWithTasksBase: WorkflowSnapshot = {
+    ...cliBase,
+    plan: { exists: true, meta: { createdAt: '2026-01-01T00:00:00.000Z' } },
+    tasks: { exists: true, total: 3, completed: 0, updatedAt: '2026-01-01T01:00:00.000Z' }
+  };
+
+  test('CLI + tasks partial → code attention with progress hint', () => {
+    const s = computeWorkflowState({
+      ...cliWithTasksBase,
+      tasks: { exists: true, total: 3, completed: 1, updatedAt: '2026-01-01T01:00:00.000Z' }
+    });
+    expect(s.plan.status).toBe('done');
+    expect(s.code.status).toBe('attention');
+    expect(s.code.hint).toBe('1/3 tasks complete');
+  });
+
+  test('CLI + all tasks done → code green', () => {
+    const s = computeWorkflowState({
+      ...cliWithTasksBase,
+      tasks: { exists: true, total: 3, completed: 3, updatedAt: '2026-01-01T01:00:00.000Z' }
+    });
+    expect(s.plan.status).toBe('done');
+    expect(s.code.status).toBe('done');
+    expect(s.code.hint).toBe('All 3 tasks complete');
+  });
+
+  test('CLI + cliBusy + tasks in progress → code in_progress', () => {
+    const s = computeWorkflowState({
+      ...cliWithTasksBase,
+      cliBusy: true,
+      tasks: { exists: true, total: 3, completed: 1, updatedAt: '2026-01-01T01:00:00.000Z' }
+    });
+    expect(s.code.status).toBe('in_progress');
+    expect(s.code.hint).toBe('Executing tasks…');
+  });
+});
+
+describe('computeWorkflowState — timestamp-based review rules', () => {
+  const T_PLAN = '2026-01-01T00:00:00.000Z';
+  const T_TASKS = '2026-01-01T01:00:00.000Z';
+  const T_REVIEW = '2026-01-01T02:00:00.000Z';
+  const T_ACCEPT = '2026-01-01T03:00:00.000Z';
+
+  const reviewBase: WorkflowSnapshot = {
+    ...base,
+    plan: { exists: true, meta: { createdAt: T_PLAN, approvedAt: T_PLAN } },
+    tasks: { exists: true, total: 2, completed: 2, updatedAt: T_TASKS },
+    git: { ...base.git, changedFiles: 0 },
+    pushCount: 0
+  };
+
+  test('review written for current work, not accepted → attention', () => {
+    const s = computeWorkflowState({
+      ...reviewBase,
+      review: { exists: true, meta: { createdAt: T_REVIEW } }
+    });
+    expect(s.code.status).toBe('done');
+    expect(s.review.status).toBe('attention');
+    expect(s.review.hint).toContain('click Fix to accept');
+  });
+
+  test('review accepted → review green', () => {
+    const s = computeWorkflowState({
+      ...reviewBase,
+      review: { exists: true, meta: { createdAt: T_REVIEW, acceptedAt: T_ACCEPT } }
+    });
+    expect(s.review.status).toBe('done');
+    expect(s.review.hint).toBe('Reviewed');
+  });
+
+  test('tasks updated after review accepted (fix-run, all complete) → review stays green', () => {
+    // The fix-run agent calls update_task_status, advancing tTasks past tReview.
+    // Acceptance check runs before reviewForCurrentWork so the pill stays done.
+    const T_NEW_TASKS = '2026-01-01T04:00:00.000Z'; // after accept
+    const s = computeWorkflowState({
+      ...reviewBase,
+      tasks: { exists: true, total: 3, completed: 3, updatedAt: T_NEW_TASKS },
+      review: { exists: true, meta: { createdAt: T_REVIEW, acceptedAt: T_ACCEPT } }
+    });
+    expect(s.review.status).toBe('done');
+  });
+
+  test('review accepted, fix run in progress (code amber) → review stays green', () => {
+    // Real bug: user clicked Fix, agent is running tasks. Code is 6/8 done (amber).
+    // codeStatus !== 'done', so the old code returned idle before reaching the
+    // acceptance check. Acceptance check must run before the codeStatus gate.
+    const T_NEW_TASKS = '2026-01-01T04:00:00.000Z'; // after accept, tasks not all done
+    const s = computeWorkflowState({
+      ...reviewBase,
+      tasks: { exists: true, total: 8, completed: 6, updatedAt: T_NEW_TASKS },
+      review: { exists: true, meta: { createdAt: T_REVIEW, acceptedAt: T_ACCEPT } }
+    });
+    expect(s.code.status).toBe('attention'); // 6/8 → amber
+    expect(s.review.status).toBe('done'); // accepted → stays green regardless
+    expect(s.review.hint).toBe('Reviewed');
+  });
+
+  test('new write_review after accept (new createdAt > acceptedAt) → back to attention', () => {
+    // Agent writes a brand-new review; createdAt resets to after acceptedAt.
+    const T_NEW_REVIEW = '2026-01-01T04:30:00.000Z'; // after T_ACCEPT
+    const s = computeWorkflowState({
+      ...reviewBase,
+      review: { exists: true, meta: { createdAt: T_NEW_REVIEW, acceptedAt: T_ACCEPT } }
+      // tAccept(T_ACCEPT) < tReview(T_NEW_REVIEW) → not accepted
+    });
+    expect(s.review.status).toBe('attention');
+    expect(s.review.hint).toContain('click Fix to accept');
+  });
+
+  test('new plan written after review green → plan back to attention, review cascades to idle', () => {
+    const T_NEW_PLAN = '2026-01-01T05:00:00.000Z'; // after everything
+    const s = computeWorkflowState({
+      ...reviewBase,
+      plan: { exists: true, meta: { createdAt: T_NEW_PLAN } }, // no approvedAt yet
+      review: { exists: true, meta: { createdAt: T_REVIEW, acceptedAt: T_ACCEPT } }
+      // T(tasks)=T_TASKS < T(new_plan)=T_NEW_PLAN → tasksForCurrentPlan = false
+    });
+    expect(s.plan.status).toBe('attention');
+    // code: no tasks for current plan, fall through to git rules
+    // review: gated on code being done; depends on git state
+  });
+
+  test('review accepted, then Fix clicked again (second accept) → stays green', () => {
+    const T_ACCEPT2 = '2026-01-01T04:30:00.000Z'; // after T_ACCEPT
+    const s = computeWorkflowState({
+      ...reviewBase,
+      review: { exists: true, meta: { createdAt: T_REVIEW, acceptedAt: T_ACCEPT2 } }
+    });
+    expect(s.review.status).toBe('done');
   });
 });
