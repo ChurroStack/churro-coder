@@ -1732,7 +1732,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       createChatMutation.mutate(
         {
           projectId: selectedProject.id,
-          name: messageToTitleText(message).slice(0, 50) || 'New chat',
+          name: messageToTitleText(message).slice(0, 50) || 'New Chat',
           model: reviewModelOverride ?? selectedChatModel,
           initialMessageParts: parts,
           baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
