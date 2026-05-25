@@ -37,6 +37,7 @@ export const AgentUserQuestion = memo(
       () => ({
         getAnswers: () => {
           const formattedAnswers: Record<string, string> = {};
+          if (!questions) return formattedAnswers;
           for (const question of questions) {
             const selected = answers[question.question] || [];
             if (selected.length > 0) {
@@ -72,7 +73,17 @@ export const AgentUserQuestion = memo(
       }
     }, [currentQuestionIndex]);
 
-    if (questions.length === 0) {
+    // `questions` is typed as a required array, but in production we've seen
+    // entries land in `pendingUserQuestionsAtom` with `questions === undefined`
+    // (likely a malformed subscription/IPC payload from one of the three
+    // writers in ipc-chat-transport / codex-chat-transport / chat-cli-surface).
+    // Guard at the consumer so a bad payload renders empty instead of crashing.
+    if (!questions || questions.length === 0) {
+      if (!questions) {
+        console.warn(
+          `[AgentUserQuestion] pendingQuestions.questions is undefined toolUseId=${toolUseId ?? 'unknown'} — dropping render`
+        );
+      }
       return null;
     }
 

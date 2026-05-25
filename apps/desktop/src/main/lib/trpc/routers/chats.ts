@@ -2939,6 +2939,61 @@ export const chatsRouter = router({
   }),
 
   /**
+   * Same as {@link artifactWritten} but scoped to a parent `chatId`. Emits
+   * events for ANY sub-chat that belongs to this chat, with the originating
+   * `subChatId` in the payload. Solves the cold-mount race where the renderer
+   * has not yet written `activeSubChatId` and would otherwise subscribe with
+   * the wrong key — making every artifact event silently drop until the user
+   * clicks a tab. The sidebar uses this as its primary stream and keys atoms
+   * by `event.subChatId`.
+   */
+  artifactWrittenForChat: publicProcedure.input(z.string().min(1)).subscription(({ input: chatId }) => {
+    return observable<{ subChatId: string; kind: 'plan' | 'tasks' | 'review' | 'files-changed'; filePath?: string }>(
+      (emit) => {
+        const db = getDatabase();
+        const belongsToChat = (subChatId: string): boolean => {
+          try {
+            const row = db
+              .select({ chatId: subChats.chatId })
+              .from(subChats)
+              .where(eq(subChats.id, subChatId))
+              .get() as { chatId: string } | undefined;
+            return row?.chatId === chatId;
+          } catch {
+            return false;
+          }
+        };
+        const unsubPlan = onPlanWritten((event) => {
+          if (belongsToChat(event.subChatId)) {
+            emit.next({ subChatId: event.subChatId, kind: 'plan', filePath: event.filePath });
+          }
+        });
+        const unsubTasks = onTasksWritten((event) => {
+          if (belongsToChat(event.subChatId)) {
+            emit.next({ subChatId: event.subChatId, kind: 'tasks', filePath: event.filePath });
+          }
+        });
+        const unsubReview = onReviewWritten((event) => {
+          if (belongsToChat(event.subChatId)) {
+            emit.next({ subChatId: event.subChatId, kind: 'review' });
+          }
+        });
+        const unsubFiles = onFileChangesNotified((event) => {
+          if (belongsToChat(event.subChatId)) {
+            emit.next({ subChatId: event.subChatId, kind: 'files-changed' });
+          }
+        });
+        return () => {
+          unsubPlan();
+          unsubTasks();
+          unsubReview();
+          unsubFiles();
+        };
+      }
+    );
+  }),
+
+  /**
    * Subscription: fires when an MCP request_user_input tool call arrives for this sub-chat.
    * The renderer subscribes, inserts into pendingUserQuestionsAtom, and renders AgentUserQuestion.
    */
