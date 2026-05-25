@@ -7,6 +7,15 @@
 const mockDispatch = vi.hoisted(() => vi.fn());
 const mockWritePastedImage = vi.hoisted(() => vi.fn());
 const mockWritePastedText = vi.hoisted(() => vi.fn());
+const mockAutoRenameDispatcher = vi.hoisted(() => vi.fn());
+const mockStore = vi.hoisted(() => ({
+  chatId: 'chat-1' as string | null,
+  allSubChats: [{ id: 'sc-1', harness: 'claude-cli', name: undefined as string | undefined }] as Array<{
+    id: string;
+    harness: string;
+    name?: string;
+  }>
+}));
 
 // Mutable state for openspec-bootstrap tests — readable inside vi.mock factory closures
 const mockPendingOpenSpecMsgState = vi.hoisted(() => ({
@@ -33,11 +42,19 @@ vi.mock('../hooks/use-harness-send-dispatcher', () => ({
   }))
 }));
 
-vi.mock('../stores/sub-chat-store', () => ({
-  useAgentSubChatStore: vi.fn((selector: (s: unknown) => unknown) => {
-    const fakeStore = { allSubChats: [{ id: 'sc-1', harness: 'claude-cli' }] };
-    return selector(fakeStore);
-  })
+vi.mock('../stores/sub-chat-store', () => {
+  const useAgentSubChatStore = vi.fn((selector: (s: unknown) => unknown) => {
+    return selector(mockStore);
+  }) as unknown as {
+    (selector: (s: unknown) => unknown): unknown;
+    getState: () => typeof mockStore;
+  };
+  useAgentSubChatStore.getState = () => mockStore;
+  return { useAgentSubChatStore };
+});
+
+vi.mock('../hooks/use-auto-rename-dispatcher', () => ({
+  useAgentAutoRenameDispatcher: vi.fn(() => mockAutoRenameDispatcher)
 }));
 
 vi.mock('../../../lib/trpc', () => ({
@@ -210,7 +227,7 @@ vi.mock('../../../components/ui/dropdown-menu', () => ({
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { CliPromptBar } from './cli-prompt-bar';
+import { CliPromptBar, _resetCliAutoRenameTriggered } from './cli-prompt-bar';
 
 afterEach(() => {
   cleanup();
@@ -218,10 +235,14 @@ afterEach(() => {
   mockDispatch.mockClear();
   mockWritePastedImage.mockClear();
   mockSetPendingOpenSpecMessage.mockClear();
+  mockAutoRenameDispatcher.mockClear();
   mockPendingOpenSpecMsgState.value = null;
   mockStateSubscriptionCallbacks.onData = null;
   mockOpenSpecContextState.value = null;
   mockOpenSpecCurrentStepState.value = 'proposal';
+  mockStore.chatId = 'chat-1';
+  mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: undefined }];
+  _resetCliAutoRenameTriggered();
 });
 
 describe('CliPromptBar — slash command autocomplete [cli-prompt-bar/slash-autocomplete]', () => {
@@ -518,5 +539,68 @@ describe('CliPromptBar — Restart button [cli-prompt-bar/restart-button]', () =
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     });
     expect(screen.queryByText(/Restart.*session\?/i)).toBeNull();
+  });
+});
+
+// ── Auto-rename on first send [cli-prompt-bar/auto-rename] ──────────────────
+
+describe('CliPromptBar — auto-rename on first user send [cli-prompt-bar/auto-rename]', () => {
+  it('fires the rename dispatcher on the first user submit when the persisted name is missing', () => {
+    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: undefined }];
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    const textarea = getByTestId('cli-prompt-input');
+
+    fireEvent.change(textarea, { target: { value: 'Build me a feature' } });
+    fireEvent.click(getByTestId('send-button'));
+
+    expect(mockAutoRenameDispatcher).toHaveBeenCalledTimes(1);
+    expect(mockAutoRenameDispatcher).toHaveBeenCalledWith('Build me a feature', 'sc-1');
+  });
+
+  it("fires when persisted name is the 'New Chat' placeholder (hydration fallback casing)", () => {
+    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: 'New Chat' }];
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    fireEvent.change(getByTestId('cli-prompt-input'), { target: { value: 'first message' } });
+    fireEvent.click(getByTestId('send-button'));
+    expect(mockAutoRenameDispatcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("also fires when persisted name is the 'New chat' placeholder (form-save casing)", () => {
+    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: 'New chat' }];
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    fireEvent.change(getByTestId('cli-prompt-input'), { target: { value: 'first message' } });
+    fireEvent.click(getByTestId('send-button'));
+    expect(mockAutoRenameDispatcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT fire when the persisted name is a real title', () => {
+    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: 'Refactor billing flow' }];
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    fireEvent.change(getByTestId('cli-prompt-input'), { target: { value: 'another message' } });
+    fireEvent.click(getByTestId('send-button'));
+    expect(mockAutoRenameDispatcher).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire a second time for the same sub-chat (module-level gate)', () => {
+    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: undefined }];
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    const textarea = getByTestId('cli-prompt-input');
+
+    fireEvent.change(textarea, { target: { value: 'first message' } });
+    fireEvent.click(getByTestId('send-button'));
+    fireEvent.change(textarea, { target: { value: 'second message' } });
+    fireEvent.click(getByTestId('send-button'));
+
+    expect(mockAutoRenameDispatcher).toHaveBeenCalledTimes(1);
+    expect(mockAutoRenameDispatcher).toHaveBeenCalledWith('first message', 'sc-1');
+  });
+
+  it('does NOT fire when parentChatId is null (store not hydrated yet)', () => {
+    mockStore.chatId = null;
+    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: undefined }];
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    fireEvent.change(getByTestId('cli-prompt-input'), { target: { value: 'first message' } });
+    fireEvent.click(getByTestId('send-button'));
+    expect(mockAutoRenameDispatcher).not.toHaveBeenCalled();
   });
 });

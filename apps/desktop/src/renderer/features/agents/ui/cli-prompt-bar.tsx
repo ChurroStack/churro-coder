@@ -38,6 +38,28 @@ import {
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { useVoiceInput } from '../../../lib/hooks/use-voice-input';
 import { AgentsSlashCommand, type SlashCommandOption } from '../commands';
+import { useAgentAutoRenameDispatcher } from '../hooks/use-auto-rename-dispatcher';
+
+/**
+ * SubChats whose first-user-send auto-rename has already fired in this
+ * renderer session. Cleared only on full reload — survives panel remount
+ * the same way `mcpInjectedSessions` does in `use-harness-send-dispatcher`.
+ */
+const cliAutoRenameTriggered = new Set<string>();
+
+/** Test-only: clears the module-level "already triggered" tracking set. */
+export function _resetCliAutoRenameTriggered() {
+  cliAutoRenameTriggered.clear();
+}
+
+function shouldAutoRenameCliSubChat(subChatId: string, persistedName: string | undefined | null): boolean {
+  if (cliAutoRenameTriggered.has(subChatId)) return false;
+  if (!persistedName) return true;
+  // Match the casing variants both placeholders ('New chat' from new-chat-form,
+  // 'New Chat' from hydration fallback) so the gate works no matter which
+  // creation path produced the row.
+  return persistedName === 'New Chat' || persistedName === 'New chat';
+}
 
 interface CliPromptBarProps {
   subChatId: string;
@@ -83,6 +105,12 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
   );
   const resolvedHarness = harness ?? storeHarness;
   const isCodexCli = resolvedHarness === 'codex-cli';
+
+  // Parent chat id from the sub-chat store so the rename dispatcher can
+  // optimistically update the sidebar/header caches. Falls back to empty;
+  // the call-site below skips invocation when this is unknown.
+  const parentChatId = useAgentSubChatStore((s) => s.chatId);
+  const dispatchAutoRename = useAgentAutoRenameDispatcher({ parentChatId: parentChatId ?? '' });
 
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const cliRestartHandler = useAtomValue(useMemo(() => subChatCliRestartHandlerAtomFamily(subChatId), [subChatId]));
@@ -183,11 +211,33 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
     });
     dispatch(messageToSend);
 
+    // Fire auto-rename on first user submit so CLI tabs don't sit on the
+    // 'New Chat' placeholder. Gate on the persisted name + a module-level
+    // Set so split panes / remounts don't re-trigger.
+    if (parentChatId && trimmed) {
+      const persistedName = useAgentSubChatStore.getState().allSubChats.find((sc) => sc.id === subChatId)?.name;
+      if (shouldAutoRenameCliSubChat(subChatId, persistedName)) {
+        cliAutoRenameTriggered.add(subChatId);
+        dispatchAutoRename(trimmed, subChatId);
+      }
+    }
+
     pastedImages.forEach((img) => URL.revokeObjectURL(img.objectUrl));
     setPastedImages([]);
     setText('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-  }, [isOwner, text, pastedImages, dispatch, isOpenSpec, openSpecCurrentStep, resolvedHarness]);
+  }, [
+    isOwner,
+    text,
+    pastedImages,
+    dispatch,
+    isOpenSpec,
+    openSpecCurrentStep,
+    resolvedHarness,
+    parentChatId,
+    subChatId,
+    dispatchAutoRename
+  ]);
 
   const handleSlashSelect = useCallback(
     (command: SlashCommandOption) => {

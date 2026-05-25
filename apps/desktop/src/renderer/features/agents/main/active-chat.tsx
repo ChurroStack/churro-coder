@@ -35,7 +35,6 @@ import {
   isFullscreenAtom,
   normalizeCustomClaudeConfig,
   sessionInfoAtom,
-  selectedOllamaModelAtom,
   soundNotificationsEnabledAtom
 } from '../../../lib/atoms';
 import { useFileChangeListener, useGitWatcher } from '../../../lib/hooks/use-file-change-listener';
@@ -230,7 +229,7 @@ import type { WorkflowActionKind } from '../utils/workflow-state';
 // SplitViewContainer / SplitDropZone removed — dockview groups now own
 // multi-pane chat layout. Drag a chat tab to a group's edge to split.
 import { TextSelectionPopover } from '../ui/text-selection-popover';
-import { autoRenameAgentChat } from '../utils/auto-rename';
+import { useAgentAutoRenameDispatcher } from '../hooks/use-auto-rename-dispatcher';
 import { generateCommitToPrMessage, generatePrMessage } from '../utils/pr-message';
 import { extractGitActivity } from '../utils/git-activity';
 import { evictChatsForParentChatSwitch, evictInactiveChatsForWorkspace } from '../lib/chat-instance-pruning';
@@ -3615,7 +3614,6 @@ export function ChatView({
   const isFullscreen = useAtomValue(isFullscreenAtom);
   const sidebarOpen = useAtomValue(agentsSidebarOpenAtom);
   const customClaudeConfig = useAtomValue(customClaudeConfigAtom);
-  const selectedOllamaModel = useAtomValue(selectedOllamaModelAtom);
   const normalizedCustomClaudeConfig = normalizeCustomClaudeConfig(customClaudeConfig);
   const hasCustomClaudeConfig = Boolean(normalizedCustomClaudeConfig);
   const setLoadingSubChats = useSetAtom(loadingSubChatsAtom);
@@ -4005,11 +4003,6 @@ export function ChatView({
 
   // tRPC utils for optimistic cache updates
   const utils = api.useUtils();
-
-  // tRPC mutations for renaming
-  const renameSubChatMutation = api.agents.renameSubChat.useMutation();
-  const renameChatMutation = api.agents.renameChat.useMutation();
-  const generateSubChatNameMutation = api.agents.generateSubChatName.useMutation();
 
   // PR creation loading state - using atom to allow ChatViewInner to reset it
   const [isCreatingPr, setIsCreatingPr] = useAtom(isCreatingPrAtom);
@@ -5865,89 +5858,9 @@ export function ChatView({
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [isArchived, handleRestoreWorkspace]);
 
-  // Handle auto-rename for sub-chat and parent chat
-  // Receives subChatId as param to avoid stale closure issues
-  const handleAutoRename = useCallback(
-    (userMessage: string, subChatId: string) => {
-      // Check if this is the first sub-chat using agentSubChats directly
-      // to avoid race condition with store initialization
-      const firstSubChatId = getFirstSubChatId(agentSubChats);
-      const isFirst = firstSubChatId === subChatId;
-
-      autoRenameAgentChat({
-        subChatId,
-        parentChatId: chatId,
-        userMessage,
-        isFirstSubChat: isFirst,
-        generateName: async (msg) => {
-          return generateSubChatNameMutation.mutateAsync({ userMessage: msg, ollamaModel: selectedOllamaModel });
-        },
-        renameSubChat: async (input) => {
-          await renameSubChatMutation.mutateAsync(input);
-        },
-        renameChat: async (input) => {
-          await renameChatMutation.mutateAsync(input);
-        },
-        updateSubChatName: (subChatIdToUpdate, name) => {
-          // Update local store
-          useAgentSubChatStore.getState().updateSubChatName(subChatIdToUpdate, name);
-          // Also update query cache so init effect doesn't overwrite.
-          // `getAgentChat` is a client-only cache slot, not a real procedure.
-          (utils.agents as any).getAgentChat.setData({ chatId }, (old: any) => {
-            if (!old) return old;
-            const existsInCache = old.subChats.some((sc: { id: string }) => sc.id === subChatIdToUpdate);
-            if (!existsInCache) {
-              // Sub-chat not in cache yet (DB save still in flight) - add it
-              return {
-                ...old,
-                subChats: [
-                  ...old.subChats,
-                  {
-                    id: subChatIdToUpdate,
-                    name,
-                    created_at: new Date(),
-                    updated_at: new Date(),
-                    messages: '[]',
-                    mode: 'execute',
-                    stream_id: null,
-                    chat_id: chatId
-                  }
-                ]
-              };
-            }
-            return {
-              ...old,
-              subChats: old.subChats.map((sc: { id: string }) => (sc.id === subChatIdToUpdate ? { ...sc, name } : sc))
-            };
-          });
-        },
-        updateChatName: (chatIdToUpdate, name) => {
-          // Optimistic update for sidebar (list query)
-          // On desktop, selectedTeamId is always null, so we update unconditionally
-          (utils.agents as any).getAgentChats.setData({ teamId: selectedTeamId }, (old: any) => {
-            if (!old) return old;
-            return old.map((c: { id: string }) => (c.id === chatIdToUpdate ? { ...c, name } : c));
-          });
-          // Optimistic update for header (single chat query)
-          (utils.agents as any).getAgentChat.setData({ chatId: chatIdToUpdate }, (old: any) => {
-            if (!old) return old;
-            return { ...old, name };
-          });
-        }
-      });
-    },
-    [
-      chatId,
-      agentSubChats,
-      generateSubChatNameMutation,
-      renameSubChatMutation,
-      renameChatMutation,
-      selectedTeamId,
-      selectedOllamaModel,
-      utils.agents.getAgentChats,
-      utils.agents.getAgentChat
-    ]
-  );
+  // Auto-rename dispatcher. Body lives in the shared hook so CLI surfaces
+  // (which never mount ChatViewInner) can fire the same flow on first send.
+  const handleAutoRename = useAgentAutoRenameDispatcher({ parentChatId: chatId });
 
   // Get or create Chat instance for active sub-chat
   const activeChat = useMemo(() => {
