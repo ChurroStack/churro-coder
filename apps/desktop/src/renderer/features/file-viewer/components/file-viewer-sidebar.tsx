@@ -549,20 +549,18 @@ function CodeViewer({
     return () => window.clearTimeout(timeoutId);
   }, [clearDraft, editBaseContent, editContent, isEditMode, saveDraft]);
 
-  // Apply pending scroll target once content is available (Monaco rebuilds the
-  // model when `value` changes, so we defer one frame to ensure it's ready).
+  // Apply pending scroll target once content is available. Clear the ref
+  // synchronously so every subsequent keystroke that updates editContent →
+  // effectiveContent doesn't re-fire setPosition and snap the caret back to
+  // column 1 of the search-target line.
   useEffect(() => {
     const line = pendingScrollLineRef.current;
     if (!line || effectiveContent == null) return;
     const ed = editorRef.current;
-    if (!ed) return;
-    const raf = requestAnimationFrame(() => {
-      if (!editorRef.current) return;
-      editorRef.current.revealLineInCenter(line);
-      editorRef.current.setPosition({ lineNumber: line, column: 1 });
-      pendingScrollLineRef.current = null;
-    });
-    return () => cancelAnimationFrame(raf);
+    if (!ed || !ed.getModel()) return;
+    pendingScrollLineRef.current = null;
+    ed.revealLineInCenter(line);
+    ed.setPosition({ lineNumber: line, column: 1 });
   }, [effectiveContent, filePath]);
 
   const exitEditMode = useCallback(() => {
