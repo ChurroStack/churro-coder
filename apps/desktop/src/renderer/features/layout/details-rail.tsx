@@ -35,6 +35,7 @@ import type { WorkflowActionKind } from '../agents/utils/workflow-state';
 export function DetailsRail(_props: IGridviewPanelProps) {
   const chatId = useAtomValue(selectedAgentChatIdAtom);
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
+  const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
   const dockApi = useDockApi();
 
   // Chat record → worktreePath, sandboxId, projectId.
@@ -64,8 +65,16 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     console.log('[DetailsRail] chat-record state', { sinceMountMs, ...JSON.parse(signature) });
   }, [chat, chatId]);
 
-  // Plan / mode / refetch trigger (per active sub-chat, falls back to chatId)
-  const effectiveSubChatId = activeSubChatId ?? chatId ?? '';
+  // Plan / mode / refetch trigger (per active sub-chat).
+  //
+  // Fallback ladder when activeSubChatId is null:
+  //   1. First open sub-chat for this chat (covers the cold-mount race where
+  //      ChatPanel hasn't pushed activeSubChatId into the store yet but the
+  //      sub-chat is mounted under its own subChatId). All artifact files
+  //      live under <userData>/sub-chats/<subChatId>/, so reading from
+  //      `chatId` here returns exists:false and the widget stays empty.
+  //   2. chatId — last-resort for chats with no open sub-chats yet.
+  const effectiveSubChatId = activeSubChatId ?? openSubChatIds[0] ?? chatId ?? '';
   const planPath = useAtomValue(currentPlanPathAtomFamily(effectiveSubChatId));
   const planRefetchTrigger = useAtomValue(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
   const setCurrentPlanPath = useSetAtom(currentPlanPathAtomFamily(effectiveSubChatId));
@@ -88,33 +97,63 @@ export function DetailsRail(_props: IGridviewPanelProps) {
 
   const trpcUtils = trpc.useUtils();
 
+  // Aggressive cache invalidation on sub-chat / chat / worktree switches.
+  // Trades one round-trip per switch for guaranteed fresh widget data and
+  // no stale-flash on tab toggles. Explicitly OK'd by the user.
+  useEffect(() => {
+    if (!effectiveSubChatId) return;
+    void trpcUtils.chats.getCurrentPlan.invalidate({ subChatId: effectiveSubChatId });
+    void trpcUtils.chats.getCurrentTasks.invalidate({ subChatId: effectiveSubChatId });
+    void trpcUtils.chats.getCurrentReview.invalidate({ subChatId: effectiveSubChatId });
+    void trpcUtils.chats.getReviewContent.invalidate({ subChatId: effectiveSubChatId });
+    void trpcUtils.chats.getMcpFileChanges.invalidate({ subChatId: effectiveSubChatId });
+    console.log(`[DetailsRail] switch-invalidate sub=${effectiveSubChatId}`);
+  }, [effectiveSubChatId, trpcUtils]);
+  useEffect(() => {
+    if (!chatId) return;
+    void trpcUtils.chats.getPrStatus.invalidate({ chatId });
+    void trpcUtils.chats.get.invalidate({ id: chatId });
+    console.log(`[DetailsRail] switch-invalidate chat=${chatId}`);
+  }, [chatId, trpcUtils]);
+  useEffect(() => {
+    if (!worktreePath) return;
+    void trpcUtils.changes.getStatus.invalidate({ worktreePath });
+    void trpcUtils.changes.getBranches.invalidate({ worktreePath });
+    console.log(`[DetailsRail] switch-invalidate worktree=${worktreePath}`);
+  }, [worktreePath, trpcUtils]);
+
   // Central sidebar refresh: fires on write_plan, write_tasks, update_task_status,
-  // or write_review from any CLI MCP call. Invalidates all sidebar queries in one
-  // place so each widget doesn't need its own subscription.
-  trpc.chats.artifactWritten.useSubscription(effectiveSubChatId, {
-    enabled: !!effectiveSubChatId,
-    onData({ kind, filePath }) {
-      // Update plan path atom and trigger plan panel refetch on plan writes.
-      if (kind === 'plan' && filePath) {
+  // or write_review from any sub-chat under this chat. Subscribing at the
+  // chat level (not sub-chat) keeps the stream alive across activeSubChatId
+  // changes and survives the cold-mount race where activeSubChatId is still
+  // null but the panel's own subChatId is the one writing artifacts.
+  trpc.chats.artifactWrittenForChat.useSubscription(chatId ?? '', {
+    enabled: !!chatId,
+    onData({ subChatId: eventSubChatId, kind, filePath }) {
+      // Set the plan-path atom only when the event matches the currently
+      // visible sub-chat — that's the only widget that consumes this key
+      // right now. Other sub-chats pick up their plan via cold-start
+      // hydration the next time their key becomes effective (the query
+      // invalidation below makes that read fresh).
+      if (kind === 'plan' && filePath && eventSubChatId === effectiveSubChatId) {
         setCurrentPlanPath(filePath);
         triggerPlanRefetch();
       }
-      // Invalidate all sidebar queries regardless of artifact type. Guard each
-      // call so we don't issue invalidations with empty keys when ids are null.
-      if (effectiveSubChatId) {
-        void trpcUtils.chats.getCurrentPlan.invalidate({ subChatId: effectiveSubChatId });
-        void trpcUtils.chats.getCurrentTasks.invalidate({ subChatId: effectiveSubChatId });
-        void trpcUtils.chats.getCurrentReview.invalidate({ subChatId: effectiveSubChatId });
-        void trpcUtils.chats.getReviewContent.invalidate({ subChatId: effectiveSubChatId });
-        if (kind === 'files-changed') {
-          void trpcUtils.chats.getMcpFileChanges.invalidate({ subChatId: effectiveSubChatId });
-        }
+      // Invalidate per-sub-chat queries keyed by the event's exact subChatId
+      // so any widget mounted under that key picks up fresh data on its
+      // next read, regardless of whether activeSubChatId matches.
+      void trpcUtils.chats.getCurrentPlan.invalidate({ subChatId: eventSubChatId });
+      void trpcUtils.chats.getCurrentTasks.invalidate({ subChatId: eventSubChatId });
+      void trpcUtils.chats.getCurrentReview.invalidate({ subChatId: eventSubChatId });
+      void trpcUtils.chats.getReviewContent.invalidate({ subChatId: eventSubChatId });
+      if (kind === 'files-changed') {
+        void trpcUtils.chats.getMcpFileChanges.invalidate({ subChatId: eventSubChatId });
       }
       if (chatId) {
         void trpcUtils.chats.getPrStatus.invalidate({ chatId });
         void trpcUtils.chats.get.invalidate({ id: chatId });
       }
-      console.log(`[DetailsRail] artifact-written kind=${kind} sub=${effectiveSubChatId}`);
+      console.log(`[DetailsRail] artifact-written kind=${kind} sub=${eventSubChatId} effective=${effectiveSubChatId}`);
     }
   });
   const { mode: subChatMode } = useSubChatMode(activeSubChatId ?? '');
@@ -216,8 +255,12 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   );
 
   // Status widget — workflow state + dispatch
-  const workflow = useWorkflowState(chatId, activeSubChatId ?? null);
-  const { dispatch: dispatchWorkflowAction, pushDialog } = useWorkflowActions(chatId, activeSubChatId ?? null);
+  // Use the same fallback ladder as effectiveSubChatId above — passing null
+  // when activeSubChatId is null collapses to IDLE_WORKFLOW_STATE (all 'idle',
+  // gray icons, no spinner), which hides CLI-busy on cold mount.
+  const workflowSubChatId = activeSubChatId ?? openSubChatIds[0] ?? null;
+  const workflow = useWorkflowState(chatId, workflowSubChatId);
+  const { dispatch: dispatchWorkflowAction, pushDialog } = useWorkflowActions(chatId, workflowSubChatId);
   const handleWorkflowAction = useCallback(
     (kind: WorkflowActionKind) => {
       void dispatchWorkflowAction(kind);

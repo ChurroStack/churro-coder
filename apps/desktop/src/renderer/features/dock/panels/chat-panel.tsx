@@ -152,6 +152,21 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
     setActiveSubChat(params.subChatId);
   }, [isWorkspaceActive, isActive, params.chatId, params.subChatId, setActiveSubChat]);
 
+  // Cold-mount fallback: when this is the first-opened sub-chat for the
+  // selected workspace and `activeSubChatId` is still null, claim active
+  // unconditionally. Without this, the right rail keys off `chatId` (parent)
+  // instead of the panel's `subChatId` until `api.isActive` flips true on a
+  // later frame — which leaves the Plan widget hidden and the CLI-busy spinner
+  // dark, because both read atoms keyed by `activeSubChatId`.
+  useEffect(() => {
+    if (!isWorkspaceActive) return;
+    if (activeSubChatId) return;
+    if (openSubChatIds.length === 0 || openSubChatIds[0] !== params.subChatId) return;
+    const selectedWorkspaceId = appStore.get(selectedAgentChatIdAtom);
+    if (params.chatId !== selectedWorkspaceId) return;
+    setActiveSubChat(params.subChatId);
+  }, [isWorkspaceActive, activeSubChatId, openSubChatIds, params.chatId, params.subChatId, setActiveSubChat]);
+
   // Keep the dockview tab title in sync with the sub-chat's display name.
   // Wait for store hydration before pushing a title so we don't overwrite
   // the restored dock snapshot title with a stale creation-time placeholder.
