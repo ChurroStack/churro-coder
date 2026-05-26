@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { cleanup, screen, fireEvent, act } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../../test-utils';
 import { NewProjectDialog } from './new-project-dialog';
-import { newProjectDialogOpenAtom, newProjectActiveSectionAtom } from './atoms';
+import { newProjectDialogOpenAtom, newProjectDialogForceOpenAtom, newProjectActiveSectionAtom } from './atoms';
 import { useSetAtom } from 'jotai';
 
 afterEach(cleanup);
@@ -136,6 +136,45 @@ describe('NewProjectDialog', () => {
         store.set(newProjectDialogOpenAtom, false);
       });
       expect(screen.queryByText('Add project')).toBeNull();
+    });
+  });
+
+  describe('forceOpen via atom (empty-state path)', () => {
+    // Regression: PR #162 only guarded the `<NewProjectDialog forceOpen />` instance
+    // mounted by EmptyStateShell, but App.tsx also mounts a global `<NewProjectDialog />`
+    // (no prop). With the atom in place, the global instance must also become
+    // non-dismissible while the empty-state shell is on screen.
+    it('hides the close button when newProjectDialogForceOpenAtom is true (no prop)', () => {
+      const store = createTestStore();
+      store.set(newProjectDialogOpenAtom, true);
+      store.set(newProjectDialogForceOpenAtom, true);
+      store.set(newProjectActiveSectionAtom, 'create');
+      renderWithProviders(<NewProjectDialog />, { store });
+      expect(screen.queryByRole('button', { name: /close/i })).toBeNull();
+    });
+
+    it('does not close on Escape when atom-driven forceOpen is on', () => {
+      const store = createTestStore();
+      store.set(newProjectDialogOpenAtom, true);
+      store.set(newProjectDialogForceOpenAtom, true);
+      store.set(newProjectActiveSectionAtom, 'create');
+      renderWithProviders(<NewProjectDialog />, { store });
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(store.get(newProjectDialogOpenAtom)).toBe(true);
+      expect(screen.getByText('Add project')).toBeTruthy();
+    });
+
+    it('clearing the atom restores the close button', () => {
+      const store = createTestStore();
+      store.set(newProjectDialogOpenAtom, true);
+      store.set(newProjectDialogForceOpenAtom, true);
+      store.set(newProjectActiveSectionAtom, 'create');
+      renderWithProviders(<NewProjectDialog />, { store });
+      expect(screen.queryByRole('button', { name: /close/i })).toBeNull();
+      act(() => {
+        store.set(newProjectDialogForceOpenAtom, false);
+      });
+      expect(screen.getByRole('button', { name: /close/i })).toBeTruthy();
     });
   });
 });

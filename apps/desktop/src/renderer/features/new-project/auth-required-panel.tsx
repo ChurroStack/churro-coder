@@ -1,6 +1,7 @@
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 type ProviderId = 'github' | 'azure' | 'local';
 
 interface Props {
@@ -15,14 +16,28 @@ const AUTH_COMMANDS: Record<ProviderId, string> = {
 
 export function AuthRequiredPanel({ provider }: Props) {
   const utils = trpc.useUtils();
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const { data, isFetching } = trpc.newProject.checkAuth.useQuery(
     { provider, evictCache: false },
     { staleTime: 60_000 }
   );
 
-  const handleRetry = () => {
-    utils.newProject.checkAuth.invalidate({ provider, evictCache: false });
+  // The displayed query uses `evictCache:false` so the 60 s main-process cache is honored on
+  // initial load. On manual Retry we MUST evict that cache or `gh auth status` is not actually
+  // re-run — so do an imperative fetch with `evictCache:true` and push the fresh result into
+  // the displayed query's cache slot. Plain `invalidate()` would refetch with the displayed
+  // key (`evictCache:false`) and the backend would just return its cached negative result.
+  const handleRetry = async () => {
+    setIsRetrying(true);
+    try {
+      const fresh = await utils.newProject.checkAuth.fetch({ provider, evictCache: true });
+      utils.newProject.checkAuth.setData({ provider, evictCache: false }, fresh);
+    } catch (err) {
+      console.warn('[AuthRequiredPanel] retry failed', err);
+    } finally {
+      setIsRetrying(false);
+    }
   };
 
   if (!data || data.ok) return null;
@@ -40,8 +55,8 @@ export function AuthRequiredPanel({ provider }: Props) {
         </p>
       )}
       {'hint' in data && data.hint && <p className="text-xs text-muted-foreground">{data.hint}</p>}
-      <Button variant="outline" size="sm" onClick={handleRetry} disabled={isFetching} className="gap-2">
-        <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
+      <Button variant="outline" size="sm" onClick={handleRetry} disabled={isFetching || isRetrying} className="gap-2">
+        <RefreshCw className={`h-3 w-3 ${isFetching || isRetrying ? 'animate-spin' : ''}`} />
         Retry
       </Button>
     </div>

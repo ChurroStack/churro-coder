@@ -17,34 +17,85 @@ let pathFixAttempted = false;
 let pathFixSucceeded = false;
 
 /**
- * Build Windows PATH by combining process.env.PATH with common install locations.
- * This ensures packaged apps on Windows can find user-installed tools.
+ * Read the live Windows PATH from the registry (Machine + User scopes). This is
+ * the only way to see PATH changes made AFTER this process started — `process.env.PATH`
+ * is a snapshot from launch, so a freshly installed `gh` (or any CLI installed via
+ * winget/MSI while the app is running) will not appear there until restart.
+ *
+ * Returns "" on any failure; caller is expected to fall back to process.env.PATH.
  */
-function buildWindowsPath(): string {
+async function readWindowsRegistryPath(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "[Environment]::GetEnvironmentVariable('PATH','Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH','User')"
+      ],
+      { timeout: 5_000, windowsHide: true }
+    );
+    return stdout.trim();
+  } catch (err) {
+    console.warn('[shell-env] Failed to read Windows registry PATH:', err);
+    return '';
+  }
+}
+
+/**
+ * Build Windows PATH by merging the live registry PATH (Machine + User) with
+ * process.env.PATH and a small set of well-known CLI install locations.
+ *
+ * Why the registry: an installer that runs while the app is up updates the
+ * registry PATH, but already-running processes never see it. Without this read,
+ * the user has to restart the dev server / app every time they install a new
+ * CLI dependency (gh, az, etc.) — confusing and easy to misdiagnose as "the
+ * detection is broken".
+ */
+async function buildWindowsPath(): Promise<string> {
   const paths: string[] = [];
   const pathSeparator = ';';
 
-  // Start with existing PATH from process.env
-  if (process.env.PATH) {
-    paths.push(...process.env.PATH.split(pathSeparator).filter(Boolean));
+  // Live registry PATH first — picks up post-launch installs.
+  const registryPath = await readWindowsRegistryPath();
+  if (registryPath) {
+    paths.push(...registryPath.split(pathSeparator).filter(Boolean));
   }
 
-  // Add Windows-specific common paths
+  // Merge process.env.PATH on top — covers entries that only exist in the
+  // parent shell (e.g. git-bash PATH additions, ad-hoc `set PATH=...`).
+  if (process.env.PATH) {
+    for (const p of process.env.PATH.split(pathSeparator).filter(Boolean)) {
+      const lower = path.normalize(p).toLowerCase();
+      if (!paths.some((existing) => path.normalize(existing).toLowerCase() === lower)) {
+        paths.push(p);
+      }
+    }
+  }
+
+  // Defensive fallbacks for tools whose installers don't always register on PATH.
   const commonPaths = [
-    // User-local installations (where tools like Claude CLI, git-lfs are often installed)
     path.join(os.homedir(), '.local', 'bin'),
-    // Git for Windows default location
+    // Git for Windows
     'C:\\Program Files\\Git\\cmd',
     'C:\\Program Files\\Git\\bin',
-    // System paths (usually already in PATH, but ensure they're present)
+    // GitHub CLI — default MSI install location
+    'C:\\Program Files\\GitHub CLI',
+    'C:\\Program Files (x86)\\GitHub CLI',
+    path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'GitHub CLI'),
+    // Azure CLI — default MSI install location
+    'C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin',
+    'C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin',
+    // winget shim directory (most modern user-scope installs land here)
+    path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'WinGet', 'Links'),
+    // System paths
     path.join(process.env.SystemRoot || 'C:\\Windows', 'System32'),
     path.join(process.env.SystemRoot || 'C:\\Windows')
   ];
 
-  // Add common paths that aren't already in PATH
   for (const commonPath of commonPaths) {
     const normalizedPath = path.normalize(commonPath);
-    // Case-insensitive check for Windows
     const normalizedLower = normalizedPath.toLowerCase();
     const alreadyExists = paths.some((p) => path.normalize(p).toLowerCase() === normalizedLower);
     if (!alreadyExists) {
@@ -74,13 +125,16 @@ export async function getShellEnvironment(): Promise<Record<string, string>> {
     return { ...cachedEnv };
   }
 
-  // Windows: derive PATH without shell invocation
-  // Git Bash PATH doesn't include Windows user paths, so we build it manually
+  // Windows: derive PATH from (live registry PATH) + process.env.PATH + common
+  // install locations. We avoid spawning a full login shell here, but DO spawn
+  // PowerShell once per cache TTL to read the registry — this is what lets us
+  // pick up CLIs installed after the app launched.
   if (process.platform === 'win32') {
-    console.log('[shell-env] Windows detected, deriving PATH without shell invocation');
+    console.log('[shell-env] Windows detected, deriving PATH from registry + process.env + defaults');
+    const winPath = await buildWindowsPath();
     const env: Record<string, string> = {
       ...process.env,
-      PATH: buildWindowsPath(),
+      PATH: winPath,
       HOME: os.homedir(),
       USER: os.userInfo().username,
       USERPROFILE: os.homedir()

@@ -10,6 +10,7 @@ import { join, basename } from 'node:path';
 import { app } from 'electron';
 import { getProviderAdapter } from '../../providers/index';
 import { evict } from '../../providers/detect-cache';
+import { clearShellEnvCache } from '../../git/shell-env';
 import { cloneIntoRepos } from '../../git/clone-into-repos';
 import { getGitRemoteInfo } from '../../git';
 import { isWindows } from '../../platform/index';
@@ -50,8 +51,13 @@ export const newProjectRouter = router({
       })
     )
     .query(async ({ input }) => {
-      if (input.evictCache && input.provider !== 'openspec') {
-        evict(input.provider);
+      if (input.evictCache) {
+        // Also clear the shell-env cache so a CLI installed AFTER the app launched
+        // (which only updates the Windows registry PATH, not process.env.PATH) is
+        // picked up by the very next runCli() call — otherwise the user would have
+        // to wait for the 60 s shell-env TTL to expire.
+        clearShellEnvCache();
+        if (input.provider !== 'openspec') evict(input.provider);
       }
 
       if (input.provider === 'openspec') {
@@ -77,7 +83,10 @@ export const newProjectRouter = router({
       })
     )
     .query(async ({ input }) => {
-      if (input.evictCache) evict(input.provider);
+      if (input.evictCache) {
+        clearShellEnvCache();
+        evict(input.provider);
+      }
       const adapter = getProviderAdapter(input.provider);
       return adapter.checkAuth(`auth-${input.provider}`);
     }),

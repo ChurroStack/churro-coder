@@ -41,7 +41,7 @@
     "typecheck": "tsc --noEmit",
     "ts:check": "bun run typecheck",
     "format": "prettier --write --ignore-unknown ./src",
-    "postinstall": "node -e \"if(!process.env.VERCEL && !process.env.SKIP_ELECTRON_REBUILD){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\" && node scripts/patch-electron-dev.mjs && node scripts/patch-radix-slot.mjs && node -e \"if(!process.env.SKIP_ELECTRON_REBUILD){try{require('child_process').execSync('node scripts/download-openspec.mjs',{stdio:'inherit'})}catch(e){console.warn('[postinstall] openspec install failed (run bun run openspec:install manually):',e.message)}}\""
+    "postinstall": "node scripts/patch-node-pty-win.mjs && node -e \"if(!process.env.VERCEL && !process.env.SKIP_ELECTRON_REBUILD){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\" && node scripts/patch-electron-dev.mjs && node scripts/patch-radix-slot.mjs && node -e \"if(!process.env.SKIP_ELECTRON_REBUILD){try{require('child_process').execSync('node scripts/download-openspec.mjs',{stdio:'inherit'})}catch(e){console.warn('[postinstall] openspec install failed (run bun run openspec:install manually):',e.message)}}\""
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.179",
