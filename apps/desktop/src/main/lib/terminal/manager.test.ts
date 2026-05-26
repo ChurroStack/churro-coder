@@ -297,7 +297,11 @@ describe('TerminalManager TUI smoke — alternate-screen pass-through [terminal-
   // alt-screen. The PTY layer must pass the escape sequences through verbatim —
   // this guards against any encoding transformation that would break full-screen
   // TUIs like `claude` or `codex`.
-  test('alternate-screen enter/exit escape sequences pass through the PTY verbatim', async () => {
+  // Skipped in CI (SKIP_ELECTRON_REBUILD=1) because node-pty's native binding
+  // isn't rebuilt against the runner's Node ABI there; spawning crashes the
+  // vitest worker and exits the whole run without a summary.
+  const skipRealPty = process.env.SKIP_ELECTRON_REBUILD === '1';
+  test.skipIf(skipRealPty)('alternate-screen enter/exit escape sequences pass through the PTY verbatim', async () => {
     const chunks: string[] = [];
 
     const proc = pty.spawn('bash', ['-c', "printf '\\033[?1049h\\033[2J\\033[H\\033[?1049l'"], {
