@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { extractPlanTitleFromContent, writeCurrentPlan } from '../../plans/plan-store';
+import { emitPlanWritten, extractPlanTitleFromContent, persistCurrentPlan } from '../../plans/plan-store';
+import { renameSubChatOnFirstPlan } from '../../sub-chats/rename-on-plan';
 import { SUB_CHAT_ID_MISSING_ERROR, requireKnownSubChatId } from './sub-chat-id-helper';
 
 export function registerWritePlanTool(server: McpServer): void {
@@ -37,15 +38,29 @@ export function registerWritePlanTool(server: McpServer): void {
 
       const title = input.title?.trim() || extractPlanTitleFromContent(input.markdown);
 
-      await writeCurrentPlan({
+      // Persist the plan FIRST so we never rename the sub-chat for a plan
+      // that didn't make it to disk (atomic-rename failure, disk full, etc.
+      // throws out of `persistCurrentPlan` and bypasses the rename + emit).
+      // The rename runs between the file write and the emit so the single
+      // `plan-written` event still carries the combined result, saving the
+      // renderer a second cache-invalidation round.
+      const filePath = await persistCurrentPlan({
         subChatId: id,
         content: input.markdown,
         source: 'mcp',
         title
       });
 
+      const renamed = renameSubChatOnFirstPlan(id, title);
+
+      emitPlanWritten({
+        subChatId: id,
+        filePath,
+        ...(renamed.subChatRenamed || renamed.parentChatRenamed ? { renamed } : {})
+      });
+
       console.log(
-        `[churro-coder] write_plan result sub=${id} title="${title}" bytes=${Buffer.byteLength(input.markdown, 'utf8')}`
+        `[churro-coder] write_plan result sub=${id} title="${title}" bytes=${Buffer.byteLength(input.markdown, 'utf8')} renamed=${renamed.subChatRenamed ? 'yes' : 'no'}`
       );
 
       return {
