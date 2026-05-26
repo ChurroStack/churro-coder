@@ -1,6 +1,6 @@
-import { useAtom, useSetAtom } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { newProjectDialogOpenAtom, newProjectActiveSectionAtom } from './atoms';
+import { newProjectDialogOpenAtom, newProjectDialogForceOpenAtom, newProjectActiveSectionAtom } from './atoms';
 import { useResetNewProjectDraft } from './use-reset-new-project-draft';
 import { CreateProjectWizard } from './create-project-wizard';
 import { OpenFolderSection } from './open-folder-section';
@@ -13,8 +13,10 @@ const SECTIONS = [
   { id: 'clone' as const, label: 'Clone' }
 ];
 
-export function NewProjectDialog({ forceOpen = false }: { forceOpen?: boolean } = {}) {
+export function NewProjectDialog({ forceOpen: forceOpenProp = false }: { forceOpen?: boolean } = {}) {
   const [open, setOpen] = useAtom(newProjectDialogOpenAtom);
+  const forceOpenAtomValue = useAtomValue(newProjectDialogForceOpenAtom);
+  const forceOpen = forceOpenProp || forceOpenAtomValue;
   const [activeSection, setActiveSection] = useAtom(newProjectActiveSectionAtom);
   const resetDraft = useResetNewProjectDraft();
 

@@ -67,6 +67,8 @@ function freshProgress(): NewProjectProgress {
 }
 
 export const newProjectDialogOpenAtom = atom(false);
+/** When true, the dialog cannot be dismissed (X / Escape / outside-click all blocked). Set by EmptyStateShell on first-install. */
+export const newProjectDialogForceOpenAtom = atom(false);
 export const newProjectActiveSectionAtom = atom<NewProjectSection>('create');
 export const newProjectDraftAtom = atom<NewProjectDraft>(freshDraft());
 export const newProjectProgressAtom = atom<NewProjectProgress>(freshProgress());
