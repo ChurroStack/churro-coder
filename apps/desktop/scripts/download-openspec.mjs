@@ -111,7 +111,27 @@ function downloadFile(url, destPath) {
 }
 
 function extractTarGz(archivePath, targetDir) {
-  const result = spawnSync('tar', ['-xzf', archivePath, '-C', targetDir], { stdio: 'inherit' });
+  const args = ['-xzf', archivePath, '-C', targetDir];
+
+  // On Windows, GNU tar (often resolved via Git Bash / MSYS2 in bun's script
+  // shell) interprets `C:\...` as a remote host (host:path SSH-style). Prefer
+  // System32 bsdtar, which treats paths as local; fall back to PATH tar with
+  // --force-local so GNU tar treats the drive-letter path as local too.
+  if (process.platform === 'win32') {
+    const sysRoot = process.env.SystemRoot || 'C:\\Windows';
+    const sysTar = path.join(sysRoot, 'System32', 'tar.exe');
+    if (fs.existsSync(sysTar)) {
+      const result = spawnSync(sysTar, args, { stdio: 'inherit' });
+      if (result.status === 0) return;
+    }
+    const result = spawnSync('tar', ['--force-local', ...args], { stdio: 'inherit' });
+    if (result.status !== 0) {
+      throw new Error(`tar extraction failed with code ${result.status ?? 'unknown'}`);
+    }
+    return;
+  }
+
+  const result = spawnSync('tar', args, { stdio: 'inherit' });
   if (result.status !== 0) {
     throw new Error(`tar extraction failed with code ${result.status ?? 'unknown'}`);
   }
@@ -120,11 +140,17 @@ function extractTarGz(archivePath, targetDir) {
 function npmInstall(dir) {
   // Use npm ci/install to install only production deps for the package.
   // Prefer npm (universally available with Node) over bun for hermeticism.
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const isWin = process.platform === 'win32';
+  const npm = isWin ? 'npm.cmd' : 'npm';
+  // Node 20.12+/22+ requires shell:true to spawn .cmd/.bat (CVE-2024-27980).
   const result = spawnSync(npm, ['install', '--omit=dev', '--no-fund', '--no-audit'], {
     cwd: dir,
     stdio: 'inherit',
+    shell: isWin
   });
+  if (result.error) {
+    throw new Error(`npm install failed to spawn: ${result.error.message}`);
+  }
   if (result.status !== 0) {
     throw new Error(`npm install failed with code ${result.status ?? 'unknown'}`);
   }

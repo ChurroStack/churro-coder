@@ -1,0 +1,45 @@
+# Authoritative line-ending rules so the repo behaves the same on Windows,
+# macOS, and Linux regardless of each contributor's `core.autocrlf` setting.
+
+# Default: treat unknown files as auto-detected text, normalized to LF.
+* text=auto eol=lf
+
+# Windows-native script formats — keep CRLF, cmd.exe / PowerShell expect it.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# POSIX shell scripts — explicit LF (would otherwise inherit the default).
+*.sh    text eol=lf
+
+# Binary file types — never line-ending-convert, never diff as text.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.icns  binary
+*.tiff  binary
+*.webp  binary
+*.mp3   binary
+*.mp4   binary
+*.wav   binary
+*.zip   binary
+*.tar   binary
+*.gz    binary
+*.tgz   binary
+*.bz2   binary
+*.xz    binary
+*.7z    binary
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.dylib binary
+*.node  binary
+*.pdb   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary
