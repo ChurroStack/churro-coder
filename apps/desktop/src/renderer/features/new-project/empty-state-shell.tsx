@@ -13,7 +13,7 @@ export function EmptyStateShell() {
 
   return (
     <div className="flex h-full items-center justify-center bg-background">
-      <NewProjectDialog />
+      <NewProjectDialog forceOpen />
     </div>
   );
 }

@@ -13,12 +13,13 @@ const SECTIONS = [
   { id: 'clone' as const, label: 'Clone' }
 ];
 
-export function NewProjectDialog() {
+export function NewProjectDialog({ forceOpen = false }: { forceOpen?: boolean } = {}) {
   const [open, setOpen] = useAtom(newProjectDialogOpenAtom);
   const [activeSection, setActiveSection] = useAtom(newProjectActiveSectionAtom);
   const resetDraft = useResetNewProjectDraft();
 
   const handleOpenChange = (o: boolean) => {
+    if (forceOpen && !o) return;
     setOpen(o);
     if (!o) resetDraft();
   };
@@ -27,7 +28,11 @@ export function NewProjectDialog() {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         className="w-[1050px] max-h-[90vh] overflow-y-auto"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        showCloseButton={!forceOpen}
+        onEscapeKeyDown={forceOpen ? (e) => e.preventDefault() : undefined}
+        onPointerDownOutside={forceOpen ? (e) => e.preventDefault() : undefined}
+        onInteractOutside={forceOpen ? (e) => e.preventDefault() : undefined}>
         <DialogHeader>
           <DialogTitle>Add project</DialogTitle>
         </DialogHeader>

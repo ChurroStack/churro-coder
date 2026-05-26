@@ -6,6 +6,14 @@ export default defineConfig({
     environment: "node",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // CI runners (ubuntu-latest, 16 GB) OOM with the default forks pool
+    // spawning one full Node process per CPU. Threads share heap, much lighter.
+    pool: "threads",
+    poolOptions: {
+      threads: {
+        maxThreads: 4,
+      },
+    },
     coverage: {
       provider: "v8",
       include: [
