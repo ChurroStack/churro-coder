@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { cleanup, screen, fireEvent } from '@testing-library/react';
+import { cleanup, screen, fireEvent, act } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../../test-utils';
 import { NewProjectDialog } from './new-project-dialog';
 import { newProjectDialogOpenAtom, newProjectActiveSectionAtom } from './atoms';
@@ -94,5 +94,48 @@ describe('NewProjectDialog', () => {
     );
     fireEvent.click(screen.getByText('Open dialog'));
     expect(screen.getByTestId('create-wizard')).toBeTruthy();
+  });
+
+  describe('default (dismissible) behavior', () => {
+    it('renders the close button', () => {
+      setup();
+      expect(screen.getByRole('button', { name: /close/i })).toBeTruthy();
+    });
+
+    it('closes when Escape is pressed', () => {
+      const store = setup();
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(store.get(newProjectDialogOpenAtom)).toBe(false);
+    });
+  });
+
+  describe('forceOpen (empty-state) behavior', () => {
+    function setupForceOpen() {
+      const store = createTestStore();
+      store.set(newProjectDialogOpenAtom, true);
+      store.set(newProjectActiveSectionAtom, 'create');
+      renderWithProviders(<NewProjectDialog forceOpen />, { store });
+      return store;
+    }
+
+    it('does not render the close (X) button', () => {
+      setupForceOpen();
+      expect(screen.queryByRole('button', { name: /close/i })).toBeNull();
+    });
+
+    it('does not close when Escape is pressed', () => {
+      const store = setupForceOpen();
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(store.get(newProjectDialogOpenAtom)).toBe(true);
+      expect(screen.getByText('Add project')).toBeTruthy();
+    });
+
+    it('still permits programmatic close via the atom (success path)', () => {
+      const store = setupForceOpen();
+      act(() => {
+        store.set(newProjectDialogOpenAtom, false);
+      });
+      expect(screen.queryByText('Add project')).toBeNull();
+    });
   });
 });
