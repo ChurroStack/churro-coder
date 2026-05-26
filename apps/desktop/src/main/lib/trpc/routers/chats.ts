@@ -2914,28 +2914,38 @@ export const chatsRouter = router({
    * subscribing to each artifact type separately.
    */
   artifactWritten: publicProcedure.input(z.string().min(1)).subscription(({ input: subChatId }) => {
-    return observable<{ subChatId: string; kind: 'plan' | 'tasks' | 'review' | 'files-changed'; filePath?: string }>(
-      (emit) => {
-        const unsubPlan = onPlanWritten((event) => {
-          if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'plan', filePath: event.filePath });
-        });
-        const unsubTasks = onTasksWritten((event) => {
-          if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'tasks', filePath: event.filePath });
-        });
-        const unsubReview = onReviewWritten((event) => {
-          if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'review' });
-        });
-        const unsubFiles = onFileChangesNotified((event) => {
-          if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'files-changed' });
-        });
-        return () => {
-          unsubPlan();
-          unsubTasks();
-          unsubReview();
-          unsubFiles();
-        };
-      }
-    );
+    return observable<{
+      subChatId: string;
+      kind: 'plan' | 'tasks' | 'review' | 'files-changed';
+      filePath?: string;
+      renamed?: { subChatRenamed?: string; parentChatRenamed?: string };
+    }>((emit) => {
+      const unsubPlan = onPlanWritten((event) => {
+        if (event.subChatId === subChatId) {
+          emit.next({
+            subChatId,
+            kind: 'plan',
+            filePath: event.filePath,
+            ...(event.renamed ? { renamed: event.renamed } : {})
+          });
+        }
+      });
+      const unsubTasks = onTasksWritten((event) => {
+        if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'tasks', filePath: event.filePath });
+      });
+      const unsubReview = onReviewWritten((event) => {
+        if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'review' });
+      });
+      const unsubFiles = onFileChangesNotified((event) => {
+        if (event.subChatId === subChatId) emit.next({ subChatId, kind: 'files-changed' });
+      });
+      return () => {
+        unsubPlan();
+        unsubTasks();
+        unsubReview();
+        unsubFiles();
+      };
+    });
   }),
 
   /**
@@ -2948,49 +2958,55 @@ export const chatsRouter = router({
    * by `event.subChatId`.
    */
   artifactWrittenForChat: publicProcedure.input(z.string().min(1)).subscription(({ input: chatId }) => {
-    return observable<{ subChatId: string; kind: 'plan' | 'tasks' | 'review' | 'files-changed'; filePath?: string }>(
-      (emit) => {
-        const db = getDatabase();
-        const belongsToChat = (subChatId: string): boolean => {
-          try {
-            const row = db
-              .select({ chatId: subChats.chatId })
-              .from(subChats)
-              .where(eq(subChats.id, subChatId))
-              .get() as { chatId: string } | undefined;
-            return row?.chatId === chatId;
-          } catch {
-            return false;
-          }
-        };
-        const unsubPlan = onPlanWritten((event) => {
-          if (belongsToChat(event.subChatId)) {
-            emit.next({ subChatId: event.subChatId, kind: 'plan', filePath: event.filePath });
-          }
-        });
-        const unsubTasks = onTasksWritten((event) => {
-          if (belongsToChat(event.subChatId)) {
-            emit.next({ subChatId: event.subChatId, kind: 'tasks', filePath: event.filePath });
-          }
-        });
-        const unsubReview = onReviewWritten((event) => {
-          if (belongsToChat(event.subChatId)) {
-            emit.next({ subChatId: event.subChatId, kind: 'review' });
-          }
-        });
-        const unsubFiles = onFileChangesNotified((event) => {
-          if (belongsToChat(event.subChatId)) {
-            emit.next({ subChatId: event.subChatId, kind: 'files-changed' });
-          }
-        });
-        return () => {
-          unsubPlan();
-          unsubTasks();
-          unsubReview();
-          unsubFiles();
-        };
-      }
-    );
+    return observable<{
+      subChatId: string;
+      kind: 'plan' | 'tasks' | 'review' | 'files-changed';
+      filePath?: string;
+      renamed?: { subChatRenamed?: string; parentChatRenamed?: string };
+    }>((emit) => {
+      const db = getDatabase();
+      const belongsToChat = (subChatId: string): boolean => {
+        try {
+          const row = db.select({ chatId: subChats.chatId }).from(subChats).where(eq(subChats.id, subChatId)).get() as
+            | { chatId: string }
+            | undefined;
+          return row?.chatId === chatId;
+        } catch {
+          return false;
+        }
+      };
+      const unsubPlan = onPlanWritten((event) => {
+        if (belongsToChat(event.subChatId)) {
+          emit.next({
+            subChatId: event.subChatId,
+            kind: 'plan',
+            filePath: event.filePath,
+            ...(event.renamed ? { renamed: event.renamed } : {})
+          });
+        }
+      });
+      const unsubTasks = onTasksWritten((event) => {
+        if (belongsToChat(event.subChatId)) {
+          emit.next({ subChatId: event.subChatId, kind: 'tasks', filePath: event.filePath });
+        }
+      });
+      const unsubReview = onReviewWritten((event) => {
+        if (belongsToChat(event.subChatId)) {
+          emit.next({ subChatId: event.subChatId, kind: 'review' });
+        }
+      });
+      const unsubFiles = onFileChangesNotified((event) => {
+        if (belongsToChat(event.subChatId)) {
+          emit.next({ subChatId: event.subChatId, kind: 'files-changed' });
+        }
+      });
+      return () => {
+        unsubPlan();
+        unsubTasks();
+        unsubReview();
+        unsubFiles();
+      };
+    });
   }),
 
   /**

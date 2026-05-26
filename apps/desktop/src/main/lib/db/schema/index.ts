@@ -74,6 +74,12 @@ export const subChats = sqliteTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId()),
+    // NULL = never-named; the app.quit cleanup in main/index.ts (and
+    // chats.deleteSubChatIfEmpty / deleteSubChatsIfEmpty) deletes rows where
+    // message_count = 0 AND name IS NULL. Adding a non-null default would
+    // break that GC. Auto-rename triggers (first user message, first
+    // write_plan) flip this to a real title once the user invests effort —
+    // see sub-chats/placeholders.ts for the placeholder-name set.
     name: text('name'),
     chatId: text('chat_id')
       .notNull()
