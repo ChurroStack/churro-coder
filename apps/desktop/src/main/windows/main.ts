@@ -579,8 +579,7 @@ export function createWindow(options?: { chatId?: string; subChatId?: string; pr
   // icon — which in `bun run dev` is Electron's default logo, not Churro Coder.
   // existsSync guard mirrors the notification-icon pattern below and lets a
   // packaged build fall through to the exe-embedded icon if build/ isn't bundled.
-  const iconFile =
-    process.platform === 'win32' ? 'icon.ico' : process.platform === 'darwin' ? 'icon.icns' : 'icon.png';
+  const iconFile = process.platform === 'win32' ? 'icon.ico' : process.platform === 'darwin' ? 'icon.icns' : 'icon.png';
   const iconPath = join(__dirname, '../../build', iconFile);
   const windowIcon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined;
 

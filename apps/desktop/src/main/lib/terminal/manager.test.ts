@@ -301,28 +301,32 @@ describe('TerminalManager TUI smoke — alternate-screen pass-through [terminal-
   // isn't rebuilt against the runner's Node ABI there; spawning crashes the
   // vitest worker and exits the whole run without a summary.
   const skipRealPty = process.env.SKIP_ELECTRON_REBUILD === '1';
-  test.skipIf(skipRealPty)('alternate-screen enter/exit escape sequences pass through the PTY verbatim', async () => {
-    const chunks: string[] = [];
+  test.skipIf(skipRealPty)(
+    'alternate-screen enter/exit escape sequences pass through the PTY verbatim',
+    async () => {
+      const chunks: string[] = [];
 
-    const proc = pty.spawn('bash', ['-c', "printf '\\033[?1049h\\033[2J\\033[H\\033[?1049l'"], {
-      cols: 80,
-      rows: 24,
-      cwd: os.tmpdir()
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('PTY process did not exit within 3s')), 3000);
-      proc.onData((data) => chunks.push(data));
-      proc.onExit(() => {
-        clearTimeout(timeout);
-        resolve();
+      const proc = pty.spawn('bash', ['-c', "printf '\\033[?1049h\\033[2J\\033[H\\033[?1049l'"], {
+        cols: 80,
+        rows: 24,
+        cwd: os.tmpdir()
       });
-    });
 
-    const output = chunks.join('');
-    // CSI ? 1049 h — enter alternate screen buffer
-    expect(output).toContain('\x1b[?1049h');
-    // CSI ? 1049 l — exit alternate screen buffer (restore prior buffer + scrollback)
-    expect(output).toContain('\x1b[?1049l');
-  }, 5000);
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('PTY process did not exit within 3s')), 3000);
+        proc.onData((data) => chunks.push(data));
+        proc.onExit(() => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      const output = chunks.join('');
+      // CSI ? 1049 h — enter alternate screen buffer
+      expect(output).toContain('\x1b[?1049h');
+      // CSI ? 1049 l — exit alternate screen buffer (restore prior buffer + scrollback)
+      expect(output).toContain('\x1b[?1049l');
+    },
+    5000
+  );
 });
