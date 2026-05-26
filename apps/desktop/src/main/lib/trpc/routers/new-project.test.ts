@@ -87,9 +87,11 @@ vi.mock('node:fs/promises', () => ({
   rm: vi.fn().mockResolvedValue(undefined)
 }));
 
-// exec mock — the implementation is swapped per-test via mockExec.mockImplementation()
+// exec mock — the implementation is swapped per-test via mockExec.mockImplementation().
+// execFile is also stubbed because shell-env.ts pulls promisify(execFile) at import time.
 vi.mock('node:child_process', () => ({
-  exec: vi.fn()
+  exec: vi.fn(),
+  execFile: vi.fn()
 }));
 
 vi.mock('../index', () => ({
