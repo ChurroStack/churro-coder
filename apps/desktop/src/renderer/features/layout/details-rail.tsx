@@ -20,6 +20,8 @@ import { useDockApi } from '../dock/dock-context';
 import { addOrFocus } from '../dock/add-or-focus';
 import { useWorkflowActions, useWorkflowState } from '../agents/hooks/use-workflow-state';
 import type { WorkflowActionKind } from '../agents/utils/workflow-state';
+import { cliAutoRenameTriggered } from '../agents/lib/auto-rename-state';
+import { applyPlanRename } from './apply-plan-rename';
 
 /**
  * DetailsRail — gridview right cell. Lifts DetailsSidebar out of ChatView so
@@ -129,7 +131,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   // null but the panel's own subChatId is the one writing artifacts.
   trpc.chats.artifactWrittenForChat.useSubscription(chatId ?? '', {
     enabled: !!chatId,
-    onData({ subChatId: eventSubChatId, kind, filePath }) {
+    onData({ subChatId: eventSubChatId, kind, filePath, renamed }) {
       // Set the plan-path atom only when the event matches the currently
       // visible sub-chat — that's the only widget that consumes this key
       // right now. Other sub-chats pick up their plan via cold-start
@@ -138,6 +140,22 @@ export function DetailsRail(_props: IGridviewPanelProps) {
       if (kind === 'plan' && filePath && eventSubChatId === effectiveSubChatId) {
         setCurrentPlanPath(filePath);
         triggerPlanRefetch();
+      }
+      // When the server-side `renameSubChatOnFirstPlan` flipped the sub-chat
+      // (and optionally its parent chat) from a placeholder name to the plan
+      // title, sync the local store + tRPC caches so the dockview tab title
+      // and sidebar update without waiting for a chat-switch refetch. The DB
+      // is already authoritative — this hook is purely a real-time
+      // optimization.
+      if (kind === 'plan' && renamed) {
+        applyPlanRename(eventSubChatId, chatId ?? null, renamed, {
+          updateSubChatName: (id, name) => useAgentSubChatStore.getState().updateSubChatName(id, name),
+          markSubChatAutoRenamed: (id) => cliAutoRenameTriggered.add(id),
+          patchChatGetCache: (id, updater) =>
+            trpcUtils.chats.get.setData({ id }, (old) => updater(old as Parameters<typeof updater>[0]) as typeof old),
+          patchChatListCache: (updater) =>
+            trpcUtils.chats.list.setData({}, (old) => updater(old as Parameters<typeof updater>[0]) as typeof old)
+        });
       }
       // Invalidate per-sub-chat queries keyed by the event's exact subChatId
       // so any widget mounted under that key picks up fresh data on its

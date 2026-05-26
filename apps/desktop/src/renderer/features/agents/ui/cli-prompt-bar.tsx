@@ -39,18 +39,11 @@ import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { useVoiceInput } from '../../../lib/hooks/use-voice-input';
 import { AgentsSlashCommand, type SlashCommandOption } from '../commands';
 import { useAgentAutoRenameDispatcher } from '../hooks/use-auto-rename-dispatcher';
+import { cliAutoRenameTriggered, _resetCliAutoRenameTriggered } from '../lib/auto-rename-state';
 
-/**
- * SubChats whose first-user-send auto-rename has already fired in this
- * renderer session. Cleared only on full reload — survives panel remount
- * the same way `mcpInjectedSessions` does in `use-harness-send-dispatcher`.
- */
-const cliAutoRenameTriggered = new Set<string>();
-
-/** Test-only: clears the module-level "already triggered" tracking set. */
-export function _resetCliAutoRenameTriggered() {
-  cliAutoRenameTriggered.clear();
-}
+// Re-export the test helper so existing tests / harnesses that imported it
+// from this module continue to work.
+export { _resetCliAutoRenameTriggered };
 
 function shouldAutoRenameCliSubChat(subChatId: string, persistedName: string | undefined | null): boolean {
   if (cliAutoRenameTriggered.has(subChatId)) return false;
