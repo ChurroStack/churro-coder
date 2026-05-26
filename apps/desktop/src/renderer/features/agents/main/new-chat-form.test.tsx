@@ -358,7 +358,7 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(trigger!);
     });
     await act(async () => {
-      fireEvent.click(screen.getByText('Claude CLI'));
+      fireEvent.click(await screen.findByText('Claude CLI'));
     });
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
@@ -381,7 +381,7 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(trigger!);
     });
     await act(async () => {
-      fireEvent.click(screen.getByText('Codex CLI'));
+      fireEvent.click(await screen.findByText('Codex CLI'));
     });
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
@@ -431,7 +431,7 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(trigger!);
     });
     await act(async () => {
-      fireEvent.click(screen.getByText('Claude CLI'));
+      fireEvent.click(await screen.findByText('Claude CLI'));
     });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
@@ -463,7 +463,7 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(trigger!);
     });
     await act(async () => {
-      fireEvent.click(screen.getByText('Codex CLI'));
+      fireEvent.click(await screen.findByText('Codex CLI'));
     });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
