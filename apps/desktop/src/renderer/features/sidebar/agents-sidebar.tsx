@@ -101,7 +101,7 @@ import {
 import { useAgentSubChatStore, OPEN_SUB_CHATS_CHANGE_EVENT } from '../agents/stores/sub-chat-store';
 import { getWindowId } from '../../contexts/WindowContext';
 import { AgentsHelpPopover } from '../agents/components/agents-help-popover';
-import { getShortcutKey, isDesktopApp } from '../../lib/utils/platform';
+import { getShortcutKey, isDesktopApp, isMacOS } from '../../lib/utils/platform';
 import { useResolvedHotkeyDisplay, useResolvedHotkeyDisplayWithAlt } from '../../lib/hotkeys';
 import { pluralize } from '../agents/utils/pluralize';
 import { useNewChatDrafts, deleteNewChatDraft, type NewChatDraft } from '../agents/lib/drafts';
@@ -1187,7 +1187,7 @@ const SidebarHeader = memo(function SidebarHeader({
       <div
         className={cn(
           'absolute top-2 z-20 flex items-center gap-2 px-1.5 h-6',
-          isDesktop && isFullscreen !== true ? 'left-[82px]' : 'left-2',
+          isDesktop && isFullscreen !== true && isMacOS() ? 'left-[82px]' : 'left-2',
           isMobileFullscreen ? 'right-2' : 'right-10'
         )}
         style={{

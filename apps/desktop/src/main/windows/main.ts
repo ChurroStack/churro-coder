@@ -575,6 +575,15 @@ export function createWindow(options?: { chatId?: string; subChatId?: string; pr
   // Read Windows frame preference
   const useNativeFrame = getUseNativeFramePreference();
 
+  // Per-platform window icon. Without this, Windows falls back to the exe-embedded
+  // icon — which in `bun run dev` is Electron's default logo, not Churro Coder.
+  // existsSync guard mirrors the notification-icon pattern below and lets a
+  // packaged build fall through to the exe-embedded icon if build/ isn't bundled.
+  const iconFile =
+    process.platform === 'win32' ? 'icon.ico' : process.platform === 'darwin' ? 'icon.icns' : 'icon.png';
+  const iconPath = join(__dirname, '../../build', iconFile);
+  const windowIcon = existsSync(iconPath) ? nativeImage.createFromPath(iconPath) : undefined;
+
   const window = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -583,6 +592,7 @@ export function createWindow(options?: { chatId?: string; subChatId?: string; pr
     show: false,
     title: 'Churro Coder',
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#09090b' : '#ffffff',
+    ...(windowIcon && { icon: windowIcon }),
     // hiddenInset shows native traffic lights inset in the window
     // hiddenInset hides the native title bar but keeps traffic lights visible
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
