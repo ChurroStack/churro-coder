@@ -21,6 +21,7 @@ import {
   CODEX_SKIP_PAYLOAD_TYPES,
   type SideEffectKind
 } from './mapping-table';
+import { stripClaudeCliEnvelopes } from '../../../shared/cli-text-envelopes';
 
 export interface MessagePart {
   type: string;
@@ -159,9 +160,17 @@ function mapClaudeMessageRecord(obj: ClaudeRecord, state: MapperState): MapperRe
 
   const content = msg.content;
   if (typeof content === 'string') {
-    if (content.trim()) parts.push({ type: 'text', text: content });
+    const stripped = role === 'user' ? stripClaudeCliEnvelopes(content) : content;
+    if (stripped.trim()) parts.push({ type: 'text', text: stripped });
   } else if (Array.isArray(content)) {
     for (const block of content) {
+      // Same stripping applies to text blocks inside user-message arrays —
+      // some Claude Code versions wrap envelope text inside content[].text.
+      if (role === 'user' && block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') {
+        const stripped = stripClaudeCliEnvelopes(block.text);
+        if (stripped.trim()) parts.push({ type: 'text', text: stripped });
+        continue;
+      }
       mapClaudeContentBlock(block, parts, sideEffects, state);
     }
   }
