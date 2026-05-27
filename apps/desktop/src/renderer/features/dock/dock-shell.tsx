@@ -171,6 +171,11 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
       className={className}
       components={dockviewComponents}
       defaultTabComponent={RenamableTab}
+      // Per-panel renderer: only CLI chat panels opt into 'always'. See
+      // `addOrFocus` (renderer set at construction time) and `ChatPanel`'s
+      // `setRenderer` effect (covers layout-restore and drag-drop). Builtin
+      // chat / OpenSpec / terminal panels keep the dockview default
+      // ('onlyWhenVisible') so non-CLI tabs don't pay the always-mounted cost.
       onReady={handleReady}
       prefixHeaderActionsComponent={DockHeaderLeftActions}
       rightHeaderActionsComponent={DockHeaderActions}

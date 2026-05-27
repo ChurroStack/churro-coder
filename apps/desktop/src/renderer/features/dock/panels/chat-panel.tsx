@@ -17,7 +17,6 @@ import { useWindowId } from '../../../contexts/WindowContext';
 import { openSpecStopHandlerAtomFamily } from '../../openspec/atoms';
 import { agentChatStore } from '../../agents/stores/agent-chat-store';
 import { useStuckDetection } from '../../agents/hooks/use-stuck-detection';
-import { useCliBusyTracker } from '../../agents/hooks/use-cli-busy-tracker';
 import { subChatHardResetHandlerAtomFamily } from '../../agents/atoms/stuck-detection';
 
 /** Tracks which chatIds have had their workflow caches refreshed in this renderer session. */
@@ -206,10 +205,20 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
   // Stuck-session detection for builtin harness (heuristic 4: stream silence >120s)
   useStuckDetection({ subChatId: params.subChatId, harness });
 
-  // Populate cliBusyAtomFamily from terminal active/idle events so the status
-  // widget's blue in_progress pill fires for CLI subChats even when
-  // ChatInputArea is not mounted (e.g. OpenSpec change panels).
-  useCliBusyTracker({ subChatId: params.subChatId, parentChatId: params.chatId, isCliHarness });
+  // CLI busy-state tracking now lives in the global <CliStateSubscriber/> mounted
+  // in App.tsx — it subscribes once to terminal.allCliStates for every cli:*
+  // PTY and writes cliRunningStatesAtom, useStreamingStatusStore, and
+  // loadingSubChatsAtom.
+
+  // CLI panels opt into renderer='always' so the React tree stays mounted across
+  // tab switches. addOrFocus sets this at construction time; this effect covers
+  // panels that arrive via layout-restore / drag-drop (no addOrFocus call).
+  // Busy-state is global so this isn't required for the spinner, but the
+  // per-panel cliUserQuestion subscription in ChatCliSurface relies on it.
+  useEffect(() => {
+    if (!isCliHarness) return;
+    if (api.renderer !== 'always') api.setRenderer('always');
+  }, [isCliHarness, api]);
 
   const hardResetHandlerAtom = useMemo(() => subChatHardResetHandlerAtomFamily(params.subChatId), [params.subChatId]);
   const setHardResetHandler = useSetAtom(hardResetHandlerAtom);

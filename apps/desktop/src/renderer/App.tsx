@@ -18,6 +18,7 @@ import {
 } from './features/onboarding';
 import { EmptyStateShell } from './features/new-project/empty-state-shell';
 import { NewProjectDialog } from './features/new-project/new-project-dialog';
+import { CliStateSubscriber } from './features/agents/components/cli-state-subscriber';
 
 function NewProjectDialogGlobal() {
   return <NewProjectDialog />;
@@ -403,6 +404,12 @@ export function App() {
               <TooltipProvider delayDuration={100}>
                 <TRPCProvider>
                   <AnalyticsBindings />
+                  {/* Global CLI busy-state mirror. One subscription for every
+                      cli:* PTY's running/idle state; survives every workspace
+                      and dockview-tab switch. Replaces the per-panel
+                      useCliBusyTracker hook that was bound to ChatPanel's
+                      React lifecycle. */}
+                  <CliStateSubscriber />
                   <div data-agents-page className="h-screen w-screen bg-background text-foreground overflow-hidden">
                     <AppContent />
                   </div>

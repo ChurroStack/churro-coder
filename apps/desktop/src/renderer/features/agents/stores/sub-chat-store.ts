@@ -5,8 +5,16 @@ import { agentChatStore } from './agent-chat-store';
 import { getWindowId } from '../../../contexts/WindowContext';
 import { clearTaskSnapshotCache } from '../ui/agent-task-tools';
 import { clearSubChatRuntimeCaches } from './sub-chat-runtime-cleanup';
-import { getDefaultRatios, addPaneRatio, removePaneRatio } from '../atoms';
+import {
+  getDefaultRatios,
+  addPaneRatio,
+  removePaneRatio,
+  loadingSubChatsAtom,
+  cliRunningStatesAtom,
+  clearLoading
+} from '../atoms';
 import { trpcClient } from '../../../lib/trpc';
+import { appStore } from '../../../lib/jotai-store';
 
 export const MAX_SPLIT_PANES = 4;
 
@@ -364,6 +372,18 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
     useMessageQueueStore.getState().clearQueue(subChatId);
     const isStreaming = useStreamingStatusStore.getState().isStreaming(subChatId);
     useStreamingStatusStore.getState().clearStatus(subChatId);
+    // Drop CLI busy entries — the global <CliStateSubscriber/> will also
+    // receive a `cli-state: exited` event when the PTY-kill path
+    // (dock-shell.tsx:onDidRemovePanel) terminates the PTY, but those local
+    // clears protect against the small window between UI close and the
+    // broadcast arriving. Idempotent if the entries are already gone.
+    clearLoading((fn) => appStore.set(loadingSubChatsAtom, fn), subChatId);
+    appStore.set(cliRunningStatesAtom, (prev) => {
+      if (!prev.has(subChatId)) return prev;
+      const next = new Map(prev);
+      next.delete(subChatId);
+      return next;
+    });
     clearSubChatRuntimeCaches(subChatId);
     agentChatStore.delete(subChatId);
     clearTaskSnapshotCache(subChatId);

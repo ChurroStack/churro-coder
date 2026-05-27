@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { useAgentSubChatStore } from './sub-chat-store';
 import { useStreamingStatusStore } from './streaming-status-store';
 import { useMessageQueueStore } from './message-queue-store';
+import { appStore } from '../../../lib/jotai-store';
+import { cliRunningStatesAtom, loadingSubChatsAtom } from '../atoms';
 
 describe('sub-chat-store expectedChatId guard', () => {
   beforeEach(() => {
@@ -189,5 +191,46 @@ describe('sub-chat-store expectedChatId guard', () => {
 
     unsubscribe();
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('sub-chat-store removeFromOpenSubChats clears CLI busy state', () => {
+  beforeEach(() => {
+    useAgentSubChatStore.getState().reset();
+    useStreamingStatusStore.setState({ statuses: {} });
+    appStore.set(cliRunningStatesAtom, new Map());
+    appStore.set(loadingSubChatsAtom, new Map());
+  });
+
+  test('closing a tab purges cliRunningStatesAtom + loadingSubChatsAtom + streaming status', () => {
+    const chatId = 'workspace-close';
+    const subChatId = 'sc-close';
+
+    useAgentSubChatStore.getState().setChatId(chatId);
+    useAgentSubChatStore.getState().addToOpenSubChats(subChatId, chatId);
+
+    // Simulate the global subscriber having marked this CLI as busy.
+    appStore.set(cliRunningStatesAtom, new Map([[subChatId, { state: 'running', parentChatId: chatId }]]));
+    appStore.set(loadingSubChatsAtom, new Map([[subChatId, chatId]]));
+    useStreamingStatusStore.getState().setStatus(subChatId, 'streaming');
+
+    useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId);
+
+    expect(appStore.get(cliRunningStatesAtom).has(subChatId)).toBe(false);
+    expect(appStore.get(loadingSubChatsAtom).has(subChatId)).toBe(false);
+    expect(useStreamingStatusStore.getState().isStreaming(subChatId)).toBe(false);
+  });
+
+  test('clears are idempotent when entries are absent', () => {
+    const chatId = 'workspace-idle-close';
+    const subChatId = 'sc-idle-close';
+
+    useAgentSubChatStore.getState().setChatId(chatId);
+    useAgentSubChatStore.getState().addToOpenSubChats(subChatId, chatId);
+
+    // No CLI busy entries — just closing.
+    expect(() => useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId)).not.toThrow();
+    expect(appStore.get(cliRunningStatesAtom).has(subChatId)).toBe(false);
+    expect(appStore.get(loadingSubChatsAtom).has(subChatId)).toBe(false);
   });
 });

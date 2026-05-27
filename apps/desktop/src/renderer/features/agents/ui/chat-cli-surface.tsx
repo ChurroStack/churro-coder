@@ -108,6 +108,13 @@ export function ChatCliSurface({
 
   const resolveCliUserQuestion = trpc.chats.resolveCliUserQuestion.useMutation();
 
+  // Note: this `cliUserQuestion` subscription is mounted per-panel. CLI chat
+  // panels opt into dockview's `renderer='always'` (see add-or-focus.ts and
+  // chat-panel.tsx's setRenderer effect), so the panel — and this subscription
+  // — stay mounted across tab switches and the missed-event class is covered.
+  // Cross-window broadcast (same subChat open in two windows) is still
+  // out-of-scope; if that becomes a requirement, move this to a global mirror
+  // similar to <CliStateSubscriber/>.
   trpc.chats.cliUserQuestion.useSubscription(subChatId, {
     onData: (event) => {
       const entry = event as { requestId: string; subChatId: string; questions: PendingUserQuestion['questions'] };
@@ -334,9 +341,14 @@ export function ChatCliSurface({
 
       {/* Body: disconnected / loading / error / terminal */}
       <div className="flex-1 overflow-hidden relative">
-        {/* Terminal always mounts once ready, stays mounted for scrollback */}
+        {/* Terminal always mounts once ready, stays mounted for scrollback.
+            workspaceId={chatId} is required so the main-process session
+            records the parent chat id — the global <CliStateSubscriber/>
+            reads it back via terminal.allCliStates to populate
+            loadingSubChatsAtom (Map<subChatId, parentChatId>) so the chats
+            sidebar workspace spinner lights up. */}
         {bootstrapState.status === 'ready' && (
-          <Terminal paneId={paneId} cwd={cwd} bootstrap={bootstrapState.bootstrap} />
+          <Terminal paneId={paneId} cwd={cwd} workspaceId={chatId} bootstrap={bootstrapState.bootstrap} />
         )}
 
         {bootstrapState.status === 'loading' && (

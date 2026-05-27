@@ -3,7 +3,7 @@ import { FALLBACK_SHELL, SHELL_CRASH_THRESHOLD_MS } from './env';
 import { portManager } from './port-manager';
 import { getProcessTree } from './port-scanner';
 import { createSession, setupInitialCommands } from './session';
-import type { CreateSessionParams, SessionResult, TerminalOutputState, TerminalSession } from './types';
+import type { CliStateEvent, CreateSessionParams, SessionResult, TerminalOutputState, TerminalSession } from './types';
 
 /**
  * Idle-detection tuning. Each session that opts in samples activity every
@@ -157,11 +157,50 @@ export class TerminalManager extends EventEmitter {
    * Only place that mutates session.outputState. Skips the emit when the
    * incoming value matches the current one, so subscribers never see
    * idle→idle or running→running events.
+   *
+   * In addition to the per-pane `state:${paneId}` event, fires a multiplexed
+   * `cli-state` event for `cli:*` panes so a single global subscriber can mirror
+   * every CLI sub-chat's busy state without binding to a specific pane id.
    */
   private transitionTo(session: TerminalSession, next: TerminalOutputState): void {
     if (session.outputState === next) return;
     session.outputState = next;
     this.emit(`state:${session.paneId}`, next);
+    if (session.paneId.startsWith('cli:')) {
+      const subChatId = session.paneId.slice('cli:'.length);
+      const evt: CliStateEvent = {
+        subChatId,
+        parentChatId: session.workspaceId || null,
+        state: next
+      };
+      this.emit('cli-state', evt);
+      console.log(`[terminal-cli-state] sub=${subChatId} state=${next}`);
+    }
+  }
+
+  /**
+   * Enumerate alive `cli:*` sessions for the initial snapshot delivered to
+   * late subscribers of `terminal.allCliStates`. A session that never enabled
+   * `idleDetection` has no `outputState` — default to `idle` rather than
+   * leak `undefined` through the wire.
+   */
+  listActiveCliSessions(): Array<{
+    subChatId: string;
+    parentChatId: string | null;
+    state: TerminalOutputState;
+  }> {
+    const out: Array<{ subChatId: string; parentChatId: string | null; state: TerminalOutputState }> = [];
+    for (const [paneId, session] of this.sessions) {
+      if (!paneId.startsWith('cli:') || !session.isAlive) continue;
+      out.push({
+        subChatId: paneId.slice('cli:'.length),
+        // Coerce empty-string workspaceId to null so the renderer sidebars
+        // never try to look up workspace id ''.
+        parentChatId: session.workspaceId || null,
+        state: session.outputState ?? 'idle'
+      });
+    }
+    return out;
   }
 
   private startActivityTracking(session: TerminalSession): void {
@@ -281,6 +320,19 @@ export class TerminalManager extends EventEmitter {
       portManager.unregisterSession(paneId);
 
       this.emit(`exit:${paneId}`, exitCode, signal);
+
+      // Multiplexed cli-state event so the global renderer subscriber can purge
+      // the entry from its map without needing the per-pane state subscription.
+      if (paneId.startsWith('cli:')) {
+        const subChatId = paneId.slice('cli:'.length);
+        const evt: CliStateEvent = {
+          subChatId,
+          parentChatId: session.workspaceId || null,
+          state: 'exited'
+        };
+        this.emit('cli-state', evt);
+        console.log(`[terminal-cli-state] sub=${subChatId} state=exited`);
+      }
 
       // Clean up session after delay. Capture the session ref so we don't
       // accidentally evict a fresh session that took over this paneId.
