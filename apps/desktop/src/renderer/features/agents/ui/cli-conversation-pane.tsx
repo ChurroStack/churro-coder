@@ -1,22 +1,32 @@
 /**
  * Read-only conversation pane for CLI sub-chats. Renders the JSONL-ingested
- * transcript using the same AssistantMessageItem the built-in agent uses, so
- * tool calls, plan files, MCP calls, thinking blocks etc. render identically.
+ * transcript using the *same* rendering pipeline the built-in chat uses, so
+ * user bubbles, step-collapse, exploring-groups, tool calls, plan files and
+ * MCP rich renderers all look identical to the builtin chat.
  *
  * Data flow:
- *   1) Initial fetch: `messages.getLatest({ subChatId, limit: 200 })`.
- *   2) Live updates: subscribe to `cliSession.onMessages({ subChatId })` —
- *      the server-side observable fires after every ingester batch. On
- *      receive, refetch the latest tail.
+ *   1) `messages.getLatest({ subChatId, limit: 200 })` pulls rows from SQLite.
+ *   2) The rows are parsed (parts/metadata are JSON strings in the table) and
+ *      pushed into the SAME jotai message-store the builtin chat uses, via
+ *      `syncMessagesWithStatusAtom({ ..., updateGlobal: false })` so we don't
+ *      clobber the currently active chat's global status / id atoms.
+ *   3) `IsolatedMessagesSection` then renders the per-sub-chat user-message
+ *      ids, grouping each user message with its following assistants —
+ *      identical to the builtin layout.
  *
- * Sticky-scroll: pin to the bottom unless the user has scrolled up. Mirror of
- * the built-in chat panel pattern but inlined (the existing hook is tightly
- * coupled to the live agent stream).
+ * Live updates: subscribe to `cliSession.onMessages`; on each event invalidate
+ * the latest-N query so we re-sync.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSetAtom } from 'jotai';
 import { trpc } from '@/lib/trpc';
-import { AssistantMessageItem } from '../main/assistant-message-item';
+import { IsolatedMessagesSection } from '../main/isolated-messages-section';
+import { MessageGroup } from '../components/message-group';
+import { AgentToolCall } from './agent-tool-call';
+import { AgentToolRegistry } from './agent-tool-registry';
+import { AgentUserMessageBubble } from './agent-user-message-bubble';
+import { syncMessagesWithStatusAtom } from '../stores/message-store';
 
 interface CliConversationPaneProps {
   subChatId: string;
@@ -24,9 +34,6 @@ interface CliConversationPaneProps {
   sessionFileLabel?: string | null;
 }
 
-// Raw row shape from messages.getLatest (drizzle select() — JSON columns are
-// returned as strings, NOT parsed). parts/metadata must be JSON.parse'd before
-// the renderer can consume them.
 type MessageRow = {
   id: string;
   role: 'user' | 'assistant';
@@ -51,10 +58,7 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
     { staleTime: 0, refetchOnWindowFocus: false }
   );
 
-  // Live updates from the ingester. tRPC React exposes subscriptions via
-  // .useSubscription() — the bare .subscribe() lives only on the vanilla
-  // client. Calling .subscribe() inside a useEffect raises "hooks[lastArg]
-  // is not a function" because React's hook proxy can't bind it.
+  // Live updates from the ingester.
   trpc.cliSession.onMessages.useSubscription(
     { subChatId },
     {
@@ -65,11 +69,14 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
   );
 
   const rows = (messagesQuery.data ?? []) as MessageRow[];
-  const messageObjects = useMemo(
+  const parsedMessages = useMemo(
     () =>
       rows.map((r) => {
         const parts = parseJsonField<unknown[]>(r.parts, []);
-        const metadata = parseJsonField<Record<string, unknown> | null>(r.metadata as string | undefined, null);
+        const metadata = parseJsonField<Record<string, unknown> | null>(
+          r.metadata as string | undefined,
+          null
+        );
         return {
           id: r.id,
           role: r.role,
@@ -80,7 +87,22 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
     [rows]
   );
 
-  // Sticky-scroll: pin to bottom unless user scrolled up.
+  // Push parsed rows into the shared message-store so IsolatedMessagesSection
+  // can render them with the same grouping / collapse / bubble conventions
+  // the builtin chat uses. CRITICAL: updateGlobal=false — the global
+  // currentSubChatId / chatStatus atoms belong to the active builtin chat
+  // and must not be clobbered when a CLI pane mounts in a different window.
+  const syncMessages = useSetAtom(syncMessagesWithStatusAtom);
+  useEffect(() => {
+    syncMessages({
+      messages: parsedMessages as Parameters<typeof syncMessages>[0]['messages'],
+      status: 'ready',
+      subChatId,
+      updateGlobal: false
+    });
+  }, [parsedMessages, subChatId, syncMessages]);
+
+  // Sticky-scroll: pin to bottom unless the user has scrolled up.
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickyRef = useRef(true);
   useEffect(() => {
@@ -98,7 +120,7 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [messageObjects.length, messageObjects[messageObjects.length - 1]?.id]);
+  }, [parsedMessages.length, parsedMessages[parsedMessages.length - 1]?.id]);
 
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
   useEffect(() => {
@@ -121,26 +143,25 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
         {syncedAgo && <div className="ml-3 shrink-0">synced {syncedAgo}</div>}
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        {messageObjects.length === 0 ? (
+        {parsedMessages.length === 0 ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
             {messagesQuery.isLoading
               ? 'Loading…'
               : 'No messages ingested yet. As the CLI writes its transcript, messages will appear here.'}
           </div>
         ) : (
-          <div className="flex flex-col gap-4 px-4 py-4">
-            {messageObjects.map((m, i) => (
-              <AssistantMessageItem
-                key={`${m.id}:${i}`}
-                message={m}
-                isLastMessage={i === messageObjects.length - 1}
-                isStreaming={false}
-                status="ready"
-                isMobile={false}
-                subChatId={subChatId}
-                chatId={chatId}
-              />
-            ))}
+          <div className="mx-auto w-full max-w-5xl px-2 py-4">
+            <IsolatedMessagesSection
+              subChatId={subChatId}
+              chatId={chatId}
+              isMobile={false}
+              sandboxSetupStatus="ready"
+              stickyTopClass="top-0"
+              UserBubbleComponent={AgentUserMessageBubble}
+              ToolCallComponent={AgentToolCall}
+              MessageGroupWrapper={MessageGroup}
+              toolRegistry={AgentToolRegistry}
+            />
           </div>
         )}
       </div>
