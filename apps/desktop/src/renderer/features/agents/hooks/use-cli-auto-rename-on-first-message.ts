@@ -37,9 +37,7 @@ export function useCliAutoRenameOnFirstMessage(subChatId: string, chatId?: strin
       onData: () => {
         if (cliAutoRenameTriggered.has(subChatId)) return;
 
-        const persistedName = useAgentSubChatStore
-          .getState()
-          .allSubChats.find((sc) => sc.id === subChatId)?.name;
+        const persistedName = useAgentSubChatStore.getState().allSubChats.find((sc) => sc.id === subChatId)?.name;
         if (!shouldAutoRenameCliSubChat(subChatId, persistedName)) return;
 
         void utils.messages.getLatest
