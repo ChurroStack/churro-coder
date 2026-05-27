@@ -1132,11 +1132,35 @@ export const agentFinishedTickAtomFamily = atomFamily((scopeId: string) =>
   )
 );
 
-// Per-subChat advisory-busy flag for CLI harnesses. True while the main-process
-// terminal.state subscription is in `'running'` for this pane; false on `'idle'`.
-// Stored in a plain atom per subChat so use-workflow-snapshot can read it without
-// going through ChatInputArea's local state.
-export const cliBusyAtomFamily = atomFamily((_subChatId: string) => atom(false));
+/**
+ * Single source of truth in the renderer for "is CLI sub-chat X busy?".
+ * Written by exactly one writer — `<CliStateSubscriber/>` mounted once at the
+ * app root — which mirrors the main-process `terminal.allCliStates` broadcast.
+ * Lifetime is the entire app session; not tied to any panel mount/unmount.
+ *
+ * Keyed by `subChatId`. Entry presence means the PTY is alive. `state` flips
+ * between `'running'` (CLI actively producing output) and `'idle'` (CLI quiet
+ * per the cursor-activity hysteresis in terminal/manager.ts). On PTY exit
+ * the entry is deleted entirely.
+ */
+export type CliRunningEntry = { state: 'running' | 'idle'; parentChatId: string | null };
+export const cliRunningStatesAtom = atom<Map<string, CliRunningEntry>>(new Map());
+
+/**
+ * Per-subChat advisory-busy flag for CLI harnesses. Derived from
+ * `cliRunningStatesAtom` — `true` only when the PTY has emitted `'running'`.
+ * Read sites: `ChatCliSurface`, `useWorkflowSnapshot`, `ChatInputArea`.
+ *
+ * NOTE: this is a DERIVED atomFamily. The TS compiler will reject any attempt
+ * to `useSetAtom(cliBusyAtomFamily(id))`; CLI busy state must flow through
+ * `cliRunningStatesAtom` written by the global subscriber.
+ */
+export const cliBusyAtomFamily = atomFamily((subChatId: string) =>
+  atom((get) => {
+    if (!subChatId) return false;
+    return get(cliRunningStatesAtom).get(subChatId)?.state === 'running';
+  })
+);
 
 // Per-subChat hard-reset dialog open state. Shared between ChatCliSurface (which
 // owns doHardReset and the AlertDialog) and CliPromptBar (which owns the trigger button).

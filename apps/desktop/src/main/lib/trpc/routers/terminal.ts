@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { router, publicProcedure } from '../index';
 import { observable } from '@trpc/server/observable';
 import { terminalManager } from '../../terminal/manager';
-import type { TerminalEvent, TerminalOutputState } from '../../terminal/types';
+import type { CliStateEvent, TerminalEvent, TerminalOutputState } from '../../terminal/types';
 import { TRPCError } from '@trpc/server';
 
 const bootstrapSchema = z
@@ -235,6 +235,32 @@ export const terminalRouter = router({
       const onState = (state: TerminalOutputState) => emit.next({ paneId, state });
       terminalManager.on(`state:${paneId}`, onState);
       return () => terminalManager.off(`state:${paneId}`, onState);
+    });
+  }),
+
+  /**
+   * Multiplexed subscription for ALL `cli:*` panes. One observable across
+   * every CLI sub-chat — replaces per-panel `terminal.state` subscriptions
+   * for CLI busy tracking. Emits {subChatId, parentChatId, state} on every
+   * running↔idle transition AND on PTY exit (state: 'exited').
+   *
+   * Late subscribers receive a snapshot of every alive cli:* session before
+   * future transitions land. The listener is attached BEFORE the snapshot
+   * loop runs — a transition firing in the gap would otherwise be lost.
+   * Subsequent duplication (snapshot says 'running' AND a 'running'
+   * transition fires) is idempotent on the consumer side.
+   */
+  allCliStates: publicProcedure.subscription(() => {
+    return observable<CliStateEvent>((emit) => {
+      const onCliState = (evt: CliStateEvent) => emit.next(evt);
+      // Step 1: attach listener BEFORE reading snapshot.
+      terminalManager.on('cli-state', onCliState);
+      // Step 2: snapshot. Duplicates of in-flight transitions are
+      // idempotent on the renderer (Map.set with the same value).
+      for (const s of terminalManager.listActiveCliSessions()) {
+        emit.next({ subChatId: s.subChatId, parentChatId: s.parentChatId, state: s.state });
+      }
+      return () => terminalManager.off('cli-state', onCliState);
     });
   })
 });
