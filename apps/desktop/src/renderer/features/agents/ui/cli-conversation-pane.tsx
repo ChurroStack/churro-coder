@@ -70,45 +70,42 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
   );
 
   const rows = (messagesQuery.data ?? []) as MessageRow[];
-  const parsedMessages = useMemo(
-    () => {
-      const out = [];
-      for (const r of rows) {
-        const parts = parseJsonField<unknown[]>(r.parts, []);
-        const metadata = parseJsonField<Record<string, unknown> | null>(r.metadata as string | undefined, null);
-        const partsArr = Array.isArray(parts) ? parts : [];
-        // Render-time envelope strip for rows ingested before the mapper-side
-        // strip shipped. Idempotent — a row that's already clean is unchanged.
-        const cleanedParts =
-          r.role === 'user'
-            ? partsArr
-                .map((p) => {
-                  if (p && typeof p === 'object' && (p as { type?: string }).type === 'text') {
-                    const text = (p as { text?: unknown }).text;
-                    if (typeof text === 'string') {
-                      const stripped = stripClaudeCliEnvelopes(text);
-                      if (!stripped.trim()) return null;
-                      return { ...p, text: stripped };
-                    }
+  const parsedMessages = useMemo(() => {
+    const out = [];
+    for (const r of rows) {
+      const parts = parseJsonField<unknown[]>(r.parts, []);
+      const metadata = parseJsonField<Record<string, unknown> | null>(r.metadata as string | undefined, null);
+      const partsArr = Array.isArray(parts) ? parts : [];
+      // Render-time envelope strip for rows ingested before the mapper-side
+      // strip shipped. Idempotent — a row that's already clean is unchanged.
+      const cleanedParts =
+        r.role === 'user'
+          ? partsArr
+              .map((p) => {
+                if (p && typeof p === 'object' && (p as { type?: string }).type === 'text') {
+                  const text = (p as { text?: unknown }).text;
+                  if (typeof text === 'string') {
+                    const stripped = stripClaudeCliEnvelopes(text);
+                    if (!stripped.trim()) return null;
+                    return { ...p, text: stripped };
                   }
-                  return p;
-                })
-                .filter((p): p is unknown => p !== null)
-            : partsArr;
-        // Drop the whole message if stripping emptied it (all-envelope user
-        // record). Otherwise the user bubble would render as an empty box.
-        if (cleanedParts.length === 0) continue;
-        out.push({
-          id: r.id,
-          role: r.role,
-          parts: cleanedParts,
-          ...(metadata ? { metadata } : {})
-        });
-      }
-      return out;
-    },
-    [rows]
-  );
+                }
+                return p;
+              })
+              .filter((p): p is unknown => p !== null)
+          : partsArr;
+      // Drop the whole message if stripping emptied it (all-envelope user
+      // record). Otherwise the user bubble would render as an empty box.
+      if (cleanedParts.length === 0) continue;
+      out.push({
+        id: r.id,
+        role: r.role,
+        parts: cleanedParts,
+        ...(metadata ? { metadata } : {})
+      });
+    }
+    return out;
+  }, [rows]);
 
   // Push parsed rows into the shared message-store so IsolatedMessagesSection
   // can render them with the same grouping / collapse / bubble conventions
@@ -184,6 +181,7 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
               ToolCallComponent={AgentToolCall}
               MessageGroupWrapper={MessageGroup}
               toolRegistry={AgentToolRegistry}
+              showContinueButton={false}
             />
           </div>
         )}

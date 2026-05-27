@@ -166,7 +166,13 @@ function mapClaudeMessageRecord(obj: ClaudeRecord, state: MapperState): MapperRe
     for (const block of content) {
       // Same stripping applies to text blocks inside user-message arrays —
       // some Claude Code versions wrap envelope text inside content[].text.
-      if (role === 'user' && block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') {
+      if (
+        role === 'user' &&
+        block &&
+        typeof block === 'object' &&
+        block.type === 'text' &&
+        typeof block.text === 'string'
+      ) {
         const stripped = stripClaudeCliEnvelopes(block.text);
         if (stripped.trim()) parts.push({ type: 'text', text: stripped });
         continue;

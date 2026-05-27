@@ -3,9 +3,7 @@ import { stripClaudeCliEnvelopes } from './cli-text-envelopes';
 
 describe('stripClaudeCliEnvelopes', () => {
   it('removes <local-command-caveat> block', () => {
-    const out = stripClaudeCliEnvelopes(
-      '<local-command-caveat>Caveat: ignore these messages.</local-command-caveat>'
-    );
+    const out = stripClaudeCliEnvelopes('<local-command-caveat>Caveat: ignore these messages.</local-command-caveat>');
     expect(out).toBe('');
   });
 

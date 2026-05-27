@@ -1450,7 +1450,7 @@ const cliSplitLayoutsAtom = atomWithStorage<Record<string, CliSplitLayout>>('age
 
 export const cliSplitLayoutAtomFamily = atomFamily((subChatId: string) =>
   atom(
-    (get) => get(cliSplitLayoutsAtom)[subChatId] ?? 'vertical',
+    (get) => get(cliSplitLayoutsAtom)[subChatId] ?? 'horizontal',
     (get, set, next: CliSplitLayout) => {
       const current = get(cliSplitLayoutsAtom);
       set(cliSplitLayoutsAtom, { ...current, [subChatId]: next });
@@ -1465,7 +1465,7 @@ const cliSplitSizesAtom = atomWithStorage<Record<string, number>>('agents:cliSpl
 /** Stored as the size (0-100) of the FIRST panel (chat) in the split. */
 export const cliSplitSizeAtomFamily = atomFamily((subChatId: string) =>
   atom(
-    (get) => get(cliSplitSizesAtom)[subChatId] ?? 50,
+    (get) => get(cliSplitSizesAtom)[subChatId] ?? 70,
     (get, set, next: number) => {
       const current = get(cliSplitSizesAtom);
       set(cliSplitSizesAtom, { ...current, [subChatId]: Math.max(10, Math.min(90, next)) });

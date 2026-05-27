@@ -19,6 +19,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { useStuckDetection } from '../hooks/use-stuck-detection';
 import { markMcpInjected, forgetMcpInjected } from '../hooks/use-harness-send-dispatcher';
 import { useMcpFileChangesTracking } from '../hooks/use-mcp-file-changes-tracking';
+import { useCliAutoRenameOnFirstMessage } from '../hooks/use-cli-auto-rename-on-first-message';
 import {
   subChatHardResetDialogOpenAtomFamily,
   subChatCliRestartHandlerAtomFamily,
@@ -105,6 +106,11 @@ export function ChatCliSurface({
   const [bootstrapState, setBootstrapState] = useState<BootstrapState>(
     startDisconnected ? { status: 'disconnected' } : { status: 'idle' }
   );
+
+  // First-user-message auto-rename. Subscribed to the JSONL ingester so it
+  // covers both voice-dispatched and TUI-typed first messages.
+  useCliAutoRenameOnFirstMessage(subChatId, chatId);
+
   const [showHardResetDialog, setShowHardResetDialog] = useAtom(subChatHardResetDialogOpenAtomFamily(subChatId));
   const [hardResetClearScrollback, setHardResetClearScrollback] = useState(false);
   const [pendingQuestions, setPendingQuestions] = useAtom(pendingUserQuestionsAtom);

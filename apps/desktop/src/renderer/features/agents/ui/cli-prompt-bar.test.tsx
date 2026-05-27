@@ -1,13 +1,21 @@
 // @vitest-environment jsdom
 /**
- * Tests for CliPromptBar: slash command autocomplete and image thumbnail chips.
- * [cli-prompt-bar/slash-autocomplete] [cli-prompt-bar/image-thumbnails]
+ * Tests for CliPromptBar after the textarea was removed and voice became the
+ * only external send path. The CLI TUI itself is the primary text input.
+ *
+ * Coverage:
+ *   - Voice dispatch: single transcript on release.
+ *   - Voice dispatch: multiple native finals batched into one CLI submission
+ *     on the falling edge of isRecording/isTranscribing (R-VOICE-SPLIT).
+ *   - OpenSpec prefix on voice dispatch.
+ *   - Auto-rename is NOT triggered here — that lives in
+ *     `useCliAutoRenameOnFirstMessage`.
+ *   - OpenSpec CLI bootstrap (terminal-idle latching) still works.
+ *   - Restart button + dialog.
  */
 
 const mockDispatch = vi.hoisted(() => vi.fn());
-const mockWritePastedImage = vi.hoisted(() => vi.fn());
-const mockWritePastedText = vi.hoisted(() => vi.fn());
-const mockAutoRenameDispatcher = vi.hoisted(() => vi.fn());
+
 const mockStore = vi.hoisted(() => ({
   chatId: 'chat-1' as string | null,
   allSubChats: [{ id: 'sc-1', harness: 'claude-cli', name: undefined as string | undefined }] as Array<{
@@ -17,23 +25,24 @@ const mockStore = vi.hoisted(() => ({
   }>
 }));
 
-// Mutable state for openspec-bootstrap tests — readable inside vi.mock factory closures
 const mockPendingOpenSpecMsgState = vi.hoisted(() => ({
   value: null as { subChatId: string; message: string } | null
 }));
 const mockSetPendingOpenSpecMessage = vi.hoisted(() => vi.fn());
-// Callback registered by trpc.terminal.state.useSubscription — tests call it to simulate idle
+
 const mockStateSubscriptionCallbacks = vi.hoisted(() => ({
   onData: null as ((evt: { paneId: string; state: 'idle' | 'running' }) => void) | null
 }));
 
-// Capture the AgentsSlashCommand props so tests can inspect and trigger it
-let capturedSlashProps: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSelect: (cmd: { name: string; category: string }) => void;
-  searchText: string;
-} | null = null;
+const voiceState = vi.hoisted(() => ({
+  isAvailable: true,
+  isRecording: false,
+  isTranscribing: false,
+  audioLevel: 0,
+  startRecording: vi.fn(),
+  stopRecording: vi.fn(),
+  capturedOnTranscript: null as ((t: string) => void) | null
+}));
 
 vi.mock('../hooks/use-harness-send-dispatcher', () => ({
   useHarnessSendDispatcher: vi.fn(() => ({
@@ -53,31 +62,8 @@ vi.mock('../stores/sub-chat-store', () => {
   return { useAgentSubChatStore };
 });
 
-vi.mock('../hooks/use-auto-rename-dispatcher', () => ({
-  useAgentAutoRenameDispatcher: vi.fn(() => mockAutoRenameDispatcher)
-}));
-
 vi.mock('../../../lib/trpc', () => ({
   trpc: {
-    files: {
-      writePastedImage: {
-        useMutation: vi.fn(() => ({
-          mutateAsync: mockWritePastedImage,
-          isPending: false
-        }))
-      },
-      writePastedText: {
-        useMutation: vi.fn(() => ({
-          mutateAsync: mockWritePastedText,
-          isPending: false
-        }))
-      }
-    },
-    commands: {
-      list: {
-        useQuery: vi.fn(() => ({ data: [], isLoading: false }))
-      }
-    },
     terminal: {
       state: {
         useSubscription: vi.fn(
@@ -97,24 +83,26 @@ vi.mock('../../../lib/trpc', () => ({
 }));
 
 vi.mock('../../../lib/hooks/use-voice-input', () => ({
-  useVoiceInput: vi.fn(() => ({
-    isAvailable: false,
-    isRecording: false,
-    isTranscribing: false,
-    audioLevel: 0,
-    startRecording: vi.fn(),
-    stopRecording: vi.fn()
-  }))
+  useVoiceInput: vi.fn((opts: { onTranscript?: (t: string) => void }) => {
+    voiceState.capturedOnTranscript = opts.onTranscript ?? null;
+    return {
+      isAvailable: voiceState.isAvailable,
+      isRecording: voiceState.isRecording,
+      isTranscribing: voiceState.isTranscribing,
+      audioLevel: voiceState.audioLevel,
+      startRecording: voiceState.startRecording,
+      stopRecording: voiceState.stopRecording
+    };
+  })
 }));
 
 vi.mock('../atoms', () => ({
   subChatModelIdAtomFamily: vi.fn(() => ({ init: 'claude-sonnet-4-6' })),
   subChatClaudeThinkingAtomFamily: vi.fn(() => ({ init: 'off' })),
   subChatCliRestartHandlerAtomFamily: vi.fn(() => ({ _tag: 'cli-restart-handler', init: null })),
-  cliSplitLayoutAtomFamily: vi.fn(() => ({ _tag: 'cli-split-layout', init: 'vertical' }))
+  cliSplitLayoutAtomFamily: vi.fn(() => ({ _tag: 'cli-split-layout', init: 'horizontal' }))
 }));
 
-// Mutable state for openspec context/step tests — readable inside vi.mock factory closures
 const mockOpenSpecContextState = vi.hoisted(() => ({
   value: null as { chatId: string; projectId: string; changeId: string; changePath: string } | null
 }));
@@ -141,6 +129,7 @@ vi.mock('jotai', async () => {
       if (atom && typeof atom === 'object' && 'init' in atom) {
         if ((atom as { init: string }).init === 'claude-sonnet-4-6') return ['claude-sonnet-4-6', vi.fn()];
         if ((atom as { init: string }).init === 'off') return ['off', vi.fn()];
+        if ((atom as { init: string }).init === 'horizontal') return ['horizontal', vi.fn()];
       }
       return [undefined, vi.fn()];
     }),
@@ -156,34 +145,6 @@ vi.mock('jotai', async () => {
   };
 });
 
-vi.mock('../commands', () => ({
-  AgentsSlashCommand: (props: {
-    isOpen: boolean;
-    onClose: () => void;
-    onSelect: (cmd: { name: string; category: string }) => void;
-    searchText: string;
-  }) => {
-    capturedSlashProps = props;
-    if (!props.isOpen) return null;
-    return (
-      <div data-testid="slash-dropdown">
-        <div data-testid="slash-search">{props.searchText}</div>
-        <button data-testid="slash-select-plan" onClick={() => props.onSelect({ name: 'plan', category: 'builtin' })}>
-          /plan
-        </button>
-        <button
-          data-testid="slash-select-review"
-          onClick={() => props.onSelect({ name: 'review', category: 'builtin' })}>
-          /review
-        </button>
-      </div>
-    );
-  },
-  BUILTIN_SLASH_COMMANDS: [
-    { id: 'builtin:plan', name: 'plan', command: '/plan', description: 'Plan mode', category: 'builtin' }
-  ]
-}));
-
 vi.mock('../lib/models', () => ({
   CLAUDE_MODELS: [{ id: 'claude-sonnet-4-6', name: 'Sonnet', version: '4.6', thinkings: ['off', 'high'] }],
   formatClaudeThinkingLabel: (level: string) => level,
@@ -192,16 +153,16 @@ vi.mock('../lib/models', () => ({
 
 vi.mock('../components/agent-send-button', () => ({
   AgentSendButton: ({
-    onClick,
-    hasContent,
+    onVoiceMouseDown,
+    onVoiceMouseUp,
     disabled
   }: {
-    onClick: () => void;
-    hasContent: boolean;
+    onVoiceMouseDown: () => void;
+    onVoiceMouseUp: () => void;
     disabled: boolean;
   }) => (
-    <button data-testid="send-button" onClick={onClick} disabled={disabled} data-has-content={String(hasContent)}>
-      Send
+    <button data-testid="voice-button" disabled={disabled} onMouseDown={onVoiceMouseDown} onMouseUp={onVoiceMouseUp}>
+      Mic
     </button>
   )
 }));
@@ -230,13 +191,20 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import React from 'react';
 import { CliPromptBar, _resetCliAutoRenameTriggered } from './cli-prompt-bar';
 
+function resetVoice(): void {
+  voiceState.isAvailable = true;
+  voiceState.isRecording = false;
+  voiceState.isTranscribing = false;
+  voiceState.audioLevel = 0;
+  voiceState.startRecording = vi.fn();
+  voiceState.stopRecording = vi.fn();
+  voiceState.capturedOnTranscript = null;
+}
+
 afterEach(() => {
   cleanup();
-  capturedSlashProps = null;
   mockDispatch.mockClear();
-  mockWritePastedImage.mockClear();
   mockSetPendingOpenSpecMessage.mockClear();
-  mockAutoRenameDispatcher.mockClear();
   mockPendingOpenSpecMsgState.value = null;
   mockStateSubscriptionCallbacks.onData = null;
   mockOpenSpecContextState.value = null;
@@ -244,202 +212,189 @@ afterEach(() => {
   mockStore.chatId = 'chat-1';
   mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: undefined }];
   _resetCliAutoRenameTriggered();
+  resetVoice();
 });
 
-describe('CliPromptBar — slash command autocomplete [cli-prompt-bar/slash-autocomplete]', () => {
-  it('shows slash dropdown when input starts with /', () => {
-    const { getByTestId, queryByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-    expect(queryByTestId('slash-dropdown')).toBeNull();
+// ── No textarea ─────────────────────────────────────────────────────────────
 
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: '/p' } });
-
-    expect(getByTestId('slash-dropdown')).toBeTruthy();
-    expect(getByTestId('slash-search').textContent).toBe('p');
+describe('CliPromptBar — no textarea [cli-prompt-bar/no-textarea]', () => {
+  it('does not render any textarea', () => {
+    const { container } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
+    expect(container.querySelector('textarea')).toBeNull();
   });
 
-  it('hides slash dropdown when text is not a bare /command', () => {
-    const { getByTestId, queryByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: '/plan' } });
-    expect(getByTestId('slash-dropdown')).toBeTruthy();
-
-    fireEvent.change(textarea, { target: { value: '/plan some extra text' } });
-    expect(queryByTestId('slash-dropdown')).toBeNull();
+  it('renders the voice button when voice is available and owner', () => {
+    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    expect(getByTestId('voice-button')).toBeTruthy();
   });
 
-  it('selecting /plan dispatches /plan and clears input', () => {
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: '/p' } });
-    fireEvent.click(getByTestId('slash-select-plan'));
-
-    expect(mockDispatch).toHaveBeenCalledWith('/plan');
-    // Textarea should be cleared
-    expect((textarea as HTMLTextAreaElement).value).toBe('');
+  it('hides the voice button when voice is unavailable', () => {
+    voiceState.isAvailable = false;
+    const { queryByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    expect(queryByTestId('voice-button')).toBeNull();
   });
 
-  it('selecting /review (prompt command) inserts text instead of dispatching', () => {
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
+  it('hides the voice button when read-only (isOwner=false)', () => {
+    const { queryByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner={false} />);
+    expect(queryByTestId('voice-button')).toBeNull();
+  });
+});
 
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: '/r' } });
-    fireEvent.click(getByTestId('slash-select-review'));
+// ── Voice dispatch [cli-prompt-bar/voice-dispatch] ──────────────────────────
+
+describe('CliPromptBar — voice dispatch [cli-prompt-bar/voice-dispatch]', () => {
+  it('dispatches a single CLI message when one transcript arrives and recording ends', async () => {
+    voiceState.isRecording = true;
+    const { rerender } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      voiceState.capturedOnTranscript?.('hello world');
+    });
+    expect(mockDispatch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      voiceState.isRecording = false;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    });
+
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledWith('hello world');
+  });
+
+  it('batches multiple native finals into ONE CLI submission on release (R-VOICE-SPLIT)', async () => {
+    voiceState.isRecording = true;
+    const { rerender } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      voiceState.capturedOnTranscript?.('hello');
+      voiceState.capturedOnTranscript?.('world');
+    });
+    expect(mockDispatch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      voiceState.isRecording = false;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    });
+
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledWith('hello world');
+  });
+
+  it('waits for transcribing to finish before flushing (OpenAI backend)', async () => {
+    voiceState.isRecording = true;
+    const { rerender } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      voiceState.isRecording = false;
+      voiceState.isTranscribing = true;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    });
+    expect(mockDispatch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      voiceState.capturedOnTranscript?.('hello from openai');
+    });
+
+    await act(async () => {
+      voiceState.isTranscribing = false;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    });
+
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledWith('hello from openai');
+  });
+
+  it('does not dispatch when read-only', async () => {
+    voiceState.isRecording = true;
+    const { rerender } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner={false} />);
+
+    await act(async () => {
+      voiceState.capturedOnTranscript?.('ignored');
+    });
+    await act(async () => {
+      voiceState.isRecording = false;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner={false} />);
+    });
 
     expect(mockDispatch).not.toHaveBeenCalled();
-    expect((textarea as HTMLTextAreaElement).value).toBe('/review ');
   });
 
-  it('Escape closes the slash dropdown', () => {
-    const { getByTestId, queryByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: '/' } });
-    expect(getByTestId('slash-dropdown')).toBeTruthy();
-
-    fireEvent.keyDown(textarea, { key: 'Escape' });
-    expect(queryByTestId('slash-dropdown')).toBeNull();
-  });
-});
-
-describe('CliPromptBar — image thumbnail chips [cli-prompt-bar/image-thumbnails]', () => {
-  beforeEach(() => {
-    mockWritePastedImage.mockResolvedValue({ filePath: '/tmp/sub-chats/sc-1/pasted-abc.png' });
-    vi.stubGlobal('URL', {
-      createObjectURL: vi.fn(() => 'blob:mock-url'),
-      revokeObjectURL: vi.fn()
-    });
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'test-uuid-1') });
-  });
-
-  it('shows a thumbnail chip after pasting an image', async () => {
-    const { getByTestId, queryByRole } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-
-    const textarea = getByTestId('cli-prompt-input');
-
-    const file = new File([''], 'screenshot.png', { type: 'image/png' });
-    const clipboardData = {
-      items: [{ type: 'image/png', getAsFile: () => file }],
-      getData: () => ''
-    };
-
-    await act(async () => {
-      fireEvent.paste(textarea, { clipboardData });
-    });
-
-    await waitFor(() => {
-      const img = queryByRole('img') as HTMLImageElement | null;
-      expect(img).toBeTruthy();
-    });
-  });
-
-  it('clicking X on a chip removes it from the DOM', async () => {
-    const { getByTestId, queryByRole, getByLabelText } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-
-    const textarea = getByTestId('cli-prompt-input');
-    const file = new File([''], 'screenshot.png', { type: 'image/png' });
-    const clipboardData = {
-      items: [{ type: 'image/png', getAsFile: () => file }],
-      getData: () => ''
-    };
-
-    await act(async () => {
-      fireEvent.paste(textarea, { clipboardData });
-    });
-
-    await waitFor(() => expect(queryByRole('img')).toBeTruthy());
-
-    const removeBtn = getByLabelText('Remove image');
-    await act(async () => {
-      fireEvent.click(removeBtn);
-    });
-
-    expect(queryByRole('img')).toBeNull();
-  });
-
-  it('on send, prepends @path refs before the user text', async () => {
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-    const textarea = getByTestId('cli-prompt-input');
-
-    const file = new File([''], 'screenshot.png', { type: 'image/png' });
-    const clipboardData = {
-      items: [{ type: 'image/png', getAsFile: () => file }],
-      getData: () => ''
-    };
-
-    await act(async () => {
-      fireEvent.paste(textarea, { clipboardData });
-    });
-
-    await waitFor(() => expect(mockWritePastedImage).toHaveBeenCalled());
-
-    fireEvent.change(textarea, { target: { value: 'what is this?' } });
-    fireEvent.click(getByTestId('send-button'));
-
-    expect(mockDispatch).toHaveBeenCalledWith('@/tmp/sub-chats/sc-1/pasted-abc.png\nwhat is this?');
-  });
-});
-
-describe('CliPromptBar — openspec tab prefix [cli-prompt-bar/openspec-tab-prefix]', () => {
-  beforeEach(() => {
+  it('prefixes /opsx:propose when current OpenSpec tab is proposal', async () => {
     mockOpenSpecContextState.value = {
       chatId: 'chat-1',
       projectId: 'project-1',
       changeId: 'add-login',
       changePath: 'openspec/changes/add-login'
     };
-  });
-
-  it('prefixes /opsx:propose when current tab is proposal (Enter)', () => {
     mockOpenSpecCurrentStepState.value = 'proposal';
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: 'refine this proposal' } });
-    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    voiceState.isRecording = true;
+    const { rerender } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      voiceState.capturedOnTranscript?.('refine this proposal');
+    });
+    await act(async () => {
+      voiceState.isRecording = false;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    });
+
     expect(mockDispatch).toHaveBeenCalledWith('/opsx:propose\nrefine this proposal');
   });
 
-  it('prefixes /opsx:propose when current tab is design (Send button)', () => {
-    mockOpenSpecCurrentStepState.value = 'design';
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: 'update the architecture' } });
-    fireEvent.click(getByTestId('send-button'));
-    expect(mockDispatch).toHaveBeenCalledWith('/opsx:propose\nupdate the architecture');
-  });
-
-  it('prefixes /opsx:apply when current tab is tasks (Enter)', () => {
+  it('prefixes /opsx:apply when current OpenSpec tab is tasks', async () => {
+    mockOpenSpecContextState.value = {
+      chatId: 'chat-1',
+      projectId: 'project-1',
+      changeId: 'add-login',
+      changePath: 'openspec/changes/add-login'
+    };
     mockOpenSpecCurrentStepState.value = 'tasks';
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: 'fix the failing task' } });
-    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    voiceState.isRecording = true;
+    const { rerender } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      voiceState.capturedOnTranscript?.('fix the failing task');
+    });
+    await act(async () => {
+      voiceState.isRecording = false;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    });
+
     expect(mockDispatch).toHaveBeenCalledWith('/opsx:apply\nfix the failing task');
   });
 
-  it('skips prefix when the user already typed a slash command', () => {
-    mockOpenSpecCurrentStepState.value = 'tasks';
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: '/clear' } });
-    // /clear matches bare-/command regex, so the slash dropdown opens — close it and submit
-    fireEvent.keyDown(textarea, { key: 'Escape' });
-    fireEvent.click(getByTestId('send-button'));
-    expect(mockDispatch).toHaveBeenCalledWith('/clear');
-  });
-
-  it('does not prefix outside an OpenSpec editor', () => {
+  it('does not prefix outside an OpenSpec editor', async () => {
     mockOpenSpecContextState.value = null;
-    mockOpenSpecCurrentStepState.value = 'tasks';
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" />);
-    const textarea = getByTestId('cli-prompt-input');
-    fireEvent.change(textarea, { target: { value: 'just a normal prompt' } });
-    fireEvent.click(getByTestId('send-button'));
+    voiceState.isRecording = true;
+    const { rerender } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      voiceState.capturedOnTranscript?.('just a normal prompt');
+    });
+    await act(async () => {
+      voiceState.isRecording = false;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    });
+
     expect(mockDispatch).toHaveBeenCalledWith('just a normal prompt');
   });
+
+  it('does not dispatch when the buffer is empty', async () => {
+    voiceState.isRecording = true;
+    const { rerender } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+
+    await act(async () => {
+      voiceState.isRecording = false;
+      rerender(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
+    });
+
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
 });
+
+// ── OpenSpec CLI bootstrap [cli-prompt-bar/openspec-bootstrap] ──────────────
 
 describe('CliPromptBar — openspec CLI bootstrap [cli-prompt-bar/openspec-bootstrap]', () => {
   it('dispatches pendingOpenSpecMessage and clears the atom when terminal state goes idle', async () => {
@@ -505,7 +460,7 @@ describe('CliPromptBar — openspec CLI bootstrap [cli-prompt-bar/openspec-boots
   });
 });
 
-// ── Restart button [cli-prompt-bar/restart-button] ───────────────────────────
+// ── Restart button [cli-prompt-bar/restart-button] ──────────────────────────
 
 describe('CliPromptBar — Restart button [cli-prompt-bar/restart-button]', () => {
   it('renders Restart CLI button for claude-cli harness', () => {
@@ -540,68 +495,5 @@ describe('CliPromptBar — Restart button [cli-prompt-bar/restart-button]', () =
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     });
     expect(screen.queryByText(/Restart.*session\?/i)).toBeNull();
-  });
-});
-
-// ── Auto-rename on first send [cli-prompt-bar/auto-rename] ──────────────────
-
-describe('CliPromptBar — auto-rename on first user send [cli-prompt-bar/auto-rename]', () => {
-  it('fires the rename dispatcher on the first user submit when the persisted name is missing', () => {
-    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: undefined }];
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
-    const textarea = getByTestId('cli-prompt-input');
-
-    fireEvent.change(textarea, { target: { value: 'Build me a feature' } });
-    fireEvent.click(getByTestId('send-button'));
-
-    expect(mockAutoRenameDispatcher).toHaveBeenCalledTimes(1);
-    expect(mockAutoRenameDispatcher).toHaveBeenCalledWith('Build me a feature', 'sc-1');
-  });
-
-  it("fires when persisted name is the 'New Chat' placeholder (hydration fallback casing)", () => {
-    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: 'New Chat' }];
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
-    fireEvent.change(getByTestId('cli-prompt-input'), { target: { value: 'first message' } });
-    fireEvent.click(getByTestId('send-button'));
-    expect(mockAutoRenameDispatcher).toHaveBeenCalledTimes(1);
-  });
-
-  it("also fires when persisted name is the 'New chat' placeholder (form-save casing)", () => {
-    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: 'New chat' }];
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
-    fireEvent.change(getByTestId('cli-prompt-input'), { target: { value: 'first message' } });
-    fireEvent.click(getByTestId('send-button'));
-    expect(mockAutoRenameDispatcher).toHaveBeenCalledTimes(1);
-  });
-
-  it('does NOT fire when the persisted name is a real title', () => {
-    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: 'Refactor billing flow' }];
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
-    fireEvent.change(getByTestId('cli-prompt-input'), { target: { value: 'another message' } });
-    fireEvent.click(getByTestId('send-button'));
-    expect(mockAutoRenameDispatcher).not.toHaveBeenCalled();
-  });
-
-  it('does NOT fire a second time for the same sub-chat (module-level gate)', () => {
-    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: undefined }];
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
-    const textarea = getByTestId('cli-prompt-input');
-
-    fireEvent.change(textarea, { target: { value: 'first message' } });
-    fireEvent.click(getByTestId('send-button'));
-    fireEvent.change(textarea, { target: { value: 'second message' } });
-    fireEvent.click(getByTestId('send-button'));
-
-    expect(mockAutoRenameDispatcher).toHaveBeenCalledTimes(1);
-    expect(mockAutoRenameDispatcher).toHaveBeenCalledWith('first message', 'sc-1');
-  });
-
-  it('does NOT fire when parentChatId is null (store not hydrated yet)', () => {
-    mockStore.chatId = null;
-    mockStore.allSubChats = [{ id: 'sc-1', harness: 'claude-cli', name: undefined }];
-    const { getByTestId } = render(<CliPromptBar subChatId="sc-1" harness="claude-cli" isOwner />);
-    fireEvent.change(getByTestId('cli-prompt-input'), { target: { value: 'first message' } });
-    fireEvent.click(getByTestId('send-button'));
-    expect(mockAutoRenameDispatcher).not.toHaveBeenCalled();
   });
 });
