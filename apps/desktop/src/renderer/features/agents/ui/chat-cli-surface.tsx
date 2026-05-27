@@ -118,6 +118,13 @@ export function ChatCliSurface({
 
   const resolveCliUserQuestion = trpc.chats.resolveCliUserQuestion.useMutation();
 
+  // Note: this `cliUserQuestion` subscription is mounted per-panel. CLI chat
+  // panels opt into dockview's `renderer='always'` (see add-or-focus.ts and
+  // chat-panel.tsx's setRenderer effect), so the panel — and this subscription
+  // — stay mounted across tab switches and the missed-event class is covered.
+  // Cross-window broadcast (same subChat open in two windows) is still
+  // out-of-scope; if that becomes a requirement, move this to a global mirror
+  // similar to <CliStateSubscriber/>.
   trpc.chats.cliUserQuestion.useSubscription(subChatId, {
     onData: (event) => {
       const entry = event as { requestId: string; subChatId: string; questions: PendingUserQuestion['questions'] };
@@ -349,13 +356,21 @@ export function ChatCliSurface({
             resizable split. Critical: the <Terminal /> element keeps a stable
             React key so the xterm/PTY does not remount on layout changes
             (xterm state is paneId-scoped — remount = lose alt-screen + signals
-            to running processes like htop). */}
+            to running processes like htop).
+
+            workspaceId={chatId} is required so the main-process session
+            records the parent chat id — the global <CliStateSubscriber/>
+            reads it back via terminal.allCliStates to populate
+            loadingSubChatsAtom (Map<subChatId, parentChatId>) so the chats
+            sidebar workspace spinner lights up. CliSplitBody threads it to
+            both Terminal mounts (with-pane and layout='off'). */}
         {bootstrapState.status === 'ready' && (
           <CliSplitBody
             subChatId={subChatId}
             chatId={chatId ?? ''}
             paneId={paneId}
             cwd={cwd}
+            workspaceId={chatId}
             bootstrap={bootstrapState.bootstrap}
           />
         )}
@@ -437,12 +452,14 @@ function CliSplitBody({
   chatId,
   paneId,
   cwd,
+  workspaceId,
   bootstrap
 }: {
   subChatId: string;
   chatId: string;
   paneId: string;
   cwd?: string;
+  workspaceId?: string;
   bootstrap: TerminalBootstrapConfig;
 }) {
   const layout = useAtomValue(cliSplitLayoutAtomFamily(subChatId));
@@ -459,7 +476,7 @@ function CliSplitBody({
   }, [statusQuery.data?.sessionFile]);
 
   if (layout === 'off') {
-    return <Terminal paneId={paneId} cwd={cwd} bootstrap={bootstrap} />;
+    return <Terminal paneId={paneId} cwd={cwd} workspaceId={workspaceId} bootstrap={bootstrap} />;
   }
 
   // See terminology mapping in this function's doc comment.
@@ -476,7 +493,7 @@ function CliSplitBody({
       </ResizablePanel>
       <ResizableHandle />
       <ResizablePanel defaultSize={100 - chatSize} minSize={15} order={2} id={`cli-term-${subChatId}`}>
-        <Terminal paneId={paneId} cwd={cwd} bootstrap={bootstrap} />
+        <Terminal paneId={paneId} cwd={cwd} workspaceId={workspaceId} bootstrap={bootstrap} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );

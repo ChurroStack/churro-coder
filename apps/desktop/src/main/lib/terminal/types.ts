@@ -64,6 +64,22 @@ export interface TerminalExitEvent {
 
 export type TerminalEvent = TerminalDataEvent | TerminalExitEvent;
 
+/**
+ * Multiplexed event for `cli:*` panes. Emitted by the terminal manager on
+ * every running↔idle transition AND on PTY exit, alongside the per-pane
+ * `state:${paneId}` event. Lets a single renderer-side subscriber mirror
+ * every CLI sub-chat's busy state without binding to a specific pane id.
+ *
+ * `state` is the idle-detection state (`'running' | 'idle'`) for transitions
+ * and the sentinel `'exited'` when the PTY ends — subscribers should remove
+ * the entry from their map on `'exited'` rather than treating it as idle.
+ */
+export interface CliStateEvent {
+  subChatId: string;
+  parentChatId: string | null;
+  state: TerminalOutputState | 'exited';
+}
+
 export interface SessionResult {
   isNew: boolean;
   /** Serialized terminal state from xterm's SerializeAddon */

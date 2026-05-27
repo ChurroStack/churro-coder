@@ -64,7 +64,6 @@ import { AgentSendButton } from '../components/agent-send-button';
 import { OpenSpecSendButton } from '../components/openspec-send-button';
 import type { UploadedFile, UploadedImage } from '../hooks/use-agents-file-upload';
 import { useSubChatMode } from '../hooks/use-sub-chat-mode';
-import { useCliBusyTracker } from '../hooks/use-cli-busy-tracker';
 import { clearSubChatDraft, saveSubChatDraftWithAttachments } from '../lib/drafts';
 import { CLAUDE_MODELS, CODEX_MODELS, type ClaudeThinkingLevel, type CodexThinkingLevel } from '../lib/models';
 import { applyModeDefaultModel } from '../lib/model-switching';
@@ -458,12 +457,11 @@ export const ChatInputArea = memo(function ChatInputArea({
   const isPanelReadOnly = nonOwners.has(subChatId ?? '');
 
   // Advisory-busy hint for CLI harness: dims the Send button while the terminal
-  // is actively producing output. cliBusyAtomFamily is written by useCliBusyTracker
-  // (mounted here and also at chat-panel level so CLI panels without ChatInputArea
-  // still get the in_progress pill in the status widget).
+  // is actively producing output. `cliBusyAtomFamily` is now a derived atomFamily
+  // over `cliRunningStatesAtom`, which is written by the global
+  // <CliStateSubscriber/> in App.tsx — see that component for the full wire-up.
   const cliBusyAtom = useMemo(() => cliBusyAtomFamily(subChatId), [subChatId]);
-  const [cliAdvisoryBusy] = useAtom(cliBusyAtom);
-  useCliBusyTracker({ subChatId, parentChatId, isCliHarness });
+  const cliAdvisoryBusy = useAtomValue(cliBusyAtom);
 
   // Model dropdown state
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);

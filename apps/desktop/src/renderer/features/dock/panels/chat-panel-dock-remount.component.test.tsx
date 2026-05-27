@@ -50,10 +50,6 @@ vi.mock('../../agents/hooks/use-stuck-detection', () => ({
   useStuckDetection: vi.fn()
 }));
 
-vi.mock('../../agents/hooks/use-cli-busy-tracker', () => ({
-  useCliBusyTracker: vi.fn()
-}));
-
 vi.mock('../../agents/ui/stall-banner', () => ({
   StallIcon: () => null,
   StallBanner: () => null
@@ -117,7 +113,9 @@ function makeDockviewProps(overrides: Partial<ChatPanelEntity> = {}): IDockviewP
     onDidVisibilityChange: vi.fn(() => ({ dispose: vi.fn() })),
     onDidActiveChange: vi.fn(() => ({ dispose: vi.fn() })),
     onDidTitleChange: vi.fn(() => ({ dispose: vi.fn() })),
-    setTitle: vi.fn()
+    setTitle: vi.fn(),
+    renderer: 'always',
+    setRenderer: vi.fn()
   } as unknown as IDockviewPanelProps<ChatPanelEntity>['api'];
 
   const containerApi = {

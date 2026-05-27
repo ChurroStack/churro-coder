@@ -75,6 +75,14 @@ export function addOrFocus(api: DockviewApi, entity: PanelEntity, opts: AddOrFoc
     title
   };
 
+  // CLI chat panels keep their React tree mounted across tab switches so the
+  // per-panel `cliUserQuestion` subscription survives. Busy-state itself is
+  // global (CliStateSubscriber), so non-CLI panels stay on the dockview
+  // default ('onlyWhenVisible').
+  if (entity.kind === 'chat' && (entity.data.harness === 'claude-cli' || entity.data.harness === 'codex-cli')) {
+    options.renderer = 'always';
+  }
+
   if (opts.floating) {
     options.floating = true;
   } else if (opts.splitDirection && reference) {
