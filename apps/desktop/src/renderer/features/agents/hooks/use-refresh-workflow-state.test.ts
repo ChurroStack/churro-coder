@@ -14,6 +14,10 @@ vi.mock('../../../lib/trpc', () => ({
         useMutation: () => ({ mutateAsync: mockMutateAsync })
       }
     },
+    cliSession: {
+      relocate: { useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue(undefined) }) },
+      reingest: { useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue(undefined) }) }
+    },
     useUtils: () => ({
       chats: {
         get: { invalidate: mockInvalidate },
@@ -24,6 +28,12 @@ vi.mock('../../../lib/trpc', () => ({
       },
       changes: {
         getStatus: { invalidate: mockInvalidate }
+      },
+      cliSession: {
+        getStatus: { invalidate: mockInvalidate }
+      },
+      messages: {
+        getLatest: { invalidate: mockInvalidate }
       }
     })
   }

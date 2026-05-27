@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
-import { ChevronDown, X, RotateCcw } from 'lucide-react';
+import { ChevronDown, RotateCcw, PanelRightOpen, Columns2, Rows2 } from 'lucide-react';
 import { useHarnessSendDispatcher } from '../hooks/use-harness-send-dispatcher';
 import { HARNESS_LABELS } from '../lib/harness-icons';
 import { AgentSendButton } from '../components/agent-send-button';
@@ -36,61 +36,27 @@ import {
   DropdownMenuTrigger
 } from '../../../components/ui/dropdown-menu';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
+import { cliSplitLayoutAtomFamily, type CliSplitLayout } from '../atoms';
 import { useVoiceInput } from '../../../lib/hooks/use-voice-input';
-import { AgentsSlashCommand, type SlashCommandOption } from '../commands';
-import { useAgentAutoRenameDispatcher } from '../hooks/use-auto-rename-dispatcher';
-import { cliAutoRenameTriggered, _resetCliAutoRenameTriggered } from '../lib/auto-rename-state';
+import { _resetCliAutoRenameTriggered } from '../lib/auto-rename-state';
 
 // Re-export the test helper so existing tests / harnesses that imported it
-// from this module continue to work.
+// from this module continue to work. Autorename now lives in
+// `useCliAutoRenameOnFirstMessage`; this re-export is retained for test
+// compatibility.
 export { _resetCliAutoRenameTriggered };
-
-function shouldAutoRenameCliSubChat(subChatId: string, persistedName: string | undefined | null): boolean {
-  if (cliAutoRenameTriggered.has(subChatId)) return false;
-  if (!persistedName) return true;
-  // Match the casing variants both placeholders ('New chat' from new-chat-form,
-  // 'New Chat' from hydration fallback) so the gate works no matter which
-  // creation path produced the row.
-  return persistedName === 'New Chat' || persistedName === 'New chat';
-}
 
 interface CliPromptBarProps {
   subChatId: string;
   isOwner?: boolean;
   harness?: 'builtin' | 'claude-cli' | 'codex-cli';
-  /** Project directory — enables custom slash commands from .claude/commands/ */
+  /** Project directory — reserved for future per-project controls. */
   projectPath?: string;
 }
 
-interface PastedImage {
-  id: string;
-  path: string;
-  objectUrl: string;
-}
-
-const LARGE_PASTE_THRESHOLD = 500;
-
 const EFFORT_LEVELS: ClaudeThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1] ?? '');
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }: CliPromptBarProps) {
-  const [text, setText] = useState('');
-  const [pastedImages, setPastedImages] = useState<PastedImage[]>([]);
-  const [showSlashDropdown, setShowSlashDropdown] = useState(false);
-  const [slashSearchText, setSlashSearchText] = useState('');
-  const [slashPosition, setSlashPosition] = useState({ top: 0, left: 0 });
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+export function CliPromptBar({ subChatId, isOwner = true, harness }: CliPromptBarProps) {
   const { dispatch } = useHarnessSendDispatcher(subChatId, harness);
 
   const storeHarness = useAgentSubChatStore(
@@ -98,12 +64,6 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
   );
   const resolvedHarness = harness ?? storeHarness;
   const isCodexCli = resolvedHarness === 'codex-cli';
-
-  // Parent chat id from the sub-chat store so the rename dispatcher can
-  // optimistically update the sidebar/header caches. Falls back to empty;
-  // the call-site below skips invocation when this is unknown.
-  const parentChatId = useAgentSubChatStore((s) => s.chatId);
-  const dispatchAutoRename = useAgentAutoRenameDispatcher({ parentChatId: parentChatId ?? '' });
 
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const cliRestartHandler = useAtomValue(useMemo(() => subChatCliRestartHandlerAtomFamily(subChatId), [subChatId]));
@@ -158,8 +118,33 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
     [selectedModelId]
   );
 
-  const writePastedImage = trpc.files.writePastedImage.useMutation();
-  const writePastedText = trpc.files.writePastedText.useMutation();
+  // Submit a finished voice utterance (or any caller-supplied text) to the CLI.
+  // Autorename is intentionally NOT handled here — it lives in
+  // `useCliAutoRenameOnFirstMessage`, which triggers off the ingester so
+  // direct-in-CLI typing also gets renamed.
+  const submitToCli = useCallback(
+    (text: string) => {
+      if (!isOwner) return;
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      const cliHarness = resolvedHarness === 'builtin' ? 'claude-cli' : resolvedHarness;
+      const messageToSend = buildOpenSpecCliPrefixedMessage({
+        message: trimmed,
+        isOpenSpec,
+        currentStep: openSpecCurrentStep,
+        harness: cliHarness
+      });
+      dispatch(messageToSend);
+    },
+    [isOwner, resolvedHarness, isOpenSpec, openSpecCurrentStep, dispatch]
+  );
+
+  // Voice input: collect transcripts in a buffer while recording/transcribing,
+  // then flush as one CLI submission on the falling edge. The native
+  // SpeechRecognition backend can emit multiple finals per held-mic session
+  // (R-VOICE-SPLIT); batching here keeps "one press = one submission".
+  const voiceBufferRef = useRef<string[]>([]);
+  const voiceActiveRef = useRef(false);
 
   const {
     isAvailable: isVoiceAvailable,
@@ -170,9 +155,19 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
     stopRecording
   } = useVoiceInput({
     onTranscript: (transcript) => {
-      setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      if (transcript) voiceBufferRef.current.push(transcript);
     }
   });
+
+  useEffect(() => {
+    const active = isVoiceRecording || isVoiceTranscribing;
+    if (voiceActiveRef.current && !active) {
+      const buffered = voiceBufferRef.current.join(' ').trim();
+      voiceBufferRef.current = [];
+      if (buffered) submitToCli(buffered);
+    }
+    voiceActiveRef.current = active;
+  }, [isVoiceRecording, isVoiceTranscribing, submitToCli]);
 
   const handleModelChange = useCallback(
     (modelId: string) => {
@@ -190,192 +185,18 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
     [setSelectedThinking, dispatch, isCodexCli]
   );
 
-  const handleSend = useCallback(() => {
-    const trimmed = text.trim();
-    if (!isOwner || (!trimmed && pastedImages.length === 0)) return;
-
-    const imageRefs = pastedImages.map((img) => `@${img.path}`).join(' ');
-    const fullText = imageRefs ? (trimmed ? `${imageRefs}\n${trimmed}` : imageRefs) : trimmed;
-    const messageToSend = buildOpenSpecCliPrefixedMessage({
-      message: fullText,
-      isOpenSpec,
-      currentStep: openSpecCurrentStep,
-      harness: resolvedHarness
-    });
-    dispatch(messageToSend);
-
-    // Fire auto-rename on first user submit so CLI tabs don't sit on the
-    // 'New Chat' placeholder. Gate on the persisted name + a module-level
-    // Set so split panes / remounts don't re-trigger.
-    if (parentChatId && trimmed) {
-      const persistedName = useAgentSubChatStore.getState().allSubChats.find((sc) => sc.id === subChatId)?.name;
-      if (shouldAutoRenameCliSubChat(subChatId, persistedName)) {
-        cliAutoRenameTriggered.add(subChatId);
-        dispatchAutoRename(trimmed, subChatId);
-      }
-    }
-
-    pastedImages.forEach((img) => URL.revokeObjectURL(img.objectUrl));
-    setPastedImages([]);
-    setText('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-  }, [
-    isOwner,
-    text,
-    pastedImages,
-    dispatch,
-    isOpenSpec,
-    openSpecCurrentStep,
-    resolvedHarness,
-    parentChatId,
-    subChatId,
-    dispatchAutoRename
-  ]);
-
-  const handleSlashSelect = useCallback(
-    (command: SlashCommandOption) => {
-      setShowSlashDropdown(false);
-      if (command.category === 'builtin') {
-        if (['plan', 'execute', 'explore', 'compact', 'clear'].includes(command.name)) {
-          dispatch(`/${command.name}`);
-          setText('');
-          if (textareaRef.current) textareaRef.current.style.height = 'auto';
-          return;
-        }
-      }
-      // For prompt-based and custom commands: insert as text; user can add args and press Enter
-      setText(`/${command.name} `);
-      textareaRef.current?.focus();
-    },
-    [dispatch]
-  );
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Escape' && showSlashDropdown) {
-      setShowSlashDropdown(false);
-      return;
-    }
-    if (e.key === 'Enter' && !e.shiftKey && !showSlashDropdown) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setText(val);
-    const el = e.target;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
-
-    // Show slash autocomplete when the entire input is a /command (e.g. "/" or "/plan")
-    const slashMatch = val.match(/^\/(\w*)$/);
-    if (slashMatch) {
-      const rect = el.getBoundingClientRect();
-      setSlashSearchText(slashMatch[1]);
-      setSlashPosition({ top: rect.top, left: rect.left });
-      setShowSlashDropdown(true);
-    } else {
-      setShowSlashDropdown(false);
-    }
-  };
-
-  const handlePaste = useCallback(
-    async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      if (!isOwner) return;
-
-      const { clipboardData } = e;
-
-      // Image paste — save to disk, show thumbnail chip; path is prepended on send
-      const imageItem = Array.from(clipboardData.items).find((item) => item.type.startsWith('image/'));
-      if (imageItem) {
-        e.preventDefault();
-        const file = imageItem.getAsFile();
-        if (!file) return;
-        const objectUrl = URL.createObjectURL(file);
-        try {
-          const base64Data = await fileToBase64(file);
-          const result = await writePastedImage.mutateAsync({
-            subChatId,
-            base64Data,
-            mediaType: file.type || 'image/png'
-          });
-          setPastedImages((prev) => [...prev, { id: crypto.randomUUID(), path: result.filePath, objectUrl }]);
-        } catch (err) {
-          URL.revokeObjectURL(objectUrl);
-          console.error('[cli-prompt-bar] Failed to save pasted image:', err);
-        }
-        return;
-      }
-
-      // Large text paste — save to file, send path
-      const pastedText = clipboardData.getData('text/plain');
-      if (pastedText.length > LARGE_PASTE_THRESHOLD) {
-        e.preventDefault();
-        try {
-          const result = await writePastedText.mutateAsync({ subChatId, text: pastedText });
-          const ref = `@${result.filePath}`;
-          setText((prev) => (prev ? `${prev} ${ref}` : ref));
-        } catch (err) {
-          console.error('[cli-prompt-bar] Failed to save pasted text:', err);
-          // Fall through — let the default paste happen
-        }
-      }
-    },
-    [isOwner, subChatId, writePastedImage, writePastedText]
-  );
-
-  const removeImage = useCallback((id: string) => {
-    setPastedImages((prev) => {
-      const img = prev.find((i) => i.id === id);
-      if (img) URL.revokeObjectURL(img.objectUrl);
-      return prev.filter((i) => i.id !== id);
-    });
-  }, []);
-
-  const hasContent = text.length > 0 || pastedImages.length > 0;
+  const showVoiceButton = isVoiceAvailable && isOwner;
 
   return (
     <div data-testid="cli-prompt-bar" className="flex-shrink-0 border-t border-border bg-background flex flex-col">
-      {/* Image thumbnail chips */}
-      {pastedImages.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-3 pt-2">
-          {pastedImages.map((img) => (
-            <div key={img.id} className="relative group">
-              <img src={img.objectUrl} alt="pasted" className="h-14 w-14 object-cover rounded border border-border" />
-              <button
-                onClick={() => removeImage(img.id)}
-                aria-label="Remove image"
-                className="absolute -top-1.5 -right-1.5 bg-background border border-border rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <X size={10} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Bottom toolbar — the "notch". The CLI's own TUI input is the only
+          text-input surface; users dictate via the mic to send a single line. */}
+      <div className="px-3 py-2 flex items-center gap-1.5">
+        {/* Conversation pane layout toggle — applies to both CLI harnesses.
+            Click cycles off -> vertical -> horizontal; the chevron opens a
+            menu for direct selection. */}
+        <CliLayoutToggle subChatId={subChatId} />
 
-      {/* Textarea */}
-      <div className="px-3 pt-3 pb-1">
-        <textarea
-          ref={textareaRef}
-          data-testid="cli-prompt-input"
-          value={text}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={
-            isOwner ? 'Describe your task — Enter to send, Shift+Enter for newline' : 'Read-only — take over to send'
-          }
-          disabled={!isOwner}
-          rows={1}
-          aria-label="Send to terminal"
-          className="w-full resize-none bg-transparent text-sm outline-none disabled:opacity-50 placeholder:text-muted-foreground overflow-hidden leading-5 min-h-[20px]"
-          style={{ height: 'auto' }}
-        />
-      </div>
-
-      {/* Bottom toolbar */}
-      <div className="px-3 pb-2 flex items-center gap-1.5">
         {/* Model + effort selectors — Claude CLI only; Codex uses its own model config */}
         {!isCodexCli && (
           <>
@@ -448,29 +269,21 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
 
         {isVoiceRecording && <VoiceWaveIndicator isRecording={isVoiceRecording} audioLevel={voiceAudioLevel} />}
 
-        <AgentSendButton
-          onClick={handleSend}
-          onStop={async () => {}}
-          isStreaming={false}
-          hasContent={hasContent}
-          disabled={!isOwner}
-          showVoiceInput={isVoiceAvailable && isOwner}
-          isRecording={isVoiceRecording}
-          isTranscribing={isVoiceTranscribing}
-          onVoiceMouseDown={startRecording}
-          onVoiceMouseUp={stopRecording}
-        />
+        {showVoiceButton && (
+          <AgentSendButton
+            onClick={() => {}}
+            onStop={async () => {}}
+            isStreaming={false}
+            hasContent={false}
+            disabled={!isOwner}
+            showVoiceInput
+            isRecording={isVoiceRecording}
+            isTranscribing={isVoiceTranscribing}
+            onVoiceMouseDown={startRecording}
+            onVoiceMouseUp={stopRecording}
+          />
+        )}
       </div>
-
-      {/* Slash command autocomplete dropdown */}
-      <AgentsSlashCommand
-        isOpen={showSlashDropdown}
-        onClose={() => setShowSlashDropdown(false)}
-        onSelect={handleSlashSelect}
-        searchText={slashSearchText}
-        position={slashPosition}
-        projectPath={projectPath}
-      />
 
       {/* Restart CLI confirmation dialog */}
       <AlertDialog open={showRestartDialog} onOpenChange={setShowRestartDialog}>
@@ -498,5 +311,48 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+const LAYOUT_LABELS: Record<CliSplitLayout, string> = {
+  off: 'Hide conversation pane',
+  vertical: 'Vertical split — chat left',
+  horizontal: 'Horizontal split — chat on top'
+};
+const LAYOUT_ORDER: CliSplitLayout[] = ['off', 'vertical', 'horizontal'];
+
+function CliLayoutToggle({ subChatId }: { subChatId: string }) {
+  const [layout, setLayout] = useAtom(cliSplitLayoutAtomFamily(subChatId));
+  const Icon = layout === 'off' ? PanelRightOpen : layout === 'vertical' ? Columns2 : Rows2;
+  const cycle = () => {
+    const idx = LAYOUT_ORDER.indexOf(layout);
+    setLayout(LAYOUT_ORDER[(idx + 1) % LAYOUT_ORDER.length]);
+  };
+  return (
+    <DropdownMenu>
+      <div className="flex items-center">
+        <button
+          aria-label={`Conversation pane: ${LAYOUT_LABELS[layout]}`}
+          title={LAYOUT_LABELS[layout]}
+          onClick={cycle}
+          className="flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors rounded-l px-1.5 py-1 hover:bg-muted">
+          <Icon size={12} />
+        </button>
+        <DropdownMenuTrigger asChild>
+          <button
+            aria-label="Choose conversation pane layout"
+            className="flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors rounded-r py-1 pr-1 hover:bg-muted">
+            <ChevronDown size={10} />
+          </button>
+        </DropdownMenuTrigger>
+      </div>
+      <DropdownMenuContent align="start" className="min-w-[200px]">
+        {LAYOUT_ORDER.map((opt) => (
+          <DropdownMenuItem key={opt} onSelect={() => setLayout(opt)} className={opt === layout ? 'font-medium' : ''}>
+            {LAYOUT_LABELS[opt]}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -60,6 +60,10 @@ vi.mock('../hooks/use-stuck-detection', () => ({
   useStuckDetection: vi.fn()
 }));
 
+vi.mock('../hooks/use-cli-auto-rename-on-first-message', () => ({
+  useCliAutoRenameOnFirstMessage: vi.fn()
+}));
+
 // Stub the Terminal component — we only care about whether bootstrap was fetched.
 vi.mock('@/features/terminal/terminal', () => ({
   Terminal: () => <div data-testid="terminal-stub" />

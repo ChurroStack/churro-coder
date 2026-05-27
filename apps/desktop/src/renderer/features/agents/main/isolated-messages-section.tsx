@@ -44,6 +44,10 @@ interface IsolatedMessagesSectionProps {
   }>;
   MessageGroupWrapper: React.ComponentType<{ children: React.ReactNode; isLastGroup?: boolean }>;
   toolRegistry: Record<string, { icon: any; title: (args: any) => string }>;
+  /** Whether to render the Continue/Restart pair beneath the last group.
+   *  Defaults to true (builtin chat). Set false in read-only consumers like
+   *  the CLI conversation pane, where Continue/Restart don't drive anything. */
+  showContinueButton?: boolean;
 }
 
 function areSectionPropsEqual(prev: IsolatedMessagesSectionProps, next: IsolatedMessagesSectionProps): boolean {
@@ -60,7 +64,8 @@ function areSectionPropsEqual(prev: IsolatedMessagesSectionProps, next: Isolated
     prev.UserBubbleComponent === next.UserBubbleComponent &&
     prev.ToolCallComponent === next.ToolCallComponent &&
     prev.MessageGroupWrapper === next.MessageGroupWrapper &&
-    prev.toolRegistry === next.toolRegistry
+    prev.toolRegistry === next.toolRegistry &&
+    prev.showContinueButton === next.showContinueButton
   );
 }
 
@@ -77,7 +82,8 @@ export const IsolatedMessagesSection = memo(function IsolatedMessagesSection({
   UserBubbleComponent,
   ToolCallComponent,
   MessageGroupWrapper,
-  toolRegistry
+  toolRegistry,
+  showContinueButton = true
 }: IsolatedMessagesSectionProps) {
   // Per-subchat selector - split panes render fully independently.
   const userMsgIds = useAtomValue(userMessageIdsPerChatAtom(subChatId));
@@ -103,7 +109,7 @@ export const IsolatedMessagesSection = memo(function IsolatedMessagesSection({
           toolRegistry={toolRegistry}
         />
       ))}
-      <ContinueButton subChatId={subChatId} />
+      {showContinueButton && <ContinueButton subChatId={subChatId} />}
     </>
   );
 }, areSectionPropsEqual);

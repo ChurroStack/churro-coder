@@ -200,13 +200,18 @@ The renderer's `QueryClient` (`src/renderer/contexts/TRPCProvider.tsx`) is const
 
 ## CLI session resilience contract
 
-**Cold-restart-only:** CLI subChats always start a fresh PTY on restart. There is no session-resume (`--resume` flag or similar). Do NOT probe TUI output for session ids; do NOT add a `harnessResumeKey` column.
+**Native resume via JSONL-discovered session ids (NOT TUI scraping).** CLI sub-chats persist their session id in `subChats.cliSessionId`, captured by `apps/desktop/src/main/lib/cli-session/locator.ts` from the on-disk JSONL transcript filename (`~/.claude/projects/<encoded-cwd>/<id>.jsonl`) or first record (`~/.codex/sessions/.../rollout-*.jsonl` → `session_meta.payload.id`). Subsequent spawns invoke `claude --resume <id>` / `codex resume <id>` so the model regains its full context.
 
-**Rationale:** TUI output (especially alt-screen) is unreliable as a carrier for session IDs. MCP plan/review files written to `<userData>/sub-chats/<id>/` are the recovery vector — the CLI can read its last plan and continue from there.
+**Critical distinction from the historical "cold-restart-only" contract:** the old contract banned probing **TUI output** for session ids — TUI / alt-screen output is unreliable. We don't do that. The session id comes from the filesystem, not from xterm. This is a different carrier and is reliable.
 
-**Reattach banner copy:** "Session ended on restart — Reattach (new CLI session; ask it to read the current plan to continue)"
+**Resume safety guards:**
+- Resume is only attempted when `subChats.cliSessionId` is set AND `subChats.messageCount > 0` AND the underlying JSONL file still exists. Missing JSONL ⇒ skip resume + clear the stored id (avoids rejection-loop where the CLI fast-exits on bad `--resume` and the user retries forever). See `chats.buildCliBootstrap`.
+- Multi-window safety is NOT yet enforced — if two windows have the same sub-chat open, both will attach an ingester and the per-row unique `(sub_chat_id, id)` index suppresses dup-writes but both watchers spin. Tracked as a v2 enhancement (E5 in `apps/desktop/docs/cli-session-mapping.md`).
+- The renderer's read-only conversation pane (`features/agents/ui/cli-conversation-pane.tsx`) hydrates from the `messages` table, which the ingester fills incrementally as the JSONL grows. The conversation panel and the live TUI are the same content rendered two different ways.
 
-**Lazy respawn:** Restored CLI panels mount in a disconnected state (xterm scrollback + banner). The reattach handler invokes the same bootstrap path used at initial panel creation. No PTY spawns until the panel is activated.
+**Recovery via JSONL ingestion:** When the CLI fails to call our MCP tools (`write_plan`, `notify_files_changed`, `write_tasks`), the post-turn ingester scans the JSONL for the equivalent native tool calls (`Write`, `Edit`, `TodoWrite`, Codex `update_plan`, Codex `patch_apply_end`) and fills the corresponding store **only if** that artifact is not already set (fill-gaps semantics — MCP wins on conflict). The user-facing trigger is the Refresh button in the status widget (commit 6).
+
+**Lazy respawn:** Restored CLI panels mount in a disconnected state (xterm scrollback + banner). The reattach handler invokes the same bootstrap path used at initial panel creation — which now passes `--resume <id>` when applicable. No PTY spawns until the panel is activated.
 
 **Config overwrite on respawn:** Every spawn (initial, reattach, or hard-reset) fully overwrites the MCP config file at `<userData>/cli-bootstrap/<subChatId>.<harness>.<ext>` with the current port + bearer read fresh from `<userData>/churro-mcp.json`. This ensures the CLI always talks to the live MCP server, not a stale one from a prior session.
 

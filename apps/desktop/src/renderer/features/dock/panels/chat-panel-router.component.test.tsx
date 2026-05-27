@@ -69,7 +69,9 @@ vi.mock('../../../lib/trpc', () => ({
         getCurrentReview: { invalidate: vi.fn() },
         getReviewContent: { invalidate: vi.fn() }
       },
-      changes: { getStatus: { invalidate: vi.fn() } }
+      changes: { getStatus: { invalidate: vi.fn() } },
+      cliSession: { getStatus: { invalidate: vi.fn() } },
+      messages: { getLatest: { invalidate: vi.fn() } }
     }),
     chats: {
       get: { useQuery: () => ({ data: undefined }) },
@@ -77,6 +79,10 @@ vi.mock('../../../lib/trpc', () => ({
       refreshWorkflowCaches: {
         useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue(undefined) })
       }
+    },
+    cliSession: {
+      relocate: { useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue(undefined) }) },
+      reingest: { useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue(undefined) }) }
     },
     terminal: {
       getSession: { useQuery: () => ({ data: null, isLoading: false }) }

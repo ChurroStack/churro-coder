@@ -141,6 +141,83 @@ export function writeMessagesToTable(db: DB, subChatId: string, allMessages: any
 }
 
 /**
+ * Append a single ingested message (CLI-session ingestion path).
+ *
+ * Differs from {@link writeMessagesToTable}:
+ *   - Caller assigns idx explicitly (the ingester tracks it monotonically).
+ *   - Inserts one row, not a batch reconciled from a full message list.
+ *   - Returns the actual inserted idx (or null if the unique index rejected
+ *     the row — happens when the same message UUID is ingested twice; the
+ *     caller treats this as a no-op).
+ *
+ * The unique (sub_chat_id, id) index on messages is the safety net against
+ * double-inserts when the ingester's UUID dedup misses (e.g. after a
+ * partial-write crash).
+ */
+export function appendIngestedMessage(
+  db: DB,
+  subChatId: string,
+  idx: number,
+  msg: { id: string; role: 'user' | 'assistant'; parts: unknown[]; metadata?: unknown; createdAt: number }
+): number | null {
+  try {
+    const processedParts = processPartsForStorage(subChatId, msg.id, msg.parts);
+    const res = db
+      .insert(messages)
+      .values({
+        subChatId,
+        idx,
+        id: msg.id,
+        role: msg.role,
+        parts: JSON.stringify(processedParts),
+        metadata: msg.metadata !== undefined ? JSON.stringify(msg.metadata) : null,
+        createdAt: new Date(msg.createdAt)
+      })
+      .onConflictDoNothing()
+      .run();
+    return res.changes > 0 ? idx : null;
+  } catch (err) {
+    console.warn(`[messages-table] appendIngestedMessage failed sub=${subChatId} idx=${idx}`, err);
+    return null;
+  }
+}
+
+/** Query MAX(idx)+1 for a sub_chat; 0 if no rows. */
+export function nextMessageIdx(db: DB, subChatId: string): number {
+  const row = db
+    .select({ lastIdx: sql<number | null>`MAX(${messages.idx})` })
+    .from(messages)
+    .where(eq(messages.subChatId, subChatId))
+    .get();
+  return (row?.lastIdx ?? -1) + 1;
+}
+
+/** Update the denormalized counters on sub_chats after a batch of ingested
+ *  messages. Mirrors the bookkeeping at the end of writeMessagesToTable. */
+export function refreshSubChatCountersAfterIngest(db: DB, subChatId: string): void {
+  try {
+    const row = db
+      .select({
+        count: sql<number>`COUNT(*)`,
+        lastIdx: sql<number | null>`MAX(${messages.idx})`
+      })
+      .from(messages)
+      .where(eq(messages.subChatId, subChatId))
+      .get();
+    if (!row) return;
+    db.update(subChats)
+      .set({
+        messageCount: row.count,
+        lastMessageIdx: row.count > 0 ? row.lastIdx : null
+      })
+      .where(eq(subChats.id, subChatId))
+      .run();
+  } catch (err) {
+    console.warn(`[messages-table] refreshSubChatCountersAfterIngest failed sub=${subChatId}`, err);
+  }
+}
+
+/**
  * Delete all messages for a sub_chat then re-insert from the given array.
  * Use for full replaces: rollback, fork, updateSubChatMessages.
  * Also updates the file-stats columns on sub_chats.

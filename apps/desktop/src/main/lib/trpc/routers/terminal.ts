@@ -6,6 +6,7 @@ import { observable } from '@trpc/server/observable';
 import { terminalManager } from '../../terminal/manager';
 import type { CliStateEvent, TerminalEvent, TerminalOutputState } from '../../terminal/types';
 import { TRPCError } from '@trpc/server';
+import { postSpawnLocateAndAttach } from './cli-session';
 
 const bootstrapSchema = z
   .object({
@@ -45,6 +46,18 @@ export const terminalRouter = router({
     .mutation(async ({ input }) => {
       try {
         const result = await terminalManager.createOrAttach(input);
+        // CLI session ingestion hook: fire-and-forget post-spawn locator for
+        // CLI panes (paneId convention is `cli:<subChatId>`). Failure is
+        // non-fatal — the user can hit the Refresh button to retry.
+        if (result.isNew && input.paneId.startsWith('cli:')) {
+          const subChatId = input.paneId.slice('cli:'.length);
+          if (subChatId) {
+            const spawnedAt = Date.now();
+            void postSpawnLocateAndAttach(subChatId, spawnedAt, input.cwd).catch((err) => {
+              console.warn('[TerminalRouter] post-spawn locator failed', err);
+            });
+          }
+        }
         return {
           paneId: input.paneId,
           isNew: result.isNew,

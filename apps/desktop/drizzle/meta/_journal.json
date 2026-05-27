@@ -148,6 +148,13 @@
       "when": 1779700000000,
       "tag": "0020_bootstrapped_at",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1779800000000,
+      "tag": "0021_cli_session_ingestion",
+      "breakpoints": true
     }
   ]
 }

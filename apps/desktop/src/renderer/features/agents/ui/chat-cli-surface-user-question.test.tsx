@@ -79,6 +79,7 @@ vi.mock('@/lib/trpc', () => {
 
 vi.mock('@/lib/hooks/use-file-change-listener', () => ({ useFileChangeListener: vi.fn() }));
 vi.mock('../hooks/use-stuck-detection', () => ({ useStuckDetection: vi.fn() }));
+vi.mock('../hooks/use-cli-auto-rename-on-first-message', () => ({ useCliAutoRenameOnFirstMessage: vi.fn() }));
 vi.mock('../hooks/use-mcp-file-changes-tracking', () => ({ useMcpFileChangesTracking: vi.fn() }));
 vi.mock('../hooks/use-harness-send-dispatcher', () => ({
   markMcpInjected: vi.fn(),

@@ -98,6 +98,15 @@ export const subChats = sqliteTable(
     messageCount: integer('message_count').notNull().default(0),
     lastMessageIdx: integer('last_message_idx'), // NULL when empty
     bootstrappedAt: integer('bootstrapped_at', { mode: 'timestamp' }),
+    // CLI-session ingestion (claude-cli / codex-cli only). Resolved by the
+    // session-file locator after the PTY spawns and persisted so the
+    // ingester can re-attach a watcher on app restart without re-detecting.
+    // cliSessionFile is a *hint* — the locator may re-run if the file no
+    // longer exists (e.g. machine move). cliSessionId doubles as the
+    // session UUID to pass to `claude --resume` / `codex resume`.
+    cliSessionId: text('cli_session_id'),
+    cliSessionFile: text('cli_session_file'),
+    cliSessionDetectedAt: integer('cli_session_detected_at'),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
   },
