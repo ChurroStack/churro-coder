@@ -541,10 +541,7 @@ function CliLayoutToggle({ subChatId }: { subChatId: string }) {
       </div>
       <DropdownMenuContent align="start" className="min-w-[200px]">
         {LAYOUT_ORDER.map((opt) => (
-          <DropdownMenuItem
-            key={opt}
-            onSelect={() => setLayout(opt)}
-            className={opt === layout ? 'font-medium' : ''}>
+          <DropdownMenuItem key={opt} onSelect={() => setLayout(opt)} className={opt === layout ? 'font-medium' : ''}>
             {LAYOUT_LABELS[opt]}
           </DropdownMenuItem>
         ))}

@@ -679,7 +679,9 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
       if (part.type === 'session-break') {
         const harness = (part as { harness?: string }).harness;
         return (
-          <div key={idx} className="my-3 flex items-center gap-2 px-2 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+          <div
+            key={idx}
+            className="my-3 flex items-center gap-2 px-2 text-[10px] uppercase tracking-wider text-muted-foreground/70">
             <div className="flex-1 border-t border-border" />
             <span className="shrink-0">New {harness ?? 'CLI'} session</span>
             <div className="flex-1 border-t border-border" />

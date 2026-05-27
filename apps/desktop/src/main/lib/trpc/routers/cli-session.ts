@@ -64,11 +64,7 @@ function loadCliRow(subChatId: string): CliSubChatRow | null {
   if (row.harness !== 'claude-cli' && row.harness !== 'codex-cli') return null;
   let cwd: string | null = row.worktreePath;
   if (!cwd && row.projectId) {
-    const proj = db
-      .select({ path: projects.path })
-      .from(projects)
-      .where(eq(projects.id, row.projectId))
-      .get();
+    const proj = db.select({ path: projects.path }).from(projects).where(eq(projects.id, row.projectId)).get();
     cwd = proj?.path ?? null;
   }
   return {

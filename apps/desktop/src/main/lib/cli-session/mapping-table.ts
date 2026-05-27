@@ -50,7 +50,10 @@ export const MAPPING_TABLE: MappingRow[] = [
     partType: 'text',
     rendererComponent: 'MemoizedTextPart',
     description: 'Plain text content (assistant or user).',
-    claude: { contentTypes: ['text'], notes: 'Claude may also send content as a bare string for simple user messages.' },
+    claude: {
+      contentTypes: ['text'],
+      notes: 'Claude may also send content as a bare string for simple user messages.'
+    },
     codex: { payloadTypes: ['message'], notes: 'Inside response_item.payload.content[]: input_text and output_text.' }
   },
   {
@@ -260,8 +263,7 @@ export const MAPPING_TABLE: MappingRow[] = [
   {
     partType: 'session-break',
     rendererComponent: 'inline divider (new)',
-    description:
-      'Synthesized by the ingester when a fresh session file is detected without a successful resume.',
+    description: 'Synthesized by the ingester when a fresh session file is detected without a successful resume.',
     claude: { notes: '(synthesized by ingester)' },
     codex: { notes: '(synthesized by ingester)' }
   },

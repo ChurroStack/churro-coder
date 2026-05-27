@@ -266,11 +266,7 @@ interface CodexPatchApplyEndPayload {
   changes?: Record<string, { kind?: 'add' | 'delete' | 'update' | string }>;
 }
 
-function mapCodexResponseItem(
-  envelope: CodexRecord,
-  payload: CodexResponsePayload,
-  state: MapperState
-): MapperResult {
+function mapCodexResponseItem(envelope: CodexRecord, payload: CodexResponsePayload, state: MapperState): MapperResult {
   const createdAt = parseTimestamp(envelope.timestamp) ?? Date.now();
 
   switch (payload.type) {
@@ -330,11 +326,7 @@ function mapCodexReasoning(payload: CodexResponsePayload, createdAt: number): Ma
   };
 }
 
-function mapCodexFunctionCall(
-  payload: CodexResponsePayload,
-  createdAt: number,
-  state: MapperState
-): MapperResult {
+function mapCodexFunctionCall(payload: CodexResponsePayload, createdAt: number, state: MapperState): MapperResult {
   const name = payload.name ?? '';
   const callId = payload.call_id ?? '';
   if (!name) return EMPTY;
@@ -388,8 +380,7 @@ function mapCodexPatchApplyEnd(payload: CodexPatchApplyEndPayload): MapperResult
   const sideEffects: IngestedSideEffect[] = [];
   for (const [path, info] of Object.entries(changes)) {
     const kind = info && typeof info === 'object' ? (info as { kind?: string }).kind : undefined;
-    const action: 'create' | 'update' | 'delete' =
-      kind === 'add' ? 'create' : kind === 'delete' ? 'delete' : 'update';
+    const action: 'create' | 'update' | 'delete' = kind === 'add' ? 'create' : kind === 'delete' ? 'delete' : 'update';
     sideEffects.push({ kind: 'file-change', path, action });
   }
   return { messages: [], sideEffects };
@@ -422,10 +413,7 @@ function extractCodexSideEffect(name: string, input: unknown): IngestedSideEffec
 // ── Side-effect materialization ─────────────────────────────────────────────
 
 function materializeSideEffect(kind: SideEffectKind, toolName: string, input: unknown): IngestedSideEffect[] {
-  const inp = (input && typeof input === 'object' ? (input as Record<string, unknown>) : {}) as Record<
-    string,
-    unknown
-  >;
+  const inp = (input && typeof input === 'object' ? (input as Record<string, unknown>) : {}) as Record<string, unknown>;
   switch (kind) {
     case 'file-change': {
       const path = typeof inp.file_path === 'string' ? inp.file_path : typeof inp.path === 'string' ? inp.path : '';

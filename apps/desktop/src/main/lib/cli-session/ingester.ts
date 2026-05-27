@@ -47,12 +47,7 @@ import {
   type IngestedSideEffect,
   type MapperState
 } from './jsonl-mapper';
-import {
-  emptyIngestState,
-  mutateIngestState,
-  readIngestState,
-  type IngestState
-} from './ingest-state-store';
+import { emptyIngestState, mutateIngestState, readIngestState, type IngestState } from './ingest-state-store';
 
 const TRACE = '[cli-ingest]';
 
@@ -192,9 +187,7 @@ export class CliSessionIngester {
   private async ingestPendingLocked(): Promise<{ newMessageCount: number; sideEffectsApplied: number }> {
     const db = getDatabase();
     const dbIdx = nextMessageIdx(db, this.subChatId);
-    const state =
-      (await readIngestState(this.subChatId)) ??
-      emptyIngestState(this.sessionFile, dbIdx);
+    const state = (await readIngestState(this.subChatId)) ?? emptyIngestState(this.sessionFile, dbIdx);
 
     // A7 reconciliation: take max of DB nextIdx and state.nextIdx. After a
     // crash one side may be ahead of the other.
@@ -347,17 +340,16 @@ async function hasTasksList(subChatId: string): Promise<boolean> {
     const { constants } = await import('node:fs');
     const { join } = await import('node:path');
     const { app } = await import('electron');
-    await access(
-      join(app.getPath('userData'), 'sub-chats', subChatId, 'tasks', 'current.json'),
-      constants.R_OK
-    );
+    await access(join(app.getPath('userData'), 'sub-chats', subChatId, 'tasks', 'current.json'), constants.R_OK);
     return true;
   } catch {
     return false;
   }
 }
 
-function normalizeTasks(raw: unknown): Array<{ id: string; title: string; status: 'pending' | 'in_progress' | 'completed' }> {
+function normalizeTasks(
+  raw: unknown
+): Array<{ id: string; title: string; status: 'pending' | 'in_progress' | 'completed' }> {
   if (!Array.isArray(raw)) return [];
   const out: Array<{ id: string; title: string; status: 'pending' | 'in_progress' | 'completed' }> = [];
   let i = 0;

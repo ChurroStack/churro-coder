@@ -6,12 +6,7 @@ import { join } from 'node:path';
 let tmpRoot: string;
 vi.mock('electron', () => ({ app: { getPath: () => tmpRoot } }));
 
-import {
-  emptyIngestState,
-  mutateIngestState,
-  readIngestState,
-  writeIngestState
-} from './ingest-state-store';
+import { emptyIngestState, mutateIngestState, readIngestState, writeIngestState } from './ingest-state-store';
 
 beforeEach(async () => {
   tmpRoot = await mkdtemp(join(tmpdir(), 'cli-ingest-state-test-'));

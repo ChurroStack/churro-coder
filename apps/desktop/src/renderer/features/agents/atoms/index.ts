@@ -1444,12 +1444,9 @@ export const subChatNonOwnerSetAtom = atom<ReadonlySet<string>>(new Set<string>(
 // ──────────────────────────────────────────────────────────────────────────────
 export type CliSplitLayout = 'off' | 'vertical' | 'horizontal';
 
-const cliSplitLayoutsAtom = atomWithStorage<Record<string, CliSplitLayout>>(
-  'agents:cliSplitLayouts',
-  {},
-  undefined,
-  { getOnInit: true }
-);
+const cliSplitLayoutsAtom = atomWithStorage<Record<string, CliSplitLayout>>('agents:cliSplitLayouts', {}, undefined, {
+  getOnInit: true
+});
 
 export const cliSplitLayoutAtomFamily = atomFamily((subChatId: string) =>
   atom(
@@ -1461,12 +1458,9 @@ export const cliSplitLayoutAtomFamily = atomFamily((subChatId: string) =>
   )
 );
 
-const cliSplitSizesAtom = atomWithStorage<Record<string, number>>(
-  'agents:cliSplitSizes',
-  {},
-  undefined,
-  { getOnInit: true }
-);
+const cliSplitSizesAtom = atomWithStorage<Record<string, number>>('agents:cliSplitSizes', {}, undefined, {
+  getOnInit: true
+});
 
 /** Stored as the size (0-100) of the FIRST panel (chat) in the split. */
 export const cliSplitSizeAtomFamily = atomFamily((subChatId: string) =>

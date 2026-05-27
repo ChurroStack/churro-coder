@@ -38,18 +38,18 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
     { staleTime: 0, refetchOnWindowFocus: false }
   );
 
-  // Live updates from the ingester.
-  useEffect(() => {
-    const sub = trpc.cliSession.onMessages.subscribe(
-      { subChatId },
-      {
-        onData: () => {
-          utils.messages.getLatest.invalidate({ subChatId, limit: 200 });
-        }
+  // Live updates from the ingester. tRPC React exposes subscriptions via
+  // .useSubscription() — the bare .subscribe() lives only on the vanilla
+  // client. Calling .subscribe() inside a useEffect raises "hooks[lastArg]
+  // is not a function" because React's hook proxy can't bind it.
+  trpc.cliSession.onMessages.useSubscription(
+    { subChatId },
+    {
+      onData: () => {
+        utils.messages.getLatest.invalidate({ subChatId, limit: 200 });
       }
-    );
-    return () => sub.unsubscribe();
-  }, [subChatId, utils]);
+    }
+  );
 
   const rows = (messagesQuery.data ?? []) as MessageRow[];
   const messageObjects = useMemo(
