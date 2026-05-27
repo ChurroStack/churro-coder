@@ -16,6 +16,7 @@ import { onTasksWritten, readTasks } from '../../tasks/task-store';
 import { onFileChangesNotified, readFileChanges } from '../../file-changes/file-changes-store';
 import { app, BrowserWindow, safeStorage } from 'electron';
 import * as fs from 'fs/promises';
+import { existsSync } from 'node:fs';
 import * as path from 'path';
 import simpleGit from 'simple-git';
 import { z } from 'zod';
@@ -2725,8 +2726,47 @@ export const chatsRouter = router({
           console.log(`[buildCliBootstrap] cwd-unresolved sub=${input.subChatId} falling back to CLI default`);
         }
       }
+      // CLI native resume: if we have a stored session id AND any persisted
+      // messages AND the underlying JSONL still exists on disk, ask the CLI
+      // to resume that session via --resume (claude) / resume <id> (codex
+      // subcommand). Falls back silently to fresh spawn when any condition is
+      // unmet. ("if no message exists, keeps functionality as now")
+      let resumeSessionId: string | undefined;
+      {
+        const db = getDatabase();
+        const row = db
+          .select({
+            cliSessionId: subChats.cliSessionId,
+            cliSessionFile: subChats.cliSessionFile,
+            messageCount: subChats.messageCount
+          })
+          .from(subChats)
+          .where(eq(subChats.id, input.subChatId))
+          .get();
+        if (row?.cliSessionId && (row.messageCount ?? 0) > 0) {
+          // E4 mitigation: skip resume if the session file is gone — avoids a
+          // rejection loop where the CLI exits fast on bad --resume and the
+          // user retries forever.
+          const fileOk = !row.cliSessionFile || existsSync(row.cliSessionFile);
+          if (fileOk) {
+            resumeSessionId = row.cliSessionId;
+            console.log(
+              `[buildCliBootstrap] resume-injected sub=${input.subChatId} sessionId=${resumeSessionId} messages=${row.messageCount}`
+            );
+          } else {
+            console.warn(
+              `[buildCliBootstrap] resume-skipped reason=session-file-missing sub=${input.subChatId} file=${row.cliSessionFile}`
+            );
+            // Clear stale references so the next spawn doesn't retry.
+            db.update(subChats)
+              .set({ cliSessionId: null, cliSessionFile: null, cliSessionDetectedAt: null })
+              .where(eq(subChats.id, input.subChatId))
+              .run();
+          }
+        }
+      }
       const { buildBootstrap } = await import('../../cli-harness');
-      const result = await buildBootstrap(input.harness, input.subChatId, resolvedCwd);
+      const result = await buildBootstrap(input.harness, input.subChatId, resolvedCwd, resumeSessionId);
 
       // Inject the initial user message as initialInputChunks so each write
       // reaches the CLI TUI as an independent PTY read (prevents the TUI from

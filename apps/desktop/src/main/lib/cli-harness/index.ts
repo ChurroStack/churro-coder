@@ -174,10 +174,25 @@ function buildClaudeSystemPrompt(subChatId: string): string {
 export async function buildBootstrap(
   harness: CliHarness,
   subChatId: string,
-  cwd?: string
+  cwd?: string,
+  /**
+   * When set, asks the CLI to resume an existing session by id rather than
+   * starting fresh. The id is the JSONL session UUID captured by the
+   * cli-session locator. Claude: `--resume <id>`. Codex: `resume <id>` as a
+   * subcommand (positional arg). If the CLI rejects the flag (e.g. session
+   * file was deleted), the PTY exits quickly and the renderer surfaces a
+   * toast; subChats.cliSessionId should then be cleared by the caller and
+   * a fresh spawn retried.
+   *
+   * Resume is gated on a non-empty messages count by chats.buildCliBootstrap
+   * — never passed for first-ever spawns.
+   */
+  resumeSessionId?: string
 ): Promise<TerminalBootstrap | BootstrapError> {
   const binaryName = harness === 'claude-cli' ? 'claude' : 'codex';
-  console.log(`[harness-bootstrap] start harness=${harness} sub=${subChatId} cwd=${cwd ?? '(none)'}`);
+  console.log(
+    `[harness-bootstrap] start harness=${harness} sub=${subChatId} cwd=${cwd ?? '(none)'} resume=${resumeSessionId ?? '(none)'}`
+  );
 
   const binaryPath = await resolveBinary(binaryName);
   if (!binaryPath) {
@@ -200,6 +215,13 @@ export async function buildBootstrap(
 
   const args: string[] = [];
 
+  // Codex: resume is a SUBCOMMAND that takes the session id as a positional
+  // argument. It must come first; -c / -a / -s flags follow and are accepted
+  // by the resume subcommand the same way they're accepted at the top level.
+  if (harness === 'codex-cli' && resumeSessionId) {
+    args.push('resume', resumeSessionId);
+  }
+
   if (harness === 'claude-cli') {
     try {
       await ensureChurroMcpRegistered(endpoint.url, endpoint.bearer);
@@ -207,6 +229,12 @@ export async function buildBootstrap(
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[harness-bootstrap] config-write-failed harness=${harness} sub=${subChatId} error=${message}`);
       return { kind: 'config-write-failed', message: `Failed to write Claude CLI MCP config: ${message}` };
+    }
+    // Claude: --resume <id> resumes by session UUID. Pushed BEFORE the trust /
+    // tools / system-prompt flags so the resume positional value is bound to
+    // --resume and nothing else can claim it accidentally.
+    if (resumeSessionId) {
+      args.push('--resume', resumeSessionId);
     }
     // Skip the interactive folder-trust dialog — the user explicitly launched
     // this CLI session in their own project, so trust is implicit.
