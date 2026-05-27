@@ -110,7 +110,8 @@ vi.mock('../../../lib/hooks/use-voice-input', () => ({
 vi.mock('../atoms', () => ({
   subChatModelIdAtomFamily: vi.fn(() => ({ init: 'claude-sonnet-4-6' })),
   subChatClaudeThinkingAtomFamily: vi.fn(() => ({ init: 'off' })),
-  subChatCliRestartHandlerAtomFamily: vi.fn(() => ({ _tag: 'cli-restart-handler', init: null }))
+  subChatCliRestartHandlerAtomFamily: vi.fn(() => ({ _tag: 'cli-restart-handler', init: null })),
+  cliSplitLayoutAtomFamily: vi.fn(() => ({ _tag: 'cli-split-layout', init: 'vertical' }))
 }));
 
 // Mutable state for openspec context/step tests — readable inside vi.mock factory closures
