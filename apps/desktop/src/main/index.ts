@@ -305,6 +305,13 @@ if (gotTheLock) {
     // Claude uses a per-turn SDK instance and doesn't depend on this completing.
     bootstrapChurroCoderMcp().catch((e) => console.error('[churro-coder] bootstrap failed:', e));
 
+    // Re-attach CLI session ingesters for sub-chats with a recorded
+    // cliSessionFile (recovered from disk). Failures here are non-fatal — the
+    // status-widget Refresh button is the manual escape hatch.
+    import('./lib/trpc/routers/cli-session')
+      .then((m) => m.bootstrapIngestersOnAppStart())
+      .catch((e) => console.warn('[cli-session] bootstrap failed:', e));
+
     // Get bundled CLI versions for About panel
     const isDev = !app.isPackaged;
     const binDir = isDev ? join(app.getAppPath(), 'resources/bin') : join(process.resourcesPath, 'bin');
