@@ -24,12 +24,25 @@ interface CliConversationPaneProps {
   sessionFileLabel?: string | null;
 }
 
+// Raw row shape from messages.getLatest (drizzle select() — JSON columns are
+// returned as strings, NOT parsed). parts/metadata must be JSON.parse'd before
+// the renderer can consume them.
 type MessageRow = {
   id: string;
   role: 'user' | 'assistant';
-  parts: unknown[];
-  metadata?: unknown;
+  parts: string | unknown[];
+  metadata?: string | unknown;
 };
+
+function parseJsonField<T>(v: string | T | undefined | null, fallback: T): T {
+  if (v == null) return fallback;
+  if (typeof v !== 'string') return v as T;
+  try {
+    return JSON.parse(v) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: CliConversationPaneProps) {
   const utils = trpc.useUtils();
@@ -54,12 +67,16 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
   const rows = (messagesQuery.data ?? []) as MessageRow[];
   const messageObjects = useMemo(
     () =>
-      rows.map((r) => ({
-        id: r.id,
-        role: r.role,
-        parts: Array.isArray(r.parts) ? r.parts : [],
-        ...(r.metadata ? { metadata: r.metadata } : {})
-      })),
+      rows.map((r) => {
+        const parts = parseJsonField<unknown[]>(r.parts, []);
+        const metadata = parseJsonField<Record<string, unknown> | null>(r.metadata as string | undefined, null);
+        return {
+          id: r.id,
+          role: r.role,
+          parts: Array.isArray(parts) ? parts : [],
+          ...(metadata ? { metadata } : {})
+        };
+      }),
     [rows]
   );
 
