@@ -15,6 +15,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { useStuckDetection } from '../hooks/use-stuck-detection';
 import { markMcpInjected, forgetMcpInjected } from '../hooks/use-harness-send-dispatcher';
 import { useMcpFileChangesTracking } from '../hooks/use-mcp-file-changes-tracking';
@@ -23,8 +24,11 @@ import {
   subChatCliRestartHandlerAtomFamily,
   pendingUserQuestionsAtom,
   subChatFilesAtom,
-  cliBusyAtomFamily
+  cliBusyAtomFamily,
+  cliSplitLayoutAtomFamily,
+  cliSplitSizeAtomFamily
 } from '../atoms';
+import { CliConversationPane } from './cli-conversation-pane';
 import type { PendingUserQuestion } from '../atoms';
 import { AgentUserQuestion } from './agent-user-question';
 import { SubChatStatusCard } from './sub-chat-status-card';
@@ -332,11 +336,22 @@ export function ChatCliSurface({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Body: disconnected / loading / error / terminal */}
+      {/* Body: disconnected / loading / error / terminal (+ optional split) */}
       <div className="flex-1 overflow-hidden relative">
-        {/* Terminal always mounts once ready, stays mounted for scrollback */}
+        {/* Terminal always mounts once ready, stays mounted for scrollback.
+            When the conversation pane is enabled, the Terminal is wrapped in a
+            resizable split. Critical: the <Terminal /> element keeps a stable
+            React key so the xterm/PTY does not remount on layout changes
+            (xterm state is paneId-scoped — remount = lose alt-screen + signals
+            to running processes like htop). */}
         {bootstrapState.status === 'ready' && (
-          <Terminal paneId={paneId} cwd={cwd} bootstrap={bootstrapState.bootstrap} />
+          <CliSplitBody
+            subChatId={subChatId}
+            chatId={chatId ?? ''}
+            paneId={paneId}
+            cwd={cwd}
+            bootstrap={bootstrapState.bootstrap}
+          />
         )}
 
         {bootstrapState.status === 'loading' && (
@@ -398,5 +413,65 @@ export function ChatCliSurface({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Split body — the conversation pane sits beside (or above) the terminal,
+ * resizable, with the layout persisted per-subChat. When the user disables the
+ * pane (layout='off'), only the terminal renders. The Terminal element keeps
+ * a stable React position so xterm never remounts on layout changes.
+ *
+ * Library/our terminology mapping:
+ *   our 'vertical'   = panes side-by-side = react-resizable-panels direction="horizontal"
+ *   our 'horizontal' = panes stacked       = react-resizable-panels direction="vertical"
+ */
+function CliSplitBody({
+  subChatId,
+  chatId,
+  paneId,
+  cwd,
+  bootstrap
+}: {
+  subChatId: string;
+  chatId: string;
+  paneId: string;
+  cwd?: string;
+  bootstrap: TerminalBootstrapConfig;
+}) {
+  const layout = useAtomValue(cliSplitLayoutAtomFamily(subChatId));
+  const [chatSize, setChatSize] = useAtom(cliSplitSizeAtomFamily(subChatId));
+  const statusQuery = trpc.cliSession.getStatus.useQuery(
+    { subChatId },
+    { refetchInterval: 5_000, refetchOnWindowFocus: false }
+  );
+  const sessionFileLabel = useMemo(() => {
+    const f = statusQuery.data?.sessionFile;
+    if (!f) return null;
+    const i = f.lastIndexOf('/');
+    return i === -1 ? f : f.slice(i + 1);
+  }, [statusQuery.data?.sessionFile]);
+
+  if (layout === 'off') {
+    return <Terminal paneId={paneId} cwd={cwd} bootstrap={bootstrap} />;
+  }
+
+  // See terminology mapping in this function's doc comment.
+  const direction = layout === 'vertical' ? 'horizontal' : 'vertical';
+
+  return (
+    <ResizablePanelGroup
+      direction={direction}
+      onLayout={(sizes) => {
+        if (Array.isArray(sizes) && typeof sizes[0] === 'number') setChatSize(sizes[0]);
+      }}>
+      <ResizablePanel defaultSize={chatSize} minSize={15} order={1} id={`cli-chat-${subChatId}`}>
+        <CliConversationPane subChatId={subChatId} chatId={chatId} sessionFileLabel={sessionFileLabel} />
+      </ResizablePanel>
+      <ResizableHandle />
+      <ResizablePanel defaultSize={100 - chatSize} minSize={15} order={2} id={`cli-term-${subChatId}`}>
+        <Terminal paneId={paneId} cwd={cwd} bootstrap={bootstrap} />
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 }
