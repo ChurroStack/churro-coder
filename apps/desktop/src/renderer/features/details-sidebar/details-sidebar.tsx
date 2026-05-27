@@ -296,7 +296,10 @@ export function DetailsSidebar({
   // chats.get is still loading. A null prop used to gate-out the React Query
   // invalidation, leaving observers stuck reading the disabled empty-path
   // query (data: undefined → snapshot computed `!hasUpstream` → amber pill).
-  const { refresh: handleRefreshStatus, isRefreshing: isRefreshingStatus } = useRefreshWorkflowState(chatId);
+  const { refresh: handleRefreshStatus, isRefreshing: isRefreshingStatus } = useRefreshWorkflowState(
+    chatId,
+    activeSubChatId
+  );
   const scriptsScopeKey = useMemo(
     () =>
       getTerminalScopeKey({

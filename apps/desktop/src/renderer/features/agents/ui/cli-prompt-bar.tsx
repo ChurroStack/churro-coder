@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
-import { ChevronDown, X, RotateCcw } from 'lucide-react';
+import { ChevronDown, X, RotateCcw, PanelRightOpen, Columns2, Rows2 } from 'lucide-react';
 import { useHarnessSendDispatcher } from '../hooks/use-harness-send-dispatcher';
 import { HARNESS_LABELS } from '../lib/harness-icons';
 import { AgentSendButton } from '../components/agent-send-button';
@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger
 } from '../../../components/ui/dropdown-menu';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
+import { cliSplitLayoutAtomFamily, type CliSplitLayout } from '../atoms';
 import { useVoiceInput } from '../../../lib/hooks/use-voice-input';
 import { AgentsSlashCommand, type SlashCommandOption } from '../commands';
 import { useAgentAutoRenameDispatcher } from '../hooks/use-auto-rename-dispatcher';
@@ -376,6 +377,11 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
 
       {/* Bottom toolbar */}
       <div className="px-3 pb-2 flex items-center gap-1.5">
+        {/* Conversation pane layout toggle — applies to both CLI harnesses.
+            Click cycles off -> vertical -> horizontal; the chevron opens a
+            menu for direct selection. */}
+        <CliLayoutToggle subChatId={subChatId} />
+
         {/* Model + effort selectors — Claude CLI only; Codex uses its own model config */}
         {!isCodexCli && (
           <>
@@ -498,5 +504,51 @@ export function CliPromptBar({ subChatId, isOwner = true, harness, projectPath }
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+const LAYOUT_LABELS: Record<CliSplitLayout, string> = {
+  off: 'Hide conversation pane',
+  vertical: 'Vertical split — chat left',
+  horizontal: 'Horizontal split — chat on top'
+};
+const LAYOUT_ORDER: CliSplitLayout[] = ['off', 'vertical', 'horizontal'];
+
+function CliLayoutToggle({ subChatId }: { subChatId: string }) {
+  const [layout, setLayout] = useAtom(cliSplitLayoutAtomFamily(subChatId));
+  const Icon = layout === 'off' ? PanelRightOpen : layout === 'vertical' ? Columns2 : Rows2;
+  const cycle = () => {
+    const idx = LAYOUT_ORDER.indexOf(layout);
+    setLayout(LAYOUT_ORDER[(idx + 1) % LAYOUT_ORDER.length]);
+  };
+  return (
+    <DropdownMenu>
+      <div className="flex items-center">
+        <button
+          aria-label={`Conversation pane: ${LAYOUT_LABELS[layout]}`}
+          title={LAYOUT_LABELS[layout]}
+          onClick={cycle}
+          className="flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors rounded-l px-1.5 py-1 hover:bg-muted">
+          <Icon size={12} />
+        </button>
+        <DropdownMenuTrigger asChild>
+          <button
+            aria-label="Choose conversation pane layout"
+            className="flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors rounded-r py-1 pr-1 hover:bg-muted">
+            <ChevronDown size={10} />
+          </button>
+        </DropdownMenuTrigger>
+      </div>
+      <DropdownMenuContent align="start" className="min-w-[200px]">
+        {LAYOUT_ORDER.map((opt) => (
+          <DropdownMenuItem
+            key={opt}
+            onSelect={() => setLayout(opt)}
+            className={opt === layout ? 'font-medium' : ''}>
+            {LAYOUT_LABELS[opt]}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

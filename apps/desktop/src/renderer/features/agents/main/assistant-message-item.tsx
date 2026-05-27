@@ -671,6 +671,22 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
       if (part.type === 'step-start') return null;
       if (part.type === 'tool-TaskOutput') return null;
 
+      // Session-break marker — emitted by the CLI session ingester when a
+      // fresh JSONL is detected without a successful resume (e.g. user
+      // started a new chat from inside the TUI, or resume was unavailable).
+      // Renders as a thin inline divider with a small label so the visual
+      // transcript stays continuous.
+      if (part.type === 'session-break') {
+        const harness = (part as { harness?: string }).harness;
+        return (
+          <div key={idx} className="my-3 flex items-center gap-2 px-2 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+            <div className="flex-1 border-t border-border" />
+            <span className="shrink-0">New {harness ?? 'CLI'} session</span>
+            <div className="flex-1 border-t border-border" />
+          </div>
+        );
+      }
+
       if (part.toolCallId && orphanToolCallIds.has(part.toolCallId)) {
         if (!orphanFirstToolCallIds.has(part.toolCallId)) return null;
         const parentId = part.toolCallId.split(':')[0];
