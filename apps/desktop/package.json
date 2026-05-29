@@ -206,12 +206,16 @@
       {
         "from": "resources/openspec",
         "to": "openspec",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "resources/new-project-templates",
         "to": "new-project-templates",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "asar": true,
