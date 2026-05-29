@@ -13,6 +13,50 @@ Churro Coder is a desktop app for working with AI coding agents (Claude Code, Co
 - **Sandboxed execution.** Agent file access is locked to the chat's worktree, your config dirs (`~/.claude`, `~/.codex`, `~/.churrostack`), standard scratch space, and optionally toolchain caches — nothing else. On macOS and Linux the sandbox is enforced at the OS level (Seatbelt / bubblewrap); on other platforms the SDK-level path enforcement blocks reads and writes outside the allowed roots. Configurable per-project, per-chat, or globally from Settings → Sandbox.
 - **Spend tracking built in.** See total usage and per-chat cost broken down by provider and model (`usage.png`), so the multi-model workflow above doesn't turn into a billing surprise.
 
+## Downloads & releases
+
+Grab the latest installer for your platform from the [**GitHub Releases**](../../releases) page:
+
+| Platform | What you download |
+|----------|-------------------|
+| macOS | `.dmg` installer (and a `.zip` of the app), for both Apple Silicon (`arm64`) and Intel (`x64`) |
+| Windows | NSIS installer `.exe` (choose install dir) **or** a standalone portable `.exe` |
+| Linux | `.AppImage` (run-anywhere) **or** `.deb` package |
+
+> **The macOS and Windows builds are not code-signed yet.** They run fine, but the OS will warn you:
+> on macOS, right-click the app → **Open** the first time (Gatekeeper); on Windows, click
+> **More info → Run anyway** (SmartScreen). Linux AppImages just need `chmod +x`.
+
+Releases are automated with [release-please](https://github.com/googleapis/release-please): merged
+[Conventional Commits](https://www.conventionalcommits.org/) accumulate into a "release PR"; merging
+that PR tags the version and triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which builds all three platforms on their native runners and attaches the installers to the Release.
+Installers are **only** built when a release is cut, never on ordinary PRs. Deeper mechanics live in
+[`apps/desktop/docs/release.md`](apps/desktop/docs/release.md).
+
+### Enabling macOS code signing & notarization
+
+The release workflow is already wired for signing + notarization but ships **disabled** until an
+Apple Developer ID certificate is available. To turn it on, add the following **repository secrets**
+under **Settings → Secrets and variables → Actions → New repository secret** — no workflow edit is
+needed; the next release will automatically sign and notarize the macOS build:
+
+| Secret | What it holds | Needed for |
+|--------|---------------|-----------|
+| `CSC_LINK` | base64 of the exported Developer ID `.p12` certificate — `base64 -i cert.p12 \| pbcopy` | signing |
+| `CSC_KEY_PASSWORD` | the password you set when exporting the `.p12` | signing |
+| `APPLE_IDENTITY` | `Developer ID Application: Your Name (TEAMID)` | signing |
+| `APPLE_ID` | your Apple ID email | notarization |
+| `APPLE_APP_SPECIFIC_PASSWORD` | an app-specific password from [appleid.apple.com](https://appleid.apple.com) | notarization |
+| `APPLE_TEAM_ID` | your 10-character Apple Team ID | notarization |
+
+The workflow treats `CSC_LINK` as the switch: present → it signs the macOS build with the cert;
+absent → it forces a clean unsigned build. These secrets are scoped to the macOS runner only, and
+notarization runs only when the three `APPLE_*` notarization secrets are all set. (The same variables
+are listed in [`apps/desktop/.env.example`](apps/desktop/.env.example) for local signed builds.)
+Windows and Linux currently ship unsigned; wiring Windows Authenticode signing is a separate,
+not-yet-done step.
+
 ## Repository layout
 
 This is an [Nx](https://nx.dev) monorepo with three apps that share a single product surface but speak different stacks on purpose:
