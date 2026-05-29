@@ -113,6 +113,51 @@ describe('jsonl-mapper / Claude', () => {
     );
     expect(r.sideEffects).toEqual([{ kind: 'plan', markdown: '# Plan\nDo a thing', title: 'Plan' }]);
   });
+
+  it('emits a plan side-effect when the CLI native ExitPlanMode is called', () => {
+    const r = mapClaudeLine(
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'u-6',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'call-exit-plan',
+              name: 'ExitPlanMode',
+              input: { plan: '# Plan: Simple blue HTML page\n\n## Context\nUser requested...' }
+            }
+          ]
+        }
+      }),
+      createMapperState()
+    );
+    expect(r.messages[0].parts[0]).toMatchObject({
+      type: 'tool-ExitPlanMode',
+      toolCallId: 'call-exit-plan'
+    });
+    expect(r.sideEffects).toEqual([
+      { kind: 'plan', markdown: '# Plan: Simple blue HTML page\n\n## Context\nUser requested...' }
+    ]);
+  });
+
+  it('emits no plan side-effect for ExitPlanMode with empty input', () => {
+    // Real-world JSONL: ~35% of ExitPlanMode entries have input: {} (no plan field).
+    const r = mapClaudeLine(
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'u-7',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'call-empty', name: 'ExitPlanMode', input: {} }]
+        }
+      }),
+      createMapperState()
+    );
+    expect(r.messages[0].parts[0]).toMatchObject({ type: 'tool-ExitPlanMode' });
+    expect(r.sideEffects).toEqual([]);
+  });
 });
 
 describe('jsonl-mapper / Codex', () => {

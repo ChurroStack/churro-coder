@@ -438,7 +438,8 @@ function materializeSideEffect(kind: SideEffectKind, toolName: string, input: un
       return [{ kind: 'file-change', path, action }];
     }
     case 'plan': {
-      const markdown = typeof inp.markdown === 'string' ? inp.markdown : '';
+      // MCP write_plan uses `markdown`; Claude CLI's native ExitPlanMode uses `plan`.
+      const markdown = typeof inp.markdown === 'string' ? inp.markdown : typeof inp.plan === 'string' ? inp.plan : '';
       if (!markdown) return [];
       const title = typeof inp.title === 'string' ? inp.title : undefined;
       return [{ kind: 'plan', markdown, ...(title ? { title } : {}) }];

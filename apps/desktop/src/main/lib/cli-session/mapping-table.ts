@@ -177,9 +177,10 @@ export const MAPPING_TABLE: MappingRow[] = [
   {
     partType: 'tool-ExitPlanMode',
     rendererComponent: '(hidden)',
-    description: 'Plan-mode exit — filtered out by renderer.',
+    description: 'Plan-mode exit — Claude CLI native plan tool; emits a plan side-effect.',
     claude: { toolNames: ['ExitPlanMode'] },
-    codex: {}
+    codex: {},
+    sideEffect: 'plan'
   },
 
   // ── MCP (churro-coder server) — special rich renderers ─────────────────

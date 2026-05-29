@@ -17,12 +17,15 @@ export function useRefreshWorkflowState(chatId: string, activeSubChatId?: string
       await refreshCachesMutation.mutateAsync({ chatId });
 
       // 2) For CLI sub-chats, also pull fresh data from the on-disk JSONL.
-      //    Best-effort: failures are non-fatal — the user sees the prior
-      //    state and can retry.
+      //    full: true so a user-triggered refresh recovers artifacts whose
+      //    bytes were already consumed by a prior mapping-table version
+      //    (e.g. ExitPlanMode plans persisted before plan side-effect was
+      //    wired). Fill-gaps semantics in ensurePlanWritten make this
+      //    idempotent. Best-effort: failures are non-fatal.
       if (activeSubChatId) {
         try {
           await cliRelocate.mutateAsync({ subChatId: activeSubChatId });
-          await cliReingest.mutateAsync({ subChatId: activeSubChatId, full: false });
+          await cliReingest.mutateAsync({ subChatId: activeSubChatId, full: true });
         } catch (err) {
           console.warn('[refresh-workflow-state] cli reingest failed', err);
         }
