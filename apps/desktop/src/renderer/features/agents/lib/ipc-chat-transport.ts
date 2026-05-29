@@ -397,11 +397,28 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                   const newMap = new Map(currentMap);
                   newMap.delete(this.config.subChatId);
                   appStore.set(pendingUserQuestionsAtom, newMap);
+                  console.log(`[needs-input] clear sub=${this.config.subChatId.slice(-8)} reason=agent-progress`);
                 }
-                // NOTE: Do NOT clear expired questions here. After a timeout,
-                // the agent continues and emits new chunks — that's expected.
-                // Expired questions should persist until the user answers,
-                // dismisses, or sends a new message.
+              }
+
+              // Auto-clear expired questions once the agent has clearly moved on.
+              // `finish-step` and `finish` fire at well-defined reasoning boundaries
+              // — after a timeout the SDK emits one of these once the next step
+              // wraps. Without this, the expired entry would pin the dock-tab hand
+              // (and sidebar needs-input glyph) for the rest of the turn even
+              // though the agent has self-recovered. The AskUserQuestion widget
+              // remains in the conversation pane, so users can still retroactively
+              // answer there if they want.
+              if (chunk.type === 'finish-step' || chunk.type === 'finish') {
+                const currentExpired = appStore.get(expiredUserQuestionsAtom);
+                if (currentExpired.has(this.config.subChatId)) {
+                  const newExpiredMap = new Map(currentExpired);
+                  newExpiredMap.delete(this.config.subChatId);
+                  appStore.set(expiredUserQuestionsAtom, newExpiredMap);
+                  console.log(
+                    `[needs-input] clear sub=${this.config.subChatId.slice(-8)} reason=expired-auto-${chunk.type}`
+                  );
+                }
               }
 
               // Handle authentication errors - try silent keychain import first

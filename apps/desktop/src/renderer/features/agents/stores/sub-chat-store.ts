@@ -10,7 +10,10 @@ import {
   removePaneRatio,
   clearSubChatBusy,
   subChatBusyAtom,
-  subChatErrorAtom
+  subChatErrorAtom,
+  pendingUserQuestionsAtom,
+  expiredUserQuestionsAtom,
+  pendingPlanApprovalsAtom
 } from '../atoms';
 import { trpcClient } from '../../../lib/trpc';
 import { appStore } from '../../../lib/jotai-store';
@@ -382,6 +385,19 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
       next.delete(subChatId);
       return next;
     });
+    // Scrub any pending needs-input signals so the sidebar workspace-row
+    // aggregator (parentChatBusyAtomFamily + pendingPlanApprovalsAtom) stops
+    // flagging this sub-chat the moment its tab closes. The per-subChat
+    // cleanup hook in active-chat.tsx only runs on panel unmount, which can
+    // lag behind close/archive in dockview.
+    for (const atom of [pendingUserQuestionsAtom, expiredUserQuestionsAtom, pendingPlanApprovalsAtom]) {
+      appStore.set(atom, (prev) => {
+        if (!prev.has(subChatId)) return prev;
+        const next = new Map(prev);
+        next.delete(subChatId);
+        return next;
+      });
+    }
     clearSubChatRuntimeCaches(subChatId);
     agentChatStore.delete(subChatId);
     clearTaskSnapshotCache(subChatId);

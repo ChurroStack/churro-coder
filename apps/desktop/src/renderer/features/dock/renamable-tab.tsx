@@ -24,6 +24,7 @@ import { requestCloseTerminalTab } from './terminal-tab-close';
 import { useStreamingStatusStore } from '../agents/stores/streaming-status-store';
 import { useSubChatNeedsInput } from '../kanban/lib/use-sub-chat-status';
 import { HarnessIcon } from '../agents/lib/harness-icons';
+import { deriveSubChatIconKind } from '../agents/lib/sub-chat-icon-status';
 
 /**
  * Default dockview tab component used by every panel kind. The body renders
@@ -306,16 +307,25 @@ function ChatTabIcon({ subChatId, harnessOverride }: { subChatId: string | null;
   );
   const harness = (harnessOverride as 'builtin' | 'claude-cli' | 'codex-cli' | undefined) ?? storeHarness;
 
-  if (status === 'error') {
-    return <AlertCircle className="h-3 w-3 flex-shrink-0 text-destructive" />;
+  const kind = deriveSubChatIconKind({
+    hasError: status === 'error',
+    isBusy: status === 'streaming' || status === 'submitted',
+    needsInput
+  });
+  switch (kind) {
+    case 'error':
+      return <AlertCircle className="h-3 w-3 flex-shrink-0 text-destructive" />;
+    case 'busy':
+      return <Loader2 className="h-3 w-3 flex-shrink-0 text-primary animate-spin" />;
+    case 'needs-input':
+      return <Hand className="h-3 w-3 flex-shrink-0 text-amber-500" />;
+    case 'idle':
+      return <HarnessIcon harness={harness} size={12} />;
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
   }
-  if (needsInput) {
-    return <Hand className="h-3 w-3 flex-shrink-0 text-amber-500" />;
-  }
-  if (status === 'streaming' || status === 'submitted') {
-    return <Loader2 className="h-3 w-3 flex-shrink-0 text-primary animate-spin" />;
-  }
-  return <HarnessIcon harness={harness} size={12} />;
 }
 
 /**
