@@ -34,6 +34,10 @@ type PricingEntry = {
 const PRICING_TABLE: ReadonlyArray<readonly [string, PricingEntry]> = [
   // Claude — most specific first
   [
+    'claude-opus-4-8',
+    { displayName: 'Opus 4.8', provider: 'claude', rates: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } }
+  ],
+  [
     'claude-opus-4-7',
     { displayName: 'Opus 4.7', provider: 'claude', rates: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } }
   ],

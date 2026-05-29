@@ -42,12 +42,20 @@ describe('formatModelLabel', () => {
     expect(formatModelLabel(undefined)).toBe('');
   });
 
-  test('opus → Claude Opus 4.7', () => {
-    expect(formatModelLabel('opus')).toBe('Claude Opus 4.7');
+  test('opus → Claude Opus 4.8', () => {
+    expect(formatModelLabel('opus')).toBe('Claude Opus 4.8');
   });
 
-  test('opus[1m] → Claude Opus 4.7 (1m suffix not detected by is1m heuristic)', () => {
-    expect(formatModelLabel('opus[1m]')).toBe('Claude Opus 4.7');
+  test('opus[1m] → Claude Opus 4.8 1M (exact-id match wins)', () => {
+    expect(formatModelLabel('opus[1m]')).toBe('Claude Opus 4.8 1M');
+  });
+
+  test('claude-opus-4-7 → Claude Opus 4.7 (exact-id match for legacy version pin)', () => {
+    expect(formatModelLabel('claude-opus-4-7')).toBe('Claude Opus 4.7');
+  });
+
+  test('claude-opus-4-6 → Claude Opus 4.6 (exact-id match for legacy version pin)', () => {
+    expect(formatModelLabel('claude-opus-4-6')).toBe('Claude Opus 4.6');
   });
 
   test('sonnet → Claude Sonnet 4.6', () => {

@@ -355,7 +355,15 @@ export const lastSelectedModelIdAtom = atomWithStorage<string>('agents:lastSelec
 });
 
 // Available Claude model IDs (kept in sync with CLAUDE_MODELS in lib/models.ts)
-const AVAILABLE_CLAUDE_MODEL_IDS = ['opus', 'opus[1m]', 'sonnet', 'sonnet[1m]', 'haiku'] as const;
+const AVAILABLE_CLAUDE_MODEL_IDS = [
+  'opus',
+  'opus[1m]',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'sonnet',
+  'sonnet[1m]',
+  'haiku'
+] as const;
 
 function sanitizeModelId(candidate: string, fallback: string): string {
   return (AVAILABLE_CLAUDE_MODEL_IDS as readonly string[]).includes(candidate) ? candidate : fallback;
@@ -604,6 +612,8 @@ export const subChatClaudeThinkingAtomFamily = atomFamily((subChatId: string) =>
 export const MODEL_ID_MAP: Record<string, string> = {
   opus: 'opus',
   'opus[1m]': 'opus[1m]',
+  'claude-opus-4-7': 'claude-opus-4-7',
+  'claude-opus-4-6': 'claude-opus-4-6',
   sonnet: 'sonnet',
   'sonnet[1m]': 'sonnet[1m]',
   haiku: 'haiku'

@@ -4,15 +4,29 @@ export const CLAUDE_MODELS = [
   {
     id: 'opus',
     name: 'Opus',
-    version: '4.7',
+    version: '4.8',
     contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
   },
   {
     id: 'opus[1m]',
     name: 'Opus',
-    version: '4.7 1M',
+    version: '4.8 1M',
     contextWindow: 1_000_000,
+    thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
+  },
+  {
+    id: 'claude-opus-4-7',
+    name: 'Opus',
+    version: '4.7',
+    contextWindow: 200_000,
+    thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
+  },
+  {
+    id: 'claude-opus-4-6',
+    name: 'Opus',
+    version: '4.6',
+    contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
   },
   {
@@ -152,6 +166,9 @@ export function formatModelLabel(rawId: string | undefined): string {
     if (match) return match.name;
     return rawId;
   }
+
+  const exact = CLAUDE_MODELS.find((m) => m.id.toLowerCase() === lower);
+  if (exact) return `Claude ${exact.name} ${exact.version}`;
 
   const is1m = lower.includes('-1m') || lower.endsWith('1m');
   const families = [
