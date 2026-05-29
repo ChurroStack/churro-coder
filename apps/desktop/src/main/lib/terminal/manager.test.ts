@@ -105,6 +105,49 @@ describe('TerminalManager.resize — SIGWINCH propagation', () => {
 
     expect(session.pty.resize).not.toHaveBeenCalled();
   });
+
+  test('resize() is a full no-op when geometry is unchanged (avoids spurious SIGWINCH on first mount / tab activation)', () => {
+    const headlessResize = vi.fn();
+    const session = makeSession({
+      paneId: 'pane-noop',
+      cols: 80,
+      rows: 24,
+      idleDetection: {},
+      headlessTerminal: { resize: headlessResize, dispose: vi.fn() } as any
+    });
+    (manager as any).sessions.set('pane-noop', session);
+
+    manager.resize({ paneId: 'pane-noop', cols: 80, rows: 24 });
+
+    expect(session.pty.resize).not.toHaveBeenCalled();
+    expect(headlessResize).not.toHaveBeenCalled();
+    expect(session.suppressActivityUntil).toBeUndefined();
+  });
+
+  test('resize() with real geometry change stamps suppressActivityUntil ≈ now + resizeSuppressMs', () => {
+    const session = makeSession({ paneId: 'pane-stamp', idleDetection: {} });
+    (manager as any).sessions.set('pane-stamp', session);
+
+    const before = Date.now();
+    manager.resize({ paneId: 'pane-stamp', cols: 120, rows: 40 });
+    const after = Date.now();
+
+    expect(session.pty.resize).toHaveBeenCalledWith(120, 40);
+    expect(session.suppressActivityUntil).toBeDefined();
+    // 1500 ms suppression window (IDLE_TUNING.resizeSuppressMs).
+    expect(session.suppressActivityUntil!).toBeGreaterThanOrEqual(before + 1500);
+    expect(session.suppressActivityUntil!).toBeLessThanOrEqual(after + 1500);
+  });
+
+  test('resize() does not stamp suppression when the session opted out of idle detection', () => {
+    const session = makeSession({ paneId: 'pane-no-idle', cols: 80, rows: 24 }); // no idleDetection
+    (manager as any).sessions.set('pane-no-idle', session);
+
+    manager.resize({ paneId: 'pane-no-idle', cols: 120, rows: 40 });
+
+    expect(session.pty.resize).toHaveBeenCalledWith(120, 40);
+    expect(session.suppressActivityUntil).toBeUndefined();
+  });
 });
 
 // ── Activity-sampler state-machine tests ─────────────────────────────────────
@@ -113,8 +156,8 @@ describe('TerminalManager.resize — SIGWINCH propagation', () => {
 // before calling evaluateWindow. A window is "active" if either signal is
 // non-zero, "inactive" otherwise.
 
-const RUNNING_WINDOWS = 1;
-const IDLE_WINDOWS = 16;
+const RUNNING_WINDOWS = 2;
+const IDLE_WINDOWS = 4;
 
 function makeTrackedSession(paneId: string): TerminalSession {
   return makeSession({
@@ -166,19 +209,21 @@ describe('TerminalManager idle detection — state machine', () => {
     expect(session.outputState).toBe('idle');
   });
 
-  test('flips idle→running on first active window (cursor moves)', () => {
+  test('flips idle→running after 2 consecutive active windows (cursor moves)', () => {
     const session = makeTrackedSession('p2');
     (manager as any).sessions.set('p2', session);
 
     const events: TerminalOutputState[] = [];
     manager.on('state:p2', (s: TerminalOutputState) => events.push(s));
 
-    tick(manager, 'p2', ACTIVE, RUNNING_WINDOWS);
+    tick(manager, 'p2', ACTIVE, 1);
+    expect(events).toEqual([]); // one window not enough
+    tick(manager, 'p2', ACTIVE, 1);
     expect(events).toEqual(['running']);
     expect(session.outputState).toBe('running');
   });
 
-  test('flips idle→running on first active window (bytes only — TUI rewrote in place)', () => {
+  test('flips idle→running after 2 consecutive active windows (bytes only — TUI rewrote in place)', () => {
     const session = makeTrackedSession('p2b');
     (manager as any).sessions.set('p2b', session);
 
@@ -187,6 +232,21 @@ describe('TerminalManager idle detection — state machine', () => {
 
     tick(manager, 'p2b', ACTIVE_BYTES_ONLY, RUNNING_WINDOWS);
     expect(events).toEqual(['running']);
+  });
+
+  test('single active window then quiet does NOT flip idle→running (defangs single-burst false positives)', () => {
+    const session = makeTrackedSession('p2c');
+    (manager as any).sessions.set('p2c', session);
+
+    const events: TerminalOutputState[] = [];
+    manager.on('state:p2c', (s: TerminalOutputState) => events.push(s));
+
+    tick(manager, 'p2c', ACTIVE, 1);
+    tick(manager, 'p2c', QUIET, 1);
+    tick(manager, 'p2c', QUIET, 10);
+
+    expect(events).toEqual([]);
+    expect(session.outputState).toBe('idle');
   });
 
   test('does not re-emit running→running for sustained activity', () => {
@@ -201,7 +261,7 @@ describe('TerminalManager idle detection — state machine', () => {
     expect(events).toEqual(['running']);
   });
 
-  test('flips running→idle only after IDLE_WINDOWS_REQUIRED consecutive inactive windows', () => {
+  test('flips running→idle only after 4 consecutive inactive windows (4s of silence)', () => {
     const session = makeTrackedSession('p4');
     (manager as any).sessions.set('p4', session);
 
@@ -289,6 +349,73 @@ describe('TerminalManager idle detection — state machine', () => {
     const session = makeSession({ paneId: 'p9' }); // no idleDetection
     (manager as any).sessions.set('p9', session);
     expect(manager.getOutputState('p9')).toBeNull();
+  });
+
+  // ── Post-resize suppression ────────────────────────────────────────────────
+  // The TUI repaint burst that follows a SIGWINCH is the historical false-
+  // positive source. Stamping `suppressActivityUntil` on the session causes
+  // the sampler to drain its counters without touching the ring or evaluating
+  // a transition — so the burst can't flip an idle session into running and
+  // can't bias a running session toward premature idle.
+
+  test('active window during suppression is fully ignored (no transition, ring untouched)', () => {
+    const session = makeTrackedSession('p-supp-1');
+    session.suppressActivityUntil = Date.now() + 5000;
+    (manager as any).sessions.set('p-supp-1', session);
+
+    const events: TerminalOutputState[] = [];
+    manager.on('state:p-supp-1', (s: TerminalOutputState) => events.push(s));
+
+    tick(manager, 'p-supp-1', ACTIVE_BYTES_ONLY, 1);
+    tick(manager, 'p-supp-1', ACTIVE, 1);
+
+    expect(events).toEqual([]);
+    expect(session.outputState).toBe('idle');
+    // Ring must stay empty — pushing 0 would also be wrong because it biases
+    // the next running→idle countdown.
+    expect(session.recentMoves).toEqual([]);
+    // Counters drained so the post-suppression window starts clean.
+    expect(session.pendingMoves).toBe(0);
+    expect(session.pendingBytes).toBe(0);
+  });
+
+  test('suppression expires: activity after the gate flips idle→running normally', () => {
+    const session = makeTrackedSession('p-supp-2');
+    session.suppressActivityUntil = Date.now() - 1; // already expired
+    (manager as any).sessions.set('p-supp-2', session);
+
+    const events: TerminalOutputState[] = [];
+    manager.on('state:p-supp-2', (s: TerminalOutputState) => events.push(s));
+
+    tick(manager, 'p-supp-2', ACTIVE, RUNNING_WINDOWS);
+    expect(events).toEqual(['running']);
+  });
+
+  test('suppression while running preserves running and does not advance the idle countdown', () => {
+    const session = makeTrackedSession('p-supp-3');
+    (manager as any).sessions.set('p-supp-3', session);
+
+    const events: TerminalOutputState[] = [];
+    manager.on('state:p-supp-3', (s: TerminalOutputState) => events.push(s));
+
+    // Get into running first.
+    tick(manager, 'p-supp-3', ACTIVE, RUNNING_WINDOWS);
+    expect(events).toEqual(['running']);
+    const ringAfterRunning = [...(session.recentMoves ?? [])];
+
+    // Now suppress and drive quiet windows during suppression.
+    session.suppressActivityUntil = Date.now() + 5000;
+    tick(manager, 'p-supp-3', QUIET, IDLE_WINDOWS + 2);
+
+    expect(events).toEqual(['running']);
+    expect(session.outputState).toBe('running');
+    // Ring preserved — suppression doesn't bias the idle countdown.
+    expect(session.recentMoves).toEqual(ringAfterRunning);
+
+    // Lift suppression, run the full idle countdown — relaxes correctly.
+    session.suppressActivityUntil = Date.now() - 1;
+    tick(manager, 'p-supp-3', QUIET, IDLE_WINDOWS);
+    expect(events).toEqual(['running', 'idle']);
   });
 });
 
