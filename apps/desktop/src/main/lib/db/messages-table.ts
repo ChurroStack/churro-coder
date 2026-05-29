@@ -4,6 +4,7 @@ import type * as schema from './schema';
 import { messages, subChats } from './schema';
 import { writePartIfLargeSync } from './part-spill';
 import { computeFileStatsFromMessages } from '../file-stats';
+import { firstTextOfParts } from '../../../shared/message-parts';
 
 type DB = BetterSQLite3Database<typeof schema>;
 
@@ -153,6 +154,15 @@ export function writeMessagesToTable(db: DB, subChatId: string, allMessages: any
  * The unique (sub_chat_id, id) index on messages is the safety net against
  * double-inserts when the ingester's UUID dedup misses (e.g. after a
  * partial-write crash).
+ *
+ * Claim-merge: when ingesting a user message AND the row at idx-1 is an
+ * optimistic pre-bootstrap user write (id matches `msg-<timestamp>`) AND
+ * its trimmed text equals the new message's trimmed text, the existing row's
+ * id is upgraded to the JSONL UUID instead of inserting a duplicate. The
+ * optimistic row's idx and content are preserved so the UI's instant-feedback
+ * bubble doesn't flicker; the UUID upgrade keeps fork/rollback/parent-uuid
+ * chains aligned with what the CLI itself uses. Returns null in that case so
+ * the caller leaves nextIdx unchanged.
  */
 export function appendIngestedMessage(
   db: DB,
@@ -161,23 +171,68 @@ export function appendIngestedMessage(
   msg: { id: string; role: 'user' | 'assistant'; parts: unknown[]; metadata?: unknown; createdAt: number }
 ): number | null {
   try {
-    const processedParts = processPartsForStorage(subChatId, msg.id, msg.parts);
-    const res = db
-      .insert(messages)
-      .values({
-        subChatId,
-        idx,
-        id: msg.id,
-        role: msg.role,
-        parts: JSON.stringify(processedParts),
-        metadata: msg.metadata !== undefined ? JSON.stringify(msg.metadata) : null,
-        createdAt: new Date(msg.createdAt)
-      })
-      .onConflictDoNothing()
-      .run();
-    return res.changes > 0 ? idx : null;
+    // SELECT(prior) + UPDATE(claim) + INSERT(new) are wrapped in a single
+    // SQLite transaction so a hypothetical future caller running outside the
+    // per-subchat ingester mutex (`cli-session/ingester.ts:69-77`) still sees
+    // atomic read-then-write semantics. Today that mutex already serializes
+    // the path; the transaction is defense-in-depth.
+    return db.transaction((tx) => {
+      if (idx > 0 && msg.role === 'user') {
+        const prior = tx
+          .select({ id: messages.id, parts: messages.parts, role: messages.role })
+          .from(messages)
+          .where(and(eq(messages.subChatId, subChatId), eq(messages.idx, idx - 1)))
+          .get();
+        if (prior && prior.role === 'user' && /^msg-\d+$/.test(prior.id)) {
+          const priorText = extractFirstTrimmedText(prior.parts, subChatId, idx - 1);
+          const newText = firstTextOfParts(msg.parts);
+          if (priorText !== null && newText !== null && priorText === newText) {
+            // Only `id` is upgraded — `parts`, `metadata`, and `created_at` are
+            // intentionally preserved from the optimistic write. The optimistic
+            // row's idx (0), rendered content, and chat-creation timestamp are
+            // invariants downstream consumers depend on; the id-upgrade is
+            // strictly about aligning fork / rollback / parent-uuid lookups
+            // with the canonical UUID the CLI uses in its own JSONL.
+            tx.update(messages)
+              .set({ id: msg.id })
+              .where(and(eq(messages.subChatId, subChatId), eq(messages.idx, idx - 1)))
+              .run();
+            console.log(
+              `[cli-ingest] claim-merge sub=${subChatId} optimisticIdx=${idx - 1} optimisticId=${prior.id} newUuid=${msg.id}`
+            );
+            return null;
+          }
+        }
+      }
+
+      const processedParts = processPartsForStorage(subChatId, msg.id, msg.parts);
+      const res = tx
+        .insert(messages)
+        .values({
+          subChatId,
+          idx,
+          id: msg.id,
+          role: msg.role,
+          parts: JSON.stringify(processedParts),
+          metadata: msg.metadata !== undefined ? JSON.stringify(msg.metadata) : null,
+          createdAt: new Date(msg.createdAt)
+        })
+        .onConflictDoNothing()
+        .run();
+      return res.changes > 0 ? idx : null;
+    });
   } catch (err) {
     console.warn(`[messages-table] appendIngestedMessage failed sub=${subChatId} idx=${idx}`, err);
+    return null;
+  }
+}
+
+function extractFirstTrimmedText(partsJson: string, subChatId: string, idx: number): string | null {
+  try {
+    const arr = JSON.parse(partsJson);
+    return firstTextOfParts(arr);
+  } catch (err) {
+    console.warn(`[messages-table] claim-merge: malformed prior parts JSON sub=${subChatId} idx=${idx}`, err);
     return null;
   }
 }
