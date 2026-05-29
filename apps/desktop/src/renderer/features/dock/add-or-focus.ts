@@ -92,6 +92,18 @@ export function addOrFocus(api: DockviewApi, entity: PanelEntity, opts: AddOrFoc
       referencePanel: reference.id,
       direction: dir
     };
+    // Terminals open as a smaller split (~30%) instead of dockview's default
+    // 50/50, so the chat surface keeps most of the space. Dockview converts
+    // this pixel size into a splitview proportion that survives window resize.
+    if (entity.kind === 'terminal') {
+      const el = reference.group.element;
+      const TERMINAL_SPLIT_RATIO = 0.3;
+      if (dir === 'below' || dir === 'above') {
+        options.initialHeight = Math.round(el.offsetHeight * TERMINAL_SPLIT_RATIO);
+      } else {
+        options.initialWidth = Math.round(el.offsetWidth * TERMINAL_SPLIT_RATIO);
+      }
+    }
   } else if (opts.referenceGroup) {
     options.position = { referenceGroup: opts.referenceGroup };
   }
