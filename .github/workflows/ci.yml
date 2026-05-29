@@ -76,9 +76,8 @@ jobs:
       - name: Build desktop
         run: pnpm exec nx run desktop:build
 
-      - name: Lint desktop
-        run: pnpm exec nx run desktop:lint
-
+      # desktop intentionally has no `lint` target — see apps/desktop/AGENTS.md
+      # and project.json. Don't add one here without coordinating that file too.
       - name: Test desktop
         run: pnpm exec nx run desktop:test
 
@@ -112,14 +111,16 @@ jobs:
       - name: Install root deps (pnpm)
         run: pnpm install --frozen-lockfile
 
-      - name: Restore .NET deps
-        run: pnpm exec nx run gateway:restore
+      # @nx/dotnet infers a separate `Gateway.Tests` project from the test
+      # csproj — restore / build / test all need to cover both projects.
+      - name: Restore .NET deps (gateway + Gateway.Tests)
+        run: pnpm exec nx run-many -t restore --projects=gateway,Gateway.Tests
 
-      - name: Build gateway
-        run: pnpm exec nx run gateway:build
+      - name: Build .NET (gateway + Gateway.Tests)
+        run: pnpm exec nx run-many -t build --projects=gateway,Gateway.Tests
 
-      - name: Test gateway
-        run: pnpm exec nx run gateway:test
+      - name: Test gateway (Gateway.Tests)
+        run: pnpm exec nx run Gateway.Tests:test
 
   daemon:
     name: Daemon (Go)
@@ -210,6 +211,9 @@ jobs:
 
       - name: Build landing
         run: pnpm exec nx run landing:build
+
+      - name: Lint landing
+        run: pnpm exec nx run landing:lint
 
   # Single required check for branch-protection. The name "Build & check"
   # matches the existing ruleset context exactly, so the merge gate keeps
