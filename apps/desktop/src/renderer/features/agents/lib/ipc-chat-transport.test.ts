@@ -225,3 +225,97 @@ describe('R2 — stale streamId cleared on stream error (§D)', () => {
     expect(nullCalls.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R3 — expired user question auto-clear on agent recovery
+// ─────────────────────────────────────────────────────────────────────────────
+import { appStore as appStoreMock } from '../../../lib/jotai-store';
+import { expiredUserQuestionsAtom, pendingUserQuestionsAtom } from '../atoms';
+
+describe('R3 — expired user question auto-clear on agent recovery', () => {
+  async function setupOnDataHandler(subChatId: string) {
+    let capturedCallbacks: any = null;
+    subscribeMock.mockImplementationOnce((_input: any, callbacks: any) => {
+      capturedCallbacks = callbacks;
+      return { unsubscribe: vi.fn() };
+    });
+
+    const transport = new IPCChatTransport(makeConfig(subChatId));
+    await transport.sendMessages({ messages: makeMessages() });
+    return capturedCallbacks;
+  }
+
+  function primeAtoms(subChatId: string, opts: { expiredSet: boolean }) {
+    const expiredMap = opts.expiredSet ? new Map([[subChatId, { subChatId } as any]]) : new Map();
+    (appStoreMock.get as any).mockImplementation((atom: any) => {
+      if (atom === expiredUserQuestionsAtom) return expiredMap;
+      if (atom === pendingUserQuestionsAtom) return new Map();
+      return undefined;
+    });
+  }
+
+  test('finish-step chunk clears expiredUserQuestionsAtom when entry exists', async () => {
+    const subChatId = 'sub-r3-finish-step';
+    primeAtoms(subChatId, { expiredSet: true });
+
+    const callbacks = await setupOnDataHandler(subChatId);
+    (appStoreMock.set as any).mockClear();
+
+    callbacks.onData({ type: 'finish-step' });
+
+    const expiredSetCall = (appStoreMock.set as any).mock.calls.find(
+      ([atom]: any) => atom === expiredUserQuestionsAtom
+    );
+    expect(expiredSetCall).toBeDefined();
+    const newMap = expiredSetCall[1];
+    expect(newMap instanceof Map).toBe(true);
+    expect((newMap as Map<string, unknown>).has(subChatId)).toBe(false);
+  });
+
+  test('finish chunk also clears expired entries', async () => {
+    const subChatId = 'sub-r3-finish';
+    primeAtoms(subChatId, { expiredSet: true });
+
+    const callbacks = await setupOnDataHandler(subChatId);
+    (appStoreMock.set as any).mockClear();
+
+    callbacks.onData({ type: 'finish' });
+
+    const expiredSetCall = (appStoreMock.set as any).mock.calls.find(
+      ([atom]: any) => atom === expiredUserQuestionsAtom
+    );
+    expect(expiredSetCall).toBeDefined();
+    expect((expiredSetCall[1] as Map<string, unknown>).has(subChatId)).toBe(false);
+  });
+
+  test('finish-step is a no-op when there is no expired entry', async () => {
+    const subChatId = 'sub-r3-empty';
+    primeAtoms(subChatId, { expiredSet: false });
+
+    const callbacks = await setupOnDataHandler(subChatId);
+    (appStoreMock.set as any).mockClear();
+
+    callbacks.onData({ type: 'finish-step' });
+
+    const expiredSetCall = (appStoreMock.set as any).mock.calls.find(
+      ([atom]: any) => atom === expiredUserQuestionsAtom
+    );
+    expect(expiredSetCall).toBeUndefined();
+  });
+
+  test('non-terminal chunks (text-delta, tool-input-available) do not clear expired entries', async () => {
+    const subChatId = 'sub-r3-text-delta';
+    primeAtoms(subChatId, { expiredSet: true });
+
+    const callbacks = await setupOnDataHandler(subChatId);
+    (appStoreMock.set as any).mockClear();
+
+    callbacks.onData({ type: 'text-delta', textDelta: 'hi' });
+    callbacks.onData({ type: 'tool-input-available', toolName: 'X', toolCallId: 'tc' });
+
+    const expiredSetCall = (appStoreMock.set as any).mock.calls.find(
+      ([atom]: any) => atom === expiredUserQuestionsAtom
+    );
+    expect(expiredSetCall).toBeUndefined();
+  });
+});

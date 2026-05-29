@@ -2974,6 +2974,11 @@ export const ChatViewInner = memo(function ChatViewInner({
   const hasUnapprovedPlan = useMemo(() => {
     // If already in agent mode, plan is approved (mode is the source of truth)
     if (subChatMode !== 'plan') return false;
+    // Don't flip the side-channel pendingPlanApprovals atom until the model has
+    // finished emitting the turn — otherwise the dock-tab Hand / sidebar
+    // needs-input glyph would override the streaming spinner the moment
+    // ExitPlanMode resolves but before the final wrap-up text lands.
+    if (isStreaming) return false;
 
     // Look for completed ExitPlanMode (Claude) or PlanWrite awaiting_approval (Codex widget)
     for (let i = messagesForSync.length - 1; i >= 0; i--) {
