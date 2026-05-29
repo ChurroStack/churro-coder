@@ -5,12 +5,7 @@ import { AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { useAtomValue } from 'jotai';
 import { cn } from '../../../lib/utils';
-import {
-  loadingSubChatsAtom,
-  agentsSubChatUnseenChangesAtom,
-  subChatFilesAtom,
-  type SubChatFileChange
-} from '../atoms';
+import { subChatBusyAtom, agentsSubChatUnseenChangesAtom, subChatFilesAtom, type SubChatFileChange } from '../atoms';
 import { IconSpinner, PlanIcon, AgentIcon } from '../../../components/ui/icons';
 import type { SubChatMeta } from '../stores/sub-chat-store';
 import { formatTimeAgo } from '../utils/format-time-ago';
@@ -133,9 +128,10 @@ export function SubChatsQuickSwitchDialog({
 }: SubChatsQuickSwitchDialogProps) {
   if (typeof window === 'undefined') return null;
 
-  // Derive loading sub-chat IDs
-  const loadingSubChats = useAtomValue(loadingSubChatsAtom);
-  const loadingSubChatIds = useMemo(() => new Set([...loadingSubChats.keys()]), [loadingSubChats]);
+  // Derive loading sub-chat IDs from the unified source — `subChatBusyAtom`
+  // keys include null-parented entries the legacy projection drops.
+  const subChatBusyMap = useAtomValue(subChatBusyAtom);
+  const loadingSubChatIds = useMemo(() => new Set([...subChatBusyMap.keys()]), [subChatBusyMap]);
 
   // Unseen changes
   const unseenChanges = useAtomValue(agentsSubChatUnseenChangesAtom);

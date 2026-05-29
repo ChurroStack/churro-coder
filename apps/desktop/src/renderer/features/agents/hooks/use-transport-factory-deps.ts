@@ -50,7 +50,6 @@ import { appStore } from '../../../lib/jotai-store';
 import { soundNotificationsEnabledAtom } from '../../../lib/atoms';
 import {
   agentFinishedTickAtomFamily,
-  clearLoading,
   MODEL_ID_MAP,
   planEditRefetchTriggerAtomFamily,
   selectedAgentChatIdAtom,
@@ -88,8 +87,6 @@ export interface UseTransportFactoryDepsConfig {
   syncFinishedMessagesToChatCache: (subChatId: string, chat: Chat<any>) => void;
   /** Evict the runtime chat once idle if user navigated away. */
   pruneIfDetachedAndIdle: (subChatId: string, parentChatId: string) => void;
-  /** Stable ref to the loading-subchats setter — clearLoading is called against it. */
-  setLoadingSubChats: (fn: (prev: Map<string, string>) => Map<string, string>) => void;
   /** Mark a sub-chat as having unseen changes (for tab dot indicator). */
   setSubChatUnseenChanges: React.Dispatch<React.SetStateAction<Set<string>>>;
   /** Mark the parent chat as having unseen changes (for sidebar dot). */
@@ -114,7 +111,6 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
     agentChat,
     syncFinishedMessagesToChatCache,
     pruneIfDetachedAndIdle,
-    setLoadingSubChats,
     setSubChatUnseenChanges,
     setUnseenChanges,
     notifyAgentComplete,
@@ -234,7 +230,9 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
             pruneIfDetachedAndIdle(id, chatId);
           },
           onFinish: () => {
-            clearLoading(setLoadingSubChats, id);
+            // setStatus('ready') routes through the streaming-status-store
+            // wrapper, which clears the unified `subChatBusyAtom` entry. No
+            // separate clearLoading call needed.
             useStreamingStatusStore.getState().setStatus(id, 'ready');
             syncFinishedMessagesToChatCache(id, newChat);
             if (provider === 'codex') {
@@ -318,7 +316,6 @@ export function useTransportFactoryDeps(config: UseTransportFactoryDepsConfig): 
       agentChat,
       syncFinishedMessagesToChatCache,
       pruneIfDetachedAndIdle,
-      setLoadingSubChats,
       setSubChatUnseenChanges,
       setUnseenChanges,
       notifyAgentComplete,

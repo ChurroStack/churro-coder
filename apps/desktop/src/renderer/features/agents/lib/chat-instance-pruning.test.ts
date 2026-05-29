@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+// jsdom is required because the streaming-status-store wrapper transitively
+// imports `../atoms`, which constructs `atomWithWindowStorage` atoms at
+// module-load time. Those atoms touch `window.location`.
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { evictChatsForParentChatSwitch, evictInactiveChatsForWorkspace } from './chat-instance-pruning';
 import { agentChatStore } from '../stores/agent-chat-store';

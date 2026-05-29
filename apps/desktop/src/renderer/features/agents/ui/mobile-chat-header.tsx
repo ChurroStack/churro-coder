@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useAtomValue } from 'jotai';
-import { loadingSubChatsAtom } from '../atoms';
+import { subChatBusyAtomFamily } from '../atoms';
 import { Plus, ChevronDown, Play, AlignJustify, FolderDown, Trash2 } from 'lucide-react';
 import {
   IconSpinner,
@@ -64,7 +64,9 @@ export function MobileChatHeader({
 }: MobileChatHeaderProps) {
   const activeSubChatId = useAgentSubChatStore((state) => state.activeSubChatId);
   const allSubChats = useAgentSubChatStore((state) => state.allSubChats);
-  const loadingSubChatsAtomValue = useAtomValue(loadingSubChatsAtom);
+  // Read the unified busy atom per-id so null-parented entries still light up
+  // the spinner (the legacy `loadingSubChatsAtom` projection filters them out).
+  const isLoading = useAtomValue(useMemo(() => subChatBusyAtomFamily(activeSubChatId ?? ''), [activeSubChatId]));
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
@@ -73,7 +75,6 @@ export function MobileChatHeader({
     return allSubChats.find((sc) => sc.id === activeSubChatId);
   }, [allSubChats, activeSubChatId]);
 
-  const isLoading = activeSubChatId ? loadingSubChatsAtomValue.has(activeSubChatId) : false;
   const mode = activeSubChat?.mode || 'plan';
 
   // Sort sub-chats by most recent first for history

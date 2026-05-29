@@ -1,21 +1,14 @@
 import { useEffect, useReducer, useRef } from 'react';
 import { trpc } from '../../../lib/trpc';
 import { appStore } from '../../../lib/jotai-store';
-import {
-  agentFinishedTickAtomFamily,
-  cliRunningStatesAtom,
-  clearLoading,
-  loadingSubChatsAtom,
-  setLoading
-} from '../atoms';
-import { useStreamingStatusStore } from '../stores/streaming-status-store';
+import { agentFinishedTickAtomFamily, clearSubChatBusy, setSubChatBusy, subChatBusyAtom } from '../atoms';
 
 /**
  * Single global subscriber for ALL CLI sub-chats' busy state. Mounted exactly
  * once at the app root (inside `TRPCProvider`), survives every workspace
  * switch and every dockview tab switch. Replaces the deleted per-panel
  * `useCliBusyTracker` hook, which was bound to `ChatPanel`'s React lifecycle
- * and got wiped on every dockview unmount (the root cause of the
+ * and got wiped on every dockview unmount (the root cause of the original
  * disappearing-spinner bug).
  *
  * Wire-up:
@@ -24,13 +17,17 @@ import { useStreamingStatusStore } from '../stores/streaming-status-store';
  *   tRPC bridge: terminal.allCliStates subscription — attaches the listener
  *     BEFORE emitting the initial snapshot so an in-flight transition is
  *     never lost in the gap.
- *   renderer: this component — writes to `cliRunningStatesAtom` (single
- *     source of truth) and mirrors the same transitions into the two other
- *     stores that historical callers still read directly:
- *       - useStreamingStatusStore → dockview tab spinner
- *       - loadingSubChatsAtom     → sidebar rows / quick-switch / workflow
- *     `cliBusyAtomFamily` is now a *derived* atomFamily over the source map,
- *     so there's no separate write for it.
+ *   renderer: this component — does ONE write per transition to
+ *     `subChatBusyAtom` (the single source of truth). All consumer surfaces
+ *     (sidebar workspace row, dock tab spinner, sub-chats sidebar, kanban
+ *     card, workflow notch) read derived atom families over the same source,
+ *     so they can never disagree about whether a sub-chat is busy.
+ *
+ *     The `parentChatId &&` guard from the old triple-write codepath is
+ *     intentionally removed — a null parentChatId is recorded as `null` in
+ *     the entry. Parent-keyed consumers (workspace row, project group
+ *     header, kanban card) skip null-parented entries; subChatId-keyed
+ *     consumers still flip on.
  *
  * Reconnect strategy: tRPC subscriptions do NOT auto-retry on `onError`. We
  * keep an `enabled` state; on error we flip it false then back to true after
@@ -62,47 +59,21 @@ export function CliStateSubscriber() {
   trpc.terminal.allCliStates.useSubscription(undefined, {
     enabled,
     onData: ({ subChatId, parentChatId, state }) => {
-      console.log(`[cli-state-subscriber] sub=${subChatId} state=${state}`);
+      console.log(`[sub-chat-busy] cli sub=${subChatId} state=${state} parent=${parentChatId ?? 'null'}`);
 
-      // 1. Update the single source of truth.
-      appStore.set(cliRunningStatesAtom, (prev) => {
-        const next = new Map(prev);
-        if (state === 'exited') {
-          if (!next.has(subChatId)) return prev;
-          next.delete(subChatId);
-        } else {
-          const existing = next.get(subChatId);
-          if (existing && existing.state === state && existing.parentChatId === parentChatId) {
-            return prev;
-          }
-          next.set(subChatId, { state, parentChatId });
-        }
-        return next;
-      });
-
-      // 2. Mirror to streaming-status-store (dock tab spinner via ChatTabIcon).
+      const setBusy = (fn: Parameters<typeof setSubChatBusy>[0]) => appStore.set(subChatBusyAtom, fn);
       if (state === 'running') {
-        useStreamingStatusStore.getState().setStatus(subChatId, 'streaming');
+        setSubChatBusy(setBusy, subChatId, { state: 'running', parentChatId, source: 'cli' });
       } else {
-        useStreamingStatusStore.getState().setStatus(subChatId, 'ready');
+        // idle and exited both clear the entry — parent-keyed consumers can
+        // see "stopped" the same way and the on-finish fan-out still runs.
+        clearSubChatBusy(setBusy, subChatId);
       }
 
-      // 3. Mirror to loadingSubChatsAtom (sidebar rows / quick-switch / mobile
-      //    header / workflow card / agent chat card). parentChatId is required
-      //    for the Map<subChatId, parentChatId> shape — when the main process
-      //    didn't have a workspaceId on the session we get null and skip.
-      const setLoadingSubChats = (fn: (prev: Map<string, string>) => Map<string, string>) =>
-        appStore.set(loadingSubChatsAtom, fn);
-      if (state === 'running' && parentChatId) {
-        setLoading(setLoadingSubChats, subChatId, parentChatId);
-      } else {
-        clearLoading(setLoadingSubChats, subChatId);
-      }
-
-      // 4. On idle/exit: same cache invalidation fan-out the deleted
-      //    useCliBusyTracker did. The MCP write tools (write_plan,
-      //    write_review, write_tasks, update_task_status) cause this CLI to
-      //    have just produced fresh artifacts the renderer hasn't reread yet.
+      // Cache invalidation fan-out on idle/exit. The MCP write tools (write_plan,
+      // write_review, write_tasks, update_task_status) cause this CLI to have
+      // just produced fresh artifacts the renderer hasn't reread yet. Skip when
+      // parentChatId is unknown — the per-chat invalidations need a key.
       if (state !== 'running' && parentChatId) {
         appStore.set(agentFinishedTickAtomFamily(subChatId));
         appStore.set(agentFinishedTickAtomFamily(parentChatId));

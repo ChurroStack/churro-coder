@@ -7,6 +7,7 @@ import { terminalManager } from '../../terminal/manager';
 import type { CliStateEvent, TerminalEvent, TerminalOutputState } from '../../terminal/types';
 import { TRPCError } from '@trpc/server';
 import { postSpawnLocateAndAttach } from './cli-session';
+import { snapshotCodexCandidatePaths } from '../../cli-session/locator';
 
 const bootstrapSchema = z
   .object({
@@ -45,15 +46,23 @@ export const terminalRouter = router({
     )
     .mutation(async ({ input }) => {
       try {
+        // Pre-spawn snapshot of codex's day-window dirs. Any rollout file that
+        // existed before this moment cannot be ours, so the locator skips it.
+        // Cheap (3 readdir calls); taken unconditionally for cli:* panes so
+        // we don't have to know the harness here. Ignored by the claude path.
+        const isCli = input.paneId.startsWith('cli:');
+        const spawnedAt = isCli ? Date.now() : 0;
+        const codexSnapshot = isCli
+          ? await snapshotCodexCandidatePaths(spawnedAt).catch(() => new Set<string>())
+          : undefined;
         const result = await terminalManager.createOrAttach(input);
         // CLI session ingestion hook: fire-and-forget post-spawn locator for
         // CLI panes (paneId convention is `cli:<subChatId>`). Failure is
         // non-fatal — the user can hit the Refresh button to retry.
-        if (result.isNew && input.paneId.startsWith('cli:')) {
+        if (result.isNew && isCli) {
           const subChatId = input.paneId.slice('cli:'.length);
           if (subChatId) {
-            const spawnedAt = Date.now();
-            void postSpawnLocateAndAttach(subChatId, spawnedAt, input.cwd).catch((err) => {
+            void postSpawnLocateAndAttach(subChatId, spawnedAt, input.cwd, codexSnapshot).catch((err) => {
               console.warn('[TerminalRouter] post-spawn locator failed', err);
             });
           }

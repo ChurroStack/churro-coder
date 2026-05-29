@@ -5,7 +5,7 @@ import {
   agentFinishedTickAtomFamily,
   cliBusyAtomFamily,
   compactingSubChatsAtom,
-  loadingSubChatsAtom
+  subChatBusyAtomFamily
 } from '@/features/agents/atoms';
 import { useSubChatMode } from '@/features/agents/hooks/use-sub-chat-mode';
 import { aiEverRespondedAtomFamily, prCreatingAtomFamily } from '@/features/details-sidebar/atoms';
@@ -23,7 +23,7 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
   const safeSubChatId = subChatId ?? '';
 
   const { mode } = useSubChatMode(safeSubChatId);
-  const loading = useAtomValue(loadingSubChatsAtom);
+  const isStreaming = useAtomValue(subChatBusyAtomFamily(safeSubChatId));
   const compacting = useAtomValue(compactingSubChatsAtom);
   const aiEverResponded = useAtomValue(aiEverRespondedAtomFamily(safeSubChatId));
   const prCreating = useAtomValue(prCreatingAtomFamily(safeSubChatId));
@@ -32,7 +32,6 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
   // Subscribe to the finished-tick atom so snapshot re-evaluates after each AI run.
   useAtomValue(agentFinishedTickAtomFamily(safeChatId));
 
-  const isStreaming = !!subChatId && loading.has(subChatId);
   const isCompacting = !!subChatId && compacting.has(subChatId);
   const activity: WorkflowActivity = isCompacting ? 'compacting' : isStreaming ? 'streaming' : 'idle';
 

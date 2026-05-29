@@ -25,7 +25,18 @@ export interface KanbanAttentionSignals {
  * Derives the SDLC column for a card.
  * Returns null for non-visible drafts (caller should drop the card).
  *
- * Precedence: Archived > any-plan-subChat > Done(prUrl) > In-Progress(loading) > In-Review
+ * Precedence: Archived > any-plan-subChat (Planning) > Done(prUrl) > In-Progress(loading) > In-Review
+ *
+ * Column placement reflects the SDLC STAGE, not the moment-to-moment run
+ * state. A workspace whose plan is still being authored or approved lives
+ * in Planning — even while Claude is actively producing the plan. In
+ * Progress means "plan approved, code being written" (i.e. there is at
+ * least one loading sub-chat AND no plan-mode sub-chat remains).
+ *
+ * The "is this card actively working" signal is an INDEPENDENT spinner
+ * that callers should derive via {@link deriveCardIsLoading}. Do not infer
+ * it from `status === 'in-progress'`, which is only true after plan
+ * approval.
  */
 export function deriveKanbanStatus(input: KanbanInput): KanbanStatus | null {
   if (input.kind === 'draft') return input.isVisible ? 'draft' : null;
@@ -37,6 +48,22 @@ export function deriveKanbanStatus(input: KanbanInput): KanbanStatus | null {
   if (input.prUrl != null) return 'done';
   if (subChats.some((s) => loadingSubChatIds.has(s.id))) return 'in-progress';
   return 'in-review';
+}
+
+/**
+ * Per-card loading flag — independent of the SDLC column. True iff any of the
+ * workspace's sub-chats is currently busy. Drafts and archived workspaces are
+ * never loading.
+ *
+ * This is the fix for the bug where a workspace with an active plan sub-chat
+ * showed no loading indicator because `deriveKanbanStatus` returned `planning`
+ * (plan-mode beats loading) and the kanban card read `isLoading` off the
+ * column. Column placement and working-state are now separate signals.
+ */
+export function deriveCardIsLoading(input: KanbanInput): boolean {
+  if (input.kind === 'draft') return false;
+  if (input.archivedAt != null) return false;
+  return input.subChats.some((s) => input.loadingSubChatIds.has(s.id));
 }
 
 /**

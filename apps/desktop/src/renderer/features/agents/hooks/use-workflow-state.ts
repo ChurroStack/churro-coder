@@ -7,7 +7,7 @@ import {
   diffSidebarOpenAtomFamily,
   filteredDiffFilesAtom,
   filteredSubChatIdAtom,
-  loadingSubChatsAtom,
+  subChatBusyAtomFamily,
   pendingMergeBaseMessageAtomFamily,
   pendingPrMessageAtomFamily,
   currentPlanPathAtomFamily
@@ -47,12 +47,13 @@ export function useWorkflowState(chatId: string | null, subChatId: string | null
   const safeChatId = chatId ?? '';
   const safeSubChatId = subChatId ?? '';
 
-  const loading = useAtomValue(loadingSubChatsAtom);
   const compacting = useAtomValue(compactingSubChatsAtom);
   const [aiEverResponded, setAiEverResponded] = useAtom(aiEverRespondedAtomFamily(safeSubChatId));
   const [prCreating, setPrCreating] = useAtom(prCreatingAtomFamily(safeSubChatId));
 
-  const isStreaming = !!subChatId && loading.has(subChatId);
+  // Per-id read against the unified busy atom — null-parented entries still
+  // count, matching the dock tab / sidebar / kanban spinner contract.
+  const isStreaming = useAtomValue(subChatBusyAtomFamily(safeSubChatId));
 
   const snapshot = useWorkflowSnapshot(chatId, subChatId);
 
