@@ -1,10 +1,11 @@
-# CI for churro-coder. One required check ("CI / Build & check") that you
-# can wire into branch protection / a ruleset to gate PR merges into main.
+# CI for churro-coder. Each app builds + tests on its own runner so that a slow
+# desktop suite doesn't queue up Go / .NET feedback (and vice versa), and the
+# desktop Vitest run doesn't have to fight gateway / daemon / landing for CPU
+# and memory on a single ubuntu-latest box.
 #
-# Builds all three apps (gateway / desktop / daemon) and runs lint + test
-# for any project that exposes those Nx targets. Targets are plugin-inferred
-# via @nx/dotnet (gateway) and @naxodev/gonx (daemon); desktop has only
-# `build` today (typecheck is skipped — see apps/desktop/AGENTS.md).
+# The required check ("CI / Build & check") is the final `ci-success`
+# aggregator that depends on every per-app job — that name is preserved so
+# existing branch-protection rulesets keep matching without a UI change.
 
 name: CI
 
@@ -15,6 +16,8 @@ on:
     branches: [main]
 
 # Cancel superseded PR runs; let main pushes finish so we don't lose signal.
+# Concurrency group is workflow-wide, so all four parallel app jobs (and the
+# aggregator) get canceled together on a new push to the same PR.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -23,10 +26,10 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build & check
+  desktop:
+    name: Desktop (bun + Electron)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -40,21 +43,6 @@ jobs:
           cache: pnpm
 
       - uses: oven-sh/setup-bun@v2
-
-      # apps/landing's prebuild runs scripts/process-assets.py which uses PIL
-      # to crop/round desktop screenshots before `next build`. Mirrors the
-      # python3-pil install in apps/landing/Dockerfile.
-      - name: Install Pillow (for landing prebuild)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-pil
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/daemon/go.mod
-          cache: false # daemon has no go.sum yet; setup-go cache would warn
 
       - name: Cache Nx
         uses: actions/cache@v4
@@ -75,6 +63,136 @@ jobs:
           path: apps/desktop/node_modules
           key: bun-desktop-${{ runner.os }}-${{ hashFiles('apps/desktop/bun.lock') }}
 
+      - name: Install root deps (pnpm)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install desktop deps (bun)
+        if: steps.cache-desktop.outputs.cache-hit != 'true'
+        working-directory: apps/desktop
+        env:
+          SKIP_ELECTRON_REBUILD: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Build desktop
+        run: pnpm exec nx run desktop:build
+
+      # desktop intentionally has no `lint` target — see apps/desktop/AGENTS.md
+      # and project.json. Don't add one here without coordinating that file too.
+      - name: Test desktop
+        run: pnpm exec nx run desktop:test
+
+  gateway:
+    name: Gateway (.NET 10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache Nx
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/bun.lock', 'apps/landing/bun.lock', 'apps/gateway/Gateway.csproj', 'apps/daemon/go.mod') }}
+          restore-keys: |
+            nx-${{ runner.os }}-
+
+      - name: Install root deps (pnpm)
+        run: pnpm install --frozen-lockfile
+
+      # @nx/dotnet infers a separate `Gateway.Tests` project from the test
+      # csproj — restore / build / test all need to cover both projects.
+      - name: Restore .NET deps (gateway + Gateway.Tests)
+        run: pnpm exec nx run-many -t restore --projects=gateway,Gateway.Tests
+
+      - name: Build .NET (gateway + Gateway.Tests)
+        run: pnpm exec nx run-many -t build --projects=gateway,Gateway.Tests
+
+      - name: Test gateway (Gateway.Tests)
+        run: pnpm exec nx run Gateway.Tests:test
+
+  daemon:
+    name: Daemon (Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/daemon/go.mod
+          cache: false # daemon has no go.sum yet; setup-go cache would warn
+
+      - name: Cache Nx
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/bun.lock', 'apps/landing/bun.lock', 'apps/gateway/Gateway.csproj', 'apps/daemon/go.mod') }}
+          restore-keys: |
+            nx-${{ runner.os }}-
+
+      - name: Install root deps (pnpm)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build daemon
+        run: pnpm exec nx run daemon:build
+
+      - name: Lint daemon
+        run: pnpm exec nx run daemon:lint
+
+      - name: Test daemon
+        run: pnpm exec nx run daemon:test
+
+  landing:
+    name: Landing (Next.js + Pillow)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+
+      # apps/landing's prebuild runs scripts/process-assets.py which uses PIL
+      # to crop/round desktop screenshots before `next build`. Mirrors the
+      # python3-pil install in apps/landing/Dockerfile.
+      - name: Install Pillow (for landing prebuild)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-pil
+
+      - name: Cache Nx
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/bun.lock', 'apps/landing/bun.lock', 'apps/gateway/Gateway.csproj', 'apps/daemon/go.mod') }}
+          restore-keys: |
+            nx-${{ runner.os }}-
+
       # apps/landing is bun-managed too (also outside the pnpm workspace).
       - name: Cache landing node_modules
         id: cache-landing
@@ -86,26 +204,39 @@ jobs:
       - name: Install root deps (pnpm)
         run: pnpm install --frozen-lockfile
 
-      - name: Install desktop deps (bun)
-        if: steps.cache-desktop.outputs.cache-hit != 'true'
-        working-directory: apps/desktop
-        env:
-          SKIP_ELECTRON_REBUILD: "1"
-        run: bun install --frozen-lockfile
-
       - name: Install landing deps (bun)
         if: steps.cache-landing.outputs.cache-hit != 'true'
         working-directory: apps/landing
         run: bun install --frozen-lockfile
 
-      - name: Restore .NET deps
-        run: pnpm exec nx run-many -t restore
+      - name: Build landing
+        run: pnpm exec nx run landing:build
 
-      - name: Build (all projects)
-        run: pnpm exec nx run-many -t build
+      - name: Lint landing
+        run: pnpm exec nx run landing:lint
 
-      - name: Lint (all projects with a lint target)
-        run: pnpm exec nx run-many -t lint
+  # Single required check for branch-protection. The name "Build & check"
+  # matches the existing ruleset context exactly, so the merge gate keeps
+  # working without a GitHub UI change.
+  #
+  # NOTE: today every dep must be 'success'. If any per-app job ever gains a
+  # `paths-ignore:` filter, update the script below to also accept 'skipped'.
+  ci-success:
+    name: Build & check
+    needs: [desktop, gateway, daemon, landing]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
 
-      - name: Test (all projects with a test target)
-        run: pnpm exec nx run-many -t test
+    steps:
+      - name: Verify all required jobs passed
+        run: |
+          for r in "${{ needs.desktop.result }}" \
+                   "${{ needs.gateway.result }}" \
+                   "${{ needs.daemon.result }}" \
+                   "${{ needs.landing.result }}"; do
+            if [ "$r" != "success" ]; then
+              echo "::error::Required CI job did not succeed (result=$r)"
+              exit 1
+            fi
+          done

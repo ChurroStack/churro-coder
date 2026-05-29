@@ -98,7 +98,7 @@ vi.mock('../../../lib/trpc', () => {
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../../../test-utils';
-import { selectedProjectAtom } from '../atoms';
+import { lastSelectedAgentHarnessAtom, selectedProjectAtom } from '../atoms';
 import { TooltipProvider } from '../../../components/ui/tooltip';
 import { NewChatForm } from './new-chat-form';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
@@ -144,7 +144,10 @@ function renderNoProject() {
   );
 }
 
-function renderWithProject(changes: ChangeSummary[] = []) {
+function renderWithProject(
+  changes: ChangeSummary[] = [],
+  opts: { harness?: 'builtin' | 'claude-cli' | 'codex-cli' } = {}
+) {
   // Include mockProject in the list so validatedProject resolves correctly
   mocks.projectsListQuery.mockReturnValue({ data: [mockProject], isLoading: false, isError: false });
   if (changes.length > 0) {
@@ -152,6 +155,15 @@ function renderWithProject(changes: ChangeSummary[] = []) {
   }
   const store = createTestStore();
   store.set(selectedProjectAtom, mockProject);
+  // Wizard-axis tests use `opts.harness` to pin the harness without driving
+  // the Radix Popover open — that path is flaky in jsdom under CI cold start
+  // (the first popover open in the test environment can exceed every
+  // reasonable findBy* poll window). The popover itself is just a setter for
+  // this atom; the integration we care about is that the right harness value
+  // reaches the create-chat mutation.
+  if (opts.harness) {
+    store.set(lastSelectedAgentHarnessAtom, opts.harness);
+  }
   return renderWithProviders(
     <TooltipProvider>
       <NewChatForm />
@@ -350,16 +362,7 @@ describe('NewChatForm — wizard axis independence', () => {
   });
 
   it('vibe-coding + claude-cli: sends with harness=claude-cli', async () => {
-    const { container } = renderWithProject();
-
-    const trigger = container.querySelector('button[data-testid="agent-harness-dropdown"]') as HTMLButtonElement | null;
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      fireEvent.click(trigger!);
-    });
-    await act(async () => {
-      fireEvent.click(await screen.findByText('Claude CLI'));
-    });
+    const { container } = renderWithProject([], { harness: 'claude-cli' });
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
     await act(async () => {
@@ -373,16 +376,7 @@ describe('NewChatForm — wizard axis independence', () => {
   });
 
   it('vibe-coding + codex-cli: sends with harness=codex-cli', async () => {
-    const { container } = renderWithProject();
-
-    const trigger = container.querySelector('button[data-testid="agent-harness-dropdown"]') as HTMLButtonElement | null;
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      fireEvent.click(trigger!);
-    });
-    await act(async () => {
-      fireEvent.click(await screen.findByText('Codex CLI'));
-    });
+    const { container } = renderWithProject([], { harness: 'codex-cli' });
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
     await act(async () => {
@@ -419,19 +413,10 @@ describe('NewChatForm — wizard axis independence', () => {
   });
 
   it('spec-driven + claude-cli: createAsync called with harness=claude-cli', async () => {
-    const { container, getByText } = renderWithProject();
+    const { container, getByText } = renderWithProject([], { harness: 'claude-cli' });
 
     await act(async () => {
       fireEvent.click(getByText('Spec-driven'));
-    });
-
-    const trigger = container.querySelector('button[data-testid="agent-harness-dropdown"]') as HTMLButtonElement | null;
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      fireEvent.click(trigger!);
-    });
-    await act(async () => {
-      fireEvent.click(await screen.findByText('Claude CLI'));
     });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
@@ -451,19 +436,10 @@ describe('NewChatForm — wizard axis independence', () => {
   });
 
   it('spec-driven + codex-cli: createAsync called with harness=codex-cli', async () => {
-    const { container, getByText } = renderWithProject();
+    const { container, getByText } = renderWithProject([], { harness: 'codex-cli' });
 
     await act(async () => {
       fireEvent.click(getByText('Spec-driven'));
-    });
-
-    const trigger = container.querySelector('button[data-testid="agent-harness-dropdown"]') as HTMLButtonElement | null;
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      fireEvent.click(trigger!);
-    });
-    await act(async () => {
-      fireEvent.click(await screen.findByText('Codex CLI'));
     });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
