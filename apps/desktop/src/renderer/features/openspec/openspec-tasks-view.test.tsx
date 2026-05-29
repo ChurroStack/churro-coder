@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 import { useStreamingStatusStore } from '../agents/stores/streaming-status-store';
+import { appStore } from '../../lib/jotai-store';
+import { subChatBusyAtom, subChatErrorAtom } from '../agents/atoms';
 
 const mockReadChangeFileUseQuery = vi.fn();
 const mockWriteChangeFileMutate = vi.fn();
@@ -45,6 +47,10 @@ function renderTasksView() {
 
 describe('OpenSpecTasksView', () => {
   beforeEach(() => {
+    // The streaming-status-store wrapper now derives `statuses` from the
+    // unified atoms — clear those too so state doesn't leak between tests.
+    appStore.set(subChatBusyAtom, new Map());
+    appStore.set(subChatErrorAtom, new Set());
     useStreamingStatusStore.setState({ statuses: {} });
     mockReadChangeFileUseQuery.mockReturnValue({
       data: { content: tasksContent, modifiedAt: new Date().toISOString() },
@@ -56,6 +62,8 @@ describe('OpenSpecTasksView', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    appStore.set(subChatBusyAtom, new Map());
+    appStore.set(subChatErrorAtom, new Set());
     useStreamingStatusStore.setState({ statuses: {} });
   });
 

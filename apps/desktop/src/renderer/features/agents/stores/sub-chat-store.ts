@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { useMessageQueueStore } from './message-queue-store';
-import { useStreamingStatusStore } from './streaming-status-store';
 import { agentChatStore } from './agent-chat-store';
 import { getWindowId } from '../../../contexts/WindowContext';
 import { clearTaskSnapshotCache } from '../ui/agent-task-tools';
@@ -9,9 +8,9 @@ import {
   getDefaultRatios,
   addPaneRatio,
   removePaneRatio,
-  loadingSubChatsAtom,
-  cliRunningStatesAtom,
-  clearLoading
+  clearSubChatBusy,
+  subChatBusyAtom,
+  subChatErrorAtom
 } from '../atoms';
 import { trpcClient } from '../../../lib/trpc';
 import { appStore } from '../../../lib/jotai-store';
@@ -63,7 +62,7 @@ export interface SubChatMeta {
  *     (populated by the chat-panel init effect after setChatId)
  *
  * DROPPED on restart (in-memory only, never persisted):
- *   - useStreamingStatusStore: in-progress streaming status
+ *   - subChatBusyAtom + subChatErrorAtom: unified busy/error state
  *   - useMessageQueueStore: pending message queue
  *   - agentChatStore: per-subChat Claude/Codex chat instances
  *   - task snapshot cache (clearTaskSnapshotCache)
@@ -367,20 +366,19 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
       }
     }
 
-    // Cleanup queue, streaming status, Chat instance, and task snapshot cache
-    // to prevent memory leaks and race conditions (QueueProcessor sending to closed subChat)
+    // Cleanup queue, busy/error state, Chat instance, and task snapshot cache
+    // to prevent memory leaks and race conditions (QueueProcessor sending to closed subChat).
+    // The single `clearSubChatBusy` covers both CLI and builtin paths now — the
+    // global `<CliStateSubscriber/>` will also receive a `cli-state: exited`
+    // event when the PTY-kill path (dock-shell.tsx:onDidRemovePanel) terminates
+    // the PTY, but this local clear protects the window between UI close and
+    // the broadcast arriving. Idempotent if the entry is already gone.
     useMessageQueueStore.getState().clearQueue(subChatId);
-    const isStreaming = useStreamingStatusStore.getState().isStreaming(subChatId);
-    useStreamingStatusStore.getState().clearStatus(subChatId);
-    // Drop CLI busy entries — the global <CliStateSubscriber/> will also
-    // receive a `cli-state: exited` event when the PTY-kill path
-    // (dock-shell.tsx:onDidRemovePanel) terminates the PTY, but those local
-    // clears protect against the small window between UI close and the
-    // broadcast arriving. Idempotent if the entries are already gone.
-    clearLoading((fn) => appStore.set(loadingSubChatsAtom, fn), subChatId);
-    appStore.set(cliRunningStatesAtom, (prev) => {
+    const isStreaming = appStore.get(subChatBusyAtom).has(subChatId);
+    clearSubChatBusy((fn) => appStore.set(subChatBusyAtom, fn), subChatId);
+    appStore.set(subChatErrorAtom, (prev) => {
       if (!prev.has(subChatId)) return prev;
-      const next = new Map(prev);
+      const next = new Set(prev);
       next.delete(subChatId);
       return next;
     });

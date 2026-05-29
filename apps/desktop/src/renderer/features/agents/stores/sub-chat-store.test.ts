@@ -4,7 +4,7 @@ import { useAgentSubChatStore } from './sub-chat-store';
 import { useStreamingStatusStore } from './streaming-status-store';
 import { useMessageQueueStore } from './message-queue-store';
 import { appStore } from '../../../lib/jotai-store';
-import { cliRunningStatesAtom, loadingSubChatsAtom } from '../atoms';
+import { subChatBusyAtom, subChatErrorAtom } from '../atoms';
 
 describe('sub-chat-store expectedChatId guard', () => {
   beforeEach(() => {
@@ -78,13 +78,15 @@ describe('sub-chat-store expectedChatId guard', () => {
     useAgentSubChatStore.getState().setActiveSubChat('sub-stream');
     useAgentSubChatStore.getState().setAllSubChats([{ id: 'sub-stream', name: 'Streaming chat' }]);
 
-    // Mark the subChat as streaming in the companion store
-    useStreamingStatusStore.setState({ statuses: { 'sub-stream': 'streaming' } });
+    // Mark the subChat as streaming via the unified atom (the streaming-status
+    // wrapper now writes through subChatBusyAtom, which is reset below).
+    useStreamingStatusStore.getState().setStatus('sub-stream', 'streaming');
     expect(useStreamingStatusStore.getState().isStreaming('sub-stream')).toBe(true);
 
     // Simulate restart: both stores are re-initialized from their defaults
     useAgentSubChatStore.getState().reset();
-    useStreamingStatusStore.setState({ statuses: {} });
+    appStore.set(subChatBusyAtom, new Map());
+    appStore.set(subChatErrorAtom, new Set());
 
     // Sub-chat store: all open/active state is gone
     expect(useAgentSubChatStore.getState().chatId).toBeNull();
@@ -197,12 +199,11 @@ describe('sub-chat-store expectedChatId guard', () => {
 describe('sub-chat-store removeFromOpenSubChats clears CLI busy state', () => {
   beforeEach(() => {
     useAgentSubChatStore.getState().reset();
-    useStreamingStatusStore.setState({ statuses: {} });
-    appStore.set(cliRunningStatesAtom, new Map());
-    appStore.set(loadingSubChatsAtom, new Map());
+    appStore.set(subChatBusyAtom, new Map());
+    appStore.set(subChatErrorAtom, new Set());
   });
 
-  test('closing a tab purges cliRunningStatesAtom + loadingSubChatsAtom + streaming status', () => {
+  test('closing a tab purges the unified busy entry (covers CLI + builtin)', () => {
     const chatId = 'workspace-close';
     const subChatId = 'sc-close';
 
@@ -210,14 +211,11 @@ describe('sub-chat-store removeFromOpenSubChats clears CLI busy state', () => {
     useAgentSubChatStore.getState().addToOpenSubChats(subChatId, chatId);
 
     // Simulate the global subscriber having marked this CLI as busy.
-    appStore.set(cliRunningStatesAtom, new Map([[subChatId, { state: 'running', parentChatId: chatId }]]));
-    appStore.set(loadingSubChatsAtom, new Map([[subChatId, chatId]]));
-    useStreamingStatusStore.getState().setStatus(subChatId, 'streaming');
+    appStore.set(subChatBusyAtom, new Map([[subChatId, { state: 'running', parentChatId: chatId, source: 'cli' }]]));
 
     useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId);
 
-    expect(appStore.get(cliRunningStatesAtom).has(subChatId)).toBe(false);
-    expect(appStore.get(loadingSubChatsAtom).has(subChatId)).toBe(false);
+    expect(appStore.get(subChatBusyAtom).has(subChatId)).toBe(false);
     expect(useStreamingStatusStore.getState().isStreaming(subChatId)).toBe(false);
   });
 
@@ -228,9 +226,8 @@ describe('sub-chat-store removeFromOpenSubChats clears CLI busy state', () => {
     useAgentSubChatStore.getState().setChatId(chatId);
     useAgentSubChatStore.getState().addToOpenSubChats(subChatId, chatId);
 
-    // No CLI busy entries — just closing.
+    // No busy entries — just closing.
     expect(() => useAgentSubChatStore.getState().removeFromOpenSubChats(subChatId)).not.toThrow();
-    expect(appStore.get(cliRunningStatesAtom).has(subChatId)).toBe(false);
-    expect(appStore.get(loadingSubChatsAtom).has(subChatId)).toBe(false);
+    expect(appStore.get(subChatBusyAtom).has(subChatId)).toBe(false);
   });
 });

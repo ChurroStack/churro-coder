@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   deriveKanbanStatus,
   deriveAttentionReason,
+  deriveCardIsLoading,
   type KanbanInput,
   type KanbanAttentionSignals,
   type SubChatMode
@@ -61,7 +62,9 @@ describe('deriveKanbanStatus', () => {
     );
   });
 
-  // Done: prUrl wins when no plan sub-chats
+  // Done: prUrl wins when no plan sub-chats. The execute sub-chat is loading
+  // but column placement reflects the SDLC stage (PR up = Done); the card's
+  // independent spinner badge reports the live activity.
   test('prUrl + execute loading → done', () => {
     expect(
       deriveKanbanStatus(
@@ -127,7 +130,7 @@ describe('deriveKanbanStatus', () => {
     ).toBe('planning');
   });
 
-  test('done execute + plan sub-chat, plan is loading → planning (plan still wins)', () => {
+  test('done execute + plan sub-chat, plan is loading → planning (plan stage holds the column)', () => {
     expect(
       deriveKanbanStatus(
         chatInput({
@@ -217,7 +220,7 @@ describe('deriveKanbanStatus', () => {
     ).toBe('planning');
   });
 
-  test('auto-promote regression: plan + exec, exec loading → planning (plan still wins)', () => {
+  test('auto-promote regression: plan + exec, exec loading → planning (plan stage holds the column)', () => {
     expect(
       deriveKanbanStatus(
         chatInput({
@@ -369,7 +372,9 @@ describe('worked examples', () => {
   });
 
   test('plan pending approval + execute loading → Planning, pending-plan', () => {
-    // Both plan and execute sub-chats exist. Plan wins; execute loading is irrelevant.
+    // Plan stage holds the column even while the execute sub-chat is running
+    // — the card sits in Planning because the plan-mode sub-chat hasn't been
+    // resolved yet. The card-level spinner reports the live activity.
     const input = chatInput({
       subChats: [
         { id: 'plan-1', mode: 'plan' },
@@ -395,8 +400,10 @@ describe('worked examples', () => {
     expect(deriveAttentionReason(input, signals)).toBe('pending-plan');
   });
 
-  test('execute running + plan sub-chat → Planning, no attention (plan wins over loading)', () => {
-    // Previously returned In Progress; plan sub-chat pulls it back to Planning.
+  test('execute running + plan sub-chat → Planning, no attention (plan stage holds the column)', () => {
+    // While a plan-mode sub-chat exists the card stays in Planning regardless
+    // of which sub-chat is running. In Progress = "plan approved, writing
+    // code" and the plan-mode sub-chat hasn't been resolved yet.
     const input = chatInput({
       subChats: [
         { id: 'stale-plan', mode: 'plan' },
@@ -421,5 +428,87 @@ describe('worked examples', () => {
       ]
     });
     expect(deriveKanbanStatus(input)).toBe('planning');
+  });
+});
+
+// ── deriveCardIsLoading ──────────────────────────────────────────────────────
+//
+// The bug this fixes: the kanban card's `isLoading` flag was derived from
+// `status === 'in-progress'`. Because `deriveKanbanStatus` returns 'planning'
+// for ANY workspace with a plan-mode sub-chat (regardless of whether anything
+// is actively running), a busy plan sub-chat showed NO loading indicator on
+// its kanban card. `deriveCardIsLoading` is the independent signal that fixes
+// it — column placement and "actively working" are now separate.
+
+describe('deriveCardIsLoading', () => {
+  test('draft → false', () => {
+    expect(deriveCardIsLoading({ kind: 'draft', isVisible: true })).toBe(false);
+    expect(deriveCardIsLoading({ kind: 'draft', isVisible: false })).toBe(false);
+  });
+
+  test('archived → false even with a busy sub-chat', () => {
+    expect(
+      deriveCardIsLoading(
+        chatInput({
+          archivedAt: new Date(),
+          subChats: [{ id: 's1', mode: 'execute' }],
+          loadingSubChatIds: new Set(['s1'])
+        })
+      )
+    ).toBe(false);
+  });
+
+  test('no sub-chats → false', () => {
+    expect(deriveCardIsLoading(chatInput({}))).toBe(false);
+  });
+
+  test('sub-chats present but none in loading set → false', () => {
+    expect(
+      deriveCardIsLoading(chatInput({ subChats: [{ id: 's1', mode: 'execute' }], loadingSubChatIds: new Set() }))
+    ).toBe(false);
+  });
+
+  test('execute sub-chat in loading set → true', () => {
+    expect(
+      deriveCardIsLoading(chatInput({ subChats: [{ id: 's1', mode: 'execute' }], loadingSubChatIds: new Set(['s1']) }))
+    ).toBe(true);
+  });
+
+  // The bug this fix addresses: a workspace with an active plan sub-chat.
+  // `deriveKanbanStatus` returns 'planning' (column reflects SDLC stage),
+  // but the card MUST still show its loading indicator. Pre-fix, kanban-card
+  // derived isLoading from `status === 'in-progress'`, so the spinner never
+  // appeared on plan-mode workspaces.
+  test('regression: plan sub-chat in loading set → planning column AND isLoading=true (independent)', () => {
+    const input = chatInput({
+      subChats: [{ id: 'plan-1', mode: 'plan' }],
+      loadingSubChatIds: new Set(['plan-1'])
+    });
+    expect(deriveKanbanStatus(input)).toBe('planning'); // column unaffected
+    expect(deriveCardIsLoading(input)).toBe(true); // BUT the spinner is on
+  });
+
+  test('regression: plan + execute, only plan is loading → planning column, spinner on', () => {
+    const input = chatInput({
+      subChats: [
+        { id: 'plan-1', mode: 'plan' },
+        { id: 'exec-1', mode: 'execute' }
+      ],
+      loadingSubChatIds: new Set(['plan-1'])
+    });
+    expect(deriveKanbanStatus(input)).toBe('planning');
+    expect(deriveCardIsLoading(input)).toBe(true);
+  });
+
+  test('regression: plan + execute, only execute is loading → planning column (plan stage), spinner on', () => {
+    const input = chatInput({
+      subChats: [
+        { id: 'plan-1', mode: 'plan' },
+        { id: 'exec-1', mode: 'execute' }
+      ],
+      loadingSubChatIds: new Set(['exec-1'])
+    });
+    expect(deriveKanbanStatus(input)).toBe('planning');
+    expect(deriveCardIsLoading(input)).toBe(true);
   });
 });

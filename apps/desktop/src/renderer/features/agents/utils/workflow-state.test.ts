@@ -122,6 +122,62 @@ describe('computeWorkflowState — code milestone', () => {
     expect(s.code.hint).toBe('Base branch has 1 new commit');
   });
 
+  test('baseBranchBehind > 0 with tasks for current plan → still surfaces mergeBase', () => {
+    // Regression: prior to this test, the tasks-based path in computeCode
+    // bypassed the baseBranchBehind check, so sub-chats using the OpenSpec /
+    // CLI-harness tasks flow never saw the "Update from base" notch action.
+    const s = computeWorkflowState({
+      ...base,
+      baseBranchBehind: 2,
+      plan: {
+        exists: true,
+        meta: { createdAt: '2026-01-01T00:00:00.000Z', approvedAt: '2026-01-01T00:01:00.000Z' }
+      },
+      tasks: { exists: true, total: 3, completed: 1, updatedAt: '2026-02-01T00:00:00.000Z' }
+    });
+    expect(s.code.status).toBe('attention');
+    expect(s.code.actionKind).toBe('mergeBase');
+    expect(s.code.hint).toBe('Base branch has 2 new commits');
+    expect(s.next?.actionKind).toBe('mergeBase');
+    expect(s.next?.milestone).toBe('code');
+  });
+
+  test('cli-busy with tasks beats baseBranchBehind (in_progress wins, no button)', () => {
+    // Don't interrupt an active CLI turn with a merge prompt; chip stays
+    // "Executing tasks…" and the button is hidden.
+    const s = computeWorkflowState({
+      ...base,
+      harness: 'cli',
+      cliBusy: true,
+      baseBranchBehind: 2,
+      plan: {
+        exists: true,
+        meta: { createdAt: '2026-01-01T00:00:00.000Z', approvedAt: '2026-01-01T00:01:00.000Z' }
+      },
+      tasks: { exists: true, total: 3, completed: 1, updatedAt: '2026-02-01T00:00:00.000Z' }
+    });
+    expect(s.code.status).toBe('in_progress');
+    expect(s.code.hint).toBe('Executing tasks…');
+    expect(s.code.actionKind).toBeUndefined();
+  });
+
+  test('tasks-based path with completed === total + base behind → mergeBase wins over "All tasks complete"', () => {
+    // Even after all tasks finish, base drift takes priority — sync before
+    // pushing rather than declaring code done.
+    const s = computeWorkflowState({
+      ...base,
+      baseBranchBehind: 1,
+      plan: {
+        exists: true,
+        meta: { createdAt: '2026-01-01T00:00:00.000Z', approvedAt: '2026-01-01T00:01:00.000Z' }
+      },
+      tasks: { exists: true, total: 2, completed: 2, updatedAt: '2026-02-01T00:00:00.000Z' }
+    });
+    expect(s.code.status).toBe('attention');
+    expect(s.code.actionKind).toBe('mergeBase');
+    expect(s.code.hint).toBe('Base branch has 1 new commit');
+  });
+
   test("git.hasRemote: false → code done ('Changes ready (no remote)'), pr idle ('No remote configured')", () => {
     const s = computeWorkflowState({ ...base, git: { ...base.git, hasRemote: false } });
     expect(s.code.status).toBe('done');

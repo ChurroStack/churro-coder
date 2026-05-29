@@ -26,6 +26,9 @@ export interface KanbanCardData {
   branch: string | null;
   mode: 'plan' | 'execute' | 'explore';
   status: KanbanStatus;
+  /** Independent of `status`: true when any sub-chat of this workspace is
+   *  currently busy. A card in the planning column can be loading. */
+  isLoading: boolean;
   attentionReason: AttentionReason;
   hasUnseenChanges: boolean;
   hasPendingPlan: boolean;
@@ -72,8 +75,10 @@ export const KanbanCard = memo(function KanbanCard({
       : card.branch
     : card.projectName || 'Local project';
 
-  // Derive loading from the mode + status
-  const isLoading = card.status === 'in-progress';
+  // isLoading is an independent signal from the SDLC column — a plan-mode
+  // workspace that's actively running shows the spinner while sitting in the
+  // 'planning' column. See `deriveCardIsLoading` in kanban-state-machine.ts.
+  const isLoading = card.isLoading;
   const hasUnseenChanges = card.hasUnseenChanges;
   const hasPendingPlan = card.hasPendingPlan;
   const hasPendingQuestion = card.hasPendingQuestion;

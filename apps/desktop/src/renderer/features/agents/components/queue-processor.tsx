@@ -8,7 +8,7 @@ import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { agentChatStore } from '../stores/agent-chat-store';
 import { trackMessageSent } from '../../../lib/analytics';
 import { appStore } from '../../../lib/jotai-store';
-import { loadingSubChatsAtom, setLoading, clearLoading } from '../atoms';
+import { clearSubChatBusy, setSubChatBusy, subChatBusyAtom } from '../atoms';
 import { MENTION_PREFIXES } from '../mentions/agents-mentions-editor';
 import { utf8ToBase64 } from '../utils/base64';
 import type { AgentQueueItem } from '../lib/queue-utils';
@@ -139,15 +139,15 @@ export function QueueProcessor() {
         // Update timestamps
         useAgentSubChatStore.getState().updateSubChatTimestamp(subChatId);
 
-        // Set loading state for sidebar indicator
-        const parentChatId = agentChatStore.getParentChatId(subChatId);
-        if (parentChatId) {
-          setLoading(
-            (fn) => appStore.set(loadingSubChatsAtom, fn(appStore.get(loadingSubChatsAtom))),
-            subChatId,
-            parentChatId
-          );
-        }
+        // Mark the sub-chat as submitted in the unified busy atom. The active
+        // chat's `setStreamingStatus` mirror will then upgrade us to
+        // 'streaming' once the SDK starts emitting, and clear on finish.
+        const parentChatId = agentChatStore.getParentChatId(subChatId) ?? null;
+        setSubChatBusy((fn) => appStore.set(subChatBusyAtom, fn), subChatId, {
+          state: 'submitted',
+          parentChatId,
+          source: 'builtin'
+        });
 
         // Signal active-chat to scroll to bottom BEFORE sending so that
         // shouldAutoScrollRef is true for the entire streaming duration.
@@ -166,8 +166,10 @@ export function QueueProcessor() {
         // Set error status (will be cleared on next successful send or manual retry)
         useStreamingStatusStore.getState().setStatus(subChatId, 'error');
 
-        // Clear loading state since send failed
-        clearLoading((fn) => appStore.set(loadingSubChatsAtom, fn(appStore.get(loadingSubChatsAtom))), subChatId);
+        // Clear busy entry since send failed — error flag is set by the
+        // `setStatus('error')` call above (via the streaming-status-store
+        // wrapper, which writes to subChatErrorAtom).
+        clearSubChatBusy((fn) => appStore.set(subChatBusyAtom, fn), subChatId);
 
         // Notify user
         toast.error('Failed to send queued message. It will be retried.');

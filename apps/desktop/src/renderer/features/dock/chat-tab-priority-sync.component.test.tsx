@@ -6,6 +6,8 @@ import { createStore } from 'jotai';
 import { ChatTabPrioritySync } from './chat-tab-priority-sync';
 import { useStreamingStatusStore } from '../agents/stores/streaming-status-store';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
+import { appStore } from '../../lib/jotai-store';
+import { subChatBusyAtom, subChatErrorAtom } from '../agents/atoms';
 import type { DockviewApi } from 'dockview-react';
 
 // ── Minimal dockview mock types ───────────────────────────────────────────────
@@ -63,12 +65,20 @@ const WORKSPACE_ID = 'ws-test-1';
 
 describe('ChatTabPrioritySync — active panel preservation across auto-promote', () => {
   beforeEach(() => {
+    // Reset the unified busy atom too — the streaming-status-store wrapper
+    // computes `statuses` from it, so setState alone leaks between tests.
+    appStore.set(subChatBusyAtom, new Map());
+    appStore.set(subChatErrorAtom, new Set());
     useStreamingStatusStore.setState({ statuses: {} });
     useAgentSubChatStore.setState({ chatId: WORKSPACE_ID } as any);
   });
 
   afterEach(() => {
     cleanup();
+    // Reset the unified busy atom too — the streaming-status-store wrapper
+    // computes `statuses` from it, so setState alone leaks between tests.
+    appStore.set(subChatBusyAtom, new Map());
+    appStore.set(subChatErrorAtom, new Set());
     useStreamingStatusStore.setState({ statuses: {} });
     useAgentSubChatStore.setState({ chatId: null } as any);
   });

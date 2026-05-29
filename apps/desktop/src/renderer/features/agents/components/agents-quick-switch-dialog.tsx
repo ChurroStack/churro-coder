@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { useAtomValue } from 'jotai';
-import { loadingSubChatsAtom } from '../atoms';
+import { subChatBusyAtom } from '../atoms';
 import { AgentChatCard } from './agent-chat-card';
 
 interface AgentsQuickSwitchDialogProps {
@@ -38,9 +38,17 @@ export function AgentsQuickSwitchDialog({
 }: AgentsQuickSwitchDialogProps) {
   if (typeof window === 'undefined') return null;
 
-  // Derive loading parent chat IDs from loadingSubChats Map
-  const loadingSubChats = useAtomValue(loadingSubChatsAtom);
-  const loadingChatIds = useMemo(() => new Set([...loadingSubChats.values()]), [loadingSubChats]);
+  // Derive the parent chat IDs whose sub-chats are busy, reading directly
+  // from the unified `subChatBusyAtom` (not via the legacy projection, which
+  // drops null-parented entries).
+  const subChatBusyMap = useAtomValue(subChatBusyAtom);
+  const loadingChatIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const entry of subChatBusyMap.values()) {
+      if (entry.parentChatId) out.add(entry.parentChatId);
+    }
+    return out;
+  }, [subChatBusyMap]);
 
   return createPortal(
     <AnimatePresence>

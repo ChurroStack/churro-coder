@@ -188,35 +188,127 @@ export const mobileDeviceAtomFamily = atomFamily((chatId: string) =>
   )
 );
 
-// Loading sub-chats: Map<subChatId, parentChatId>
-// Used to show loading indicators on tabs and sidebar
-// Set when generation starts, cleared when onFinish fires
-export const loadingSubChatsAtom = atom<Map<string, string>>(new Map());
+// ============================================================================
+// Unified "is sub-chat busy" state — single source of truth
+// ============================================================================
+//
+// `subChatBusyAtom` is the ONE atom every consumer reads (through a derived
+// family). It replaces the previous trio:
+//   - cliRunningStatesAtom (cliBusyAtomFamily)
+//   - useStreamingStatusStore (dock tab spinner, continue button)
+//   - loadingSubChatsAtom (sidebar rows, kanban)
+//
+// Writers (only these sites):
+//   - cli-state-subscriber.tsx (CLI PTY running/idle transitions)
+//   - queue-processor.tsx       (builtin sub-chats — submit/finish/error)
+//   - sub-chat-store.ts         (cleanup on sub-chat close)
+//   - streaming-status-store.ts wrapper (active-chat.tsx mirror)
+//
+// Reads go through the derived families below so consumers cannot pick the
+// "wrong" store and divergence is impossible.
+//
+// Trace prefix for writers: `[sub-chat-busy]`.
 
-// Helper to set loading state
-export const setLoading = (
-  setter: (fn: (prev: Map<string, string>) => Map<string, string>) => void,
-  subChatId: string,
-  parentChatId: string
-) => {
+export type SubChatBusySource = 'cli' | 'builtin';
+
+export type SubChatBusyEntry = {
+  /** running = PTY/streaming actively producing output;
+   *  submitted = builtin enqueued, awaiting first chunk. */
+  state: 'running' | 'submitted';
+  /** parentChatId is informational — null is tolerated. parent-keyed
+   *  consumers (workspace row, project group header, kanban card) skip
+   *  entries with null parents. */
+  parentChatId: string | null;
+  source: SubChatBusySource;
+};
+
+/**
+ * Presence ↔ busy; absence ↔ not busy, regardless of whether the underlying
+ * PTY / Chat instance is still alive. The CLI subscriber and the queue
+ * processor DELETE the entry on idle/finish; consumers should never expect
+ * to see a `{ state: 'idle' }` value here. This is a deliberate change vs.
+ * the old `cliRunningStatesAtom`, which retained entries through idle.
+ */
+export const subChatBusyAtom = atom<Map<string, SubChatBusyEntry>>(new Map());
+
+/** Per-subChat error flag — split out of the busy atom because errors persist
+ *  past the busy lifetime (the dock tab keeps an AlertCircle until the user
+ *  acknowledges). Written by queue-processor / use-transport-factory-deps on
+ *  stream error. The base atom is a single Set so consumers needing the full
+ *  list (e.g. the dock priority sync) can enumerate; the derived family is
+ *  what UI components subscribe to. */
+export const subChatErrorAtom = atom<Set<string>>(new Set());
+export const subChatErrorAtomFamily = atomFamily((subChatId: string) =>
+  atom((get) => {
+    if (!subChatId) return false;
+    return get(subChatErrorAtom).has(subChatId);
+  })
+);
+
+/** Derived: is this specific subChat busy? Replaces both `cliBusyAtomFamily`
+ *  read sites AND `useStreamingStatusStore.isStreaming(subChatId)`. */
+export const subChatBusyAtomFamily = atomFamily((subChatId: string) =>
+  atom((get) => {
+    if (!subChatId) return false;
+    return get(subChatBusyAtom).has(subChatId);
+  })
+);
+
+/** Derived: is any sub-chat under this parent chat busy? Used by the sidebar
+ *  workspace row, the project group header, and the kanban card. Keys off
+ *  parentChatId so the kanban doesn't depend on a fresh chats.list query
+ *  including the new sub-chat. */
+export const parentChatBusyAtomFamily = atomFamily((parentChatId: string) =>
+  atom((get) => {
+    if (!parentChatId) return false;
+    for (const entry of get(subChatBusyAtom).values()) {
+      if (entry.parentChatId === parentChatId) return true;
+    }
+    return false;
+  })
+);
+
+/** Derived: the set of busy subChatIds whose parentChatId matches. Used by
+ *  surfaces that need the actual subChat membership (kanban card decoration,
+ *  sub-chats sidebar row aggregations). */
+export const busySubChatsByParentAtomFamily = atomFamily((parentChatId: string) =>
+  atom((get) => {
+    const out = new Set<string>();
+    if (!parentChatId) return out;
+    for (const [subChatId, entry] of get(subChatBusyAtom)) {
+      if (entry.parentChatId === parentChatId) out.add(subChatId);
+    }
+    return out;
+  })
+);
+
+// ----- Writer helpers — the ONLY way to mutate subChatBusyAtom -----
+//
+// These take a `setter` of the canonical `subChatBusyAtom` shape so the call
+// site stays explicit about which store it touches. Callers should obtain the
+// setter via `appStore.set(subChatBusyAtom, …)` or `useSetAtom(subChatBusyAtom)`.
+
+type BusyMapSetter = (fn: (prev: Map<string, SubChatBusyEntry>) => Map<string, SubChatBusyEntry>) => void;
+
+export const setSubChatBusy = (setter: BusyMapSetter, subChatId: string, entry: SubChatBusyEntry) => {
   setter((prev) => {
-    // Only create new Map if value actually changed
-    // This prevents unnecessary re-renders
-    if (prev.get(subChatId) === parentChatId) return prev;
+    const existing = prev.get(subChatId);
+    if (
+      existing &&
+      existing.state === entry.state &&
+      existing.parentChatId === entry.parentChatId &&
+      existing.source === entry.source
+    ) {
+      return prev;
+    }
     const next = new Map(prev);
-    next.set(subChatId, parentChatId);
+    next.set(subChatId, entry);
     return next;
   });
 };
 
-// Helper to clear loading state
-export const clearLoading = (
-  setter: (fn: (prev: Map<string, string>) => Map<string, string>) => void,
-  subChatId: string
-) => {
+export const clearSubChatBusy = (setter: BusyMapSetter, subChatId: string) => {
   setter((prev) => {
-    // Only create new Map if subChatId was actually in loading state
-    // This prevents unnecessary re-renders when switching between non-loading sub-chats
     if (!prev.has(subChatId)) return prev;
     const next = new Map(prev);
     next.delete(subChatId);
@@ -1133,34 +1225,19 @@ export const agentFinishedTickAtomFamily = atomFamily((scopeId: string) =>
 );
 
 /**
- * Single source of truth in the renderer for "is CLI sub-chat X busy?".
- * Written by exactly one writer — `<CliStateSubscriber/>` mounted once at the
- * app root — which mirrors the main-process `terminal.allCliStates` broadcast.
- * Lifetime is the entire app session; not tied to any panel mount/unmount.
+ * Backwards-compatible alias over `subChatBusyAtomFamily`. Historical CLI
+ * consumers (`ChatCliSurface` for the workflow notch's `isStreaming`,
+ * `useWorkflowSnapshot`, `ChatInputArea`) keep their imports.
  *
- * Keyed by `subChatId`. Entry presence means the PTY is alive. `state` flips
- * between `'running'` (CLI actively producing output) and `'idle'` (CLI quiet
- * per the cursor-activity hysteresis in terminal/manager.ts). On PTY exit
- * the entry is deleted entirely.
- */
-export type CliRunningEntry = { state: 'running' | 'idle'; parentChatId: string | null };
-export const cliRunningStatesAtom = atom<Map<string, CliRunningEntry>>(new Map());
-
-/**
- * Per-subChat advisory-busy flag for CLI harnesses. Derived from
- * `cliRunningStatesAtom` — `true` only when the PTY has emitted `'running'`.
- * Read sites: `ChatCliSurface`, `useWorkflowSnapshot`, `ChatInputArea`.
+ * The truth is `subChatBusyAtom` (declared near the top of this file). This
+ * family is a thin re-export; new code should import `subChatBusyAtomFamily`
+ * directly.
  *
  * NOTE: this is a DERIVED atomFamily. The TS compiler will reject any attempt
  * to `useSetAtom(cliBusyAtomFamily(id))`; CLI busy state must flow through
- * `cliRunningStatesAtom` written by the global subscriber.
+ * `subChatBusyAtom` written by the global `<CliStateSubscriber/>`.
  */
-export const cliBusyAtomFamily = atomFamily((subChatId: string) =>
-  atom((get) => {
-    if (!subChatId) return false;
-    return get(cliRunningStatesAtom).get(subChatId)?.state === 'running';
-  })
-);
+export const cliBusyAtomFamily = subChatBusyAtomFamily;
 
 // Per-subChat hard-reset dialog open state. Shared between ChatCliSurface (which
 // owns doHardReset and the AlertDialog) and CliPromptBar (which owns the trigger button).
