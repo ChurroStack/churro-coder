@@ -1,18 +1,20 @@
 // @vitest-environment jsdom
 /**
- * Unit tests for <CliStateSubscriber/> — the global subscriber that mirrors
- * the main-process `terminal.allCliStates` broadcast into the three renderer
- * stores that drive every CLI working-state affordance.
+ * Unit tests for <CliStateSubscriber/> — the global subscriber that drives
+ * every CLI working-state affordance through the unified `subChatBusyAtom`.
  *
- * Regression guards (vs. the deleted useCliBusyTracker):
+ * Regression guards:
  *  - Does NOT clear state on unmount (the historical band-aid that wiped the
  *    spinner on every dockview tab switch).
  *  - Idempotent writes when snapshot + transition emit the same state.
+ *  - `state='running'` with null parentChatId still writes the busy entry
+ *    (the previous `parentChatId &&` guard caused the workspace row / dock
+ *    tab / kanban card divergence).
  *  - Reconnect on onError flips `enabled` false → true via the bumped tick.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
-import { createStore, Provider as JotaiProvider } from 'jotai';
+import { Provider as JotaiProvider } from 'jotai';
 import React from 'react';
 
 const mockSub = vi.hoisted(() => ({
@@ -68,17 +70,19 @@ vi.mock('../../../lib/trpc', () => ({
   }
 }));
 
-// appStore singleton — the subscriber writes through it. We swap to a fresh
-// per-test store via the JotaiProvider so cliRunningStatesAtom writes land
-// where the test reads.
 vi.mock('../../../lib/jotai-store', () => {
   const { createStore } = require('jotai');
   return { appStore: createStore() };
 });
 
 import { CliStateSubscriber } from './cli-state-subscriber';
-import { useStreamingStatusStore } from '../stores/streaming-status-store';
-import { loadingSubChatsAtom, cliRunningStatesAtom, agentFinishedTickAtomFamily } from '../atoms';
+import {
+  agentFinishedTickAtomFamily,
+  cliBusyAtomFamily,
+  parentChatBusyAtomFamily,
+  subChatBusyAtom,
+  subChatBusyAtomFamily
+} from '../atoms';
 import { appStore } from '../../../lib/jotai-store';
 
 const SUB = 'sc-cli-1';
@@ -96,9 +100,7 @@ beforeEach(() => {
   mockSub.onError = null;
   mockSub.enabled = undefined;
   mockSub.callCount = 0;
-  useStreamingStatusStore.setState({ statuses: {} });
-  appStore.set(loadingSubChatsAtom, new Map());
-  appStore.set(cliRunningStatesAtom, new Map());
+  appStore.set(subChatBusyAtom, new Map());
 });
 
 afterEach(() => {
@@ -106,36 +108,37 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('CliStateSubscriber — mirroring [cli-state-subscriber/mirror]', () => {
-  test("'running' writes cliRunningStatesAtom, streaming store, and loadingSubChatsAtom", () => {
+describe('CliStateSubscriber — unified busy atom [cli-state-subscriber/mirror]', () => {
+  test("'running' flips every consumer-visible read path to busy in one tick", () => {
     renderSubscriber();
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
 
-    const entry = appStore.get(cliRunningStatesAtom).get(SUB);
-    expect(entry).toEqual({ state: 'running', parentChatId: PARENT });
-    expect(useStreamingStatusStore.getState().getStatus(SUB)).toBe('streaming');
-    expect(appStore.get(loadingSubChatsAtom).get(SUB)).toBe(PARENT);
+    const entry = appStore.get(subChatBusyAtom).get(SUB);
+    expect(entry).toEqual({ state: 'running', parentChatId: PARENT, source: 'cli' });
+    expect(appStore.get(subChatBusyAtomFamily(SUB))).toBe(true);
+    expect(appStore.get(cliBusyAtomFamily(SUB))).toBe(true);
+    expect(appStore.get(parentChatBusyAtomFamily(PARENT))).toBe(true);
+    expect(entry?.parentChatId).toBe(PARENT);
   });
 
-  test("'idle' retains cliRunningStatesAtom entry but clears loadingSubChatsAtom and resets streaming status", () => {
+  test("'idle' deletes the entry — all derived consumers report not busy", () => {
     renderSubscriber();
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'idle' });
 
-    const entry = appStore.get(cliRunningStatesAtom).get(SUB);
-    expect(entry).toEqual({ state: 'idle', parentChatId: PARENT });
-    expect(useStreamingStatusStore.getState().getStatus(SUB)).toBe('ready');
-    expect(appStore.get(loadingSubChatsAtom).has(SUB)).toBe(false);
+    expect(appStore.get(subChatBusyAtom).has(SUB)).toBe(false);
+    expect(appStore.get(subChatBusyAtomFamily(SUB))).toBe(false);
+    expect(appStore.get(parentChatBusyAtomFamily(PARENT))).toBe(false);
   });
 
-  test("'exited' removes the cliRunningStatesAtom entry entirely", () => {
+  test("'exited' removes the entry from all derived atoms", () => {
     renderSubscriber();
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'exited' });
 
-    expect(appStore.get(cliRunningStatesAtom).has(SUB)).toBe(false);
-    expect(useStreamingStatusStore.getState().getStatus(SUB)).toBe('ready');
-    expect(appStore.get(loadingSubChatsAtom).has(SUB)).toBe(false);
+    expect(appStore.get(subChatBusyAtom).has(SUB)).toBe(false);
+    expect(appStore.get(subChatBusyAtomFamily(SUB))).toBe(false);
+    expect(appStore.get(parentChatBusyAtomFamily(PARENT))).toBe(false);
   });
 
   test('cache invalidations fire only on idle/exited, never on running', () => {
@@ -159,44 +162,52 @@ describe('CliStateSubscriber — mirroring [cli-state-subscriber/mirror]', () =>
     expect(appStore.get(agentFinishedTickAtomFamily(PARENT))).toBe(parentBefore + 1);
   });
 
-  test('null parentChatId still writes cliRunningStatesAtom but skips loadingSubChatsAtom', () => {
+  test('null parentChatId still writes the busy entry — sub-chat-keyed consumers flip on', () => {
+    // Regression: the old subscriber had `if (state === 'running' && parentChatId)`,
+    // which silently dropped the loading state whenever the cli-state event
+    // arrived during a window where session.workspaceId was empty (reattach).
+    // Sub-chat-keyed consumers (the sub-chats sidebar plan icon, the dock tab,
+    // the workflow notch) MUST still light up.
     renderSubscriber();
     mockSub.onData?.({ subChatId: SUB, parentChatId: null, state: 'running' });
 
-    expect(appStore.get(cliRunningStatesAtom).get(SUB)).toEqual({
+    expect(appStore.get(subChatBusyAtom).get(SUB)).toEqual({
       state: 'running',
-      parentChatId: null
+      parentChatId: null,
+      source: 'cli'
     });
-    // loadingSubChatsAtom requires a parentChatId to set the Map value, so
-    // the entry is skipped — the sidebar can't light up workspace rows
-    // without it, but cliBusyAtomFamily still works.
-    expect(appStore.get(loadingSubChatsAtom).has(SUB)).toBe(false);
+    expect(appStore.get(subChatBusyAtomFamily(SUB))).toBe(true);
+    // Parent-keyed consumers correctly skip null-parented entries — they
+    // can't attribute the busy state to a specific workspace row, but the
+    // sub-chat itself is still visible to other surfaces.
+    expect(appStore.get(parentChatBusyAtomFamily(PARENT))).toBe(false);
+    // The source map still has the entry (with null parent) so subChat-
+    // keyed surfaces (sub-chats sidebar, dock tab, workflow notch) light up.
+    expect(appStore.get(subChatBusyAtom).get(SUB)?.parentChatId).toBeNull();
   });
 
   test('idempotent: repeated identical events do not churn the source map', () => {
     renderSubscriber();
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
-    const firstRef = appStore.get(cliRunningStatesAtom);
+    const firstRef = appStore.get(subChatBusyAtom);
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
-    const secondRef = appStore.get(cliRunningStatesAtom);
+    const secondRef = appStore.get(subChatBusyAtom);
     expect(firstRef).toBe(secondRef);
   });
 });
 
 describe('CliStateSubscriber — lifecycle [cli-state-subscriber/lifecycle]', () => {
-  test('unmount does NOT clear cliRunningStatesAtom / loadingSubChatsAtom / streaming store', () => {
+  test('unmount does NOT clear subChatBusyAtom (the disappearing-spinner regression)', () => {
     const { unmount } = renderSubscriber();
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
 
-    expect(appStore.get(cliRunningStatesAtom).has(SUB)).toBe(true);
-    expect(appStore.get(loadingSubChatsAtom).has(SUB)).toBe(true);
-    expect(useStreamingStatusStore.getState().getStatus(SUB)).toBe('streaming');
+    expect(appStore.get(subChatBusyAtom).has(SUB)).toBe(true);
+    expect(appStore.get(subChatBusyAtomFamily(SUB))).toBe(true);
 
     unmount();
 
-    expect(appStore.get(cliRunningStatesAtom).has(SUB)).toBe(true);
-    expect(appStore.get(loadingSubChatsAtom).has(SUB)).toBe(true);
-    expect(useStreamingStatusStore.getState().getStatus(SUB)).toBe('streaming');
+    expect(appStore.get(subChatBusyAtom).has(SUB)).toBe(true);
+    expect(appStore.get(subChatBusyAtomFamily(SUB))).toBe(true);
   });
 
   test('onError triggers reconnect bumps that re-render the subscription hook', async () => {

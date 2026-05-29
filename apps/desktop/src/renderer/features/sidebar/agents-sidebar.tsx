@@ -86,7 +86,8 @@ import {
   selectedDraftIdAtom,
   showNewChatFormAtom,
   newWorkspaceFormKeyAtom,
-  loadingSubChatsAtom,
+  parentChatBusyAtomFamily,
+  subChatBusyAtom,
   agentsUnseenChangesAtom,
   archivePopoverOpenAtom,
   agentsDebugModeAtom,
@@ -378,7 +379,7 @@ const AgentChatItem = React.memo(function AgentChatItem({
   chatProjectId,
   globalIndex,
   isSelected,
-  isLoading,
+  isLoading: isLoadingFromParent,
   hasUnseenChanges,
   hasPendingPlan,
   hasPendingQuestion,
@@ -471,6 +472,16 @@ const AgentChatItem = React.memo(function AgentChatItem({
 }) {
   // Resolved hotkey for context menu
   const archiveWorkspaceHotkey = useResolvedHotkeyDisplay('archive-workspace');
+
+  // Defense-in-depth busy check: ALSO read parentChatBusyAtomFamily(chatId)
+  // directly. The aggregated `loadingChatIds` Set (passed in via prop) is
+  // computed from `loadingSubChats.values()` which filters out any entry
+  // whose parentChatId was momentarily null at the moment the cli-state event
+  // arrived. parentChatBusyAtomFamily is keyed off the canonical
+  // subChatBusyAtom and recomputes whenever an entry's parentChatId matches,
+  // so it picks up transitions the aggregated Set could miss.
+  const isParentChatBusy = useAtomValue(useMemo(() => parentChatBusyAtomFamily(chatId), [chatId]));
+  const isLoading = isLoadingFromParent || isParentChatBusy;
 
   return (
     <ContextMenu>
@@ -1285,7 +1296,10 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom);
   const bumpNewWorkspaceFormKey = useSetAtom(newWorkspaceFormKeyAtom);
   const setDesktopView = useSetAtom(desktopViewAtom);
-  const [loadingSubChats] = useAtom(loadingSubChatsAtom);
+  // The sidebar reads only the unified `subChatBusyAtom` — the legacy
+  // `loadingSubChatsAtom` projection isn't needed here. AgentChatItem rows
+  // also subscribe to `parentChatBusyAtomFamily(chatId)` for defense-in-depth.
+  const subChatBusyMap = useAtomValue(subChatBusyAtom);
   const pendingQuestions = useAtomValue(pendingUserQuestionsAtom);
   const expiredQuestions = useAtomValue(expiredUserQuestionsAtom);
   // Use ref instead of state to avoid re-renders on hover
@@ -2117,7 +2131,18 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
   }, [focusedChatIndex, filteredChats.length]);
 
   // Derive which chats have loading sub-chats
-  const loadingChatIds = useMemo(() => new Set([...loadingSubChats.values()]), [loadingSubChats]);
+  // Build the set of parent chat IDs whose sub-chats are currently busy.
+  // Read directly from `subChatBusyAtom` (single source of truth) so any
+  // null-parented entry that the legacy projection would filter is still
+  // visible as a "no parent" signal (skipped by the loop, so it doesn't pollute
+  // the Set). This is the same shape the project group header expects.
+  const loadingChatIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const entry of subChatBusyMap.values()) {
+      if (entry.parentChatId) out.add(entry.parentChatId);
+    }
+    return out;
+  }, [subChatBusyMap]);
 
   // Convert file stats to a Map for easy lookup (only for local chats)
   // Remote chat stats are provided directly via chat.remoteStats

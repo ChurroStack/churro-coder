@@ -63,7 +63,6 @@ import {
   agentsSubChatsSidebarModeAtom,
   agentsSubChatUnseenChangesAtom,
   agentsUnseenChangesAtom,
-  clearLoading,
   compactingSubChatsAtom,
   currentPlanPathAtomFamily,
   diffSidebarOpenAtomFamily,
@@ -75,7 +74,6 @@ import {
   filteredDiffFilesAtom,
   isCreatingPrAtom,
   justCreatedIdsAtom,
-  loadingSubChatsAtom,
   MODEL_ID_MAP,
   pendingAuthRetryMessageAtom,
   pendingBuildPlanAtomFamily,
@@ -95,7 +93,6 @@ import {
   QUESTIONS_SKIPPED_MESSAGE,
   selectedAgentChatIdAtom,
   selectedDiffFilePathAtom,
-  setLoading,
   subChatFilesAtom,
   agentsSidebarOpenAtom,
   subChatClaudeSessionEpochAtomFamily,
@@ -1268,21 +1265,11 @@ export const ChatViewInner = memo(function ChatViewInner({
     setQuickCommentState(null);
   }, []);
 
-  // Sync loading status to atom for UI indicators
-  // When streaming starts, set loading. When it stops, clear loading.
-  // Unseen changes, sound notification, and sidebar refresh are handled in onFinish callback
-  const setLoadingSubChats = useSetAtom(loadingSubChatsAtom);
-
-  useEffect(() => {
-    const storedParentChatId = agentChatStore.getParentChatId(subChatId);
-    if (!storedParentChatId) return;
-
-    if (isStreaming) {
-      setLoading(setLoadingSubChats, subChatId, storedParentChatId);
-    } else {
-      clearLoading(setLoadingSubChats, subChatId);
-    }
-  }, [isStreaming, subChatId, setLoadingSubChats]);
+  // Loading state for UI indicators is mirrored by the streaming-status-store
+  // wrapper (which writes to `subChatBusyAtom`) every time `setStreamingStatus`
+  // is called on status transitions below. The standalone effect that lived
+  // here was a redundant second writer to the legacy `loadingSubChatsAtom` —
+  // removed as part of the single-source-of-truth migration.
 
   // Workflow state for the notch (Status widget reuses the same hook in
   // details-rail). Computed here so the chip text + primary action button
@@ -3616,7 +3603,6 @@ export function ChatView({
   const customClaudeConfig = useAtomValue(customClaudeConfigAtom);
   const normalizedCustomClaudeConfig = normalizeCustomClaudeConfig(customClaudeConfig);
   const hasCustomClaudeConfig = Boolean(normalizedCustomClaudeConfig);
-  const setLoadingSubChats = useSetAtom(loadingSubChatsAtom);
   const unseenChanges = useAtomValue(agentsUnseenChangesAtom);
   const setUnseenChanges = useSetAtom(agentsUnseenChangesAtom);
   const setSubChatUnseenChanges = useSetAtom(agentsSubChatUnseenChangesAtom);
@@ -5292,7 +5278,6 @@ export function ChatView({
     agentChat,
     syncFinishedMessagesToChatCache,
     pruneIfDetachedAndIdle,
-    setLoadingSubChats,
     setSubChatUnseenChanges,
     setUnseenChanges,
     notifyAgentComplete,
@@ -5494,11 +5479,10 @@ export function ChatView({
           syncFinishedMessagesToChatCache(newId, newChat);
           pruneIfDetachedAndIdle(newId, chatId);
         },
-        // Clear loading when streaming completes
+        // Clear loading when streaming completes — setStatus('ready') routes
+        // through the streaming-status-store wrapper which clears the unified
+        // `subChatBusyAtom` entry. No separate clearLoading call needed.
         onFinish: () => {
-          clearLoading(setLoadingSubChats, newId);
-
-          // Sync status to global store for queue processing (even when component unmounted)
           useStreamingStatusStore.getState().setStatus(newId, 'ready');
           syncFinishedMessagesToChatCache(newId, newChat);
           if (chatProvider === 'codex') {

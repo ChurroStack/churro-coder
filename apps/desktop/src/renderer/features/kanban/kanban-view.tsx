@@ -7,7 +7,7 @@ import {
   selectedAgentChatIdAtom,
   selectedDraftIdAtom,
   showNewChatFormAtom,
-  loadingSubChatsAtom,
+  subChatBusyAtom,
   pendingUserQuestionsAtom,
   expiredUserQuestionsAtom,
   pendingPlanApprovalsAtom,
@@ -18,7 +18,12 @@ import {
 import { selectedAgentChatIdsAtom, isAgentMultiSelectModeAtom, toggleAgentChatSelectionAtom } from '../../lib/atoms';
 import { KanbanBoard } from './components/kanban-board';
 import type { KanbanCardData } from './components/kanban-card';
-import { deriveKanbanStatus, deriveAttentionReason, type SubChatMode } from './lib/kanban-state-machine';
+import {
+  deriveKanbanStatus,
+  deriveCardIsLoading,
+  deriveAttentionReason,
+  type SubChatMode
+} from './lib/kanban-state-machine';
 import { useNewChatDrafts } from '../agents/lib/drafts';
 import { exportChat, copyChat } from '../agents/lib/export-chat';
 import { AgentsRenameSubChatDialog } from '../agents/components/agents-rename-subchat-dialog';
@@ -46,8 +51,11 @@ export function KanbanView() {
   const isMultiSelectMode = useAtomValue(isAgentMultiSelectModeAtom);
   const toggleChatSelection = useSetAtom(toggleAgentChatSelectionAtom);
 
-  // Status atoms
-  const loadingSubChats = useAtomValue(loadingSubChatsAtom);
+  // Status atoms — `subChatBusyMap` is the unified source. The kanban does
+  // not need the legacy `Map<subChatId, parentChatId>` projection; it reads
+  // `subChatBusyMap.keys()` (sub-chat membership) and `.values()` (parent
+  // aggregation) directly.
+  const subChatBusyMap = useAtomValue(subChatBusyAtom);
   const pendingQuestions = useAtomValue(pendingUserQuestionsAtom);
   const expiredQuestions = useAtomValue(expiredUserQuestionsAtom);
   const pendingPlanApprovals = useAtomValue(pendingPlanApprovalsAtom);
@@ -236,8 +244,22 @@ export function KanbanView() {
     return set;
   }, [pendingQuestions, expiredQuestions]);
 
-  // Build set of loading sub-chat IDs for kanban state aggregation
-  const loadingSubChatIds = useMemo(() => new Set([...loadingSubChats.keys()]), [loadingSubChats]);
+  // Build set of busy sub-chat IDs for kanban state aggregation. Read from
+  // `subChatBusyAtom` directly (not via `loadingSubChats` which drops
+  // null-parented entries) so any busy sub-chat surfaces here, even if its
+  // parentChatId was momentarily missing from the cli-state event.
+  const loadingSubChatIds = useMemo(() => new Set([...subChatBusyMap.keys()]), [subChatBusyMap]);
+
+  // Set of parent chat IDs whose sub-chats are busy — used as a fallback
+  // when chats.list is stale and a card's `subChats` array doesn't yet
+  // include the just-spawned busy sub-chat.
+  const parentChatBusyIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const entry of subChatBusyMap.values()) {
+      if (entry.parentChatId) out.add(entry.parentChatId);
+    }
+    return out;
+  }, [subChatBusyMap]);
 
   // Attention signals passed to the state machine. unseenChanges is already a Set<string>,
   // so we pass it through directly.
@@ -267,6 +289,7 @@ export function KanbanView() {
         branch: null,
         mode: 'plan',
         status,
+        isLoading: false,
         attentionReason: null,
         hasUnseenChanges: false,
         hasPendingPlan: false,
@@ -303,6 +326,13 @@ export function KanbanView() {
       const status = deriveKanbanStatus(input);
       if (status === null) continue;
 
+      // Spinner is independent of column. The badge fires whenever any
+      // sub-chat is busy — including the chats.list-staleness case where a
+      // freshly-spawned sub-chat isn't yet in `chat.subChats` (covered by
+      // the `parentChatBusyIds` fallback). The card sits in the SDLC stage
+      // column the whole time.
+      const isLoading = deriveCardIsLoading(input) || parentChatBusyIds.has(chat.id);
+
       const attentionReason = deriveAttentionReason(input, attentionSignals);
 
       // Trace first observation of in-review per session (DEV only — keeps prod console clean)
@@ -327,6 +357,7 @@ export function KanbanView() {
         branch: chat.branch,
         mode: cardMode,
         status,
+        isLoading,
         attentionReason,
         hasUnseenChanges: unseenChanges.has(chat.id),
         hasPendingPlan: workspacesWithPendingApprovals.has(chat.id),
@@ -356,6 +387,7 @@ export function KanbanView() {
     drafts,
     projectsMap,
     loadingSubChatIds,
+    parentChatBusyIds,
     attentionSignals,
     workspacesWithPendingApprovals,
     workspacesWithPendingQuestions,

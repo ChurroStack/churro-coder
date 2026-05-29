@@ -31,10 +31,11 @@ vi.mock('../stores/agent-chat-store', () => ({
 
 import { toast } from 'sonner';
 import { createTestStore, renderWithProviders } from '../../../../../test-utils';
+import { appStore } from '../../../lib/jotai-store';
 import { agentChatStore } from '../stores/agent-chat-store';
 import { getPerChatMessageKey, messageAtomFamily, messageIdsPerChatAtom, type Message } from '../stores/message-store';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
-import { pendingContinueMessageAtomFamily } from '../atoms';
+import { pendingContinueMessageAtomFamily, subChatBusyAtom, subChatErrorAtom } from '../atoms';
 import { ContinueButton, hardRestartSubChat } from './continue-button';
 
 const SUB = 'test-sub';
@@ -44,6 +45,10 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.clearAllMocks();
+  // The streaming-status-store now reads from the unified atoms — reset the
+  // atom-side too so state doesn't leak between tests.
+  appStore.set(subChatBusyAtom, new Map());
+  appStore.set(subChatErrorAtom, new Set());
   useStreamingStatusStore.setState({ statuses: {} });
 });
 

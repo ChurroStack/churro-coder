@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { cn } from '../../lib/utils';
 import {
-  loadingSubChatsAtom,
+  subChatBusyAtom,
   agentsSubChatUnseenChangesAtom,
   selectedAgentChatIdAtom,
   selectedProjectAtom,
@@ -92,7 +92,8 @@ import { CSS } from '@dnd-kit/utilities';
 // Isolated Search History Popover for sidebar - prevents parent re-renders when popover opens/closes
 interface SidebarSearchHistoryPopoverProps {
   sortedSubChats: SubChatMeta[];
-  loadingSubChats: Map<string, string>;
+  /** Set of subChatIds currently busy. Comes from `subChatBusyAtom.keys()`. */
+  loadingSubChatIds: ReadonlySet<string>;
   subChatUnseenChanges: Set<string>;
   pendingQuestionsMap: Map<string, { subChatId: string }>;
   allSubChatsLength: number;
@@ -101,7 +102,7 @@ interface SidebarSearchHistoryPopoverProps {
 
 const SidebarSearchHistoryPopover = memo(function SidebarSearchHistoryPopover({
   sortedSubChats,
-  loadingSubChats,
+  loadingSubChatIds,
   subChatUnseenChanges,
   pendingQuestionsMap,
   allSubChatsLength,
@@ -120,7 +121,7 @@ const SidebarSearchHistoryPopover = memo(function SidebarSearchHistoryPopover({
   const renderItem = useCallback(
     (subChat: SubChatMeta) => {
       const timeAgo = formatTimeAgo(subChat.updated_at || subChat.created_at);
-      const isLoading = loadingSubChats.has(subChat.id);
+      const isLoading = loadingSubChatIds.has(subChat.id);
       const hasUnseen = subChatUnseenChanges.has(subChat.id);
       const mode = subChat.mode || 'execute';
       const hasPendingQuestion = pendingQuestionsMap.has(subChat.id);
@@ -148,7 +149,7 @@ const SidebarSearchHistoryPopover = memo(function SidebarSearchHistoryPopover({
         </div>
       );
     },
-    [loadingSubChats, subChatUnseenChanges, pendingQuestionsMap]
+    [loadingSubChatIds, subChatUnseenChanges, pendingQuestionsMap]
   );
 
   return (
@@ -277,7 +278,7 @@ export function AgentsSubChatsSidebar({
   // can be dragged out of the sidebar and into the split-view drop zone.
   // The SortableContext blocks below remain to provide in-sidebar reordering.
 
-  const [loadingSubChats] = useAtom(loadingSubChatsAtom);
+  const subChatBusyMap = useAtomValue(subChatBusyAtom);
   const subChatFiles = useAtomValue(subChatFilesAtom);
   const selectedProject = useAtomValue(selectedProjectAtom);
   const selectedTeamId = useAtomValue(selectedTeamIdAtom);
@@ -537,8 +538,12 @@ export function AgentsSubChatsSidebar({
     // Empty deps: handler is stable and uses only ref which doesn't need tracking
   }, []);
 
-  // Derive which sub-chats are loading (keys = subChatIds)
-  const loadingChatIds = useMemo(() => new Set([...loadingSubChats.keys()]), [loadingSubChats]);
+  // Derive which sub-chats are busy. Read directly from `subChatBusyAtom` —
+  // the legacy `loadingSubChats` projection drops entries whose parentChatId
+  // is null, which would hide the spinner on the row whose plan/agent icon
+  // owns the badge. The Set we build here is the union over all subChatIds
+  // present in the source map, including null-parented ones.
+  const loadingChatIds = useMemo(() => new Set([...subChatBusyMap.keys()]), [subChatBusyMap]);
 
   const handleSubChatClick = (subChatId: string) => {
     const store = useAgentSubChatStore.getState();
@@ -1015,7 +1020,7 @@ export function AgentsSubChatsSidebar({
     <div className="flex items-center gap-1">
       <SidebarSearchHistoryPopover
         sortedSubChats={sortedSubChats}
-        loadingSubChats={loadingSubChats}
+        loadingSubChatIds={loadingChatIds}
         subChatUnseenChanges={subChatUnseenChanges}
         pendingQuestionsMap={pendingQuestionsMap}
         allSubChatsLength={allSubChats.length}

@@ -291,6 +291,20 @@ function computeCode(s: WorkflowSnapshot, planStatus: MilestoneStatus): Mileston
       return { id: 'code', status: 'in_progress', label: 'Code', hint: 'Executing tasks…' };
     }
 
+    // Base-branch drift takes priority over tasks-completion attention states:
+    // the tasks-progress branches below don't set actionKind, so without this
+    // the notch would show "X/N tasks complete" with no button even when
+    // origin/<base> moves ahead. Mirrors the no-tasks fallback further down.
+    if (s.baseBranchBehind > 0) {
+      return {
+        id: 'code',
+        status: 'attention',
+        label: 'Code',
+        hint: `Base branch has ${s.baseBranchBehind} new commit${s.baseBranchBehind === 1 ? '' : 's'}`,
+        actionKind: 'mergeBase'
+      };
+    }
+
     if (total === 0) {
       return { id: 'code', status: 'attention', label: 'Code', hint: 'Task list is empty' };
     }
