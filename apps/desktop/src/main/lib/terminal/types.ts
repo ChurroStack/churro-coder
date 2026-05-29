@@ -49,6 +49,14 @@ export interface TerminalSession {
    * cursor moves OR any PTY bytes; 0 otherwise). Newest pushed at tail.
    */
   recentMoves?: number[];
+  /**
+   * Wall-clock ms until which the activity sampler ignores incoming bytes /
+   * cursor moves. Stamped by `manager.resize()` on a real geometry change so
+   * the SIGWINCH-triggered TUI repaint burst doesn't false-positive into
+   * `running`. During suppression the sampler drains counters but preserves
+   * the ring + state untouched (no bias either direction).
+   */
+  suppressActivityUntil?: number;
 }
 
 export interface TerminalDataEvent {

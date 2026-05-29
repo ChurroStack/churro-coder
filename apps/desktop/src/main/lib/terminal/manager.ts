@@ -16,15 +16,21 @@ import type { CliStateEvent, CreateSessionParams, SessionResult, TerminalOutputS
  *
  * - windowMs: sampler tick interval.
  * - runningWindowsRequired: consecutive active windows needed to flip
- *   idle→running. 1 = flip on the first detected activity.
+ *   idle→running. 2 × 1s requires ~1–2s of sustained activity, which
+ *   defangs single-burst false positives (TUI repaint after a SIGWINCH).
+ *   Real CLI work has the spinner ticking every ~100ms so every window is
+ *   active during work.
  * - idleWindowsRequired: consecutive inactive windows needed to flip
- *   running→idle. 16 × 250ms = 4s of true silence — covers thinking
- *   pauses while still feeling responsive when the model actually stops.
+ *   running→idle. 4 × 1s = 4s of true silence — covers thinking pauses
+ *   while still feeling responsive when the model actually stops.
+ * - resizeSuppressMs: how long after a real geometry change we ignore the
+ *   activity sampler. Covers the SIGWINCH → TUI repaint burst.
  */
 const IDLE_TUNING = {
-  windowMs: 250,
-  runningWindowsRequired: 1,
-  idleWindowsRequired: 16
+  windowMs: 1000,
+  runningWindowsRequired: 2,
+  idleWindowsRequired: 4,
+  resizeSuppressMs: 1500
 } as const;
 
 type KillSignal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP';
@@ -228,6 +234,16 @@ export class TerminalManager extends EventEmitter {
     session.pendingMoves = 0;
     session.pendingBytes = 0;
 
+    // Post-resize suppression: drain counters but preserve the ring and
+    // current state. The SIGWINCH-driven TUI repaint produces a one-shot
+    // burst of bytes/cursor moves that we don't want to mis-classify as
+    // running. Preserving the ring (instead of pushing 0) also avoids
+    // biasing a currently-running session toward premature idle if the
+    // user drag-resizes mid-stream.
+    if (session.suppressActivityUntil !== undefined && Date.now() < session.suppressActivityUntil) {
+      return;
+    }
+
     // Window is "active" if EITHER the headless parser saw a cursor move
     // OR the PTY pushed any bytes through. Either signal alone is enough
     // to keep the session in running.
@@ -375,7 +391,21 @@ export class TerminalManager extends EventEmitter {
       return;
     }
 
+    // Same-geometry short-circuit. The renderer's ResizeObserver fires once
+    // immediately on attach, so every tab activation / first mount triggers
+    // a resize call even when nothing actually changed. Skipping the SIGWINCH
+    // here avoids the TUI repaint burst that the activity sampler would
+    // otherwise mis-classify as `running`.
+    if (session.cols === cols && session.rows === rows) {
+      return;
+    }
+
     try {
+      // Arm the post-resize suppression window BEFORE pty.resize so the
+      // resulting onData burst is gated by the time the sampler ticks.
+      if (session.idleDetection) {
+        session.suppressActivityUntil = Date.now() + IDLE_TUNING.resizeSuppressMs;
+      }
       session.pty.resize(cols, rows);
       session.cols = cols;
       session.rows = rows;
