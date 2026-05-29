@@ -28,6 +28,7 @@ import { AgentToolRegistry } from './agent-tool-registry';
 import { AgentUserMessageBubble } from './agent-user-message-bubble';
 import { syncMessagesWithStatusAtom } from '../stores/message-store';
 import { stripClaudeCliEnvelopes } from '../../../../shared/cli-text-envelopes';
+import { isAdjacentUserDup } from './cli-conversation-dedup';
 
 interface CliConversationPaneProps {
   subChatId: string;
@@ -72,6 +73,12 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
   const rows = (messagesQuery.data ?? []) as MessageRow[];
   const parsedMessages = useMemo(() => {
     const out = [];
+    // Tracks the trimmed text of the immediately preceding *rendered* user
+    // message; used to dedup the optimistic-row + JSONL-ingested duplicate
+    // that older CLI subchats already have persisted in the DB. New ingestions
+    // are dedup'd at the appendIngestedMessage layer (claim-merge), so this
+    // is only load-bearing for historical rows.
+    let lastUserText: string | null = null;
     for (const r of rows) {
       const parts = parseJsonField<unknown[]>(r.parts, []);
       const metadata = parseJsonField<Record<string, unknown> | null>(r.metadata as string | undefined, null);
@@ -97,6 +104,9 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
       // Drop the whole message if stripping emptied it (all-envelope user
       // record). Otherwise the user bubble would render as an empty box.
       if (cleanedParts.length === 0) continue;
+      const dup = isAdjacentUserDup({ role: r.role, parts: cleanedParts }, lastUserText);
+      if (dup.dropped) continue;
+      lastUserText = dup.userText;
       out.push({
         id: r.id,
         role: r.role,
