@@ -122,11 +122,19 @@ export function resolveContextUsage(args: {
       ? (metadata?.inputTokens ?? codexInputFallback ?? 0) + cacheReadInputTokens
       : (metadata?.inputTokens ?? 0) + cacheReadInputTokens + cacheCreationInputTokens;
 
+  // For the source message, the stamped modelContextWindow reflects the actual
+  // window that turn negotiated (e.g. via the 1M beta header) and must win over
+  // the catalog. Otherwise, adding an explicit 200K-only picker entry for a
+  // model id (e.g. claude-opus-4-7) would retroactively downgrade historical
+  // 1M turns that report back the same SDK model id. The selectedContextWindow
+  // calc above stays catalog-first by design — it represents the picker's
+  // current default, not a past turn.
+  const stampedWindow =
+    metadata?.modelContextWindow !== undefined && metadata.modelContextWindow > 0
+      ? metadata.modelContextWindow
+      : undefined;
   const sourceContextWindow = metadata
-    ? resolveContextWindow({
-        modelId: metadata.model,
-        metadataWindow: metadata.modelContextWindow
-      })
+    ? (stampedWindow ?? resolveContextWindow({ modelId: metadata.model, metadataWindow: undefined }))
     : selectedContextWindow;
   const isCrossProviderFallback = sourceMessage === fallbackMessage && sourceProvider !== args.selectedProvider;
   const isSelectedModelMismatch =
