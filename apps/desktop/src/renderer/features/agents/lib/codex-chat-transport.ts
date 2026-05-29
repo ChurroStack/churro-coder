@@ -302,6 +302,24 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
                   const newMap = new Map(currentMap);
                   newMap.delete(this.config.subChatId);
                   appStore.set(pendingUserQuestionsAtom, newMap);
+                  console.log(`[needs-input] clear sub=${this.config.subChatId.slice(-8)} reason=agent-progress`);
+                }
+              }
+
+              // Auto-clear expired questions once the agent has clearly moved on.
+              // Mirrors the ipc-chat-transport rule. `finish-step` / `finish` fire
+              // at well-defined reasoning boundaries; without this clear, the
+              // expired entry pins the dock-tab hand for the rest of the turn even
+              // after the agent self-recovered.
+              if (chunk.type === 'finish-step' || chunk.type === 'finish') {
+                const currentExpired = appStore.get(expiredUserQuestionsAtom);
+                if (currentExpired.has(this.config.subChatId)) {
+                  const newExpiredMap = new Map(currentExpired);
+                  newExpiredMap.delete(this.config.subChatId);
+                  appStore.set(expiredUserQuestionsAtom, newExpiredMap);
+                  console.log(
+                    `[needs-input] clear sub=${this.config.subChatId.slice(-8)} reason=expired-auto-${chunk.type}`
+                  );
                 }
               }
 

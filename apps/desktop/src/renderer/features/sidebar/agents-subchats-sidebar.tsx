@@ -21,6 +21,7 @@ import {
   suppressInputFocusAtom,
   type UndoItem
 } from '../agents/atoms';
+import { deriveSubChatIconKind } from '../agents/lib/sub-chat-icon-status';
 import {
   selectedTeamIdAtom,
   selectedSubChatIdsAtom,
@@ -126,19 +127,24 @@ const SidebarSearchHistoryPopover = memo(function SidebarSearchHistoryPopover({
       const mode = subChat.mode || 'execute';
       const hasPendingQuestion = pendingQuestionsMap.has(subChat.id);
 
+      const iconKind = deriveSubChatIconKind({
+        hasError: false,
+        isBusy: isLoading,
+        needsInput: hasPendingQuestion
+      });
       return (
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center relative">
-            {hasPendingQuestion ? (
-              <QuestionIcon className="w-4 h-4 text-blue-500" />
-            ) : isLoading ? (
+            {iconKind === 'busy' ? (
               <IconSpinner className="w-4 h-4 text-muted-foreground" />
+            ) : iconKind === 'needs-input' ? (
+              <QuestionIcon className="w-4 h-4 text-blue-500" />
             ) : mode === 'plan' ? (
               <PlanIcon className="w-4 h-4 text-muted-foreground" />
             ) : (
               <AgentIcon className="w-4 h-4 text-muted-foreground" />
             )}
-            {hasUnseen && !isLoading && !hasPendingQuestion && (
+            {hasUnseen && iconKind === 'idle' && (
               <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-popover flex items-center justify-center">
                 <div className="w-1.5 h-1.5 rounded-full bg-[#307BD0]" />
               </div>
@@ -1248,6 +1254,11 @@ export function AgentsSubChatsSidebar({
                             const draftText = getDraftText(subChat.id);
                             const hasPendingQuestion = pendingQuestionsMap.has(subChat.id);
                             const hasPendingPlan = pendingPlanApprovals.has(subChat.id);
+                            const iconKind = deriveSubChatIconKind({
+                              hasError: false,
+                              isBusy: isSubChatLoading,
+                              needsInput: hasPendingQuestion
+                            });
                             const fileChanges = subChatFiles.get(subChat.id) || [];
                             const stats =
                               fileChanges.length > 0
@@ -1352,7 +1363,9 @@ export function AgentsSubChatsSidebar({
                                                 ? 'opacity-0 scale-95 pointer-events-none'
                                                 : 'opacity-100 scale-100'
                                             )}>
-                                            {hasPendingQuestion ? (
+                                            {iconKind === 'busy' ? (
+                                              <IconSpinner className="w-4 h-4 text-muted-foreground" />
+                                            ) : iconKind === 'needs-input' ? (
                                               <QuestionIcon className="w-4 h-4 text-blue-500" />
                                             ) : mode === 'plan' ? (
                                               <PlanIcon className="w-4 h-4 text-muted-foreground" />
@@ -1361,9 +1374,9 @@ export function AgentsSubChatsSidebar({
                                             )}
                                           </div>
                                           {/* Badge in bottom-right corner - hidden in multi-select mode and when pending question */}
-                                          {(isSubChatLoading || hasUnseen || hasPendingPlan) &&
+                                          {(hasUnseen || hasPendingPlan) &&
                                             !isMultiSelectMode &&
-                                            !hasPendingQuestion && (
+                                            iconKind === 'idle' && (
                                               <div
                                                 className={cn(
                                                   'absolute -bottom-1 -right-1 w-3 h-3 rounded-full flex items-center justify-center',
@@ -1371,13 +1384,8 @@ export function AgentsSubChatsSidebar({
                                                     ? 'bg-[#E8E8E8] dark:bg-[#1B1B1B]'
                                                     : 'bg-[#F4F4F4] group-hover:bg-[#E8E8E8] dark:bg-[#101010] dark:group-hover:bg-[#1B1B1B]'
                                                 )}>
-                                                {/* Priority: loader > amber dot (pending plan) > blue dot (unseen) */}
-                                                {isSubChatLoading ? (
-                                                  <LoadingDot
-                                                    isLoading={true}
-                                                    className="w-2.5 h-2.5 text-muted-foreground"
-                                                  />
-                                                ) : hasPendingPlan ? (
+                                                {/* Loader is shown in the main icon slot when busy; this badge handles the secondary signals. */}
+                                                {hasPendingPlan ? (
                                                   <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                                                 ) : (
                                                   <LoadingDot
@@ -1530,6 +1538,11 @@ export function AgentsSubChatsSidebar({
                             const draftText = getDraftText(subChat.id);
                             const hasPendingQuestion = pendingQuestionsMap.has(subChat.id);
                             const hasPendingPlan = pendingPlanApprovals.has(subChat.id);
+                            const iconKind = deriveSubChatIconKind({
+                              hasError: false,
+                              isBusy: isSubChatLoading,
+                              needsInput: hasPendingQuestion
+                            });
                             const fileChanges = subChatFiles.get(subChat.id) || [];
                             const stats =
                               fileChanges.length > 0
@@ -1634,7 +1647,9 @@ export function AgentsSubChatsSidebar({
                                                 ? 'opacity-0 scale-95 pointer-events-none'
                                                 : 'opacity-100 scale-100'
                                             )}>
-                                            {hasPendingQuestion ? (
+                                            {iconKind === 'busy' ? (
+                                              <IconSpinner className="w-4 h-4 text-muted-foreground" />
+                                            ) : iconKind === 'needs-input' ? (
                                               <QuestionIcon className="w-4 h-4 text-blue-500" />
                                             ) : mode === 'plan' ? (
                                               <PlanIcon className="w-4 h-4 text-muted-foreground" />
@@ -1643,9 +1658,9 @@ export function AgentsSubChatsSidebar({
                                             )}
                                           </div>
                                           {/* Badge - hidden in multi-select mode and when pending question */}
-                                          {(isSubChatLoading || hasUnseen || hasPendingPlan) &&
+                                          {(hasUnseen || hasPendingPlan) &&
                                             !isMultiSelectMode &&
-                                            !hasPendingQuestion && (
+                                            iconKind === 'idle' && (
                                               <div
                                                 className={cn(
                                                   'absolute -bottom-1 -right-1 w-3 h-3 rounded-full flex items-center justify-center',
@@ -1653,13 +1668,8 @@ export function AgentsSubChatsSidebar({
                                                     ? 'bg-[#E8E8E8] dark:bg-[#1B1B1B]'
                                                     : 'bg-[#F4F4F4] group-hover:bg-[#E8E8E8] dark:bg-[#101010] dark:group-hover:bg-[#1B1B1B]'
                                                 )}>
-                                                {/* Priority: loader > amber dot (pending plan) > blue dot (unseen) */}
-                                                {isSubChatLoading ? (
-                                                  <LoadingDot
-                                                    isLoading={true}
-                                                    className="w-2.5 h-2.5 text-muted-foreground"
-                                                  />
-                                                ) : hasPendingPlan ? (
+                                                {/* Loader is shown in the main icon slot when busy; this badge handles the secondary signals. */}
+                                                {hasPendingPlan ? (
                                                   <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                                                 ) : (
                                                   <LoadingDot
