@@ -31,6 +31,27 @@ export interface LocateOptions {
   /** Wall-clock ms when the PTY spawn was issued. Files older than this minus
    *  a small grace window are ignored. */
   spawnedAt: number;
+  /**
+   * Claude only. When set, the locator skips the mtime-based scan and looks for
+   * the exact file `~/.claude/projects/<encoded-cwd>/<expectedSessionId>.jsonl`.
+   * This is set by `buildCliBootstrap` after it has pre-allocated the session
+   * UUID and passed it to claude via `--session-id`, making the mapping fully
+   * deterministic.
+   */
+  expectedSessionId?: string;
+  /**
+   * Codex only. Absolute paths of rollout files that already existed before
+   * spawn. Any candidate whose path is in this set is treated as not-ours and
+   * skipped. Eliminates the "pick up a pre-existing rollout" failure mode for
+   * Codex (which has no equivalent of Claude's `--session-id`).
+   */
+  existingPaths?: ReadonlySet<string>;
+  /**
+   * Absolute paths already bound to ANOTHER subChat's `cliSessionFile` row.
+   * Defense-in-depth across same-instant races and external CLI processes.
+   * Skipped before we even read the candidate's first line.
+   */
+  excludePaths?: ReadonlySet<string>;
 }
 
 /** Encode a cwd to Claude's project-dir name. `/` and `.` both become `-`. */
@@ -51,8 +72,12 @@ function codexSessionsRoot(): string {
  * Use {@link locateSessionFile} for the retry-with-backoff wrapper.
  */
 export async function locateSessionFileOnce(opts: LocateOptions): Promise<LocatedSession | null> {
-  if (opts.harness === 'claude-cli') return locateClaude(opts.cwd, opts.spawnedAt);
-  if (opts.harness === 'codex-cli') return locateCodex(opts.cwd, opts.spawnedAt);
+  if (opts.harness === 'claude-cli') {
+    return locateClaude(opts.cwd, opts.spawnedAt, opts.expectedSessionId, opts.excludePaths);
+  }
+  if (opts.harness === 'codex-cli') {
+    return locateCodex(opts.cwd, opts.spawnedAt, opts.existingPaths, opts.excludePaths);
+  }
   return null;
 }
 
@@ -80,8 +105,51 @@ export async function locateSessionFile(opts: LocateOptions): Promise<LocatedSes
 
 // ── Claude ───────────────────────────────────────────────────────────────────
 
-async function locateClaude(cwd: string, spawnedAt: number): Promise<LocatedSession | null> {
+async function locateClaude(
+  cwd: string,
+  spawnedAt: number,
+  expectedSessionId: string | undefined,
+  excludePaths: ReadonlySet<string> | undefined
+): Promise<LocatedSession | null> {
   const dir = claudeProjectsDir(cwd);
+
+  // Deterministic path: we pre-allocated the session UUID and passed it to
+  // claude via `--session-id`, so the JSONL is at a known path. No scan, no
+  // mtime races, no "newest wins" — the only way this hits the wrong file is
+  // a UUIDv4 collision, which we still guard against via the cwd first-line
+  // check.
+  if (expectedSessionId) {
+    const file = join(dir, `${expectedSessionId}.jsonl`);
+    if (excludePaths?.has(file)) {
+      // Pre-allocated id shouldn't collide with another sub-chat's file; if it
+      // does (only possible if a row was created with this id by accident),
+      // refuse to bind so the user sees an empty pane rather than a leak.
+      console.warn(`${TRACE} claude expected-id collides with claimed file sub-cwd=${cwd} file=${file}`);
+      return null;
+    }
+    try {
+      const s = await stat(file);
+      if (!s.isFile()) {
+        // Predicted path exists but isn't a regular file (directory, broken
+        // symlink, etc.). Without this trace the locator's retry loop just
+        // grinds for ~10s and the user sees an empty pane with no signal.
+        console.warn(`${TRACE} claude expected path exists but isn't a regular file file=${file}`);
+        return null;
+      }
+    } catch {
+      return null; // not on disk yet; caller's backoff will retry
+    }
+    if (!(await claudeFileMatchesCwd(file, cwd))) {
+      console.warn(`${TRACE} claude expected file cwd-mismatch file=${file}`);
+      return null;
+    }
+    return { sessionFile: file, sessionId: expectedSessionId };
+  }
+
+  // Legacy / fallback path: no pre-allocated id (e.g. rows created before this
+  // change, or callers that don't know the id). Keep the original mtime scan
+  // but honor excludePaths so we never reuse a file already bound to another
+  // sub-chat.
   let entries: string[];
   try {
     entries = await readdir(dir);
@@ -99,6 +167,7 @@ async function locateClaude(cwd: string, spawnedAt: number): Promise<LocatedSess
   for (const name of entries) {
     if (!name.endsWith('.jsonl')) continue;
     const file = join(dir, name);
+    if (excludePaths?.has(file)) continue;
     try {
       const s = await stat(file);
       if (s.isFile() && s.mtimeMs >= min) {
@@ -146,7 +215,12 @@ function baseSessionId(file: string): string {
 
 // ── Codex ────────────────────────────────────────────────────────────────────
 
-async function locateCodex(cwd: string, spawnedAt: number): Promise<LocatedSession | null> {
+async function locateCodex(
+  cwd: string,
+  spawnedAt: number,
+  existingPaths: ReadonlySet<string> | undefined,
+  excludePaths: ReadonlySet<string> | undefined
+): Promise<LocatedSession | null> {
   // Widen the day scan to [D-1, D, D+1] to handle midnight rollovers.
   const root = codexSessionsRoot();
   const days = surroundingDays(new Date(spawnedAt));
@@ -167,6 +241,10 @@ async function locateCodex(cwd: string, spawnedAt: number): Promise<LocatedSessi
     for (const name of entries) {
       if (!name.endsWith('.jsonl')) continue;
       const file = join(dayDir, name);
+      // Pre-spawn snapshot AND cross-subchat claim filter, applied before stat:
+      // both are pure absolute-path comparisons.
+      if (existingPaths?.has(file)) continue;
+      if (excludePaths?.has(file)) continue;
       try {
         const s = await stat(file);
         if (s.isFile() && s.mtimeMs >= min) candidates.push({ file, mtimeMs: s.mtimeMs });
@@ -186,6 +264,34 @@ async function locateCodex(cwd: string, spawnedAt: number): Promise<LocatedSessi
     }
   }
   return null;
+}
+
+/**
+ * Snapshot of every rollout file already on disk in the [D-1, D, D+1] window
+ * around `spawnedAt`. Call this BEFORE spawning Codex so the locator can skip
+ * any file that pre-existed our spawn.
+ *
+ * Returns an empty set if the day-window dirs don't exist — that's fine,
+ * Codex will create them.
+ */
+export async function snapshotCodexCandidatePaths(spawnedAt: number): Promise<Set<string>> {
+  const root = codexSessionsRoot();
+  const days = surroundingDays(new Date(spawnedAt));
+  const out = new Set<string>();
+  for (const d of days) {
+    const dayDir = join(root, d.year, d.month, d.day);
+    let entries: string[];
+    try {
+      entries = await readdir(dayDir);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      if (!name.endsWith('.jsonl')) continue;
+      out.add(join(dayDir, name));
+    }
+  }
+  return out;
 }
 
 interface CodexSessionMeta {
