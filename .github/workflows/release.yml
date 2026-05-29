@@ -1,0 +1,175 @@
+# Release pipeline for the Churro Coder desktop app.
+#
+# Flow (see apps/desktop/docs/release.md + the root README "Downloads & releases"):
+#   1. Conventional commits land on `main` (handled by ci.yml on PRs).
+#   2. This workflow runs release-please on every push to `main`. It opens/updates a
+#      "release PR" that bumps apps/desktop/package.json + CHANGELOG.md.
+#   3. When that release PR is MERGED, release-please creates the GitHub Release + tag,
+#      and the `build` job below builds the installers on macOS / Windows / Linux runners
+#      and attaches them to that Release. Installers are NOT built on ordinary PRs.
+#
+# macOS is built UNSIGNED today (no Developer ID cert yet) — see the `build` job. The
+# signing/notarization plumbing is present but inert; it turns on automatically (no edit
+# to this file) once the Apple secrets documented in README.md are added to the repo.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Releasing must never be interrupted half-way; do not cancel in-flight runs.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create releases + upload assets, and let release-please push the release branch
+  pull-requests: write # open/maintain the release PR
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Decide whether a release should be cut. On a normal push this just keeps the
+  # release PR up to date and exits. On the push that MERGES the release PR it
+  # creates the GitHub Release + tag and sets `releases_created == 'true'`.
+  # --------------------------------------------------------------------------
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # --------------------------------------------------------------------------
+  # Build the desktop installers and attach them to the freshly-created Release.
+  # Only runs the turn a release was actually created. One runner per OS — Windows
+  # NSIS can't be cross-built from macOS/Linux, so each platform builds natively.
+  # --------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.platform }} installers
+    needs: release-please
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false # one platform failing shouldn't abort the others
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            cli_suffix: ":all" # mac packages both arm64 + x64, so fetch all arches
+          - os: windows-latest
+            platform: win
+            cli_suffix: ""
+          - os: ubuntu-latest
+            platform: linux
+            cli_suffix: ""
+
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - uses: actions/checkout@v4
+        # Lands on the merge commit, which already carries the version bump from the
+        # release PR — electron-builder reads that version from package.json.
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # NOTE: unlike ci.yml, we deliberately do NOT set SKIP_ELECTRON_REBUILD here —
+      # release artifacts must contain real native builds (better-sqlite3 / node-pty)
+      # for the target OS, and the postinstall also lays down the openspec resources.
+      - name: Install desktop deps (bun, with native rebuild)
+        run: bun install --frozen-lockfile
+
+      # Fetch the bundled CLI binaries into resources/bin/<platform>-<arch>. GH_TOKEN is
+      # exported so the codex downloader's GitHub API calls aren't rate-limited.
+      - name: Download bundled CLI binaries
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bun run claude:download${{ matrix.cli_suffix }}
+          bun run codex:download${{ matrix.cli_suffix }}
+
+      - name: Build (electron-vite)
+        run: bun run build
+
+      # macOS signing toggle. When the repo has a CSC_LINK secret (base64 Developer ID
+      # .p12), electron-builder signs using it; when it's absent we force-disable signing
+      # so the unsigned build still succeeds. No edit to this file is needed to switch —
+      # just add the secrets documented in README.md.
+      - name: Detect macOS signing availability
+        id: signing
+        if: ${{ matrix.platform == 'mac' }}
+        shell: bash
+        env:
+          HAS_CSC: ${{ secrets.CSC_LINK != '' }}
+          HAS_NOTARIZE: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        run: |
+          echo "sign=$HAS_CSC" >> "$GITHUB_OUTPUT"
+          echo "notarize=$HAS_NOTARIZE" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_CSC" = "true" ]; then echo "macOS: signing ENABLED"; else echo "macOS: signing disabled (unsigned build)"; fi
+
+      - name: Package ${{ matrix.platform }}
+        shell: bash
+        env:
+          # macOS signing inputs — scoped to the mac leg only so the Windows build never
+          # tries to sign with the mac .p12. Empty until the Developer ID cert + secrets are
+          # added (see README). CSC_IDENTITY_AUTO_DISCOVERY is "true" only when CSC_LINK
+          # exists, otherwise "false" to force a clean unsigned build; electron-builder.yml
+          # reads APPLE_IDENTITY.
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_IDENTITY: ${{ matrix.platform == 'mac' && secrets.APPLE_IDENTITY || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.platform == 'mac' && secrets.CSC_LINK != '' }}
+        run: bun run package:${{ matrix.platform }}
+
+      # Notarize + staple the DMGs, but only when the Apple notarization secrets exist.
+      # Skipped entirely today (no secrets) so the unsigned build ships as-is.
+      - name: Notarize & staple (macOS)
+        if: ${{ matrix.platform == 'mac' && steps.signing.outputs.notarize == 'true' }}
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for dmg in release/*.dmg; do
+            echo "Notarizing $dmg"
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            xcrun stapler staple "$dmg"
+          done
+
+      # Attach the user-facing installers to the GitHub Release that release-please created.
+      # The tag is derived from the (already-bumped) package.json version: include-v-in-tag
+      # defaults true and the component is dropped, so the tag is "v<version>".
+      - name: Upload installers to the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          case "${{ matrix.platform }}" in
+            mac)   files=(release/*.dmg release/*.zip) ;;
+            win)   files=(release/*.exe) ;;
+            linux) files=(release/*.AppImage release/*.deb) ;;
+          esac
+          echo "Uploading ${files[*]} to $TAG"
+          gh release upload "$TAG" "${files[@]}" --clobber
