@@ -14,6 +14,11 @@ export default defineConfig({
         maxThreads: 4,
       },
     },
+    // Bump from the 5s default so contended GitHub runners don't time-bound
+    // tests that wait on portal/popover renders. Per-test findBy* timeouts
+    // (typically 1s) are independent and should also be raised at the call
+    // site when interacting with Radix portal-rendered content.
+    testTimeout: 10_000,
     coverage: {
       provider: "v8",
       include: [

@@ -358,7 +358,10 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(trigger!);
     });
     await act(async () => {
-      fireEvent.click(await screen.findByText('Claude CLI'));
+      // Explicit timeout (5s) absorbs slow CI portal-render cycles — the Radix
+      // Popover content is portal-rendered through several React update cycles
+      // and the default 1s findBy* poll window flakes under contended runners.
+      fireEvent.click(await screen.findByText('Claude CLI', {}, { timeout: 5000 }));
     });
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
@@ -381,7 +384,7 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(trigger!);
     });
     await act(async () => {
-      fireEvent.click(await screen.findByText('Codex CLI'));
+      fireEvent.click(await screen.findByText('Codex CLI', {}, { timeout: 5000 }));
     });
 
     const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
@@ -431,7 +434,7 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(trigger!);
     });
     await act(async () => {
-      fireEvent.click(await screen.findByText('Claude CLI'));
+      fireEvent.click(await screen.findByText('Claude CLI', {}, { timeout: 5000 }));
     });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
@@ -463,7 +466,7 @@ describe('NewChatForm — wizard axis independence', () => {
       fireEvent.click(trigger!);
     });
     await act(async () => {
-      fireEvent.click(await screen.findByText('Codex CLI'));
+      fireEvent.click(await screen.findByText('Codex CLI', {}, { timeout: 5000 }));
     });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
