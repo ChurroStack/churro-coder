@@ -83,7 +83,7 @@ Run `bun scripts/gen-mapping-docs.mjs` from `apps/desktop/` to regenerate. CI sh
 | `tool-Task` | AgentTaskTool | tool_use.name: `Agent`, `Task` | _No equivalent._ |  | Sub-agent dispatch. |
 | `tool-AskUserQuestion` | AgentAskUserQuestionTool | tool_use.name: `AskUserQuestion` | _Native equivalent is only the MCP request_user_input path._ |  | Structured user question. |
 | `tool-TodoWrite` | AgentTodoTool | tool_use.name: `TodoWrite` | function_call.name: `update_plan`<br>_Native Codex plan/todo tool._ | `tasks` | Todo / checklist update. |
-| `tool-ExitPlanMode` | (hidden) | tool_use.name: `ExitPlanMode` | — |  | Plan-mode exit — filtered out by renderer. |
+| `tool-ExitPlanMode` | (hidden) | tool_use.name: `ExitPlanMode` | — | `plan` | Plan-mode exit — Claude CLI native plan tool; emits a plan side-effect. |
 | `tool-mcp__churro-coder__write_plan` | AgentPlanTool | tool_use.name: `mcp__churro-coder__write_plan` | function_call.name: `mcp__churro-coder__write_plan` | `plan` | Plan write via our MCP server. Fills the plan store on the side. |
 | `tool-mcp__churro-coder__write_review` | AgentReviewTool | tool_use.name: `mcp__churro-coder__write_review` | function_call.name: `mcp__churro-coder__write_review` | `review` | Review write via our MCP server. |
 | `tool-mcp__churro-coder__write_tasks` | AgentMcpToolCall | tool_use.name: `mcp__churro-coder__write_tasks` | function_call.name: `mcp__churro-coder__write_tasks` | `tasks` | Task list write via our MCP server. |
