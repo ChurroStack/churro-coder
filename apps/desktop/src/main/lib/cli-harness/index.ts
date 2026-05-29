@@ -187,11 +187,20 @@ export async function buildBootstrap(
    * Resume is gated on a non-empty messages count by chats.buildCliBootstrap
    * — never passed for first-ever spawns.
    */
-  resumeSessionId?: string
+  resumeSessionId?: string,
+  /**
+   * Claude only. When set and we are NOT resuming, passed as `--session-id
+   * <uuid>` so claude writes its JSONL at a path we predicted before spawn.
+   * This eliminates the locator's mtime-based guesswork and is the load-
+   * bearing guarantee that two CLI sub-chats in the same worktree cannot
+   * inherit each other's session. Ignored for codex-cli (Codex 0.130.0 has
+   * no equivalent flag).
+   */
+  claimedSessionId?: string
 ): Promise<TerminalBootstrap | BootstrapError> {
   const binaryName = harness === 'claude-cli' ? 'claude' : 'codex';
   console.log(
-    `[harness-bootstrap] start harness=${harness} sub=${subChatId} cwd=${cwd ?? '(none)'} resume=${resumeSessionId ?? '(none)'}`
+    `[harness-bootstrap] start harness=${harness} sub=${subChatId} cwd=${cwd ?? '(none)'} resume=${resumeSessionId ?? '(none)'} claimed=${claimedSessionId ?? '(none)'}`
   );
 
   const binaryPath = await resolveBinary(binaryName);
@@ -235,6 +244,14 @@ export async function buildBootstrap(
     // --resume and nothing else can claim it accidentally.
     if (resumeSessionId) {
       args.push('--resume', resumeSessionId);
+    } else if (claimedSessionId) {
+      // Fresh spawn with a pre-allocated UUID. Tells claude to create the
+      // JSONL at `~/.claude/projects/<encoded-cwd>/<claimedSessionId>.jsonl`,
+      // which the locator then verifies by exact path. Without this, the
+      // locator falls back to mtime guessing and can latch onto another
+      // sub-chat's actively-streaming transcript (see cli-session/locator.ts
+      // and apps/desktop/CLAUDE.md § Per-subChat isolation invariant).
+      args.push('--session-id', claimedSessionId);
     }
     // Skip the interactive folder-trust dialog — the user explicitly launched
     // this CLI session in their own project, so trust is implicit.

@@ -17,6 +17,7 @@ import { onFileChangesNotified, readFileChanges } from '../../file-changes/file-
 import { app, BrowserWindow, safeStorage } from 'electron';
 import * as fs from 'fs/promises';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import * as path from 'path';
 import simpleGit from 'simple-git';
 import { z } from 'zod';
@@ -2731,7 +2732,18 @@ export const chatsRouter = router({
       // to resume that session via --resume (claude) / resume <id> (codex
       // subcommand). Falls back silently to fresh spawn when any condition is
       // unmet. ("if no message exists, keeps functionality as now")
+      //
+      // When NOT resuming and harness is claude-cli, we ALSO pre-allocate a
+      // UUID for this subChat and persist it as cliSessionId. The bootstrap
+      // then passes `--session-id <uuid>` to claude so the JSONL transcript
+      // lands at the exactly predictable path
+      // `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`. This is the load-
+      // bearing guarantee that two claude-cli sub-chats in the same worktree
+      // cannot inherit each other's session — without it, the locator falls
+      // back to an mtime scan that latches onto another sub-chat's actively-
+      // streaming transcript (see CLAUDE.md § Per-subChat isolation invariant).
       let resumeSessionId: string | undefined;
+      let claimedSessionId: string | undefined;
       {
         const db = getDatabase();
         const row = db
@@ -2764,9 +2776,42 @@ export const chatsRouter = router({
               .run();
           }
         }
+        if (!resumeSessionId && input.harness === 'claude-cli') {
+          // On `restart` we ALWAYS allocate a fresh UUID, even if cliSessionId
+          // is set. Re-passing `--session-id <old-uuid>` when the JSONL still
+          // exists on disk leaves claude's behavior undefined (the flag sets
+          // the id but doesn't trigger resume; what claude does when the file
+          // already exists is unspecified). A fresh UUID guarantees a clean
+          // start. Clearing cliSessionFile + cliSessionDetectedAt keeps the
+          // row consistent — the locator will populate them after the new
+          // spawn writes its first record.
+          const reuseExisting = row?.cliSessionId && input.trigger !== 'restart';
+          if (reuseExisting) {
+            // Pre-existing id but messageCount=0 (e.g. the user closed the
+            // pane before sending a first message). Re-use it so a --session-id
+            // re-spawn lands on the same JSONL the next ingest will discover.
+            claimedSessionId = row.cliSessionId;
+            console.log(`[buildCliBootstrap] claim-reused sub=${input.subChatId} sessionId=${claimedSessionId}`);
+          } else {
+            claimedSessionId = randomUUID();
+            db.update(subChats)
+              .set({ cliSessionId: claimedSessionId, cliSessionFile: null, cliSessionDetectedAt: null })
+              .where(eq(subChats.id, input.subChatId))
+              .run();
+            console.log(
+              `[buildCliBootstrap] claim-allocated sub=${input.subChatId} sessionId=${claimedSessionId} trigger=${input.trigger}`
+            );
+          }
+        }
       }
       const { buildBootstrap } = await import('../../cli-harness');
-      const result = await buildBootstrap(input.harness, input.subChatId, resolvedCwd, resumeSessionId);
+      const result = await buildBootstrap(
+        input.harness,
+        input.subChatId,
+        resolvedCwd,
+        resumeSessionId,
+        claimedSessionId
+      );
 
       // Inject the initial user message as initialInputChunks so each write
       // reaches the CLI TUI as an independent PTY read (prevents the TUI from
