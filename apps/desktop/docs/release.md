@@ -19,8 +19,8 @@ root [`README.md`](../../../README.md#downloads--releases)):
    `bun install` → `claude:download` + `codex:download` → `bun run build` → `bun run package:<platform>`,
    then `gh release upload`s the artifacts. **Nothing is built on ordinary PRs.**
 
-Per platform the Release gets: macOS `.dmg` + `.zip` (arm64 & x64), Windows NSIS `.exe` + portable
-`.exe`, Linux `.AppImage` + `.deb`.
+Per platform the Release gets: macOS `.dmg` + `.zip` (**arm64 only** — see signing note below),
+Windows NSIS `.exe` + portable `.exe`, Linux `.AppImage` + `.deb`.
 
 ### Versioning / first release
 - Config: [`release-please-config.json`](../../../release-please-config.json) +
@@ -38,10 +38,24 @@ Per platform the Release gets: macOS `.dmg` + `.zip` (arm64 & x64), Windows NSIS
   to `1.0.0` — promote to a stable `1.0.0` deliberately with a one-shot `Release-As: 1.0.0` footer
   when you're ready.
 
-### macOS signing (currently OFF) and one-time repo setup
-The macOS build ships **unsigned** today; the workflow's signing + notarization steps stay inert until
-the Apple secrets are added. The exact secret list and where to add them is documented in
-[`README.md` → Enabling macOS code signing & notarization](../../../README.md#enabling-macos-code-signing--notarization).
+### macOS: arm64-only, ad-hoc signed (currently no Developer ID)
+The CI mac build is **arm64-only** and **ad-hoc signed**, deferring real Developer ID signing +
+notarization and Intel/x64 support:
+- **arm64-only** because the runner is Apple Silicon (`macos-latest`). A faithful x64 build can't be
+  produced there — `node-pty` would have to cross-compile and bun only installs the arm64
+  `@anthropic-ai/claude-agent-sdk-darwin-arm64` optional dep (the x64 variant is absent, so an x64
+  artifact would silently ship broken). To restore Intel later, re-add `x64` to `mac.target` in
+  `package.json` **and** build it on a dedicated Intel/x64 leg (`macos-13`, or arch-specific installs).
+- **ad-hoc signed** because arm64 apps must carry *some* signature to launch. `mac.identity` is left
+  undefined, so electron-builder ad-hoc-falls-back automatically; the workflow unsets an empty
+  `CSC_LINK` so packaging doesn't try to import a non-existent cert. Ad-hoc still does **not** pass
+  Gatekeeper/notarization, so users need a one-time bypass (right-click → Open, or
+  `xattr -dr com.apple.quarantine <app>`).
+- **Enabling real signing later needs no config edit:** add the Apple secrets (a non-empty `CSC_LINK`
+  flows through and is auto-discovered; `notarize: false` in `package.json` keeps the explicit Notarize
+  workflow step the single notarizer). Secret list and where to add them:
+  [`README.md` → Enabling macOS code signing & notarization](../../../README.md#enabling-macos-code-signing--notarization).
+
 One-time: enable **Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to
 create and approve pull requests"** so release-please can open its PR.
 
