@@ -16,9 +16,9 @@
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-vite build",
     "preview": "electron-vite preview",
     "package": "electron-builder --dir",
-    "package:mac": "electron-builder --mac",
-    "package:win": "electron-builder --win",
-    "package:linux": "electron-builder --linux",
+    "package:mac": "electron-builder --mac -p never",
+    "package:win": "electron-builder --win -p never",
+    "package:linux": "electron-builder --linux -p never",
     "dist": "electron-builder",
     "dist:manifest": "node scripts/generate-update-manifest.mjs",
     "dist:upload": "node scripts/upload-release.mjs",
@@ -298,8 +298,7 @@
     }
   },
   "overrides": {
-    "@opentelemetry/api": "1.9.1",
-    "node-abi": "^4.31.0"
+    "@opentelemetry/api": "1.9.1"
   },
   "pnpm": {
     "overrides": {
