@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/ChurroStack/churro-coder/compare/v0.1.0...v0.1.1) (2026-05-30)
+
+
+### Bug Fixes
+
+* **desktop:** unblock release installers by dropping node-abi override ([#178](https://github.com/ChurroStack/churro-coder/issues/178)) ([505f1be](https://github.com/ChurroStack/churro-coder/commit/505f1be4aa3a31ecc186cdda032d799d30483ec2))
+
 ## 0.1.0 (2026-05-29)
 
 
