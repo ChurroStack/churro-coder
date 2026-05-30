@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/ChurroStack/churro-coder/compare/v0.1.1...v0.1.2) (2026-05-30)
+
+
+### Bug Fixes
+
+* **desktop:** build macOS installers (arm64-only, ad-hoc signed) ([#180](https://github.com/ChurroStack/churro-coder/issues/180)) ([d2a23f7](https://github.com/ChurroStack/churro-coder/commit/d2a23f71baa0bd5d22c434cbaceb5c69acbd332b))
+
 ## [0.1.1](https://github.com/ChurroStack/churro-coder/compare/v0.1.0...v0.1.1) (2026-05-30)
 
 
