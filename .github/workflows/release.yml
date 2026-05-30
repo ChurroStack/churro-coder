@@ -64,7 +64,7 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-            cli_suffix: ":all" # mac packages both arm64 + x64, so fetch all arches
+            cli_suffix: "" # arm64-only build; the runner is Apple Silicon (see package.json mac.target)
           - os: windows-latest
             platform: win
             cli_suffix: ""
@@ -135,7 +135,18 @@ jobs:
           CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
           APPLE_IDENTITY: ${{ matrix.platform == 'mac' && secrets.APPLE_IDENTITY || '' }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.platform == 'mac' && secrets.CSC_LINK != '' }}
-        run: bun run package:${{ matrix.platform }}
+        run: |
+          # GitHub `||` always yields a string, so with no signing secret CSC_LINK is an
+          # *empty string* rather than unset. electron-builder treats "" as "a certificate
+          # was provided" and tries to import it, failing on the macOS runner with
+          # `<projectDir> not a file`. Unset the signing vars when no Developer ID cert is
+          # configured so the unsigned build skips keychain import; mac then falls back to
+          # ad-hoc signing automatically. A real base64 CSC_LINK is non-empty, so signing
+          # still turns on automatically once the secret exists.
+          if [ -z "$CSC_LINK" ]; then
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_IDENTITY
+          fi
+          bun run package:${{ matrix.platform }}
 
       # Notarize + staple the DMGs, but only when the Apple notarization secrets exist.
       # Skipped entirely today (no secrets) so the unsigned build ships as-is.
