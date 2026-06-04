@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/ChurroStack/churro-coder/compare/v0.1.2...v0.1.3) (2026-06-04)
+
+
+### Bug Fixes
+
+* **desktop:** right-sidebar data leaks + CLI-harness MCP/plan/status fixes ([#182](https://github.com/ChurroStack/churro-coder/issues/182)) ([4f57ca3](https://github.com/ChurroStack/churro-coder/commit/4f57ca3bddab63edbbb6829334a6d8632c2250e3))
+
 ## [0.1.2](https://github.com/ChurroStack/churro-coder/compare/v0.1.1...v0.1.2) (2026-05-30)
 
 
