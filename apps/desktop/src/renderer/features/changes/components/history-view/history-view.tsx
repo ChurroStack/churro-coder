@@ -1,6 +1,6 @@
 import { memo, useMemo, useCallback, useEffect } from 'react';
 import { trpc } from '../../../../lib/trpc';
-import { formatRelativeDate } from '../../utils/date';
+import { formatRelativeDateCompact } from '../../utils/date';
 import { ArrowUp } from 'lucide-react';
 import { cn } from '../../../../lib/utils';
 import { Button } from '../../../../components/ui/button';
@@ -191,7 +191,7 @@ const HistoryCommitItem = memo(function HistoryCommitItem({
   isAheadOfBase?: boolean;
   onClick: () => void;
 }) {
-  const timeAgo = useMemo(() => formatRelativeDate(new Date(commit.date)), [commit.date]);
+  const timeAgo = useMemo(() => formatRelativeDateCompact(new Date(commit.date)), [commit.date]);
 
   const selectedProject = useAtomValue(selectedProjectAtom);
 

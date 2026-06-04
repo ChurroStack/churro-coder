@@ -281,9 +281,10 @@ export const AgentTodoTool = memo(function AgentTodoTool({ part, chatStatus, sub
   // User preference for always expanded to-do list
   const alwaysExpandTodoList = useAtomValue(alwaysExpandTodoListAtom);
 
-  // Synced todos state - scoped per subChatId to prevent cross-chat conflicts
-  // Uses a stable key to ensure proper isolation between different sub-chats
-  const todosAtom = useMemo(() => currentTodosAtomFamily(subChatId || 'default'), [subChatId]);
+  // Synced todos state - scoped strictly per subChatId. No `|| 'default'`
+  // bucket: that key must match the sidebar consumer's, which keys by the bare
+  // subChatId. (Writes are gated on subChatId below.)
+  const todosAtom = useMemo(() => currentTodosAtomFamily(subChatId ?? ''), [subChatId]);
   const [todoState, setTodoState] = useAtom(todosAtom);
   const syncedTodos = todoState.todos;
   const creationToolCallId = todoState.creationToolCallId;

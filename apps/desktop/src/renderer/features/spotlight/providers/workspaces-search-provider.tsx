@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import { useSetAtom } from 'jotai';
 import { LayoutGrid } from 'lucide-react';
 import { trpc } from '../../../lib/trpc';
-import { selectedAgentChatIdAtom, desktopViewAtom } from '../../agents/atoms';
+import { desktopViewAtom } from '../../agents/atoms';
+import { selectWorkspace } from '../../agents/stores/sub-chat-store';
 import type { SpotlightItem, SpotlightProviderResult } from '../types';
 
 const MAX_RESULTS = 8;
@@ -21,7 +22,6 @@ function GitHubProjectIcon({ owner }: { owner: string }) {
 }
 
 export function useWorkspacesSearchProvider(query: string, enabled: boolean): SpotlightProviderResult {
-  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom);
   const setDesktopView = useSetAtom(desktopViewAtom);
 
   const trimmed = query.trim();
@@ -73,12 +73,12 @@ export function useWorkspacesSearchProvider(query: string, enabled: boolean): Sp
         title: chat.name || 'Untitled workspace',
         description: chat.branch || project?.name || undefined,
         action: () => {
-          setSelectedChatId(chat.id);
+          selectWorkspace(chat.id);
           setDesktopView(null);
         }
       };
     });
-  }, [enabled, chats, isError, trimmed, projectMap, setSelectedChatId, setDesktopView]);
+  }, [enabled, chats, isError, trimmed, projectMap, setDesktopView]);
 
   return {
     groupTitle: trimmed ? 'Workspaces' : 'Recent workspaces',

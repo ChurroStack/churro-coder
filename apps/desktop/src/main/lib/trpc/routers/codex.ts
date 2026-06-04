@@ -3090,6 +3090,15 @@ export const codexRouter = router({
             // If a live stream already exists for this subChatId, do NOT abort it —
             // return an empty observable instead. This makes tab-switching a no-op
             // at the backend level, so in-flight streams survive workspace switches.
+            //
+            // CONCURRENCY INVARIANT: the get() check and the set() below must stay
+            // synchronous with NO `await` between them. Node runs this setup body on
+            // a single thread, so two concurrent `send` subscriptions for the same
+            // subChatId can't interleave here — the first runs to the set(), the
+            // second observes the live entry and returns the empty observable. If you
+            // ever introduce an `await` between the check and the set, that atomicity
+            // is lost: both calls could pass the check, the second set() would orphan
+            // the first AbortController, and its stream would leak. Keep them adjacent.
             const existingStream = activeStreams.get(input.subChatId);
             if (existingStream && !existingStream.controller.signal.aborted) {
               console.log(`[SD] M:SKIP_DUPLICATE_START sub=${input.subChatId.slice(-8)} reason=already_active`);

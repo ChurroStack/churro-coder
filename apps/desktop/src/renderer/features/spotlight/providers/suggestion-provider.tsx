@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { MessageSquarePlus, TerminalSquare, ListChecks } from 'lucide-react';
 import { selectedAgentChatIdAtom, currentPlanPathAtomFamily } from '../../agents/atoms';
-import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
+import { useWorkspaceIdentity } from '../../agents/hooks/use-workspace-identity';
 import { trpc } from '../../../lib/trpc';
 import type { SpotlightItem, SpotlightProviderResult } from '../types';
 
@@ -18,8 +18,9 @@ function dispatch(eventName: string, detail?: unknown) {
 
 export function useSuggestionProvider(query: string, enabled: boolean): SpotlightProviderResult {
   const chatId = useAtomValue(selectedAgentChatIdAtom);
-  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
-  const planPath = useAtomValue(currentPlanPathAtomFamily(activeSubChatId ?? chatId ?? ''));
+  // Guarded sub-chat id — never `?? chatId` (a chatId is not a valid plan key).
+  const { subChatId } = useWorkspaceIdentity();
+  const planPath = useAtomValue(currentPlanPathAtomFamily(subChatId ?? ''));
   const { data: chat } = trpc.chats.get.useQuery({ id: chatId ?? '' }, { enabled: enabled && !!chatId });
   const worktreePath = chat?.worktreePath ?? null;
 

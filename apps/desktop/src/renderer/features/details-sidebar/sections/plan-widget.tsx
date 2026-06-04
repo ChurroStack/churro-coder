@@ -42,16 +42,19 @@ export const PlanWidget = memo(function PlanWidget({
   mode = 'execute',
   onApprovePlan
 }: PlanWidgetProps) {
-  // Use activeSubChatId for fetching if available
-  const effectiveChatId = activeSubChatId || chatId;
+  // Plan content/path is a per-sub-chat artifact, so key strictly by the
+  // (already guarded) sub-chat id. No `|| chatId` fallback — that mis-keyed the
+  // cache against the producer (which writes by subChatId) and let one chat's
+  // plan render under another's tab.
+  const planSubChatId = activeSubChatId ?? '';
 
   // Widget ↔ panel mutex: when promoted to a dockview panel, hide the summary
   // and render a small "return to summary" stub instead. The mutex key is the
-  // (effectiveChatId, planPath) pair so different chats can be promoted
+  // (subChatId, planPath) pair so different sub-chats can be promoted
   // independently.
   const widgetPanel = useWidgetPanel('plan', {
     kind: 'plan',
-    data: { chatId: effectiveChatId, planPath: planPath ?? '' }
+    data: { chatId: planSubChatId, planPath: planPath ?? '' }
   });
 
   // Expanded/collapsed state
@@ -62,7 +65,7 @@ export const PlanWidget = memo(function PlanWidget({
   const bottomGradientRef = useRef<HTMLDivElement>(null);
 
   // Plan content cache to avoid flashing loading state
-  const [planCache, setPlanCache] = useAtom(planContentCacheAtomFamily(effectiveChatId));
+  const [planCache, setPlanCache] = useAtom(planContentCacheAtomFamily(planSubChatId));
   const virtualPlanAtom = useMemo(() => virtualPlanContentAtomFamily(planPath || ''), [planPath]);
   const virtualPlan = useAtomValue(virtualPlanAtom);
 
@@ -89,9 +92,9 @@ export const PlanWidget = memo(function PlanWidget({
       `[PLAN] widget=plan-widget planPath=${planPath} ` +
         `isCodexPlan=${isCodexPlan} hasVirtualPlan=${!!virtualPlan} ` +
         `hasCachedContent=${!!planCache?.content} shouldReadPlanFile=${shouldReadPlanFile} ` +
-        `chatId=${effectiveChatId.slice(-8)}`
+        `chat=${chatId.slice(-8)} sub=${planSubChatId.slice(-8)}`
     );
-  }, [planPath, isCodexPlan, virtualPlan, planCache?.content, shouldReadPlanFile, effectiveChatId]);
+  }, [planPath, isCodexPlan, virtualPlan, planCache?.content, shouldReadPlanFile, chatId, planSubChatId]);
 
   // Update cache when content loads successfully
   useEffect(() => {

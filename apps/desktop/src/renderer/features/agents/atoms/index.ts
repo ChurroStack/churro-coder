@@ -1,6 +1,7 @@
 import { atom } from 'jotai';
 import { atomFamily, atomWithStorage } from 'jotai/utils';
 import { atomWithWindowStorage } from '../../../lib/window-storage';
+import { makeScopeKey } from '../../../lib/scope-key';
 import type { FileMentionOption } from '../mentions/agents-mentions-editor';
 import type { WizardTemplate, WorkType } from '../lib/wizard-state';
 /** @deprecated Use WizardTemplate; kept for backwards compatibility */
@@ -816,10 +817,10 @@ const allTodosStorageAtom = atom<Record<string, TodoState>>({});
 // atomFamily to get/set todos per subChatId
 export const currentTodosAtomFamily = atomFamily((subChatId: string) =>
   atom(
-    (get) => get(allTodosStorageAtom)[subChatId] ?? { todos: [], creationToolCallId: null },
+    (get) => get(allTodosStorageAtom)[makeScopeKey('todos', { subChatId })] ?? { todos: [], creationToolCallId: null },
     (get, set, newState: TodoState) => {
-      const current = get(allTodosStorageAtom);
-      set(allTodosStorageAtom, { ...current, [subChatId]: newState });
+      const key = makeScopeKey('todos', { subChatId });
+      set(allTodosStorageAtom, { ...get(allTodosStorageAtom), [key]: newState });
     }
   )
 );
@@ -843,10 +844,10 @@ const allTaskToolsStorageAtom = atom<Record<string, TaskToolState>>({});
 // atomFamily to get/set task tool state per subChatId
 export const currentTaskToolsAtomFamily = atomFamily((subChatId: string) =>
   atom(
-    (get) => get(allTaskToolsStorageAtom)[subChatId] ?? { tasks: [] },
+    (get) => get(allTaskToolsStorageAtom)[makeScopeKey('tasks', { subChatId })] ?? { tasks: [] },
     (get, set, newState: TaskToolState) => {
-      const current = get(allTaskToolsStorageAtom);
-      set(allTaskToolsStorageAtom, { ...current, [subChatId]: newState });
+      const key = makeScopeKey('tasks', { subChatId });
+      set(allTaskToolsStorageAtom, { ...get(allTaskToolsStorageAtom), [key]: newState });
     }
   )
 );
@@ -1164,16 +1165,18 @@ export const viewedFilesAtomFamily = atomFamily((chatId: string) =>
 // Open Locally dialog trigger - set to chatId to open dialog for that chat
 export const openLocallyChatIdAtom = atom<string | null>(null);
 
-// Current plan path storage - stores per chatId (runtime only, not persisted)
+// Current plan path storage - stores per subChatId (runtime only, not persisted).
+// Storage key is the canonical scope key so producers and consumers can never
+// disagree on the slot. See lib/scope-key.ts.
 const currentPlanPathStorageAtom = atom<Record<string, string | null>>({});
 
-// atomFamily to get/set current plan path per chatId
-export const currentPlanPathAtomFamily = atomFamily((chatId: string) =>
+// atomFamily to get/set current plan path per subChatId
+export const currentPlanPathAtomFamily = atomFamily((subChatId: string) =>
   atom(
-    (get) => get(currentPlanPathStorageAtom)[chatId] ?? null,
+    (get) => get(currentPlanPathStorageAtom)[makeScopeKey('plan', { subChatId })] ?? null,
     (get, set, planPath: string | null) => {
-      const current = get(currentPlanPathStorageAtom);
-      set(currentPlanPathStorageAtom, { ...current, [chatId]: planPath });
+      const key = makeScopeKey('plan', { subChatId });
+      set(currentPlanPathStorageAtom, { ...get(currentPlanPathStorageAtom), [key]: planPath });
     }
   )
 );
@@ -1201,17 +1204,17 @@ export const virtualPlanContentAtomFamily = atomFamily((planPath: string) =>
   )
 );
 
-// Per-chat plan edit refetch trigger - incremented when an Edit on a plan file completes
+// Per-sub-chat plan edit refetch trigger - incremented when an Edit on a plan file completes
 // Used to trigger sidebar refetch when plan content changes
 const planEditRefetchTriggerStorageAtom = atom<Record<string, number>>({});
 
-export const planEditRefetchTriggerAtomFamily = atomFamily((chatId: string) =>
+export const planEditRefetchTriggerAtomFamily = atomFamily((subChatId: string) =>
   atom(
-    (get) => get(planEditRefetchTriggerStorageAtom)[chatId] ?? 0,
+    (get) => get(planEditRefetchTriggerStorageAtom)[makeScopeKey('plan-refetch', { subChatId })] ?? 0,
     (get, set) => {
+      const key = makeScopeKey('plan-refetch', { subChatId });
       const current = get(planEditRefetchTriggerStorageAtom);
-      const currentValue = current[chatId] ?? 0;
-      set(planEditRefetchTriggerStorageAtom, { ...current, [chatId]: currentValue + 1 });
+      set(planEditRefetchTriggerStorageAtom, { ...current, [key]: (current[key] ?? 0) + 1 });
     }
   )
 );

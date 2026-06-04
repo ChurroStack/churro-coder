@@ -5,6 +5,7 @@ import type { DockviewGroupPanel } from 'dockview-react';
 import { selectedAgentChatIdAtom, currentPlanPathAtomFamily } from '../agents/atoms';
 import { defaultAgentModeAtom, newPanelPlacementAtom } from '../../lib/atoms';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
+import { useWorkspaceIdentity } from '../agents/hooks/use-workspace-identity';
 import { terminalsAtom, activeTerminalIdAtom } from '../terminal/atoms';
 import { buildTerminalPaneId, generateTerminalId, getNextTerminalName, getTerminalScopeKey } from '../terminal/utils';
 import { trpc } from '../../lib/trpc';
@@ -49,8 +50,9 @@ export interface PanelActions {
 export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions {
   const dockApi = useDockApi();
   const chatId = useAtomValue(selectedAgentChatIdAtom);
-  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
-  const planPath = useAtomValue(currentPlanPathAtomFamily(activeSubChatId ?? chatId ?? ''));
+  // Guarded sub-chat id — never `?? chatId`. Plan path is keyed by subChatId.
+  const { subChatId } = useWorkspaceIdentity();
+  const planPath = useAtomValue(currentPlanPathAtomFamily(subChatId ?? ''));
   const { data: chat } = trpc.chats.get.useQuery({ id: chatId ?? '' }, { enabled: !!chatId });
   const worktreePath = chat?.worktreePath ?? null;
   const projectId = chat?.projectId ?? null;
@@ -217,17 +219,19 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
   }, [dockApi, chatId, worktreePath, branch, allTerminals, setTerminals, setActiveTerminalIds, sourceGroup, placement]);
 
   const openPlan = useCallback(() => {
-    if (!dockApi || !chatId || !planPath) return;
-    const effectiveChatId = activeSubChatId ?? chatId;
+    if (!dockApi || !chatId || !planPath || !subChatId) return;
     addOrFocus(
       dockApi,
       {
+        // `data.chatId` is the plan's cache key (PlanSection keys
+        // planContentCacheAtomFamily by it) — it must be the subChatId so the
+        // promoted panel and the sidebar widget read the same slot.
         kind: 'plan',
-        data: { chatId: effectiveChatId, planPath }
+        data: { chatId: subChatId, planPath }
       },
       resolvePlacementOpts(dockApi, placement, false, sourceGroup)
     );
-  }, [dockApi, chatId, planPath, activeSubChatId, sourceGroup, placement]);
+  }, [dockApi, chatId, planPath, subChatId, sourceGroup, placement]);
 
   const openDiff = useCallback(() => {
     if (!dockApi || !chatId) return;

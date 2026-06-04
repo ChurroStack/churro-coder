@@ -61,10 +61,19 @@ export const terminalRouter = router({
         // non-fatal — the user can hit the Refresh button to retry.
         if (result.isNew && isCli) {
           const subChatId = input.paneId.slice('cli:'.length);
-          if (subChatId) {
+          // Guard the IPC boundary: subChatId is sliced from a client-supplied
+          // paneId and flows downstream as a DB key / locator argument.
+          // createId() only ever emits [0-9a-z], so reject anything carrying
+          // path separators or other unexpected characters — a malformed
+          // paneId (e.g. "cli:../..") must not reach the locator.
+          if (subChatId && /^[A-Za-z0-9_-]+$/.test(subChatId)) {
             void postSpawnLocateAndAttach(subChatId, spawnedAt, input.cwd, codexSnapshot).catch((err) => {
               console.warn('[TerminalRouter] post-spawn locator failed', err);
             });
+          } else if (subChatId) {
+            console.warn(
+              `[TerminalRouter] skipping post-spawn locator: malformed subChatId from paneId="${input.paneId}"`
+            );
           }
         }
         return {

@@ -3,7 +3,7 @@ import { useMessageQueueStore } from './message-queue-store';
 import { agentChatStore } from './agent-chat-store';
 import { getWindowId } from '../../../contexts/WindowContext';
 import { clearTaskSnapshotCache } from '../ui/agent-task-tools';
-import { clearSubChatRuntimeCaches } from './sub-chat-runtime-cleanup';
+import { clearSubChatRuntimeCaches, clearSubChatSidebarAtoms } from './sub-chat-runtime-cleanup';
 import {
   getDefaultRatios,
   addPaneRatio,
@@ -13,7 +13,8 @@ import {
   subChatErrorAtom,
   pendingUserQuestionsAtom,
   expiredUserQuestionsAtom,
-  pendingPlanApprovalsAtom
+  pendingPlanApprovalsAtom,
+  selectedAgentChatIdAtom
 } from '../atoms';
 import { trpcClient } from '../../../lib/trpc';
 import { appStore } from '../../../lib/jotai-store';
@@ -399,6 +400,7 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
       });
     }
     clearSubChatRuntimeCaches(subChatId);
+    clearSubChatSidebarAtoms(subChatId);
     agentChatStore.delete(subChatId);
     clearTaskSnapshotCache(subChatId);
 
@@ -590,3 +592,22 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
     });
   }
 }));
+
+/**
+ * The single entry point for switching the active workspace (chat).
+ *
+ * Writes BOTH sources of truth — the zustand store slice AND the
+ * `selectedAgentChatIdAtom` — in one synchronous call so a render can never
+ * observe them mid-desync (new chatId in the atom, old chat's sub-chat in the
+ * store). `setChatId` runs FIRST so `activeSubChatId`/`openSubChatIds` already
+ * describe the new chat before the atom that `DetailsRail` reads flips.
+ *
+ * This removes the empty-frame flash on the common switch path. Correctness
+ * itself does not depend on every caller using this — `useWorkspaceIdentity`
+ * still guards against any path that updates the atom alone — but routing
+ * switches through here keeps the two stores aligned.
+ */
+export function selectWorkspace(chatId: string | null): void {
+  useAgentSubChatStore.getState().setChatId(chatId);
+  appStore.set(selectedAgentChatIdAtom, chatId);
+}

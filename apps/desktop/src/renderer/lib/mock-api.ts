@@ -50,6 +50,10 @@ export const api = {
             return;
           }
           let cancelled = false;
+          // Clear the previous chat's snapshot immediately on a chatId change so
+          // the stale record can never surface as this chat's identity while the
+          // new fetch is in flight (it feeds worktreePath/projectId downstream).
+          setSnapshotData(null);
           setSnapshotLoading(true);
           window.desktopApi
             .getAgentChatSnapshot(chatId)

@@ -29,8 +29,8 @@ export function formatUSDPerMTok(n: number): string {
   return `$${n.toFixed(3).replace(/\.?0+$/, '')}`;
 }
 
-/** "Apr 17" style short label for axis ticks. */
+/** "Apr 17" style short label for axis ticks. Accepts a date-only or full ISO string. */
 export function formatShortDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }

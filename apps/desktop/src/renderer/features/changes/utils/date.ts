@@ -1,4 +1,8 @@
-export function formatRelativeDate(date: Date): string {
+/**
+ * Compact relative time ("just now", "5m ago", "3h ago") from a Date. Distinct
+ * from project-stats' natural-language formatter (`formatRelativeDateNatural`).
+ */
+export function formatRelativeDateCompact(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMinutes = Math.floor(diffMs / 60000);

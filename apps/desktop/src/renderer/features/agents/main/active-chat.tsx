@@ -1321,11 +1321,14 @@ export const ChatViewInner = memo(function ChatViewInner({
         : null;
       const result = await sendPendingMessage(subChatId, normalized, clearAtom, {
         sendMessage: (msg) => sendMessage(msg as Parameters<typeof sendMessage>[0]),
-        isStreaming: () => isStreaming
+        // Read the live streaming state at send time via the ref. Capturing
+        // `isStreaming` directly would freeze the value from callback-creation
+        // and could mis-gate a deferred send.
+        isStreaming: () => isStreamingRef.current
       });
       if (result.sent) onSent?.();
     },
-    [subChatId, sendMessage, isStreaming]
+    [subChatId, sendMessage]
   );
 
   // Per-subChat pending atoms — each ChatViewInner mount reads only its own
@@ -1942,10 +1945,17 @@ export const ChatViewInner = memo(function ChatViewInner({
         detectedPrUrlRef.current = prUrl;
 
         // Update database
-        trpcClient.chats.updatePrInfo.mutate({ chatId: parentChatId, prUrl, prNumber }).then(() => {
-          // Invalidate the agentChat query to refetch with new PR info
-          utils.agents.getAgentChat.invalidate({ chatId: parentChatId });
-        });
+        trpcClient.chats.updatePrInfo
+          .mutate({ chatId: parentChatId, prUrl, prNumber })
+          .then(() => {
+            // Invalidate the agentChat query to refetch with new PR info
+            utils.agents.getAgentChat.invalidate({ chatId: parentChatId });
+          })
+          .catch((error) => {
+            // Without this catch the rejection is swallowed and the query is
+            // never invalidated, leaving the PR widget showing stale state.
+            console.error('[active-chat] updatePrInfo failed:', error);
+          });
 
         break; // Only process first PR URL found
       }
@@ -3632,7 +3642,7 @@ export function ChatView({
   const activeSubChatIdForPlan = subChatIdOverride ?? activeSubChatIdFromStoreForPlan;
 
   const currentPlanPathAtom = useMemo(
-    () => currentPlanPathAtomFamily(activeSubChatIdForPlan || ''),
+    () => currentPlanPathAtomFamily(activeSubChatIdForPlan ?? ''),
     [activeSubChatIdForPlan]
   );
   const setCurrentPlanPath = useSetAtom(currentPlanPathAtom);
