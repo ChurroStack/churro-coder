@@ -172,7 +172,7 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
         </div>
         {syncedAgo && <div className="ml-3 shrink-0">synced {syncedAgo}</div>}
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto allow-text-selection">
         {parsedMessages.length === 0 ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
             {messagesQuery.isLoading
