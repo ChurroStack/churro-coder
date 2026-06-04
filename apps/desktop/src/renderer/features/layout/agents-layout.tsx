@@ -408,13 +408,18 @@ export function AgentsLayout() {
     return unsubscribe;
   }, [projects, setSelectedProject, setSettingsActiveTab, setSettingsDialogOpen]);
 
-  // Source of truth for the store's "current workspace". Each ChatView
-  // used to call setChatId itself, but with multiple WorkspaceDockShells
-  // mounted simultaneously that race — so we centralize it here. The
-  // store is always scoped to the currently-selected workspace; inactive
-  // workspaces' state lives in localStorage until they become active.
+  // Reconciliation backstop for the store's "current workspace". The hot
+  // switch paths call `selectWorkspace(chatId)` which updates the store and
+  // `selectedAgentChatIdAtom` together, so normally the store is already in
+  // sync by the time this runs. This effect only fires `setChatId` when it
+  // detects a drift (a code path that set the atom without going through
+  // `selectWorkspace`), making it idempotent. Guarding on the current store
+  // chatId avoids a redundant store reset (which would clobber an already-
+  // loaded activeSubChatId) on every selection.
   useEffect(() => {
-    setChatId(selectedChatId);
+    if (useAgentSubChatStore.getState().chatId !== selectedChatId) {
+      setChatId(selectedChatId);
+    }
   }, [selectedChatId, setChatId]);
 
   // Chat search toggle

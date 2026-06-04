@@ -570,6 +570,7 @@ export function DetailsSidebar({
                     planPath={planPath}
                     refetchTrigger={planRefetchTrigger}
                     mode={mode}
+                    canApprove={workflow?.plan?.status === 'attention'}
                     onApprovePlan={onBuildPlan}
                   />
                 );

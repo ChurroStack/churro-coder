@@ -128,13 +128,16 @@ const TodoListItem = ({ todo, isLast }: { todo: TodoItem; isLast: boolean }) => 
  * Memoized to prevent re-renders when parent updates.
  */
 export const TodoWidget = memo(function TodoWidget({ subChatId }: TodoWidgetProps) {
-  // Get todos from the legacy TodoWrite tool
-  const todosAtom = useMemo(() => currentTodosAtomFamily(subChatId || 'default'), [subChatId]);
+  // Key strictly by the (guarded) sub-chat id. Passing an empty key when null
+  // reads a stable unused slot — no `|| 'default'` bucket that would merge two
+  // sub-chats' todos. The component renders empty when there are no todos.
+  const key = subChatId ?? '';
+  const todosAtom = useMemo(() => currentTodosAtomFamily(key), [key]);
   const todoState = useAtomValue(todosAtom);
   const legacyTodos = todoState.todos;
 
   // Get tasks from the new TaskCreate/TaskUpdate tools
-  const taskToolsAtom = useMemo(() => currentTaskToolsAtomFamily(subChatId || 'default'), [subChatId]);
+  const taskToolsAtom = useMemo(() => currentTaskToolsAtomFamily(key), [key]);
   const taskToolsState = useAtomValue(taskToolsAtom);
 
   // Merge: prefer new task tools if they have data, otherwise fall back to legacy todos

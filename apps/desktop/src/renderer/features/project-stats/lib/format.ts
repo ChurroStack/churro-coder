@@ -1,8 +1,13 @@
-export { formatCompact, formatFull } from '../../usage/lib/format';
+export { formatCompact, formatFull, formatShortDate } from '../../usage/lib/format';
 
 const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 
-export function formatRelativeDate(isoDate: string): string {
+/**
+ * Natural-language relative date ("today", "in 3 days", "2 weeks ago") from an
+ * ISO date string. Distinct from the changes feature's compact "5m ago" formatter
+ * (`formatRelativeDateCompact`).
+ */
+export function formatRelativeDateNatural(isoDate: string): string {
   const date = new Date(isoDate);
   if (isNaN(date.getTime())) return isoDate;
   const diffMs = date.getTime() - Date.now();
@@ -12,11 +17,6 @@ export function formatRelativeDate(isoDate: string): string {
   if (Math.abs(diffDays) < 31) return rtf.format(Math.round(diffDays / 7), 'week');
   if (Math.abs(diffDays) < 365) return rtf.format(Math.round(diffDays / 30), 'month');
   return rtf.format(Math.round(diffDays / 365), 'year');
-}
-
-export function formatShortDate(isoDate: string): string {
-  const d = new Date(`${isoDate.slice(0, 10)}T00:00:00`);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 export function formatShortHash(hash: string): string {

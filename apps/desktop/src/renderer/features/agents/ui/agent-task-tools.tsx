@@ -793,7 +793,9 @@ export const AgentTaskToolsGroup = memo(function AgentTaskToolsGroup({
   // We read the last group's snapshot from the cache (which accumulates all previous groups)
   // instead of syncing each group's partial snapshot, avoiding race conditions
   // where intermediate groups overwrite the full state.
-  const taskToolsAtom = useMemo(() => currentTaskToolsAtomFamily(subChatId || 'default'), [subChatId]);
+  // No `|| 'default'` bucket — key must match the sidebar consumer's bare
+  // subChatId key. Writes are gated on subChatId in the effect below.
+  const taskToolsAtom = useMemo(() => currentTaskToolsAtomFamily(subChatId ?? ''), [subChatId]);
   const setTaskToolsState = useSetAtom(taskToolsAtom);
 
   useEffect(() => {

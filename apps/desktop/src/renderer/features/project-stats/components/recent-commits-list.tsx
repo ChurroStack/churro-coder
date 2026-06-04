@@ -1,4 +1,4 @@
-import { formatRelativeDate, formatShortHash } from '../lib/format';
+import { formatRelativeDateNatural, formatShortHash } from '../lib/format';
 
 export type RecentCommit = {
   hash: string;
@@ -27,7 +27,7 @@ export function RecentCommitsList({ commits }: Props) {
               {c.subject || '(no message)'}
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              {c.author} · {formatRelativeDate(c.dateISO)}
+              {c.author} · {formatRelativeDateNatural(c.dateISO)}
             </div>
           </div>
         </div>

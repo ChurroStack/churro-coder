@@ -108,7 +108,9 @@ function PlanProgressCard({ subChatId }: { subChatId: string }) {
 }
 
 export const TasksWidget = memo(function TasksWidget({ subChatId }: TasksWidgetProps) {
-  const key = subChatId || 'default';
+  // Key strictly by the (guarded) sub-chat id — no `|| 'default'` bucket that
+  // would merge two sub-chats' streaming/task state. Empty key = unused slot.
+  const key = subChatId ?? '';
 
   const isStreaming = useStreamingStatusStore((s) => s.isStreaming(key));
 
@@ -211,7 +213,7 @@ export const TasksWidget = memo(function TasksWidget({ subChatId }: TasksWidgetP
   // the terminal-idle handler in chat-input-area also invalidates it.
   const { data: persistedTasksData } = trpc.chats.getCurrentTasks.useQuery(
     { subChatId: key },
-    { staleTime: 10_000, enabled: !isStreaming }
+    { staleTime: 10_000, enabled: !isStreaming && key !== '' }
   );
 
   const hasPersisted = persistedTasksData?.exists && (persistedTasksData.tasks?.length ?? 0) > 0;

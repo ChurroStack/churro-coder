@@ -291,7 +291,7 @@ export function OpenSpecChangeView({ chatId, subChatId, changeId, changePath, pr
       </div>
 
       {/* Document area */}
-      <div className="flex-1 overflow-y-auto relative">
+      <div className="flex-1 overflow-y-auto relative allow-text-selection">
         <div className="max-w-5xl mx-auto py-10 px-6">
           <OpenSpecDocumentBoundary isArchiving={isArchiving}>
             {step === 'tasks' ? (

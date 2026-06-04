@@ -1,6 +1,6 @@
 import type { ChangedFile, CommitInfo } from '../../../../../shared/changes-types';
 import type { ChangesViewMode } from '../../types';
-import { formatRelativeDate } from '../../utils';
+import { formatRelativeDateCompact } from '../../utils';
 import { CollapsibleRow } from '../collapsible-row';
 import { FileList } from '../file-list';
 
@@ -24,7 +24,7 @@ function CommitHeader({ shortHash, message, date }: { shortHash: string; message
     <>
       <span className="text-[10px] font-mono text-muted-foreground shrink-0">{shortHash}</span>
       <span className="text-xs flex-1 truncate">{message}</span>
-      <span className="text-[10px] text-muted-foreground shrink-0">{formatRelativeDate(date)}</span>
+      <span className="text-[10px] text-muted-foreground shrink-0">{formatRelativeDateCompact(date)}</span>
     </>
   );
 }

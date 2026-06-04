@@ -59,9 +59,3 @@ export function resolveAppOwnedMcpHeaders(params: {
 export function isAppOwnedChurroCoderMcpServerName(name: string): boolean {
   return name === 'churro-coder' || name === 'churro-coder-dev';
 }
-
-export function shouldRemoveStaleAppOwnedMcpEntry(name: string, currentServerName: string): boolean {
-  if (name === 'churro-memory' || name === 'churro-memory-dev') return true;
-  if (name !== 'churro-coder' && name !== 'churro-coder-dev') return false;
-  return name !== currentServerName;
-}

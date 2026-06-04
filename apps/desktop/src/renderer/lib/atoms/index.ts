@@ -199,14 +199,6 @@ export type CustomClaudeConfig = {
   baseUrl: string;
 };
 
-// Model profile system - support multiple configs
-export type ModelProfile = {
-  id: string;
-  name: string;
-  config: CustomClaudeConfig;
-  isOffline?: boolean; // Mark as offline/Ollama profile
-};
-
 // Selected Ollama model for offline mode
 export const selectedOllamaModelAtom = atomWithStorage<string | null>(
   'agents:selected-ollama-model',
@@ -215,31 +207,8 @@ export const selectedOllamaModelAtom = atomWithStorage<string | null>(
   { getOnInit: true }
 );
 
-// Helper to get offline profile with selected model
-export const getOfflineProfile = (modelName?: string | null): ModelProfile => ({
-  id: 'offline-ollama',
-  name: 'Offline (Ollama)',
-  isOffline: true,
-  config: {
-    model: modelName || 'qwen2.5-coder:7b',
-    token: 'ollama',
-    baseUrl: 'http://localhost:11434'
-  }
-});
-
-// Predefined offline profile for Ollama (legacy, uses default model)
-export const OFFLINE_PROFILE: ModelProfile = {
-  id: 'offline-ollama',
-  name: 'Offline (Ollama)',
-  isOffline: true,
-  config: {
-    model: 'qwen2.5-coder:7b',
-    token: 'ollama',
-    baseUrl: 'http://localhost:11434'
-  }
-};
-
-// Legacy single config (deprecated, kept for backwards compatibility)
+// Custom Claude endpoint config (model + token + baseUrl). This is the live
+// config path: read directly by ipc-chat-transport.ts and the chat forms.
 export const customClaudeConfigAtom = atomWithStorage<CustomClaudeConfig>(
   'agents:claude-custom-config',
   {
@@ -253,19 +222,6 @@ export const customClaudeConfigAtom = atomWithStorage<CustomClaudeConfig>(
 
 // OpenAI API key for voice transcription (for users without paid subscription)
 export const openaiApiKeyAtom = atomWithStorage<string>('agents:openai-api-key', '', undefined, { getOnInit: true });
-
-// New: Model profiles storage
-export const modelProfilesAtom = atomWithStorage<ModelProfile[]>(
-  'agents:model-profiles',
-  [OFFLINE_PROFILE], // Start with offline profile
-  undefined,
-  { getOnInit: true }
-);
-
-// Active profile ID (null = use Claude Code default)
-export const activeProfileIdAtom = atomWithStorage<string | null>('agents:active-profile-id', null, undefined, {
-  getOnInit: true
-});
 
 // Auto-fallback to offline mode when internet is unavailable
 export const autoOfflineModeAtom = atomWithStorage<boolean>(
@@ -291,9 +247,6 @@ export const showOfflineModeFeaturesAtom = atomWithStorage<boolean>(
   { getOnInit: true }
 );
 
-// Network status (updated from main process)
-export const networkOnlineAtom = atom<boolean>(true);
-
 export function normalizeCustomClaudeConfig(config: CustomClaudeConfig): CustomClaudeConfig | undefined {
   const model = config.model.trim();
   const token = config.token.trim();
@@ -303,40 +256,6 @@ export function normalizeCustomClaudeConfig(config: CustomClaudeConfig): CustomC
 
   return { model, token, baseUrl };
 }
-
-// Get active config (considering network status and auto-fallback)
-export const activeConfigAtom = atom((get) => {
-  const activeProfileId = get(activeProfileIdAtom);
-  const profiles = get(modelProfilesAtom);
-  const legacyConfig = get(customClaudeConfigAtom);
-  const networkOnline = get(networkOnlineAtom);
-  const autoOffline = get(autoOfflineModeAtom);
-
-  // If auto-offline enabled and no internet, use offline profile
-  if (!networkOnline && autoOffline) {
-    const offlineProfile = profiles.find((p) => p.isOffline);
-    if (offlineProfile) {
-      return offlineProfile.config;
-    }
-  }
-
-  // If specific profile is selected, use it
-  if (activeProfileId) {
-    const profile = profiles.find((p) => p.id === activeProfileId);
-    if (profile) {
-      return profile.config;
-    }
-  }
-
-  // Fallback to legacy config if set
-  const normalized = normalizeCustomClaudeConfig(legacyConfig);
-  if (normalized) {
-    return normalized;
-  }
-
-  // No custom config
-  return undefined;
-});
 
 // Preferences - History (Rollback)
 // When enabled, allow rollback to previous assistant messages

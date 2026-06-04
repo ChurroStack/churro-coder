@@ -16,6 +16,7 @@ import {
   agentsSidebarOpenAtom
 } from '../agents/atoms';
 import { selectedAgentChatIdsAtom, isAgentMultiSelectModeAtom, toggleAgentChatSelectionAtom } from '../../lib/atoms';
+import { selectWorkspace } from '../agents/stores/sub-chat-store';
 import { KanbanBoard } from './components/kanban-board';
 import type { KanbanCardData } from './components/kanban-card';
 import {
@@ -416,7 +417,7 @@ export function KanbanView() {
         setShowNewChatForm(false);
       } else {
         // Navigate to workspace
-        setSelectedChatId(card.chatId);
+        selectWorkspace(card.chatId);
         setShowNewChatForm(false);
       }
     },

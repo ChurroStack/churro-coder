@@ -19,7 +19,7 @@ import { SegmentedToggle } from '../usage/components/segmented-toggle';
 import { AgentsHeaderControls } from '../agents/ui/agents-header-controls';
 import { Button } from '../../components/ui/button';
 import { useIsMobile } from '../../lib/hooks/use-mobile';
-import { formatRelativeDate } from './lib/format';
+import { formatRelativeDateNatural } from './lib/format';
 
 const PERIOD_OPTIONS: { value: ProjectStatsPeriod; label: string }[] = [
   { value: '7d', label: '7d' },
@@ -141,7 +141,7 @@ export function ProjectStatsContent() {
                   label="First commit"
                   value={0}
                   valueOverride={
-                    data.data.totals.firstCommitISO ? formatRelativeDate(data.data.totals.firstCommitISO) : '—'
+                    data.data.totals.firstCommitISO ? formatRelativeDateNatural(data.data.totals.firstCommitISO) : '—'
                   }
                   className="[&_.tabular-nums]:text-sm [&_.tabular-nums]:font-medium"
                 />
@@ -149,7 +149,7 @@ export function ProjectStatsContent() {
                   label="Last commit"
                   value={0}
                   valueOverride={
-                    data.data.totals.lastCommitISO ? formatRelativeDate(data.data.totals.lastCommitISO) : '—'
+                    data.data.totals.lastCommitISO ? formatRelativeDateNatural(data.data.totals.lastCommitISO) : '—'
                   }
                   className="[&_.tabular-nums]:text-sm [&_.tabular-nums]:font-medium"
                 />

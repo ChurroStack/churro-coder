@@ -1,7 +1,16 @@
 import { useEffect, useReducer, useRef } from 'react';
 import { trpc } from '../../../lib/trpc';
 import { appStore } from '../../../lib/jotai-store';
-import { agentFinishedTickAtomFamily, clearSubChatBusy, setSubChatBusy, subChatBusyAtom } from '../atoms';
+import {
+  agentFinishedTickAtomFamily,
+  agentsSubChatUnseenChangesAtom,
+  agentsUnseenChangesAtom,
+  clearSubChatBusy,
+  selectedAgentChatIdAtom,
+  setSubChatBusy,
+  subChatBusyAtom
+} from '../atoms';
+import { useAgentSubChatStore } from '../stores/sub-chat-store';
 
 /**
  * Single global subscriber for ALL CLI sub-chats' busy state. Mounted exactly
@@ -61,6 +70,11 @@ export function CliStateSubscriber() {
     onData: ({ subChatId, parentChatId, state }) => {
       console.log(`[sub-chat-busy] cli sub=${subChatId} state=${state} parent=${parentChatId ?? 'null'}`);
 
+      // Snapshot busy BEFORE the write so we can tell a genuine running→idle
+      // transition (this sub-chat just finished a turn) from the late-subscriber
+      // idle snapshot (it was never running this session).
+      const wasRunning = appStore.get(subChatBusyAtom).has(subChatId);
+
       const setBusy = (fn: Parameters<typeof setSubChatBusy>[0]) => appStore.set(subChatBusyAtom, fn);
       if (state === 'running') {
         setSubChatBusy(setBusy, subChatId, { state: 'running', parentChatId, source: 'cli' });
@@ -85,6 +99,34 @@ export function CliStateSubscriber() {
         void trpcUtils.chats.get.invalidate({ id: parentChatId });
         void trpcUtils.changes.getStatus.invalidate();
         void trpcUtils.changes.getBranches.invalidate();
+
+        // Light the left-sidebar "unseen changes" dot when a CLI sub-chat
+        // finishes a turn while the user is looking elsewhere — the CLI
+        // equivalent of the builtin transport's onFinish fan-out
+        // (use-transport-factory-deps.ts). Gate on `wasRunning` so the
+        // late-subscriber idle snapshot never flags a session that didn't run.
+        // The clear side lives in chat-panel.tsx (CLI panels don't mount the
+        // builtin ChatView that clears it for builtin sub-chats).
+        if (wasRunning) {
+          const activeSubChatId = useAgentSubChatStore.getState().activeSubChatId;
+          const selectedChatId = appStore.get(selectedAgentChatIdAtom);
+          if (activeSubChatId !== subChatId) {
+            appStore.set(agentsSubChatUnseenChangesAtom, (prev) => {
+              if (prev.has(subChatId)) return prev;
+              const next = new Set(prev);
+              next.add(subChatId);
+              return next;
+            });
+          }
+          if (selectedChatId !== parentChatId) {
+            appStore.set(agentsUnseenChangesAtom, (prev) => {
+              if (prev.has(parentChatId)) return prev;
+              const next = new Set(prev);
+              next.add(parentChatId);
+              return next;
+            });
+          }
+        }
       }
     },
     onError: (err) => {

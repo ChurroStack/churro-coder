@@ -1,6 +1,7 @@
 import { atom } from 'jotai';
 import { atomFamily, atomWithStorage } from 'jotai/utils';
 import { atomWithWindowStorage } from '../../../lib/window-storage';
+import { makeScopeKey } from '../../../lib/scope-key';
 import type { LucideIcon } from 'lucide-react';
 import {
   Box,
@@ -194,18 +195,17 @@ export interface PlanContentCache {
   isReady: boolean;
 }
 
-// Runtime cache for plan content per workspace (not persisted)
+// Runtime cache for plan content per sub-chat (not persisted). Keyed by the
+// canonical scope key — plan content is a per-sub-chat artifact, so it must
+// match currentPlanPathAtomFamily's sub-chat keying. See lib/scope-key.ts.
 const planContentCacheStorageAtom = atom<Record<string, PlanContentCache | null>>({});
 
-export const planContentCacheAtomFamily = atomFamily((chatId: string) =>
+export const planContentCacheAtomFamily = atomFamily((subChatId: string) =>
   atom(
-    (get) => get(planContentCacheStorageAtom)[chatId] ?? null,
+    (get) => get(planContentCacheStorageAtom)[makeScopeKey('plan-content', { subChatId })] ?? null,
     (get, set, cache: PlanContentCache | null) => {
-      const current = get(planContentCacheStorageAtom);
-      set(planContentCacheStorageAtom, {
-        ...current,
-        [chatId]: cache
-      });
+      const key = makeScopeKey('plan-content', { subChatId });
+      set(planContentCacheStorageAtom, { ...get(planContentCacheStorageAtom), [key]: cache });
     }
   )
 );

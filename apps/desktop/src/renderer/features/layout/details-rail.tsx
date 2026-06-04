@@ -2,17 +2,17 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import type { IGridviewPanelProps } from 'dockview-react';
 import { trpc } from '../../lib/trpc';
-import { api } from '../../lib/mock-api';
 import {
-  selectedAgentChatIdAtom,
   currentPlanPathAtomFamily,
   workspaceDiffCacheAtomFamily,
   planEditRefetchTriggerAtomFamily,
   selectedDiffFilePathAtom
 } from '../agents/atoms';
 import { useSubChatMode } from '../agents/hooks/use-sub-chat-mode';
+import { useHarnessSendDispatcher } from '../agents/hooks/use-harness-send-dispatcher';
 import { defaultAgentModeAtom } from '../../lib/atoms';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
+import { useWorkspaceIdentity } from '../agents/hooks/use-workspace-identity';
 import { DetailsSidebar } from '../details-sidebar/details-sidebar';
 import { useCommitActions } from '../changes/components/commit-input';
 import { usePushAction } from '../changes/hooks/use-push-action';
@@ -35,18 +35,21 @@ import { applyPlanRename } from './apply-plan-rename';
  * transitions, so the legacy `onExpand*` callbacks degrade to undefined.
  */
 export function DetailsRail(_props: IGridviewPanelProps) {
-  const chatId = useAtomValue(selectedAgentChatIdAtom);
-  const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
-  const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
+  // Single validated identity source. `subChatId` is GUARDED — it is null while
+  // a workspace switch is mid-flight (store not yet in sync with the selected
+  // chat), so the sub-chat-scoped widgets render empty instead of the previous
+  // workspace's data. `chatId`/`worktreePath`/`projectId` are chat-level and
+  // already validated against the selected chat.
+  // `chatRecord` is the SAME validated record the hook already fetched (null
+  // when stale / loading), so we reuse it for `meta` / prNumber instead of
+  // firing a second getAgentChat (which would double the snapshot IPC on every
+  // switch in this always-mounted panel).
+  const { chatId, subChatId, worktreePath, projectId, sandboxId, chatRecord } = useWorkspaceIdentity();
+  const activeSubChatId = subChatId;
   const dockApi = useDockApi();
 
-  // Chat record → worktreePath, sandboxId, projectId.
-  // Uses api.agents.getAgentChat (via mock-api) which validates the tRPC response
-  // and falls back to window.desktopApi.getAgentChatSnapshot on startup IPC poisoning.
-  const { data: chat } = api.agents.getAgentChat.useQuery({ chatId: chatId ?? '' }, { enabled: !!chatId });
-  const worktreePath = chat?.worktreePath ?? null;
-  const sandboxId = (chat as { sandboxId?: string | null } | null)?.sandboxId ?? null;
-  const meta = (chat as { meta?: { repository?: string; branch?: string | null } } | null)?.meta;
+  const chat = chatRecord;
+  const meta = chat?.meta;
 
   const mountTimeRef = useRef(performance.now());
   const lastLoggedRef = useRef<string | null>(null);
@@ -67,35 +70,31 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     console.log('[DetailsRail] chat-record state', { sinceMountMs, ...JSON.parse(signature) });
   }, [chat, chatId]);
 
-  // Plan / mode / refetch trigger (per active sub-chat).
-  //
-  // Fallback ladder when activeSubChatId is null:
-  //   1. First open sub-chat for this chat (covers the cold-mount race where
-  //      ChatPanel hasn't pushed activeSubChatId into the store yet but the
-  //      sub-chat is mounted under its own subChatId). All artifact files
-  //      live under <userData>/sub-chats/<subChatId>/, so reading from
-  //      `chatId` here returns exists:false and the widget stays empty.
-  //   2. chatId — last-resort for chats with no open sub-chats yet.
-  const effectiveSubChatId = activeSubChatId ?? openSubChatIds[0] ?? chatId ?? '';
-  const planPath = useAtomValue(currentPlanPathAtomFamily(effectiveSubChatId));
-  const planRefetchTrigger = useAtomValue(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
-  const setCurrentPlanPath = useSetAtom(currentPlanPathAtomFamily(effectiveSubChatId));
-  const triggerPlanRefetch = useSetAtom(planEditRefetchTriggerAtomFamily(effectiveSubChatId));
+  // Plan / mode / refetch trigger — keyed off the GUARDED subChatId only. There
+  // is intentionally no `?? chatId` fallback: a chatId is never a valid sub-chat
+  // key, and during a switch `subChatId` is null so the Plan widget renders
+  // empty rather than reading another workspace's plan. The empty-string key
+  // when subChatId is null is a stable unused slot (no producer ever writes it).
+  const planKey = subChatId ?? '';
+  const planPath = useAtomValue(currentPlanPathAtomFamily(planKey));
+  const planRefetchTrigger = useAtomValue(planEditRefetchTriggerAtomFamily(planKey));
+  const setCurrentPlanPath = useSetAtom(currentPlanPathAtomFamily(planKey));
+  const triggerPlanRefetch = useSetAtom(planEditRefetchTriggerAtomFamily(planKey));
 
   // Cold-start hydration: currentPlanPathAtomFamily is in-memory only, so on
   // app restart the Plan widget would render empty even though the MCP plan
   // file is on disk. Seed the atom from getCurrentPlan whenever the local
   // path is null. Dedupes with the same query fired by useWorkflowSnapshot.
   const { data: currentPlanData } = trpc.chats.getCurrentPlan.useQuery(
-    { subChatId: effectiveSubChatId },
-    { enabled: !!effectiveSubChatId }
+    { subChatId: subChatId ?? '' },
+    { enabled: !!subChatId }
   );
   useEffect(() => {
-    if (!planPath && currentPlanData?.exists && currentPlanData.filePath) {
-      console.log(`[DetailsRail] plan-path-hydrated sub=${effectiveSubChatId} path=${currentPlanData.filePath}`);
+    if (subChatId && !planPath && currentPlanData?.exists && currentPlanData.filePath) {
+      console.log(`[DetailsRail] plan-path-hydrated sub=${subChatId} path=${currentPlanData.filePath}`);
       setCurrentPlanPath(currentPlanData.filePath);
     }
-  }, [currentPlanData, planPath, setCurrentPlanPath, effectiveSubChatId]);
+  }, [currentPlanData, planPath, setCurrentPlanPath, subChatId]);
 
   const trpcUtils = trpc.useUtils();
 
@@ -103,20 +102,24 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   // Trades one round-trip per switch for guaranteed fresh widget data and
   // no stale-flash on tab toggles. Explicitly OK'd by the user.
   useEffect(() => {
-    if (!effectiveSubChatId) return;
-    void trpcUtils.chats.getCurrentPlan.invalidate({ subChatId: effectiveSubChatId });
-    void trpcUtils.chats.getCurrentTasks.invalidate({ subChatId: effectiveSubChatId });
-    void trpcUtils.chats.getCurrentReview.invalidate({ subChatId: effectiveSubChatId });
-    void trpcUtils.chats.getReviewContent.invalidate({ subChatId: effectiveSubChatId });
-    void trpcUtils.chats.getMcpFileChanges.invalidate({ subChatId: effectiveSubChatId });
-    console.log(`[DetailsRail] switch-invalidate sub=${effectiveSubChatId}`);
-  }, [effectiveSubChatId, trpcUtils]);
+    if (!subChatId) return;
+    void trpcUtils.chats.getCurrentPlan.invalidate({ subChatId });
+    void trpcUtils.chats.getCurrentTasks.invalidate({ subChatId });
+    void trpcUtils.chats.getCurrentReview.invalidate({ subChatId });
+    void trpcUtils.chats.getReviewContent.invalidate({ subChatId });
+    void trpcUtils.chats.getMcpFileChanges.invalidate({ subChatId });
+    console.log(`[DetailsRail] switch-invalidate sub=${subChatId}`);
+  }, [subChatId, trpcUtils]);
   useEffect(() => {
     if (!chatId) return;
     void trpcUtils.chats.getPrStatus.invalidate({ chatId });
     void trpcUtils.chats.get.invalidate({ id: chatId });
+    // Scripts widget reads worktreeConfig.get({ projectId }); it is keyed only
+    // by projectId, so without this it can keep showing the previous project's
+    // scripts after a switch.
+    if (projectId) void trpcUtils.worktreeConfig.get.invalidate({ projectId });
     console.log(`[DetailsRail] switch-invalidate chat=${chatId}`);
-  }, [chatId, trpcUtils]);
+  }, [chatId, projectId, trpcUtils]);
   useEffect(() => {
     if (!worktreePath) return;
     void trpcUtils.changes.getStatus.invalidate({ worktreePath });
@@ -137,7 +140,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
       // right now. Other sub-chats pick up their plan via cold-start
       // hydration the next time their key becomes effective (the query
       // invalidation below makes that read fresh).
-      if (kind === 'plan' && filePath && eventSubChatId === effectiveSubChatId) {
+      if (kind === 'plan' && filePath && eventSubChatId === subChatId) {
         setCurrentPlanPath(filePath);
         triggerPlanRefetch();
       }
@@ -171,12 +174,19 @@ export function DetailsRail(_props: IGridviewPanelProps) {
         void trpcUtils.chats.getPrStatus.invalidate({ chatId });
         void trpcUtils.chats.get.invalidate({ id: chatId });
       }
-      console.log(`[DetailsRail] artifact-written kind=${kind} sub=${eventSubChatId} effective=${effectiveSubChatId}`);
+      console.log(`[DetailsRail] artifact-written kind=${kind} sub=${eventSubChatId} active=${subChatId}`);
     }
   });
   const { mode: subChatMode } = useSubChatMode(activeSubChatId ?? '');
   const defaultMode = useAtomValue(defaultAgentModeAtom);
   const currentMode = activeSubChatId ? subChatMode : defaultMode;
+
+  // Plan "Approve" action for the sidebar Plan widget. Routes through the
+  // harness dispatcher so CLI sub-chats write the approve message to the PTY
+  // and builtin sub-chats flip the pending-build-plan atom (same path as the
+  // dock Plan panel). Without this, onApprovePlan is undefined and the Approve
+  // button never renders even when mode === 'plan'.
+  const { dispatchBuildPlan } = useHarnessSendDispatcher(activeSubChatId ?? '');
 
   // Diff cache populated by ChatView
   const diffCache = useAtomValue(workspaceDiffCacheAtomFamily(chatId ?? ''));
@@ -219,8 +229,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     // pushes on a freshly opened workspace to be sent without `-u`, which
     // silently fails the user's first push. See
     // docs/postmortems/2026-05-status-widget-amber-flash-on-load.md.
-    hasUpstream:
-      gitStatus?.hasUpstream ?? (!!prStatusData?.pr || !!(chat as { prNumber?: number | null } | null)?.prNumber),
+    hasUpstream: gitStatus?.hasUpstream ?? (!!prStatusData?.pr || !!chat?.prNumber),
     onSuccess: handleCommitRefresh
   });
 
@@ -272,13 +281,11 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     [dockApi, activeSubChatId]
   );
 
-  // Status widget — workflow state + dispatch
-  // Use the same fallback ladder as effectiveSubChatId above — passing null
-  // when activeSubChatId is null collapses to IDLE_WORKFLOW_STATE (all 'idle',
-  // gray icons, no spinner), which hides CLI-busy on cold mount.
-  const workflowSubChatId = activeSubChatId ?? openSubChatIds[0] ?? null;
-  const workflow = useWorkflowState(chatId, workflowSubChatId);
-  const { dispatch: dispatchWorkflowAction, pushDialog } = useWorkflowActions(chatId, workflowSubChatId);
+  // Status widget — workflow state + dispatch. Keyed off the guarded subChatId:
+  // null (mid-switch) collapses useWorkflowState to IDLE_WORKFLOW_STATE so the
+  // status pill never reflects the previous workspace's run.
+  const workflow = useWorkflowState(chatId, subChatId);
+  const { dispatch: dispatchWorkflowAction, pushDialog } = useWorkflowActions(chatId, subChatId);
   const handleWorkflowAction = useCallback(
     (kind: WorkflowActionKind) => {
       void dispatchWorkflowAction(kind);
@@ -317,6 +324,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
           worktreePath={worktreePath}
           planPath={planPath}
           mode={currentMode}
+          onBuildPlan={activeSubChatId ? dispatchBuildPlan : undefined}
           planRefetchTrigger={planRefetchTrigger}
           activeSubChatId={activeSubChatId}
           canOpenDiff={canOpenDiff}

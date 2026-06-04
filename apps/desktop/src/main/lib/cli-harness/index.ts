@@ -5,8 +5,8 @@ import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { updateClaudeConfigAtomic } from '../claude-config';
 import { ensureMcpHttpServerAlive } from '../mcp/http-transport';
+import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
 import type { TerminalBootstrap } from '../terminal/types';
 
 const execFileAsync = promisify(execFile);
@@ -26,16 +26,11 @@ const binaryCache = new Map<string, string | null>();
 
 /**
  * Stable single registration key. Every CLI session in this app shares this
- * one entry in `~/.claude.json` (Claude) / Codex config. The MCP server is a
- * singleton HTTP endpoint; subChatId is passed by the model as a tool
- * argument on each call.
+ * one entry (Claude: a per-instance `--mcp-config` file; Codex: `-c` overrides).
+ * The MCP server is a singleton HTTP endpoint; subChatId is passed by the model
+ * as a tool argument on each call.
  */
 const MCP_SERVER_NAME = 'churro-coder';
-
-/** Last URL+bearer we wrote into claude config. Avoids redundant writes when
- * the endpoint is unchanged across CLI spawns in the same app run. */
-let claudeMcpLastWritten: { url: string; bearer: string } | null = null;
-let claudeMcpWriteInFlight: Promise<void> | null = null;
 
 function bundledBinaryPath(name: 'claude' | 'codex'): string | null {
   const binName = process.platform === 'win32' ? `${name}.exe` : name;
@@ -105,53 +100,42 @@ async function ensureMcpEndpoint(): Promise<{ url: string; bearer: string }> {
   return ensureMcpHttpServerAlive();
 }
 
-/**
- * Ensure the single `churro-coder` MCP entry is present in `~/.claude.json`
- * with the current url + bearer, and remove any legacy
- * `churro-coder-<subChatId>` keys left over from the pre-shared-MCP era
- * (folded into the same atomic write so upgraders self-heal without a
- * separate startup sweep).
- *
- * Coalesces concurrent callers — two parallel subChat boots share one
- * config write.
- */
-async function ensureChurroMcpRegistered(mcpUrl: string, bearer: string): Promise<void> {
-  if (claudeMcpLastWritten && claudeMcpLastWritten.url === mcpUrl && claudeMcpLastWritten.bearer === bearer) {
-    return;
-  }
-  if (claudeMcpWriteInFlight) {
-    await claudeMcpWriteInFlight;
-    if (claudeMcpLastWritten && claudeMcpLastWritten.url === mcpUrl && claudeMcpLastWritten.bearer === bearer) {
-      return;
-    }
-  }
+/** Per-instance Claude MCP config file. Under this instance's userData dir, so
+ * a dev build and a prod build (separate userData, separate MCP server ports)
+ * never share or clobber it. */
+function claudeMcpConfigPath(): string {
+  return join(app.getPath('userData'), 'cli-bootstrap', 'claude-mcp.json');
+}
 
-  claudeMcpWriteInFlight = (async () => {
-    await updateClaudeConfigAtomic((config) => {
-      if (!config.mcpServers) config.mcpServers = {};
-      // Drop legacy per-subChat keys (`churro-coder-<id>`). Hyphen-prefixed
-      // match keeps the bare `churro-coder` entry alive.
-      for (const key of Object.keys(config.mcpServers)) {
-        if (key.startsWith(`${MCP_SERVER_NAME}-`)) {
-          delete config.mcpServers[key];
-        }
-      }
-      config.mcpServers[MCP_SERVER_NAME] = {
+/**
+ * Write the live `churro-coder` MCP endpoint to a per-instance JSON file and
+ * return its path, to be passed as `claude --mcp-config <file>`.
+ *
+ * Why a file instead of mutating `~/.claude.json`: that global config is shared
+ * by EVERY Churro instance on the machine, but each instance runs its own MCP
+ * HTTP server on its own port. A dead instance's stale port left in the shared
+ * file poisoned the surviving instance's CLIs ("Unable to connect" on every
+ * write_plan/request_user_input). A per-userData file is naturally isolated per
+ * instance, so there is no cross-instance clobber. The file is overwritten
+ * fresh on every spawn with the currently-live url + bearer.
+ *
+ * `--mcp-config` is used WITHOUT `--strict-mcp-config`, so the user's own
+ * globally-configured MCP servers still load alongside ours.
+ */
+async function writeClaudeMcpConfigFile(mcpUrl: string, bearer: string): Promise<string> {
+  const path = claudeMcpConfigPath();
+  const config = {
+    mcpServers: {
+      [MCP_SERVER_NAME]: {
         type: 'http',
         url: mcpUrl,
         headers: { Authorization: `Bearer ${bearer}` }
-      };
-      return config;
-    });
-    claudeMcpLastWritten = { url: mcpUrl, bearer };
-    console.log(`[harness-bootstrap] claude-cli MCP registration ensured url=${mcpUrl}`);
-  })();
-
-  try {
-    await claudeMcpWriteInFlight;
-  } finally {
-    claudeMcpWriteInFlight = null;
-  }
+      }
+    }
+  };
+  await atomicWriteArtifact(path, JSON.stringify(config, null, 2));
+  console.log(`[harness-bootstrap] claude-cli MCP config written path=${path} url=${mcpUrl}`);
+  return path;
 }
 
 const CHURRO_SUBCHAT_ID_LABEL = 'Sub-chat id';
@@ -232,13 +216,18 @@ export async function buildBootstrap(
   }
 
   if (harness === 'claude-cli') {
+    let mcpConfigPath: string;
     try {
-      await ensureChurroMcpRegistered(endpoint.url, endpoint.bearer);
+      mcpConfigPath = await writeClaudeMcpConfigFile(endpoint.url, endpoint.bearer);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[harness-bootstrap] config-write-failed harness=${harness} sub=${subChatId} error=${message}`);
       return { kind: 'config-write-failed', message: `Failed to write Claude CLI MCP config: ${message}` };
     }
+    // Load our MCP server from a per-instance file instead of the global
+    // ~/.claude.json — see writeClaudeMcpConfigFile for why. No
+    // --strict-mcp-config, so the user's own MCP servers still load.
+    args.push('--mcp-config', mcpConfigPath);
     // Claude: --resume <id> resumes by session UUID. Pushed BEFORE the trust /
     // tools / system-prompt flags so the resume positional value is bound to
     // --resume and nothing else can claim it accidentally.

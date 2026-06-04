@@ -50,8 +50,8 @@ import {
   buildApprovedPlanReadPlanUnavailableMessage,
   getAppOwnedChurroCoderMcpServerName,
   getAppOwnedChurroCoderReadPlanToolName,
-  resolveAppOwnedMcpHeaders,
-  shouldRemoveStaleAppOwnedMcpEntry
+  isAppOwnedChurroCoderMcpServerName,
+  resolveAppOwnedMcpHeaders
 } from '../codex-mcp-auth';
 import { getCodexAppServerApprovalResponse } from '../codex-app-server-approval-policy';
 import { decideCodexMcpElicitation } from '../codex-mcp-elicitation';
@@ -111,6 +111,9 @@ type CodexAppServerSession = {
   client: CodexAppServerClient;
   authFingerprint: string | null;
   mcpBearer: string | null;
+  /** Live MCP endpoint URL baked into the app-server's `-c` overrides at spawn.
+   * Tracked so a server restart on a new port invalidates the cached session. */
+  mcpUrl: string | null;
   lastActivityAt: number;
 };
 
@@ -1492,15 +1495,53 @@ function getAppServerSessionKey(authConfig?: { apiKey: string }): string {
   return getAuthFingerprint(authConfig) || 'codex-chatgpt';
 }
 
+/**
+ * Build the `codex app-server` spawn args, injecting our MCP server via
+ * transient `-c` config overrides instead of persisting it to
+ * `~/.codex/config.toml`.
+ *
+ * Why transient: the global config.toml is shared by every Churro instance, but
+ * each runs its own MCP server on its own port. A `codex mcp add` from a dev
+ * build left a stale dead-port `churro-coder-dev` entry that survived the dev
+ * process and shadowed prod. `-c` overrides are per-spawn (parsed as TOML) and
+ * the app-server session is recreated whenever the live url/bearer changes, so
+ * nothing churro-owned is ever written to disk. The bearer is referenced by env
+ * var (CHURRO_MCP_BEARER, set in buildCodexProviderEnv) — never baked into argv.
+ *
+ * No `--strict-config`, so the user's own config.toml MCP servers still load.
+ */
+function buildCodexAppServerArgs(): string[] {
+  const args = ['app-server'];
+  const endpoint = getMcpHttpEndpoint();
+  if (endpoint) {
+    const serverName = getAppOwnedChurroCoderMcpServerName();
+    args.push(
+      '-c',
+      `mcp_servers.${serverName}.url="${endpoint.url}"`,
+      '-c',
+      `mcp_servers.${serverName}.bearer_token_env_var="CHURRO_MCP_BEARER"`,
+      '-c',
+      `mcp_servers.${serverName}.default_tools_approval_mode="approve"`
+    );
+  }
+  return args;
+}
+
 async function getOrCreateAppServerSession(params: {
   authConfig?: { apiKey: string };
 }): Promise<CodexAppServerSession> {
   const sessionKey = getAppServerSessionKey(params.authConfig);
   const authFingerprint = getAuthFingerprint(params.authConfig);
   const currentMcpBearer = getMcpHttpEndpoint()?.bearer || process.env.CHURRO_MCP_BEARER || null;
+  const currentMcpUrl = getMcpHttpEndpoint()?.url || null;
   const existing = appServerSessions.get(sessionKey);
 
-  if (existing && existing.authFingerprint === authFingerprint && existing.mcpBearer === currentMcpBearer) {
+  if (
+    existing &&
+    existing.authFingerprint === authFingerprint &&
+    existing.mcpBearer === currentMcpBearer &&
+    existing.mcpUrl === currentMcpUrl
+  ) {
     await existing.client.ensureInitialized();
     return existing;
   }
@@ -1508,7 +1549,8 @@ async function getOrCreateAppServerSession(params: {
   if (existing) {
     const authChanged = existing.authFingerprint !== authFingerprint;
     const bearerChanged = existing.mcpBearer !== currentMcpBearer;
-    const reason = authChanged && bearerChanged ? 'both' : authChanged ? 'auth' : 'bearer';
+    const urlChanged = existing.mcpUrl !== currentMcpUrl;
+    const reason = [authChanged && 'auth', bearerChanged && 'bearer', urlChanged && 'url'].filter(Boolean).join('+');
     console.log(
       `[churro-coder] Codex app-server session invalidated reason=${reason} sessionKey=${sessionKey} hadBearer=${Boolean(existing.mcpBearer)} hasBearer=${Boolean(currentMcpBearer)}`
     );
@@ -1527,7 +1569,7 @@ async function getOrCreateAppServerSession(params: {
   const client = new CodexAppServerClient({
     command: resolveBundledCodexCliPath(),
     clientInfoVersion: app.getVersion(),
-    args: ['app-server'],
+    args: buildCodexAppServerArgs(),
     env: buildCodexProviderEnv(params.authConfig),
     onActivity: () => {
       session!.lastActivityAt = Date.now();
@@ -1546,6 +1588,7 @@ async function getOrCreateAppServerSession(params: {
     client,
     authFingerprint,
     mcpBearer: currentMcpBearer,
+    mcpUrl: currentMcpUrl,
     lastActivityAt: Date.now()
   };
   appServerSessions.set(sessionKey, session);
@@ -2623,9 +2666,10 @@ async function handleAppServerServerRequest(request: CodexAppServerServerRequest
  * failure is silent and read_plan doesn't work for Codex with no obvious cause).
  *
  * - 'pending'      — bootstrap not yet attempted
- * - 'ready'        — Codex MCP entry registered and pointing at our HTTP server
- * - 'cli-missing'  — Codex CLI not installed; nothing to register (not an error)
- * - 'failed'       — Codex CLI ran but `mcp add` failed (worth a toast)
+ * - 'ready'        — our HTTP server is alive; the app-server gets it via a
+ *                    transient `-c` override at spawn (no persisted entry)
+ * - 'cli-missing'  — Codex CLI not installed; app-server can't spawn (not an error)
+ * - 'failed'       — MCP HTTP server could not be brought up (worth a toast)
  */
 export type ChurroCoderMcpStatus =
   | { state: 'pending' }
@@ -2641,77 +2685,53 @@ export function getChurroCoderMcpStatus(): ChurroCoderMcpStatus {
 }
 
 /**
- * Register the churro-coder MCP server with the Codex CLI.
- * Self-heals: re-runs mcp add if the entry is absent or the URL has drifted.
+ * Prepare the churro-coder MCP server for the Codex builtin (app-server)
+ * provider.
  *
- * Codex reads the bearer from process.env.CHURRO_MCP_BEARER at session start
- * (referenced by name, not value), so rotating the bearer in churro-mcp.json
- * does not require re-registration — the CLI entry stays valid.
+ * The server is injected TRANSIENTLY via `-c mcp_servers.*` overrides at
+ * app-server spawn (see {@link buildCodexAppServerArgs}) — it is NOT persisted
+ * to `~/.codex/config.toml` via `codex mcp add`. This function therefore only:
+ *   1. ensures the MCP HTTP server is alive and exports the bearer env var, and
+ *   2. removes any PERSISTED churro-owned entry left by older builds (current +
+ *      legacy dev/prod), so a stale dead-port entry can't shadow the transient
+ *      one or linger in the user's `/mcp` list.
+ *
+ * Readiness is a pure function of the live HTTP endpoint; the bearer is read
+ * from process.env.CHURRO_MCP_BEARER at session start (by name, not value), so
+ * rotating it just invalidates the cached app-server session.
  */
 async function bootstrapChurroCoderMcpInternal(): Promise<void> {
   const { url, bearer } = await ensureMcpHttpServerAlive();
   process.env.CHURRO_MCP_BEARER = bearer;
 
   const serverName = getAppOwnedChurroCoderMcpServerName();
-  let existing: any[] = [];
+
+  let existing: unknown[] = [];
   try {
     const listResult = await runCodexCli(['mcp', 'list', '--json']);
     if (listResult.exitCode === 0) {
-      existing = JSON.parse(listResult.stdout);
+      const parsed = JSON.parse(listResult.stdout);
+      if (Array.isArray(parsed)) existing = parsed;
     }
   } catch {
+    // No Codex CLI ⇒ the app-server can't spawn either. Surface cli-missing so
+    // the UI status reflects reality (read_plan etc. unavailable).
     console.warn('[churro-coder] Could not list Codex MCP servers action=cli-missing');
     setChurroCoderMcpStatus({ state: 'cli-missing' }, 'mcp-list-cli-missing');
     return;
   }
 
-  // Clean up legacy/stale app-owned entries. Codex app-server reads global MCP
-  // config itself, so a stale churro-coder entry can still be loaded even when
-  // this app registered the current dev/prod entry correctly.
-  if (Array.isArray(existing)) {
-    for (const server of existing) {
-      const name = typeof server?.name === 'string' ? server.name : '';
-      if (name && shouldRemoveStaleAppOwnedMcpEntry(name, serverName)) {
-        await runCodexCli(['mcp', 'remove', name]).catch(() => {});
-      }
+  // Purge ALL persisted churro-owned entries — we register transiently now.
+  for (const server of existing) {
+    const name = typeof (server as { name?: unknown })?.name === 'string' ? (server as { name: string }).name : '';
+    if (name && isAppOwnedChurroCoderMcpServerName(name)) {
+      await runCodexCli(['mcp', 'remove', name]).catch(() => {});
     }
   }
+  clearCodexMcpCache();
 
-  const entry = Array.isArray(existing) ? existing.find((s: any) => s.name === serverName) : null;
-  const existingUrl = entry?.transport?.url ?? entry?.url ?? null;
-  const alreadyRegistered = entry && existingUrl === url;
-  const registrationAction = alreadyRegistered ? 'noop' : entry ? 'replace' : 'add';
-  console.log(
-    `[churro-coder] Codex MCP list result serverName=${serverName} hasEntry=${Boolean(entry)} entryUrl=${existingUrl || 'none'} currentUrl=${url} action=${registrationAction}`
-  );
-
-  if (alreadyRegistered) {
-    console.log(`[churro-coder] Codex MCP entry "${serverName}" already up-to-date`);
-    setChurroCoderMcpStatus({ state: 'ready', serverName, url }, 'already-registered');
-    return;
-  }
-
-  if (entry) {
-    // Remove stale entry (URL drifted — port changed between launches)
-    await runCodexCli(['mcp', 'remove', serverName]).catch(() => {});
-  }
-
-  try {
-    await runCodexCliChecked(['mcp', 'add', serverName, '--url', url, '--bearer-token-env-var', 'CHURRO_MCP_BEARER']);
-    clearCodexMcpCache();
-    console.log(`[churro-coder] Registered Codex MCP server "${serverName}" at ${url}`);
-    setChurroCoderMcpStatus({ state: 'ready', serverName, url }, registrationAction);
-  } catch (err) {
-    // Most likely cause: bundled Codex CLI doesn't accept --bearer-token-env-var.
-    // The plan tracks this as a follow-up (fall back to writing ~/.codex/config.toml).
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error(
-      '[churro-coder] Failed to register Codex MCP server. ' +
-        'Codex agents will not be able to call read_plan until this is resolved. Error:',
-      err
-    );
-    setChurroCoderMcpStatus({ state: 'failed', serverName, error: errorMessage }, 'bootstrap-failed');
-  }
+  console.log(`[churro-coder] Codex MCP transient override ready serverName=${serverName} url=${url}`);
+  setChurroCoderMcpStatus({ state: 'ready', serverName, url }, 'transient-c-override');
 }
 
 export async function ensureChurroCoderMcpReady(params?: { subChatId?: string; force?: boolean }): Promise<void> {
@@ -3090,6 +3110,15 @@ export const codexRouter = router({
             // If a live stream already exists for this subChatId, do NOT abort it —
             // return an empty observable instead. This makes tab-switching a no-op
             // at the backend level, so in-flight streams survive workspace switches.
+            //
+            // CONCURRENCY INVARIANT: the get() check and the set() below must stay
+            // synchronous with NO `await` between them. Node runs this setup body on
+            // a single thread, so two concurrent `send` subscriptions for the same
+            // subChatId can't interleave here — the first runs to the set(), the
+            // second observes the live entry and returns the empty observable. If you
+            // ever introduce an `await` between the check and the set, that atomicity
+            // is lost: both calls could pass the check, the second set() would orphan
+            // the first AbortController, and its stream would leak. Keep them adjacent.
             const existingStream = activeStreams.get(input.subChatId);
             if (existingStream && !existingStream.controller.signal.aborted) {
               console.log(`[SD] M:SKIP_DUPLICATE_START sub=${input.subChatId.slice(-8)} reason=already_active`);
