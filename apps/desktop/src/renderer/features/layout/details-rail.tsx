@@ -9,6 +9,7 @@ import {
   selectedDiffFilePathAtom
 } from '../agents/atoms';
 import { useSubChatMode } from '../agents/hooks/use-sub-chat-mode';
+import { useHarnessSendDispatcher } from '../agents/hooks/use-harness-send-dispatcher';
 import { defaultAgentModeAtom } from '../../lib/atoms';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
 import { useWorkspaceIdentity } from '../agents/hooks/use-workspace-identity';
@@ -180,6 +181,13 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   const defaultMode = useAtomValue(defaultAgentModeAtom);
   const currentMode = activeSubChatId ? subChatMode : defaultMode;
 
+  // Plan "Approve" action for the sidebar Plan widget. Routes through the
+  // harness dispatcher so CLI sub-chats write the approve message to the PTY
+  // and builtin sub-chats flip the pending-build-plan atom (same path as the
+  // dock Plan panel). Without this, onApprovePlan is undefined and the Approve
+  // button never renders even when mode === 'plan'.
+  const { dispatchBuildPlan } = useHarnessSendDispatcher(activeSubChatId ?? '');
+
   // Diff cache populated by ChatView
   const diffCache = useAtomValue(workspaceDiffCacheAtomFamily(chatId ?? ''));
 
@@ -316,6 +324,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
           worktreePath={worktreePath}
           planPath={planPath}
           mode={currentMode}
+          onBuildPlan={activeSubChatId ? dispatchBuildPlan : undefined}
           planRefetchTrigger={planRefetchTrigger}
           activeSubChatId={activeSubChatId}
           canOpenDiff={canOpenDiff}

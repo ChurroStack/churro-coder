@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
 import { useHarnessSendDispatcher } from '../../agents/hooks/use-harness-send-dispatcher';
 import { useSubChatMode } from '../../agents/hooks/use-sub-chat-mode';
+import { useWorkflowState } from '../../agents/hooks/use-workflow-state';
 import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
 import { PlanSection } from '../../details-sidebar/sections/plan-section';
 import type { PlanPanelEntity } from '../atoms';
@@ -19,6 +20,16 @@ export function PlanPanel({ params, api, containerApi }: IDockviewPanelProps<Pla
   const { mode } = useSubChatMode(activeSubChatId ?? '');
   const { dispatchBuildPlan } = useHarnessSendDispatcher(activeSubChatId ?? '');
 
+  // For CLI harnesses the `mode` column reflects the creation-time choice, not
+  // the CLI's live plan/execute toggle — so a session sitting on a freshly
+  // written, unapproved plan can be `mode === 'execute'` and would otherwise
+  // hide Approve. Fall back to the workflow plan signal: `attention` means a
+  // plan exists, has no tasks yet, and isn't approved — exactly when Approve is
+  // the meaningful action.
+  const workflow = useWorkflowState(params.chatId, activeSubChatId ?? null);
+  const planNeedsApproval = workflow?.plan?.status === 'attention';
+  const showApprove = mode === 'plan' || planNeedsApproval;
+
   const handleApprove = () => {
     const id = useAgentSubChatStore.getState().activeSubChatId;
     if (!id) return;
@@ -33,7 +44,7 @@ export function PlanPanel({ params, api, containerApi }: IDockviewPanelProps<Pla
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden border-t border-border">
-      {mode === 'plan' && (
+      {showApprove && (
         <div className="flex items-center justify-end gap-2 px-3 h-9 border-b border-border bg-muted/30 flex-shrink-0">
           <Button
             size="sm"

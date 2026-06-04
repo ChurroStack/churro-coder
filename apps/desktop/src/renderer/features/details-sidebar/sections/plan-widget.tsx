@@ -24,6 +24,9 @@ interface PlanWidgetProps {
   refetchTrigger?: number;
   /** Current agent mode (plan or agent) */
   mode?: AgentMode;
+  /** Plan exists and is unapproved (workflow "attention") — show Approve even
+   * when `mode !== 'plan'` (CLI sessions whose mode column lags the live mode). */
+  canApprove?: boolean;
   /** Callback when "Approve" is clicked */
   onApprovePlan?: () => void;
 }
@@ -40,6 +43,7 @@ export const PlanWidget = memo(function PlanWidget({
   planPath,
   refetchTrigger,
   mode = 'execute',
+  canApprove = false,
   onApprovePlan
 }: PlanWidgetProps) {
   // Plan content/path is a per-sub-chat artifact, so key strictly by the
@@ -193,7 +197,7 @@ export const PlanWidget = memo(function PlanWidget({
               className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground">
               View plan
             </Button>
-            {mode === 'plan' && onApprovePlan && (
+            {(mode === 'plan' || canApprove) && onApprovePlan && (
               <Button
                 size="sm"
                 onClick={(e) => {
