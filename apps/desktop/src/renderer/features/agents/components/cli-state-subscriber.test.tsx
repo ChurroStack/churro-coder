@@ -78,12 +78,16 @@ vi.mock('../../../lib/jotai-store', () => {
 import { CliStateSubscriber } from './cli-state-subscriber';
 import {
   agentFinishedTickAtomFamily,
+  agentsSubChatUnseenChangesAtom,
+  agentsUnseenChangesAtom,
   cliBusyAtomFamily,
   parentChatBusyAtomFamily,
+  selectedAgentChatIdAtom,
   subChatBusyAtom,
   subChatBusyAtomFamily
 } from '../atoms';
 import { appStore } from '../../../lib/jotai-store';
+import { useAgentSubChatStore } from '../stores/sub-chat-store';
 
 const SUB = 'sc-cli-1';
 const PARENT = 'chat-cli-1';
@@ -101,6 +105,10 @@ beforeEach(() => {
   mockSub.enabled = undefined;
   mockSub.callCount = 0;
   appStore.set(subChatBusyAtom, new Map());
+  appStore.set(agentsSubChatUnseenChangesAtom, new Set());
+  appStore.set(agentsUnseenChangesAtom, new Set());
+  appStore.set(selectedAgentChatIdAtom, null);
+  useAgentSubChatStore.setState({ activeSubChatId: null });
 });
 
 afterEach(() => {
@@ -193,6 +201,47 @@ describe('CliStateSubscriber — unified busy atom [cli-state-subscriber/mirror]
     mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
     const secondRef = appStore.get(subChatBusyAtom);
     expect(firstRef).toBe(secondRef);
+  });
+});
+
+describe('CliStateSubscriber — unseen-changes fan-out [cli-state-subscriber/unseen]', () => {
+  test('running → idle lights the sidebar unseen dots when not viewing the sub-chat/workspace', () => {
+    renderSubscriber();
+    mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
+    mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'idle' });
+
+    expect(appStore.get(agentsSubChatUnseenChangesAtom).has(SUB)).toBe(true);
+    expect(appStore.get(agentsUnseenChangesAtom).has(PARENT)).toBe(true);
+  });
+
+  test('bare idle snapshot (never ran this session) does NOT light the unseen dots', () => {
+    // Late-subscriber snapshot replays the current state of already-idle CLI
+    // sessions; without the `wasRunning` guard those would falsely flag unseen.
+    renderSubscriber();
+    mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'idle' });
+
+    expect(appStore.get(agentsSubChatUnseenChangesAtom).has(SUB)).toBe(false);
+    expect(appStore.get(agentsUnseenChangesAtom).has(PARENT)).toBe(false);
+  });
+
+  test('does not flag unseen for the sub-chat / workspace the user is actively viewing', () => {
+    useAgentSubChatStore.setState({ activeSubChatId: SUB });
+    appStore.set(selectedAgentChatIdAtom, PARENT);
+    renderSubscriber();
+    mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
+    mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'idle' });
+
+    expect(appStore.get(agentsSubChatUnseenChangesAtom).has(SUB)).toBe(false);
+    expect(appStore.get(agentsUnseenChangesAtom).has(PARENT)).toBe(false);
+  });
+
+  test('exited after running also lights unseen (finished a turn then the PTY closed)', () => {
+    renderSubscriber();
+    mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'running' });
+    mockSub.onData?.({ subChatId: SUB, parentChatId: PARENT, state: 'exited' });
+
+    expect(appStore.get(agentsSubChatUnseenChangesAtom).has(SUB)).toBe(true);
+    expect(appStore.get(agentsUnseenChangesAtom).has(PARENT)).toBe(true);
   });
 });
 

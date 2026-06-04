@@ -5,7 +5,7 @@ import { useAgentSubChatStore } from '../../agents/stores/sub-chat-store';
 import { AgentsContent } from '../../agents/ui/agents-content';
 import { ChatCliSurface } from '../../agents/ui/chat-cli-surface';
 import { CliPromptBar } from '../../agents/ui/cli-prompt-bar';
-import { selectedAgentChatIdAtom } from '../../agents/atoms';
+import { agentsSubChatUnseenChangesAtom, agentsUnseenChangesAtom, selectedAgentChatIdAtom } from '../../agents/atoms';
 import { trpc } from '../../../lib/trpc';
 import { appStore } from '../../../lib/jotai-store';
 import type { ChatPanelEntity } from '../atoms';
@@ -251,6 +251,38 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
     isWorkspaceActive &&
     (activeSubChatId === params.subChatId || (!activeSubChatId && openSubChatIds[0] === params.subChatId));
   const shouldMountContent = isVisible || isStoreActivePanel;
+
+  // Clear the CLI "unseen changes" sidebar dots once the user is viewing this
+  // sub-chat / workspace. The builtin surface does this in active-chat.tsx, but
+  // CLI panels render ChatCliSurface here instead of that ChatView, so the
+  // clear must be mirrored. The set side lives in <CliStateSubscriber/>.
+  const clearSubChatUnseen = useSetAtom(agentsSubChatUnseenChangesAtom);
+  const clearWorkspaceUnseen = useSetAtom(agentsUnseenChangesAtom);
+  useEffect(() => {
+    if (!isCliHarnessEarly || !isWorkspaceActive) return;
+    if (isStoreActivePanel) {
+      clearSubChatUnseen((prev) => {
+        if (!prev.has(params.subChatId)) return prev;
+        const next = new Set(prev);
+        next.delete(params.subChatId);
+        return next;
+      });
+    }
+    clearWorkspaceUnseen((prev) => {
+      if (!prev.has(params.chatId)) return prev;
+      const next = new Set(prev);
+      next.delete(params.chatId);
+      return next;
+    });
+  }, [
+    isCliHarnessEarly,
+    isWorkspaceActive,
+    isStoreActivePanel,
+    params.subChatId,
+    params.chatId,
+    clearSubChatUnseen,
+    clearWorkspaceUnseen
+  ]);
 
   // Auto-refresh workflow caches once per chatId per app session when the panel
   // becomes visible so the Status widget reflects current disk state without a
