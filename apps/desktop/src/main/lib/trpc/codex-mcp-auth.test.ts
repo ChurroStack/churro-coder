@@ -13,8 +13,7 @@ import {
   getAppOwnedChurroCoderMcpServerName,
   getAppOwnedChurroCoderReadPlanToolName,
   isAppOwnedChurroCoderMcpServerName,
-  resolveAppOwnedMcpHeaders,
-  shouldRemoveStaleAppOwnedMcpEntry
+  resolveAppOwnedMcpHeaders
 } from './codex-mcp-auth';
 
 beforeEach(() => {
@@ -73,26 +72,6 @@ describe('resolveAppOwnedMcpHeaders', () => {
         headers: undefined
       })
     ).toBeUndefined();
-  });
-});
-
-describe('shouldRemoveStaleAppOwnedMcpEntry', () => {
-  test('removes legacy churro-memory entries', () => {
-    expect(shouldRemoveStaleAppOwnedMcpEntry('churro-memory', 'churro-coder-dev')).toBe(true);
-    expect(shouldRemoveStaleAppOwnedMcpEntry('churro-memory-dev', 'churro-coder-dev')).toBe(true);
-  });
-
-  test('removes only the inactive built-in churro-coder variant', () => {
-    expect(shouldRemoveStaleAppOwnedMcpEntry('churro-coder', 'churro-coder-dev')).toBe(true);
-    expect(shouldRemoveStaleAppOwnedMcpEntry('churro-coder-dev', 'churro-coder-dev')).toBe(false);
-    expect(shouldRemoveStaleAppOwnedMcpEntry('churro-coder-dev', 'churro-coder')).toBe(true);
-    expect(shouldRemoveStaleAppOwnedMcpEntry('churro-coder', 'churro-coder')).toBe(false);
-  });
-
-  test('preserves custom similarly named servers', () => {
-    expect(shouldRemoveStaleAppOwnedMcpEntry('churro-coder-debug', 'churro-coder-dev')).toBe(false);
-    expect(shouldRemoveStaleAppOwnedMcpEntry('churro-coder-coworker', 'churro-coder-dev')).toBe(false);
-    expect(shouldRemoveStaleAppOwnedMcpEntry('other-server', 'churro-coder-dev')).toBe(false);
   });
 });
 

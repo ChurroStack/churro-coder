@@ -116,17 +116,25 @@ export function claudeConfigExists(): boolean {
 }
 
 /**
- * Remove all churro-coder-* MCP entries from ~/.claude.json.
- * Called at app startup so orphaned entries from a previous run (crash / force-quit)
- * don't accumulate in Claude's /mcp list. New entries are re-injected by each CLI
- * session when it bootstraps.
+ * Remove churro-coder MCP entries from the global ~/.claude.json.
+ *
+ * Covers two cases:
+ * - legacy per-subChat keys (`churro-coder-<id>`) from the pre-shared-MCP era;
+ * - the bare `churro-coder` entry written by older builds that registered the
+ *   server globally. We no longer write the global file at all — Claude CLI now
+ *   loads our server from a per-instance `--mcp-config` file (see
+ *   cli-harness/index.ts). Removing the bare entry migrates upgraders and stops
+ *   a dead/stale port from poisoning `/mcp` or colliding with the file-provided
+ *   server. The live server is supplied per-spawn, so nothing re-injects here.
+ *
+ * Called at app startup/shutdown so stale entries don't linger.
  */
 export async function clearOrphanedChurroMcpEntries(): Promise<void> {
   await updateClaudeConfigAtomic((config) => {
     if (!config.mcpServers) return config;
     const before = Object.keys(config.mcpServers).length;
     for (const key of Object.keys(config.mcpServers)) {
-      if (key.startsWith('churro-coder-')) {
+      if (key === 'churro-coder' || key.startsWith('churro-coder-')) {
         delete config.mcpServers[key];
       }
     }
