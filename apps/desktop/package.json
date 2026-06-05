@@ -22,14 +22,9 @@
     "dist": "electron-builder",
     "dist:manifest": "node scripts/generate-update-manifest.mjs",
     "dist:upload": "node scripts/upload-release.mjs",
-    "claude:download": "node scripts/download-claude-binary.mjs --version=2.1.156",
-    "claude:download:all": "node scripts/download-claude-binary.mjs --version=2.1.156 --all",
-    "codex:download": "node scripts/download-codex-binary.mjs --version=0.135.0",
-    "codex:download:all": "node scripts/download-codex-binary.mjs --version=0.135.0 --all",
-    "openspec:install": "node scripts/download-openspec.mjs",
-    "openspec:install:latest": "node scripts/download-openspec.mjs --latest",
-    "release": "rm -rf release && bun i && bun run claude:download && bun run codex:download && bun run openspec:install && bun run build && bun run package:mac && bun run dist:manifest && ./scripts/upload-release-wrangler.sh",
-    "release:dev": "rm -rf release && bun run claude:download && bun run codex:download && bun run openspec:install && bun run build && bun run package:mac && rm -rf node_modules && bun i",
+    "codex:gen-types": "node scripts/download-codex-binary.mjs --version=0.135.0",
+    "release": "rm -rf release && bun i && bun run build && bun run package:mac && bun run dist:manifest && ./scripts/upload-release-wrangler.sh",
+    "release:dev": "rm -rf release && bun run build && bun run package:mac && rm -rf node_modules && bun i",
     "icon:generate": "node scripts/generate-icon.mjs",
     "sync:openspec": "node scripts/sync-openspec-prompts.mjs",
     "openspec:prompts:sync": "node scripts/sync-openspec-prompts.mjs",
@@ -41,7 +36,7 @@
     "typecheck": "tsc --noEmit",
     "ts:check": "bun run typecheck",
     "format": "prettier --write --ignore-unknown ./src",
-    "postinstall": "node scripts/patch-node-pty-win.mjs && node -e \"if(!process.env.VERCEL && !process.env.SKIP_ELECTRON_REBUILD){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\" && node scripts/patch-electron-dev.mjs && node scripts/patch-radix-slot.mjs && node -e \"if(!process.env.SKIP_ELECTRON_REBUILD){try{require('child_process').execSync('node scripts/download-openspec.mjs',{stdio:'inherit'})}catch(e){console.warn('[postinstall] openspec install failed (run bun run openspec:install manually):',e.message)}}\""
+    "postinstall": "node scripts/patch-node-pty-win.mjs && node -e \"if(!process.env.VERCEL && !process.env.SKIP_ELECTRON_REBUILD){require('child_process').execSync('electron-rebuild -f -w better-sqlite3,node-pty',{stdio:'inherit'})}\" && node scripts/patch-electron-dev.mjs && node scripts/patch-radix-slot.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.179",
@@ -189,28 +184,6 @@
         "to": "migrations"
       },
       {
-        "from": "resources/bin/${platform}-${arch}",
-        "to": "bin",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/bin/VERSION",
-        "to": "bin/VERSION"
-      },
-      {
-        "from": "resources/bin/CODEX_VERSION",
-        "to": "bin/CODEX_VERSION"
-      },
-      {
-        "from": "resources/openspec",
-        "to": "openspec",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "resources/new-project-templates",
         "to": "new-project-templates",
         "filter": [
@@ -222,7 +195,8 @@
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
       "node_modules/node-pty/**/*",
-      "node_modules/@anthropic-ai/claude-agent-sdk/**/*"
+      "node_modules/@anthropic-ai/claude-agent-sdk/**/*",
+      "node_modules/@anthropic-ai/claude-agent-sdk-*/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",

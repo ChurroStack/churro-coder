@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import path from 'node:path';
 import { promisify } from 'node:util';
-import { getOpenspecBinDir, buildOpenspecEnvOverrides } from './openspec-bin-path';
+import { getShellEnvironment } from '../git/shell-env';
+import { buildOpenspecEnvOverrides, resolveOpenspecBin, OpenspecCliMissingError } from './openspec-bin-path';
 
 const execFileAsync = promisify(execFile);
 
@@ -18,17 +18,19 @@ export class OpenspecCliError extends Error {
 }
 
 /**
- * Runs the bundled openspec CLI with the given args in the given working directory.
- * Merges buildOpenspecEnvOverrides() into the child environment so the shim works.
- * Throws OpenspecCliError on non-zero exit.
+ * Runs the user's PATH-installed openspec CLI with the given args in the given
+ * working directory. Resolves the absolute binary via the shell-env-aware
+ * detector and spawns it with the login-shell PATH (so a Finder-launched macOS
+ * app finds it) plus the telemetry-off overrides. Throws OpenspecCliMissingError
+ * when openspec is not installed, OpenspecCliError on a non-zero exit.
  */
 export async function runOpenspecCli(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
-  const binDir = getOpenspecBinDir();
-  const bin = path.join(binDir, 'openspec');
+  const bin = await resolveOpenspecBin();
+  if (!bin) throw new OpenspecCliMissingError();
 
-  const env = { ...process.env, ...buildOpenspecEnvOverrides() };
+  const env = { ...(await getShellEnvironment()), ...buildOpenspecEnvOverrides() };
 
-  console.log(`[openspec-cli] running: openspec ${args.join(' ')} cwd=${cwd}`);
+  console.log(`[openspec-cli] running: ${bin} ${args.join(' ')} cwd=${cwd}`);
 
   try {
     const { stdout, stderr } = await execFileAsync(bin, args, {

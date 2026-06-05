@@ -31,7 +31,6 @@ vi.mock('../../claude', () => ({
   buildClaudeEnv: vi.fn(() => ({})),
   checkOfflineFallback: vi.fn(() => false),
   createTransformer: vi.fn(() => ({ transform: (msg: unknown) => [msg] })),
-  getBundledClaudeBinaryPath: vi.fn(() => null),
   logClaudeEnv: vi.fn()
 }));
 vi.mock('../../file-stats', () => ({ computeFileStatsFromMessages: vi.fn(() => ({})) }));

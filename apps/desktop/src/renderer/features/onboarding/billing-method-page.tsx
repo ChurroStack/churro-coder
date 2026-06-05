@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import { ClaudeCodeIcon, CodexIcon, KeyFilledIcon, SettingsFilledIcon } from '../../components/ui/icons';
 import { billingMethodAtom, codexOnboardingCompletedAtom, type BillingMethod } from '../../lib/atoms';
 import { cn } from '../../lib/utils';
+import { CliInstallInstructions } from '../new-project/cli-install-instructions';
 
 type BillingOptionGroup = 'claude-code' | 'codex';
 
@@ -181,6 +182,9 @@ export function BillingMethodPage() {
             </button>
           ))}
         </div>
+
+        {/* CLI detection for the selected provider — informational, never gates Continue. */}
+        <CliInstallInstructions provider={selectedGroup === 'codex' ? 'codex' : 'claude'} showWhenAvailable />
 
         {/* Continue Button */}
         <button

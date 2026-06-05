@@ -63,14 +63,11 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            platform: mac
-            cli_suffix: "" # arm64-only build; the runner is Apple Silicon (see package.json mac.target)
+            platform: mac # arm64-only build; the runner is Apple Silicon (see package.json mac.target)
           - os: windows-latest
             platform: win
-            cli_suffix: ""
           - os: ubuntu-latest
             platform: linux
-            cli_suffix: ""
 
     defaults:
       run:
@@ -89,20 +86,10 @@ jobs:
 
       # NOTE: unlike ci.yml, we deliberately do NOT set SKIP_ELECTRON_REBUILD here —
       # release artifacts must contain real native builds (better-sqlite3 / node-pty)
-      # for the target OS, and the postinstall also lays down the openspec resources.
+      # for the target OS. The claude/codex/openspec CLIs are no longer bundled —
+      # the app detects and uses the user's PATH-installed copies at runtime.
       - name: Install desktop deps (bun, with native rebuild)
         run: bun install --frozen-lockfile
-
-      # Fetch the bundled CLI binaries into resources/bin/<platform>-<arch>. GH_TOKEN is
-      # exported so the codex downloader's GitHub API calls aren't rate-limited.
-      - name: Download bundled CLI binaries
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          bun run claude:download${{ matrix.cli_suffix }}
-          bun run codex:download${{ matrix.cli_suffix }}
 
       - name: Build (electron-vite)
         run: bun run build

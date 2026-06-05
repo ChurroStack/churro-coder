@@ -3,12 +3,22 @@ import { Button } from '@/components/ui/button';
 import { RefreshCw, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { getPlatform } from '@/lib/utils/platform';
+import { getCliInstallCommands, CLI_LABELS, type CliTool } from '../../../shared/cli-install-commands';
+
 type ProviderId = 'github' | 'azure' | 'local';
+type DetectTarget = ProviderId | CliTool;
 type Platform = ReturnType<typeof getPlatform>;
 
 interface Props {
-  provider: ProviderId;
+  /** Provider CLI (gh/az/git) or agent CLI (claude/codex/openspec) to detect. */
+  provider: DetectTarget;
   missingExtension?: string;
+  /**
+   * When true, render a status row even when the CLI is present (used on the
+   * welcome screen + Settings). Default false preserves the new-project
+   * behavior of showing nothing unless the CLI is missing.
+   */
+  showWhenAvailable?: boolean;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -19,13 +29,13 @@ function CopyButton({ text }: { text: string }) {
     setTimeout(() => setCopied(false), 1500);
   };
   return (
-    <button onClick={copy} className="ml-2 text-muted-foreground hover:text-foreground">
+    <button onClick={copy} className="ml-2 text-muted-foreground hover:text-foreground" aria-label="Copy command">
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
     </button>
   );
 }
 
-export function CliInstallInstructions({ provider }: Props) {
+export function CliInstallInstructions({ provider, showWhenAvailable = false }: Props) {
   const utils = trpc.useUtils();
   const [isRechecking, setIsRechecking] = useState(false);
 
@@ -52,15 +62,39 @@ export function CliInstallInstructions({ provider }: Props) {
     }
   };
 
-  if (!data || data.available) return null;
+  if (!data) return null;
+
+  // Agent CLIs report a version gate; provider CLIs omit it (treat as "no gate").
+  const meetsMinimum = (data as { meetsMinimum?: boolean }).meetsMinimum ?? true;
+  const version = (data as { version?: string }).version;
+  const requiredVersion = (data as { requiredVersion?: string }).requiredVersion;
+  const isOutdated = data.available && !meetsMinimum;
+  const isMissing = !data.available;
+
+  // Installed & up to date → optional compact status row.
+  if (!isMissing && !isOutdated) {
+    if (!showWhenAvailable) return null;
+    return (
+      <div
+        className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+        <span className="font-medium">{targetLabel(provider)} detected</span>
+        {version && <span className="text-muted-foreground">· v{version}</span>}
+      </div>
+    );
+  }
 
   const steps = getInstallSteps(provider, getPlatform());
+  const summary = isOutdated
+    ? `${targetLabel(provider)} v${version} is below the required v${requiredVersion} — upgrade recommended`
+    : steps.summary;
 
   return (
     <div
       className="rounded-md border border-border bg-muted/40 p-4 space-y-3"
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-      <p className="text-sm font-medium">{steps.summary}</p>
+      <p className="text-sm font-medium">{summary}</p>
       <ol className="space-y-1">
         {steps.commands.map((cmd, i) => (
           <li key={i} className="flex items-center gap-1 font-mono text-xs text-foreground">
@@ -82,15 +116,29 @@ export function CliInstallInstructions({ provider }: Props) {
   );
 }
 
+function targetLabel(target: DetectTarget): string {
+  if (target === 'claude' || target === 'codex' || target === 'openspec') return CLI_LABELS[target];
+  if (target === 'github') return 'GitHub CLI';
+  if (target === 'azure') return 'Azure CLI';
+  return 'Git';
+}
+
 // Install commands per platform, sourced from each tool's official docs:
 //   gh:  https://cli.github.com (winget + apt are the supported one-liners)
 //   az:  https://learn.microsoft.com/en-us/cli/azure/install-azure-cli
 //   git: https://git-scm.com/downloads
+//   claude/codex/openspec: src/shared/cli-install-commands.ts (single source)
 // Linux defaults to the Debian/Ubuntu command (largest installed base); we add
 // a one-line Fedora hint as a comment so dnf users aren't left guessing.
 // `unknown` falls back to the macOS commands — same as the prior hard-coded
 // behavior, so this is a strict superset of the previous output.
-function getInstallSteps(provider: ProviderId, platform: Platform): { summary: string; commands: string[] } {
+function getInstallSteps(provider: DetectTarget, platform: Platform): { summary: string; commands: string[] } {
+  if (provider === 'claude' || provider === 'codex' || provider === 'openspec') {
+    return {
+      summary: `${CLI_LABELS[provider]} is not installed`,
+      commands: getCliInstallCommands(provider, platform)
+    };
+  }
   if (provider === 'github') {
     return {
       summary: 'GitHub CLI (gh) is not installed',

@@ -59,15 +59,15 @@ vi.mock('../../platform/index', () => ({
 }));
 
 vi.mock('../../openspec/openspec-bin-path', () => {
-  class OpenspecBundleMissingError extends Error {
-    constructor(binDir: string) {
-      super(`OpenSpec CLI bundle not found at ${binDir}.`);
-      this.name = 'OpenspecBundleMissingError';
+  class OpenspecCliMissingError extends Error {
+    constructor() {
+      super('OpenSpec CLI not found on PATH. Install it with: npm install -g @fission-ai/openspec');
+      this.name = 'OpenspecCliMissingError';
     }
   }
   return {
     assertOpenspecBinAvailable: vi.fn(),
-    OpenspecBundleMissingError
+    OpenspecCliMissingError
   };
 });
 
@@ -121,7 +121,7 @@ import { renderTemplate } from '../../providers/templates';
 import { newProjectRouter } from './new-project';
 import type { NewProjectEvent } from './new-project';
 import { runOpenspecCli } from '../../openspec/run-openspec-cli';
-import { assertOpenspecBinAvailable, OpenspecBundleMissingError } from '../../openspec/openspec-bin-path';
+import { assertOpenspecBinAvailable, OpenspecCliMissingError } from '../../openspec/openspec-bin-path';
 
 const mockGetDatabase = vi.mocked(getDatabase);
 const mockGetProviderAdapter = vi.mocked(getProviderAdapter);
@@ -431,9 +431,9 @@ describe('createProject — openspecInit true', () => {
     expect(mockCreateWorktreeForChat).not.toHaveBeenCalled();
   });
 
-  it('flags bundle-missing with a more actionable error message than a transient CLI error', async () => {
+  it('flags cli-missing with a more actionable error message than a transient CLI error', async () => {
     mockAssertOpenspecBinAvailable.mockImplementation(() => {
-      throw new OpenspecBundleMissingError('/fake/bin/dir');
+      throw new OpenspecCliMissingError();
     });
     setupExecSuccess();
     mockGetProviderAdapter.mockReturnValue(
@@ -457,7 +457,7 @@ describe('createProject — openspecInit true', () => {
 
     const events = await callCreateProject({ ...BASE_INPUT, openspecInit: true });
 
-    // Bundle-missing should still be non-fatal — overall flow completes.
+    // CLI-missing should still be non-fatal — overall flow completes.
     expect(getCompleteEvent(events)).toBeDefined();
     expect(getFatalEvent(events)).toBeUndefined();
     const openspecErrorEvent = events.find(
@@ -465,8 +465,8 @@ describe('createProject — openspecInit true', () => {
         e.type === 'step' && e.step === 'openspec-init' && e.status === 'error'
     );
     expect(openspecErrorEvent).toBeDefined();
-    // Message must clearly call out the missing bundle so the UI can render an actionable hint.
-    expect(openspecErrorEvent!.message).toMatch(/bundle missing/i);
+    // Message must clearly call out that openspec isn't installed so the UI can render an actionable hint.
+    expect(openspecErrorEvent!.message).toMatch(/not installed/i);
   });
 });
 

@@ -2530,7 +2530,7 @@ export const chatsRouter = router({
       };
     }),
 
-  /** Initialize OpenSpec for a workspace by delegating to the bundled CLI. */
+  /** Initialize OpenSpec for a workspace by delegating to the PATH-installed CLI. */
   openspecInit: publicProcedure
     .input(
       z.object({
@@ -2555,7 +2555,7 @@ export const chatsRouter = router({
       }
 
       const { assertOpenspecBinAvailable } = await import('../../../lib/openspec/openspec-bin-path');
-      assertOpenspecBinAvailable();
+      await assertOpenspecBinAvailable();
 
       const { detectOpenspecState } = await import('../../../lib/openspec/init-detection');
       const state = await detectOpenspecState(targetRoot, input.tools);
@@ -2598,7 +2598,7 @@ export const chatsRouter = router({
     const targetRoot = chat.worktreePath || project.path;
 
     const { assertOpenspecBinAvailable } = await import('../../../lib/openspec/openspec-bin-path');
-    assertOpenspecBinAvailable();
+    await assertOpenspecBinAvailable();
 
     const { runOpenspecCli } = await import('../../../lib/openspec/run-openspec-cli');
     await runOpenspecCli(['update'], targetRoot);
@@ -2626,7 +2626,7 @@ export const chatsRouter = router({
       const targetRoot = chat.worktreePath || project.path;
 
       const { assertOpenspecBinAvailable } = await import('../../../lib/openspec/openspec-bin-path');
-      assertOpenspecBinAvailable();
+      await assertOpenspecBinAvailable();
 
       const { runOpenspecCli } = await import('../../../lib/openspec/run-openspec-cli');
       await runOpenspecCli(['init', '--tools', input.tools.join(','), '--profile', 'core'], targetRoot);

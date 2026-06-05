@@ -111,13 +111,14 @@ Trigger agents from git events, run automated reviews, and configure conditions 
 ```bash
 # Prerequisites: Bun, Python 3.11, setuptools, Xcode Command Line Tools (macOS)
 bun install
-bun run claude:download  # Download Claude binary (required!)
-bun run codex:download   # Download Codex binary (required!)
 bun run build
 bun run package:mac  # or package:win, package:linux
 ```
 
-> **Important:** The `claude:download` and `codex:download` steps download required agent binaries. If you skip them, the app may build but agent functionality will not work correctly.
+> **Agent CLIs:** Churro Coder uses the `claude`, `codex`, and `openspec` CLIs from your PATH (they are not bundled). Install whichever you use — the welcome screen and Settings → Models detect them and show copy-paste install/upgrade commands:
+> - Claude: `curl -fsSL https://claude.ai/install.sh | bash` (macOS/Linux) or `irm https://claude.ai/install.ps1 | iex` (Windows)
+> - Codex: `brew install codex` (macOS) or `npm install -g @openai/codex`
+> - OpenSpec: `npm install -g @fission-ai/openspec`
 >
 > **Python note:** Python 3.11 is recommended for native module rebuilds. On Python 3.12+, make sure `setuptools` is installed (`pip install setuptools`).
 
@@ -125,8 +126,6 @@ bun run package:mac  # or package:win, package:linux
 
 ```bash
 bun install
-bun run claude:download  # First time only
-bun run codex:download   # First time only
 bun run dev
 ```
 

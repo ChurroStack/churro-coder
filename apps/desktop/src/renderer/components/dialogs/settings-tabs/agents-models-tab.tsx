@@ -21,6 +21,7 @@ import { trpc } from '../../../lib/trpc';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../ui/collapsible';
+import { CliInstallInstructions } from '../../../features/new-project/cli-install-instructions';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -587,6 +588,21 @@ export function AgentsModelsTab() {
               </div>
             </>
           )}
+        </div>
+      </div>
+
+      {/* ===== CLI Tools Section ===== */}
+      <div className="space-y-2">
+        <div className="pb-2">
+          <h4 className="text-sm font-medium text-foreground">CLI Tools</h4>
+          <p className="text-xs text-muted-foreground">
+            Churro uses your installed Claude, Codex, and OpenSpec CLIs. Install or upgrade any that are missing.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <CliInstallInstructions provider="claude" showWhenAvailable />
+          <CliInstallInstructions provider="codex" showWhenAvailable />
+          <CliInstallInstructions provider="openspec" showWhenAvailable />
         </div>
       </div>
 

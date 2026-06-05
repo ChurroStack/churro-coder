@@ -1,11 +1,9 @@
 import { app } from 'electron';
 import { execFileSync } from 'node:child_process';
-import fs from 'node:fs';
 import os from 'node:os';
-import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { getDefaultShell, isWindows, platform } from '../platform';
-import { buildOpenspecEnvOverrides, getOpenspecBinDir } from '../openspec/openspec-bin-path';
+import { buildOpenspecEnvOverrides } from '../openspec/openspec-bin-path';
 
 // Cache the shell environment
 let cachedShellEnv: Record<string, string> | null = null;
@@ -34,68 +32,6 @@ const STRIPPED_ENV_KEYS_BASE = [
 // This allows devs to test OAuth flow without unsetting their shell env
 // Added by Sergey Bunas for dev purposes
 const STRIPPED_ENV_KEYS = !app.isPackaged ? [...STRIPPED_ENV_KEYS_BASE, 'ANTHROPIC_API_KEY'] : STRIPPED_ENV_KEYS_BASE;
-
-// Cache the bundled binary path (only compute once)
-let cachedBinaryPath: string | null = null;
-let binaryPathComputed = false;
-
-/**
- * Get path to the bundled Claude binary.
- * Returns the path to the native Claude executable bundled with the app.
- * CACHED - only computes path once and logs verbose info on first call.
- */
-export function getBundledClaudeBinaryPath(): string {
-  // Return cached path if already computed
-  if (binaryPathComputed) {
-    return cachedBinaryPath!;
-  }
-
-  const isDev = !app.isPackaged;
-  const currentPlatform = process.platform;
-  const arch = process.arch;
-
-  // Always log on first call to help debug
-  console.log('[claude-binary] ========== BUNDLED BINARY DEBUG ==========');
-  console.log('[claude-binary] isDev:', isDev);
-  console.log('[claude-binary] platform:', currentPlatform);
-  console.log('[claude-binary] arch:', arch);
-  console.log('[claude-binary] appPath:', app.getAppPath());
-
-  // In dev: apps/desktop/resources/bin/{platform}-{arch}/claude
-  // In production: {resourcesPath}/bin/claude
-  const resourcesPath = isDev
-    ? path.join(app.getAppPath(), 'resources/bin', `${currentPlatform}-${arch}`)
-    : path.join(process.resourcesPath, 'bin');
-
-  console.log('[claude-binary] resourcesPath:', resourcesPath);
-
-  const binaryName = currentPlatform === 'win32' ? 'claude.exe' : 'claude';
-  const binaryPath = path.join(resourcesPath, binaryName);
-
-  console.log('[claude-binary] binaryPath:', binaryPath);
-
-  // Check if binary exists
-  const exists = fs.existsSync(binaryPath);
-
-  if (!exists) {
-    console.error('[claude-binary] WARNING: Binary not found at path:', binaryPath);
-    console.error("[claude-binary] Run 'bun run claude:download' to download it");
-  } else {
-    const stats = fs.statSync(binaryPath);
-    const sizeMB = (stats.size / 1024 / 1024).toFixed(1);
-    const isExecutable = (stats.mode & fs.constants.X_OK) !== 0;
-    console.log('[claude-binary] exists:', exists);
-    console.log('[claude-binary] size:', sizeMB, 'MB');
-    console.log('[claude-binary] isExecutable:', isExecutable);
-  }
-  console.log('[claude-binary] ============================================');
-
-  // Cache the result
-  cachedBinaryPath = binaryPath;
-  binaryPathComputed = true;
-
-  return binaryPath;
-}
 
 /**
  * Parse environment variables from shell output
@@ -266,11 +202,9 @@ export function buildClaudeEnv(options?: {
   // Enable/disable task management tools based on user preference (default: enabled)
   env.CLAUDE_CODE_ENABLE_TASKS = options?.enableTasks !== false ? 'true' : 'false';
 
-  // 6. Inject bundled openspec shim into PATH so agents can call `openspec ...` directly
-  const openspecBinDir = getOpenspecBinDir();
-  if (fs.existsSync(openspecBinDir)) {
-    env.PATH = `${openspecBinDir}${path.delimiter}${env.PATH || ''}`;
-  }
+  // 6. OpenSpec telemetry-off env. The CLI is resolved from the user's PATH now
+  // (no bundled shim to prepend) — the agent's inherited shell PATH already
+  // includes the global `openspec` install.
   Object.assign(env, buildOpenspecEnvOverrides());
 
   return env;

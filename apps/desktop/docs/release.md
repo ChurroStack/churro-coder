@@ -16,8 +16,9 @@ root [`README.md`](../../../README.md#downloads--releases)):
    a **release PR** that bumps `apps/desktop/package.json` and updates `apps/desktop/CHANGELOG.md`.
 3. **Merging that release PR** creates the GitHub Release + a `v<version>` tag, and triggers the
    `build` job: a per-OS matrix (`macos-latest` / `windows-latest` / `ubuntu-latest`) that runs
-   `bun install` → `claude:download` + `codex:download` → `bun run build` → `bun run package:<platform>`,
-   then `gh release upload`s the artifacts. **Nothing is built on ordinary PRs.**
+   `bun install` → `bun run build` → `bun run package:<platform>`, then `gh release upload`s the
+   artifacts. **Nothing is built on ordinary PRs.** (The claude/codex/openspec CLIs are no longer
+   bundled — the app uses the user's PATH-installed copies at runtime.)
 
 Per platform the Release gets: macOS `.dmg` + `.zip` (**arm64 only** — see signing note below),
 Windows NSIS `.exe` + portable `.exe`, Linux `.AppImage` + `.deb`.
