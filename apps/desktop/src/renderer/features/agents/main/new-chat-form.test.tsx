@@ -98,7 +98,7 @@ vi.mock('../../../lib/trpc', () => {
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../../../test-utils';
-import { lastSelectedAgentHarnessAtom, selectedProjectAtom } from '../atoms';
+import { lastSelectedAgentHarnessAtom, lastSelectedHarnessAtom, selectedProjectAtom } from '../atoms';
 import { TooltipProvider } from '../../../components/ui/tooltip';
 import { NewChatForm } from './new-chat-form';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
@@ -146,7 +146,7 @@ function renderNoProject() {
 
 function renderWithProject(
   changes: ChangeSummary[] = [],
-  opts: { harness?: 'builtin' | 'claude-cli' | 'codex-cli' } = {}
+  opts: { harness?: 'builtin' | 'claude-cli' | 'codex-cli'; specDriven?: boolean } = {}
 ) {
   // Include mockProject in the list so validatedProject resolves correctly
   mocks.projectsListQuery.mockReturnValue({ data: [mockProject], isLoading: false, isError: false });
@@ -155,14 +155,18 @@ function renderWithProject(
   }
   const store = createTestStore();
   store.set(selectedProjectAtom, mockProject);
-  // Wizard-axis tests use `opts.harness` to pin the harness without driving
-  // the Radix Popover open — that path is flaky in jsdom under CI cold start
-  // (the first popover open in the test environment can exceed every
-  // reasonable findBy* poll window). The popover itself is just a setter for
-  // this atom; the integration we care about is that the right harness value
-  // reaches the create-chat mutation.
+  // Workflow-mode / harness tests pin state via atoms instead of driving the
+  // Radix Popover open — that path is flaky in jsdom under CI cold start (the
+  // first popover open can exceed every reasonable findBy* poll window). The
+  // dropdowns are just setters for these atoms; the integration we care about
+  // is the value that reaches the create-chat mutation and the derived UI.
+  //  - opts.harness    → lastSelectedAgentHarnessAtom (builtin/claude-cli/codex-cli)
+  //  - opts.specDriven → lastSelectedHarnessAtom='spec-driven' (the 4th workflow mode)
   if (opts.harness) {
     store.set(lastSelectedAgentHarnessAtom, opts.harness);
+  }
+  if (opts.specDriven) {
+    store.set(lastSelectedHarnessAtom, 'spec-driven');
   }
   return renderWithProviders(
     <TooltipProvider>
@@ -174,21 +178,97 @@ function renderWithProject(
 
 describe('NewChatForm — no project', () => {
   it('shows Select repo button when no project is selected', () => {
-    const { getByText, queryByText } = renderNoProject();
+    const { getByText, queryByText, queryByTestId } = renderNoProject();
     expect(getByText('Select repo')).toBeTruthy();
-    // Wizard sections should NOT render
     expect(queryByText('New workspace')).toBeTruthy(); // hero always shows
-    expect(queryByText('Agent mode')).toBeNull(); // wizard sections hidden
+    // The input + its dropdowns only render once a project is selected
+    expect(queryByTestId('agent-mode-dropdown')).toBeNull();
   });
 });
 
-describe('NewChatForm — with project', () => {
-  it('renders hero and wizard sections when a project is selected', () => {
-    const { getByText, queryByText } = renderWithProject();
+describe('NewChatForm — simplified workspace UI', () => {
+  it('renders only the hero + input dropdowns; no numbered Step 1/Step 2 sections', () => {
+    const { getByText, queryByText, getByTestId } = renderWithProject();
     expect(getByText('New workspace')).toBeTruthy();
-    expect(getByText('Agent mode')).toBeTruthy();
-    // "Type of work" section is temporarily hidden in the component
+    // The in-input workflow-mode + harness dropdowns are present...
+    expect(getByTestId('agent-mode-dropdown')).toBeTruthy();
+    expect(getByTestId('agent-harness-dropdown')).toBeTruthy();
+    // ...and the old numbered wizard step headings are gone.
+    expect(queryByText('Agent mode')).toBeNull();
+    expect(queryByText('Harness')).toBeNull();
     expect(queryByText('Type of work')).toBeNull();
+  });
+
+  it('mode dropdown trigger reflects workflow mode: defaults to Plan, shows Spec-driven when active', () => {
+    // Default agent mode is 'plan'
+    const { getByTestId, unmount } = renderWithProject();
+    expect(getByTestId('agent-mode-dropdown').textContent).toContain('Plan');
+    unmount();
+    // Spec-driven pinned via the OpenSpec harness atom
+    const spec = renderWithProject([], { specDriven: true });
+    expect(spec.getByTestId('agent-mode-dropdown').textContent).toContain('Spec-driven');
+  });
+
+  it('E1: picking a concrete mode while a spec is selected abandons the spec (sends a normal chat)', async () => {
+    const change = makeChange('e1');
+    const { container, getByTestId, getByText } = renderWithProject([change]);
+
+    // Select the spec → workflowMode flips to spec-driven and a spec is pinned.
+    await act(async () => {
+      fireEvent.click(getByText('Spec e1'));
+    });
+    expect(getByTestId('agent-mode-dropdown').textContent).toContain('Spec-driven');
+
+    // Open the workflow-mode dropdown and pick Execute.
+    await act(async () => {
+      fireEvent.click(getByTestId('agent-mode-dropdown'));
+    });
+    await act(async () => {
+      fireEvent.click(getByText('Execute'));
+    });
+
+    // The spec is abandoned: sending now takes the normal createChat path
+    // (sync mutate) rather than the continue-from-spec path (mutateAsync).
+    mocks.createChatMutate.mockClear();
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+    expect(mocks.createChatMutate).toHaveBeenCalledOnce();
+  });
+
+  it('switching from Spec-driven to Plan resets the OpenSpec harness (no stale spec-driven state)', async () => {
+    const { container, getByTestId, getByText } = renderWithProject([], { specDriven: true });
+    expect(getByTestId('agent-mode-dropdown').textContent).toContain('Spec-driven');
+
+    await act(async () => {
+      fireEvent.click(getByTestId('agent-mode-dropdown'));
+    });
+    await act(async () => {
+      fireEvent.click(getByText('Plan'));
+    });
+
+    // Trigger now reflects Plan, and sending takes the normal chat path
+    // (sync mutate) — proving selectedHarness flipped off 'spec-driven'.
+    expect(getByTestId('agent-mode-dropdown').textContent).toContain('Plan');
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    await act(async () => {
+      fireEvent.click(btn!);
+    });
+    expect(mocks.createChatMutate).toHaveBeenCalledOnce();
+  });
+
+  it('model selector is shown for builtin and hidden for CLI harnesses', () => {
+    const builtin = renderWithProject();
+    expect(builtin.queryByTestId('model-selector-slot')).toBeTruthy();
+    builtin.unmount();
+
+    const claude = renderWithProject([], { harness: 'claude-cli' });
+    expect(claude.queryByTestId('model-selector-slot')).toBeNull();
+    claude.unmount();
+
+    const codex = renderWithProject([], { harness: 'codex-cli' });
+    expect(codex.queryByTestId('model-selector-slot')).toBeNull();
   });
 
   it('send button is enabled when no spec is selected (open path)', () => {
@@ -280,11 +360,7 @@ describe('NewChatForm — with project', () => {
   });
 
   it('submitting spec-driven without an existing change initializes OpenSpec, opens a change, and queues propose', async () => {
-    const { container, getByText } = renderWithProject();
-
-    await act(async () => {
-      fireEvent.click(getByText('Spec-driven'));
-    });
+    const { container } = renderWithProject([], { specDriven: true });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
     expect(editor).not.toBeNull();
@@ -390,11 +466,7 @@ describe('NewChatForm — wizard axis independence', () => {
   });
 
   it('spec-driven + builtin: createAsync called with harness=builtin and mode=execute', async () => {
-    const { container, getByText } = renderWithProject();
-
-    await act(async () => {
-      fireEvent.click(getByText('Spec-driven'));
-    });
+    const { container } = renderWithProject([], { specDriven: true });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
     await act(async () => {
@@ -413,11 +485,7 @@ describe('NewChatForm — wizard axis independence', () => {
   });
 
   it('spec-driven + claude-cli: createAsync called with harness=claude-cli', async () => {
-    const { container, getByText } = renderWithProject([], { harness: 'claude-cli' });
-
-    await act(async () => {
-      fireEvent.click(getByText('Spec-driven'));
-    });
+    const { container } = renderWithProject([], { harness: 'claude-cli', specDriven: true });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
     await act(async () => {
@@ -436,11 +504,7 @@ describe('NewChatForm — wizard axis independence', () => {
   });
 
   it('spec-driven + codex-cli: createAsync called with harness=codex-cli', async () => {
-    const { container, getByText } = renderWithProject([], { harness: 'codex-cli' });
-
-    await act(async () => {
-      fireEvent.click(getByText('Spec-driven'));
-    });
+    const { container } = renderWithProject([], { harness: 'codex-cli', specDriven: true });
 
     const editor = container.querySelector('[contenteditable="true"]') as HTMLElement | null;
     await act(async () => {
