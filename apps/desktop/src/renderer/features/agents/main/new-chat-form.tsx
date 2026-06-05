@@ -2,19 +2,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import {
-  AlignJustify,
-  Bug,
-  ClipboardList,
-  FileText,
-  Loader2,
-  Plus,
-  Telescope,
-  Sparkles,
-  Wand2,
-  X,
-  Zap
-} from 'lucide-react';
+import { AlignJustify, ClipboardList, FileText, Loader2, Plus, Telescope, Wand2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../components/ui/button';
 import {
@@ -114,14 +102,11 @@ import { NewWorkspaceExplorer } from './new-workspace-explorer';
 // import { CreateBranchDialog } from "@/app/(alpha)/agents/{components}/create-branch-dialog"
 import { PromptInput, PromptInputActions, PromptInputContextItems } from '../../../components/ui/prompt-input';
 import { agentsSidebarOpenAtom, agentsUnseenChangesAtom, newWorkspaceViewerFileAtom } from '../atoms';
-import { AgentModeSelector } from '../components/agent-mode-selector';
 import { AgentModelSelector } from '../components/agent-model-selector';
 import { HarnessIcon, HARNESS_LABELS, type Harness as CliHarness } from '../lib/harness-icons';
 import { ContinueFromSpecStrip } from '../components/continue-from-spec-strip';
 import { CreateBranchDialog } from '../components/create-branch-dialog';
-import { RadioCardGroup, type RadioCardOption } from '../components/radio-card-group';
 import { SpecPickerDialog } from '../components/spec-picker-dialog';
-import { WizardSection } from '../components/wizard-section';
 import { appStore } from '../../../lib/jotai-store';
 import { pendingOpenSpecMessageAtom, pendingOpenSpecPanelAtom } from '../../openspec/atoms';
 import { openSpecCommandPrefix } from '../../openspec/command-prefix';
@@ -145,13 +130,7 @@ import {
   type ClaudeThinkingLevel,
   type CodexThinkingLevel
 } from '../lib/models';
-import {
-  deriveWizardState,
-  getWizardStepMap,
-  type WizardTemplate,
-  type Harness,
-  type WorkType
-} from '../lib/wizard-state';
+import { deriveWizardState, nextWorkflowSelection, type WorkflowMode, type WorkType } from '../lib/wizard-state';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
 import { OpenSpecToolsToggle, type OpenspecTool } from './openspec-tools-toggle';
 // import type { PlanType } from "@/lib/config/subscription-plans"
@@ -200,71 +179,6 @@ const agents = [
   { id: 'claude-code', name: 'Claude Code', hasModels: true },
   { id: 'cursor', name: 'Cursor CLI', disabled: true },
   { id: 'codex', name: 'OpenAI Codex' }
-];
-
-const modeOptions = [
-  {
-    value: 'plan',
-    label: 'Plan',
-    description: 'Shape the approach before making changes.',
-    icon: PlanIcon,
-    detailTitle: 'Plan — Draft a plan first',
-    detailDescription:
-      'Best for ambiguous work. Generates a structured plan with affected files and steps before editing.'
-  },
-  {
-    value: 'execute',
-    label: 'Execute',
-    description: 'Apply changes directly and keep momentum.',
-    icon: AgentIcon,
-    detailTitle: 'Execute — Implement directly',
-    detailDescription: 'Best for clear tasks. Applies changes immediately and keeps moving without a planning gate.'
-  },
-  {
-    value: 'explore',
-    label: 'Explore',
-    description: 'Investigate the codebase without committing to a plan.',
-    icon: Telescope,
-    detailTitle: 'Explore — Investigate first',
-    detailDescription:
-      'Best for discovery work. Reads the codebase, traces behavior, and gathers context without making edits.'
-  }
-] as const;
-
-const workTypeOptions: RadioCardOption<WorkType>[] = [
-  {
-    value: 'feature',
-    label: 'Feature',
-    description: 'Build or extend a product capability.',
-    icon: Zap
-  },
-  {
-    value: 'bug',
-    label: 'Bug',
-    description: 'Fix broken or inconsistent behavior.',
-    icon: Bug
-  },
-  {
-    value: 'documentation',
-    label: 'Documentation',
-    description: 'Clarify docs, onboarding, or developer guidance.',
-    icon: FileText
-  }
-];
-
-const harnessOptions: RadioCardOption<WizardTemplate>[] = [
-  {
-    value: 'vibe-coding',
-    label: 'Vibe coding',
-    description: 'Use a fast, prompt-first implementation flow.',
-    icon: Sparkles
-  },
-  {
-    value: 'spec-driven',
-    label: 'Spec-driven',
-    description: 'Work from an OpenSpec change with tighter structure.',
-    icon: ClipboardList
-  }
 ];
 
 function inferWorkTypeFromSpec(change: ChangeSummary): WorkType {
@@ -357,6 +271,58 @@ function AgentHarnessDropdown({ value, onChange }: { value: CliHarness; onChange
   );
 }
 
+/**
+ * Combined workflow-mode selector shown inside the prompt input. Plan/Execute/Explore
+ * map onto the classic `agentMode`; the fourth option "Spec-driven" maps onto the
+ * OpenSpec change flow (`selectedHarness === 'spec-driven'`). The displayed value and
+ * the onChange reconciliation live in NewChatForm (`workflowMode` / `setWorkflowMode`),
+ * which delegate the decision to `nextWorkflowSelection` in wizard-state.
+ */
+const WORKFLOW_MODE_OPTIONS: { value: WorkflowMode; label: string; icon: typeof PlanIcon }[] = [
+  { value: 'plan', label: 'Plan', icon: PlanIcon },
+  { value: 'execute', label: 'Execute', icon: AgentIcon },
+  { value: 'explore', label: 'Explore', icon: Telescope },
+  { value: 'spec-driven', label: 'Spec-driven', icon: ClipboardList }
+];
+
+function AgentModeDropdown({ value, onChange }: { value: WorkflowMode; onChange: (v: WorkflowMode) => void }) {
+  const [open, setOpen] = useState(false);
+  const selected = WORKFLOW_MODE_OPTIONS.find((opt) => opt.value === value) ?? WORKFLOW_MODE_OPTIONS[0]!;
+  const SelectedIcon = selected.icon;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          data-testid="agent-mode-dropdown"
+          aria-label="Agent mode"
+          className="flex items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-[background-color,color] duration-150 ease-out rounded-md hover:bg-muted/50 cursor-pointer">
+          <SelectedIcon className="h-3.5 w-3.5 shrink-0" />
+          <span>{selected.label}</span>
+          <IconChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[180px] p-1" align="start">
+        {WORKFLOW_MODE_OPTIONS.map((opt) => {
+          const Icon = opt.icon;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => {
+                onChange(opt.value);
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted transition-colors">
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              <span className="flex-1 text-left">{opt.label}</span>
+              {opt.value === value && <CheckIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />}
+            </button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 interface NewChatFormProps {
   isMobileFullscreen?: boolean;
   onBackToChats?: () => void;
@@ -425,10 +391,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const defaultAgentThinking = useAtomValue(defaultExecuteModeThinkingAtom);
   const modeDefaultModelId = agentMode === 'plan' ? defaultPlanModel : defaultAgentModel;
   const modeDefaultThinking = agentMode === 'plan' ? defaultPlanThinking : defaultAgentThinking;
-  // Toggle mode helper
-  const toggleMode = useCallback(() => {
-    setAgentMode(getNextMode);
-  }, []);
   const [selectedWorkType, setSelectedWorkType] = useAtom(lastSelectedWorkTypeAtom);
   const [selectedHarness, setSelectedHarness] = useAtom(lastSelectedHarnessAtom);
   const [selectedAgentHarness, setSelectedAgentHarness] = useAtom(lastSelectedAgentHarnessAtom);
@@ -438,6 +400,28 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const [, setContinueFromSpecExpanded] = useAtom(continueFromSpecExpandedAtom);
   const [, setSpecPickerOpen] = useAtom(specPickerOpenAtom);
   const [workMode, setWorkMode] = useAtom(lastSelectedWorkModeAtom);
+
+  // Combined workflow mode shown in the in-input dropdown. Spec-driven is derived from
+  // the OpenSpec harness; plan/execute/explore mirror agentMode. Funnel every write
+  // through setWorkflowMode so the two underlying atoms (and any selected spec) stay
+  // consistent — see the dropdown component above.
+  const workflowMode: WorkflowMode = selectedHarness === 'spec-driven' ? 'spec-driven' : agentMode;
+  const setWorkflowMode = useCallback(
+    (next: WorkflowMode) => {
+      const selection = nextWorkflowSelection(next);
+      setSelectedHarness(selection.harness);
+      if (selection.agentMode) setAgentMode(selection.agentMode);
+      if (selection.abandonsSpec) setSelectedSpecId((current) => (current ? null : current));
+    },
+    [setSelectedHarness]
+  );
+
+  // Toggle mode helper (Shift+Tab). Cycles plan→execute→explore and clears the
+  // OpenSpec harness so the dropdown can't show Spec-driven while cycling.
+  const toggleMode = useCallback(() => {
+    setAgentMode(getNextMode);
+    setSelectedHarness('vibe-coding');
+  }, [setSelectedHarness]);
 
   // Detect existing Local-mode workspace for the selected project.
   // Used to enforce one-Local-per-repo and show the conflict hint.
@@ -744,17 +728,9 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
 
   const wizardState = deriveWizardState({
     agentMode,
-    workType: selectedWorkType,
-    harness: selectedHarness,
     selectedSpecId,
-    hasProject: !!validatedProject,
-    hasText: hasContent,
-    hasAttachments:
-      images.some((image) => !image.isLoading && !!image.url) ||
-      files.some((file) => !file.isLoading) ||
-      pastedTexts.length > 0
+    hasProject: !!validatedProject
   });
-  const wizardStepMap = getWizardStepMap(wizardState.visibleSections);
 
   useEffect(() => {
     setSelectedSpecId(null);
@@ -1948,19 +1924,13 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
             editorRef.current?.clear();
             return;
           case 'plan':
-            if (agentMode !== 'plan') {
-              setAgentMode('plan');
-            }
+            setWorkflowMode('plan');
             return;
           case 'execute':
-            if (agentMode !== 'execute') {
-              setAgentMode('execute');
-            }
+            setWorkflowMode('execute');
             return;
           case 'explore':
-            if (agentMode !== 'explore') {
-              setAgentMode('explore');
-            }
+            setWorkflowMode('explore');
             return;
           case 'help': {
             const lines = BUILTIN_SLASH_COMMANDS.map((c) => `${c.command} — ${c.description}`).join('\n');
@@ -1977,7 +1947,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       // insert the command and let user add arguments or press Shift+Enter to send
       editorRef.current?.setValue(`/${command.name} `);
     },
-    [agentMode]
+    [setWorkflowMode]
   );
 
   // Paste handler for images, plain text, and large text (saved as files)
@@ -2338,47 +2308,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                   </div>
                 )}
 
-                <WizardSection step={wizardStepMap.mode!} label="Agent mode">
-                  <AgentModeSelector value={agentMode} onChange={setAgentMode} options={modeOptions} />
-                </WizardSection>
-
-                {/* Hidden 2026-05-12 — Type of work UI temporarily disabled; revive by removing this comment.
-                {wizardState.visibleSections.includes('type') && (
-                  <WizardSection step={wizardStepMap.type!} label="Type of work">
-                    <RadioCardGroup
-                      value={selectedWorkType}
-                      onChange={setSelectedWorkType}
-                      options={workTypeOptions}
-                      columns={3}
-                    />
-                  </WizardSection>
-                )}
-                */}
-
-                {wizardState.visibleSections.includes('harness') && (
-                  <WizardSection step={wizardStepMap.harness!} label="Harness">
-                    <RadioCardGroup
-                      value={selectedHarness}
-                      onChange={setSelectedHarness}
-                      options={harnessOptions}
-                      columns={2}
-                    />
-                    {selectedHarness === 'spec-driven' && hasMissingOpenspecTools && (
-                      <div className="mt-3">
-                        <OpenSpecToolsToggle
-                          value={selectedOpenspecTools}
-                          onChange={(next) => {
-                            userTouchedOpenspecToolsRef.current = true;
-                            setSelectedOpenspecTools(next);
-                          }}
-                          availableTools={missingOpenspecTools}
-                        />
-                      </div>
-                    )}
-                  </WizardSection>
-                )}
-
-                <WizardSection step={wizardStepMap.prompt!} label={wizardState.promptLabel}>
+                <div className="space-y-3">
                   {selectedSpec && (
                     <div className="mb-3 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-primary">
                       <FileText className="h-3.5 w-3.5 shrink-0" />
@@ -2429,69 +2359,76 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       </div>
                       <PromptInputActions className="w-full">
                         <div className="flex items-center gap-0.5 flex-1 min-w-0">
-                          <div className="group/model-controls flex items-center gap-0.5">
-                            <AgentModelSelector
-                              open={isModelDropdownOpen}
-                              onOpenChange={setIsModelDropdownOpen}
-                              selectedAgentId={selectedAgent.id as 'claude-code' | 'codex'}
-                              onSelectedAgentIdChange={(provider) => {
-                                if (provider === 'claude-code') {
-                                  setSelectedAgent(claudeAgent);
-                                } else {
-                                  setSelectedAgent(
-                                    enabledAgents.find((agent) => agent.id === 'codex') || fallbackAgent
-                                  );
-                                }
-                                setLastSelectedAgentId(provider);
-                              }}
-                              selectedModelLabel={selectedModelLabel}
-                              onOpenModelsSettings={() => {
-                                setSettingsActiveTab('models');
-                                setSettingsDialogOpen(true);
-                              }}
-                              claude={{
-                                models: availableModels.models.filter((m) => !hiddenModels.includes(m.id)),
-                                selectedModelId: selectedModel?.id,
-                                onSelectModel: (modelId) => {
-                                  const model =
-                                    availableModels.models.find((m) => m.id === modelId) || availableModels.models[0];
-                                  if (!model) return;
-                                  setSelectedModel(model);
-                                  setLastSelectedModelId(model.id);
-                                },
-                                hasCustomModelConfig: hasCustomClaudeConfig,
-                                isOffline: availableModels.isOffline && availableModels.hasOllama,
-                                ollamaModels: availableModels.ollamaModels,
-                                selectedOllamaModel: currentOllamaModel,
-                                recommendedOllamaModel: availableModels.recommendedModel,
-                                onSelectOllamaModel: setSelectedOllamaModel,
-                                isConnected: isClaudeConnected,
-                                selectedThinking: selectedClaudeThinking,
-                                onSelectThinking: setLastSelectedClaudeThinking
-                              }}
-                              codex={{
-                                models: codexUiModels,
-                                selectedModelId: selectedCodexModel.id,
-                                onSelectModel: (modelId) => {
-                                  const model = codexUiModels.find((item) => item.id === modelId);
-                                  if (!model) return;
-                                  const nextThinking = model.thinkings.includes(
-                                    lastSelectedCodexThinking as CodexThinkingLevel
-                                  )
-                                    ? (lastSelectedCodexThinking as CodexThinkingLevel)
-                                    : model.thinkings.includes('high')
-                                      ? 'high'
-                                      : model.thinkings[0]!;
+                          <AgentModeDropdown value={workflowMode} onChange={setWorkflowMode} />
+                          <AgentHarnessDropdown value={selectedAgentHarness} onChange={setSelectedAgentHarness} />
+                          {/* Model is only configurable for the builtin harness — the CLIs pick their own model. */}
+                          {selectedAgentHarness === 'builtin' && (
+                            <div
+                              data-testid="model-selector-slot"
+                              className="group/model-controls flex items-center gap-0.5">
+                              <AgentModelSelector
+                                open={isModelDropdownOpen}
+                                onOpenChange={setIsModelDropdownOpen}
+                                selectedAgentId={selectedAgent.id as 'claude-code' | 'codex'}
+                                onSelectedAgentIdChange={(provider) => {
+                                  if (provider === 'claude-code') {
+                                    setSelectedAgent(claudeAgent);
+                                  } else {
+                                    setSelectedAgent(
+                                      enabledAgents.find((agent) => agent.id === 'codex') || fallbackAgent
+                                    );
+                                  }
+                                  setLastSelectedAgentId(provider);
+                                }}
+                                selectedModelLabel={selectedModelLabel}
+                                onOpenModelsSettings={() => {
+                                  setSettingsActiveTab('models');
+                                  setSettingsDialogOpen(true);
+                                }}
+                                claude={{
+                                  models: availableModels.models.filter((m) => !hiddenModels.includes(m.id)),
+                                  selectedModelId: selectedModel?.id,
+                                  onSelectModel: (modelId) => {
+                                    const model =
+                                      availableModels.models.find((m) => m.id === modelId) || availableModels.models[0];
+                                    if (!model) return;
+                                    setSelectedModel(model);
+                                    setLastSelectedModelId(model.id);
+                                  },
+                                  hasCustomModelConfig: hasCustomClaudeConfig,
+                                  isOffline: availableModels.isOffline && availableModels.hasOllama,
+                                  ollamaModels: availableModels.ollamaModels,
+                                  selectedOllamaModel: currentOllamaModel,
+                                  recommendedOllamaModel: availableModels.recommendedModel,
+                                  onSelectOllamaModel: setSelectedOllamaModel,
+                                  isConnected: isClaudeConnected,
+                                  selectedThinking: selectedClaudeThinking,
+                                  onSelectThinking: setLastSelectedClaudeThinking
+                                }}
+                                codex={{
+                                  models: codexUiModels,
+                                  selectedModelId: selectedCodexModel.id,
+                                  onSelectModel: (modelId) => {
+                                    const model = codexUiModels.find((item) => item.id === modelId);
+                                    if (!model) return;
+                                    const nextThinking = model.thinkings.includes(
+                                      lastSelectedCodexThinking as CodexThinkingLevel
+                                    )
+                                      ? (lastSelectedCodexThinking as CodexThinkingLevel)
+                                      : model.thinkings.includes('high')
+                                        ? 'high'
+                                        : model.thinkings[0]!;
 
-                                  setLastSelectedCodexModelId(model.id);
-                                  setLastSelectedCodexThinking(nextThinking);
-                                },
-                                selectedThinking: selectedCodexThinking,
-                                onSelectThinking: setLastSelectedCodexThinking,
-                                isConnected: codexOnboardingCompleted
-                              }}
-                            />
-                          </div>
+                                    setLastSelectedCodexModelId(model.id);
+                                    setLastSelectedCodexThinking(nextThinking);
+                                  },
+                                  selectedThinking: selectedCodexThinking,
+                                  onSelectThinking: setLastSelectedCodexThinking,
+                                  isConnected: codexOnboardingCompleted
+                                }}
+                              />
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-0.5 ml-auto flex-shrink-0">
@@ -2531,7 +2468,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                                 createChatMutation.isPending
                               )}
                               onClick={handleSend}
-                              mode={agentMode}
+                              mode={workflowMode === 'spec-driven' ? 'execute' : agentMode}
                               hasContent={hasContent}
                               showVoiceInput={isVoiceAvailable}
                               isRecording={isVoiceRecording}
@@ -2544,6 +2481,20 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                         </div>
                       </PromptInputActions>
                     </PromptInput>
+
+                    {/* Spec-driven: choose which OpenSpec tool configs to scaffold when they're missing. */}
+                    {selectedHarness === 'spec-driven' && hasMissingOpenspecTools && (
+                      <div className="mt-2 ml-[5px]">
+                        <OpenSpecToolsToggle
+                          value={selectedOpenspecTools}
+                          onChange={(next) => {
+                            userTouchedOpenspecToolsRef.current = true;
+                            setSelectedOpenspecTools(next);
+                          }}
+                          availableTools={missingOpenspecTools}
+                        />
+                      </div>
+                    )}
 
                     {/* Project, Work Mode, and Branch selectors - directly under input */}
                     <div className="mt-1.5 md:mt-2 ml-[5px] flex items-center gap-2">
@@ -2677,9 +2628,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                         </Popover>
                       )}
 
-                      {/* Agent harness dropdown */}
-                      <AgentHarnessDropdown value={selectedAgentHarness} onChange={setSelectedAgentHarness} />
-
                       {/* Create Branch Dialog */}
                       {validatedProject && (
                         <CreateBranchDialog
@@ -2745,7 +2693,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       disabledCommands={['clear']}
                     />
                   </div>
-                </WizardSection>
+                </div>
 
                 <SpecPickerDialog changes={openspecChanges} onSelectSpec={handleSelectSpec} />
               </div>
