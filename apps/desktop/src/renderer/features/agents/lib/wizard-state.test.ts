@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveWizardState } from './wizard-state';
+import { deriveWizardState, nextWorkflowSelection } from './wizard-state';
 import type { WizardInput } from './wizard-state';
 
 const base: WizardInput = {
@@ -28,4 +28,27 @@ describe('deriveWizardState', () => {
     expect(deriveWizardState({ ...base, agentMode: 'plan' }).promptPlaceholder).toMatch(/describe your task/i);
     expect(deriveWizardState({ ...base, agentMode: 'execute' }).promptPlaceholder).toMatch(/describe your task/i);
   });
+});
+
+describe('nextWorkflowSelection', () => {
+  // E2: spec-driven keeps the OpenSpec harness and does not touch agentMode or a selected spec.
+  it('spec-driven sets the OpenSpec harness, leaves agentMode, and keeps any selected spec', () => {
+    expect(nextWorkflowSelection('spec-driven')).toEqual({
+      harness: 'spec-driven',
+      agentMode: null,
+      abandonsSpec: false
+    });
+  });
+
+  // E1 + E4: each concrete mode resets the harness to vibe-coding, applies the mode, and abandons a spec.
+  it.each(['plan', 'execute', 'explore'] as const)(
+    'concrete mode "%s" resets harness to vibe-coding, applies the mode, and abandons a selected spec',
+    (mode) => {
+      expect(nextWorkflowSelection(mode)).toEqual({
+        harness: 'vibe-coding',
+        agentMode: mode,
+        abandonsSpec: true
+      });
+    }
+  );
 });

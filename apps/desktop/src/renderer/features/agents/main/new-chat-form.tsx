@@ -130,7 +130,7 @@ import {
   type ClaudeThinkingLevel,
   type CodexThinkingLevel
 } from '../lib/models';
-import { deriveWizardState, type WorkType } from '../lib/wizard-state';
+import { deriveWizardState, nextWorkflowSelection, type WorkflowMode, type WorkType } from '../lib/wizard-state';
 import type { ChangeSummary } from '../../../../main/lib/openspec/types';
 import { OpenSpecToolsToggle, type OpenspecTool } from './openspec-tools-toggle';
 // import type { PlanType } from "@/lib/config/subscription-plans"
@@ -275,10 +275,9 @@ function AgentHarnessDropdown({ value, onChange }: { value: CliHarness; onChange
  * Combined workflow-mode selector shown inside the prompt input. Plan/Execute/Explore
  * map onto the classic `agentMode`; the fourth option "Spec-driven" maps onto the
  * OpenSpec change flow (`selectedHarness === 'spec-driven'`). The displayed value and
- * the onChange reconciliation live in NewChatForm (`workflowMode` / `setWorkflowMode`).
+ * the onChange reconciliation live in NewChatForm (`workflowMode` / `setWorkflowMode`),
+ * which delegate the decision to `nextWorkflowSelection` in wizard-state.
  */
-type WorkflowMode = AgentMode | 'spec-driven';
-
 const WORKFLOW_MODE_OPTIONS: { value: WorkflowMode; label: string; icon: typeof PlanIcon }[] = [
   { value: 'plan', label: 'Plan', icon: PlanIcon },
   { value: 'execute', label: 'Execute', icon: AgentIcon },
@@ -409,17 +408,10 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const workflowMode: WorkflowMode = selectedHarness === 'spec-driven' ? 'spec-driven' : agentMode;
   const setWorkflowMode = useCallback(
     (next: WorkflowMode) => {
-      if (next === 'spec-driven') {
-        // Leave any selected spec intact: dropdown=spec-driven covers both
-        // continue-from-spec (selectedSpecId set) and propose-new (not set).
-        setSelectedHarness('spec-driven');
-        return;
-      }
-      setAgentMode(next);
-      setSelectedHarness('vibe-coding');
-      // Picking a concrete mode abandons a selected spec so handleSend's
-      // selectedSpecId-first branch doesn't silently override the choice.
-      setSelectedSpecId((current) => (current ? null : current));
+      const selection = nextWorkflowSelection(next);
+      setSelectedHarness(selection.harness);
+      if (selection.agentMode) setAgentMode(selection.agentMode);
+      if (selection.abandonsSpec) setSelectedSpecId((current) => (current ? null : current));
     },
     [setSelectedHarness]
   );
