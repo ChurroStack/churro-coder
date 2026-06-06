@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/ChurroStack/churro-coder/compare/v0.1.4...v0.1.5) (2026-06-06)
+
+
+### Bug Fixes
+
+* **desktop:** CLI ReferenceErrors, worktree on commitless repo, full typecheck cleanup ([#190](https://github.com/ChurroStack/churro-coder/issues/190)) ([7c4b912](https://github.com/ChurroStack/churro-coder/commit/7c4b912b332af9759ff85c426221c150750671da))
+
 ## [0.1.4](https://github.com/ChurroStack/churro-coder/compare/v0.1.3...v0.1.4) (2026-06-06)
 
 
