@@ -124,10 +124,21 @@ function forceCellRemeasure(xterm: XTerm): void {
   }
 }
 
+export interface TerminalSizerOptions {
+  /**
+   * Erase xterm scrollback (CSI 3J) when the column count changes. Enable for
+   * Ink-based CLIs (claude-cli) that hard-wrap output to COLUMNS; leave false
+   * (default) for CLIs that use terminal-native soft-wrapping (codex-cli, plain
+   * terminals) where xterm can reflow the history naturally.
+   */
+  clearScrollbackOnColChange?: boolean;
+}
+
 export function createTerminalSizer(
   xterm: XTerm,
   container: HTMLElement,
-  onCommit: (geometry: Geometry) => void
+  onCommit: (geometry: Geometry) => void,
+  opts: TerminalSizerOptions = {}
 ): TerminalSizer {
   let disposed = false;
   let committed: Geometry | null = null;
@@ -185,16 +196,15 @@ export function createTerminalSizer(
         // would show mangled text. Drop the now-mismatched scrollback (CSI 3 J =
         // erase saved lines; the visible viewport is kept). The CLI repaints the
         // live frame on SIGWINCH and full history remains in the conversation pane.
-        if (colsChanged(prev, next)) xterm.write('\x1b[3J');
+        // Only enabled for Ink-based CLIs (claude-cli); Codex uses terminal-native
+        // soft-wrapping that xterm can reflow, so wiping is wrong there.
+        if (opts.clearScrollbackOnColChange && colsChanged(prev, next)) xterm.write('\x1b[3J');
+        // onCommit is inside the try so a mid-dispose xterm.resize throw does not
+        // cause the PTY to be told a geometry that xterm never applied.
+        onCommit(next);
       } catch {
-        // resize / write can throw if xterm is mid-dispose; ignore
+        // resize / write / onCommit can throw if xterm is mid-dispose; ignore
       }
-      onCommit(next);
-    }
-    // The renderer-ready signal is only needed until the first valid commit.
-    if (renderDisposable) {
-      renderDisposable.dispose();
-      renderDisposable = null;
     }
   };
 
@@ -256,11 +266,14 @@ export function createTerminalSizer(
   }
   armDprListener();
 
-  // onRender fires once the render service has produced cell dimensions — the
-  // signal that an earlier invalid measurement can now succeed. Only needed until
-  // the first valid commit lands, after which runCommit disposes it.
+  // onRender fires when xterm's render service has active cell dimensions.
+  // Pre-commit: signals that an earlier invalid measurement can now succeed.
+  // Post-commit: catches WebGL → Canvas renderer swaps, which reset cell
+  // dimensions to 0 with no ResizeObserver signal. Debounced post-commit so
+  // active output doesn't cause per-frame layout reads.
   renderDisposable = xterm.onRender(() => {
-    if (!committed) scheduleFrame();
+    if (committed) debouncedRefit();
+    else scheduleFrame();
   });
 
   // Font-load safety net (mostly inert here since the terminal cascade resolves
@@ -278,8 +291,14 @@ export function createTerminalSizer(
       });
   }
 
-  // Kick off the first measurement.
-  scheduleCommit(true);
+  // Attempt an immediate synchronous measurement first. If the container is
+  // already laid out and the renderer has measured its cell size (visible tab),
+  // this sets xterm's cols/rows before the caller spawns the PTY — so the PTY
+  // starts at the correct width instead of the xterm default 80×24. Falls back
+  // to the rAF retry loop when dimensions are not valid yet (hidden tab, renderer
+  // not ready).
+  runCommit();
+  if (!committed) scheduleCommit(true);
 
   return {
     dispose: () => {

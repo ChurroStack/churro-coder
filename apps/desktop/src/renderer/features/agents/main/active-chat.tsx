@@ -1,6 +1,5 @@
 'use client';
 
-import { stripEmojis } from '../../../components/chat-markdown-renderer';
 import { Button } from '../../../components/ui/button';
 import {
   AgentIcon,
@@ -2976,7 +2975,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   const copyMessageContent = (msg: any) => {
     const textContent = getMessageTextContent(msg);
     if (textContent) {
-      navigator.clipboard.writeText(stripEmojis(textContent));
+      navigator.clipboard.writeText(textContent);
     }
   };
 

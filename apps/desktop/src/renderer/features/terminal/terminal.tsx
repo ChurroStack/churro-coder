@@ -41,7 +41,8 @@ export function Terminal({
   tabId,
   initialCommands,
   initialCwd,
-  bootstrap
+  bootstrap,
+  clearScrollbackOnColChange = false
 }: TerminalProps) {
   const scopeRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,13 +176,19 @@ export function Terminal({
     serializeAddonRef.current = serializeAddon;
     isExitedRef.current = false;
 
-    // Own the measure -> fit -> resize lifecycle. The PTY is spawned promptly
-    // below with xterm's default 80x24; the sizer issues the corrective resize
-    // once a trustworthy measurement is available (container laid out + renderer
-    // measured), and keeps xterm/PTY columns in lockstep afterward.
-    const sizer = createTerminalSizer(xterm, container, ({ cols, rows }) => {
-      resizeRef.current({ paneId, cols, rows });
-    });
+    // Own the measure -> fit -> resize lifecycle. The sizer attempts a
+    // synchronous fit at creation time so the PTY spawns at the correct size
+    // when the container is already laid out (visible tab). Falls back to the
+    // rAF retry loop when dimensions are not valid yet (hidden tab, renderer
+    // not ready). Keeps xterm/PTY columns in lockstep afterward.
+    const sizer = createTerminalSizer(
+      xterm,
+      container,
+      ({ cols, rows }) => {
+        resizeRef.current({ paneId, cols, rows });
+      },
+      { clearScrollbackOnColChange }
+    );
     sizerRef.current = sizer;
 
     // Lazy load search addon
