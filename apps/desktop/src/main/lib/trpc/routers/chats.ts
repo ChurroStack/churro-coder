@@ -2790,7 +2790,7 @@ export const chatsRouter = router({
             // Pre-existing id but messageCount=0 (e.g. the user closed the
             // pane before sending a first message). Re-use it so a --session-id
             // re-spawn lands on the same JSONL the next ingest will discover.
-            claimedSessionId = row.cliSessionId;
+            claimedSessionId = row.cliSessionId ?? undefined;
             console.log(`[buildCliBootstrap] claim-reused sub=${input.subChatId} sessionId=${claimedSessionId}`);
           } else {
             claimedSessionId = randomUUID();

@@ -45,7 +45,8 @@ describe('CodexAppServerClient activity hook', () => {
       },
       capabilities: {
         experimentalApi: true,
-        optOutNotificationMethods: CODEX_APP_SERVER_OPT_OUT_NOTIFICATION_METHODS
+        optOutNotificationMethods: CODEX_APP_SERVER_OPT_OUT_NOTIFICATION_METHODS,
+        requestAttestation: false
       }
     });
   });

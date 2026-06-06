@@ -105,7 +105,8 @@ export function mapCodexLine(line: string, state: MapperState): MapperResult {
   // turn_diff is a special event we may want for file-changes in the future,
   // but the canonical source is patch_apply_end + function_call(apply_patch).
   if (obj.type === 'event_msg') {
-    if (payloadType === 'patch_apply_end') return mapCodexPatchApplyEnd(payload as CodexPatchApplyEndPayload);
+    if (payloadType === 'patch_apply_end')
+      return mapCodexPatchApplyEnd(payload as unknown as CodexPatchApplyEndPayload);
     if (CODEX_SKIP_PAYLOAD_TYPES.has(payloadType)) return EMPTY;
     return EMPTY;
   }
@@ -113,7 +114,7 @@ export function mapCodexLine(line: string, state: MapperState): MapperResult {
   if (obj.type === 'turn_context' || obj.type === 'session_meta') return EMPTY;
 
   if (obj.type === 'response_item' && payload) {
-    return mapCodexResponseItem(obj, payload as CodexResponsePayload, state);
+    return mapCodexResponseItem(obj, payload as unknown as CodexResponsePayload, state);
   }
   return EMPTY;
 }
@@ -129,20 +130,20 @@ interface ClaudeRecord {
   message?: {
     id?: string;
     role?: string;
-    content?:
-      | string
-      | Array<{
-          type: string;
-          text?: string;
-          thinking?: string;
-          name?: string;
-          id?: string;
-          input?: unknown;
-          tool_use_id?: string;
-          content?: unknown;
-          is_error?: boolean;
-        }>;
+    content?: string | ClaudeContentBlock[];
   };
+}
+
+interface ClaudeContentBlock {
+  type: string;
+  text?: string;
+  thinking?: string;
+  name?: string;
+  id?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  content?: unknown;
+  is_error?: boolean;
 }
 
 function mapClaudeMessageRecord(obj: ClaudeRecord, state: MapperState): MapperResult {
@@ -201,7 +202,7 @@ function pickClaudeUuid(obj: ClaudeRecord, msg: NonNullable<ClaudeRecord['messag
 }
 
 function mapClaudeContentBlock(
-  block: NonNullable<NonNullable<ClaudeRecord['message']>['content']> extends Array<infer T> ? T : never,
+  block: ClaudeContentBlock,
   parts: MessagePart[],
   sideEffects: IngestedSideEffect[],
   state: MapperState

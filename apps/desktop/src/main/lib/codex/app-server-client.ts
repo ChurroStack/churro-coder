@@ -52,6 +52,7 @@ export function buildCodexAppServerInitializeParams(clientInfoVersion: string): 
     },
     capabilities: {
       experimentalApi: true,
+      requestAttestation: false,
       optOutNotificationMethods: CODEX_APP_SERVER_OPT_OUT_NOTIFICATION_METHODS
     }
   };

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { PrimitiveAtom } from 'jotai';
 import { useMessageQueueStore } from './message-queue-store';
 import { agentChatStore } from './agent-chat-store';
 import { getWindowId } from '../../../contexts/WindowContext';
@@ -391,14 +392,17 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
     // flagging this sub-chat the moment its tab closes. The per-subChat
     // cleanup hook in active-chat.tsx only runs on panel unmount, which can
     // lag behind close/archive in dockview.
-    for (const atom of [pendingUserQuestionsAtom, expiredUserQuestionsAtom, pendingPlanApprovalsAtom]) {
-      appStore.set(atom, (prev) => {
+    const deleteSubChatKey = <V>(targetAtom: PrimitiveAtom<Map<string, V>>) => {
+      appStore.set(targetAtom, (prev) => {
         if (!prev.has(subChatId)) return prev;
         const next = new Map(prev);
         next.delete(subChatId);
         return next;
       });
-    }
+    };
+    deleteSubChatKey(pendingUserQuestionsAtom);
+    deleteSubChatKey(expiredUserQuestionsAtom);
+    deleteSubChatKey(pendingPlanApprovalsAtom);
     clearSubChatRuntimeCaches(subChatId);
     clearSubChatSidebarAtoms(subChatId);
     agentChatStore.delete(subChatId);

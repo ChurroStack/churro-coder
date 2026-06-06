@@ -878,6 +878,19 @@ export async function createWorktreeForChat(
       return { success: true, worktreePath: projectPath };
     }
 
+    // A freshly `git init`'d repo with no commits has an unborn HEAD: no branch
+    // ref resolves to a commit, so `git worktree add ... <branch>` fails with
+    // "fatal: ambiguous argument '<branch>': unknown revision". There is nothing
+    // to base a worktree on yet, so fall back to the project directory directly —
+    // same contract as the non-repo case above. Once the user makes a first
+    // commit, later chats get a proper worktree.
+    try {
+      await git.revparse(['--verify', 'HEAD']);
+    } catch {
+      console.warn(`[worktree] ${projectPath} has no commits (unborn HEAD); using project directory directly`);
+      return { success: true, worktreePath: projectPath };
+    }
+
     // Use provided base branch or auto-detect
     const baseBranch = selectedBaseBranch || (await getDefaultBranch(projectPath));
 

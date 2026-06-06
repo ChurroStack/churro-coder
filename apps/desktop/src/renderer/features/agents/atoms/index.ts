@@ -238,7 +238,7 @@ export const subChatBusyAtom = atom<Map<string, SubChatBusyEntry>>(new Map());
  *  stream error. The base atom is a single Set so consumers needing the full
  *  list (e.g. the dock priority sync) can enumerate; the derived family is
  *  what UI components subscribe to. */
-export const subChatErrorAtom = atom<Set<string>>(new Set());
+export const subChatErrorAtom = atom<Set<string>>(new Set<string>());
 export const subChatErrorAtomFamily = atomFamily((subChatId: string) =>
   atom((get) => {
     if (!subChatId) return false;

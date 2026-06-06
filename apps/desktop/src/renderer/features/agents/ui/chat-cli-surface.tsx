@@ -372,6 +372,7 @@ export function ChatCliSurface({
             paneId={paneId}
             cwd={cwd}
             workspaceId={chatId}
+            harness={harness}
             bootstrap={bootstrapState.bootstrap}
           />
         )}
@@ -454,13 +455,15 @@ function CliSplitBody({
   paneId,
   cwd,
   workspaceId,
+  harness,
   bootstrap
 }: {
   subChatId: string;
   chatId: string;
   paneId: string;
-  cwd?: string;
+  cwd: string;
   workspaceId?: string;
+  harness: Harness;
   bootstrap: TerminalBootstrapConfig;
 }) {
   const layout = useAtomValue(cliSplitLayoutAtomFamily(subChatId));
