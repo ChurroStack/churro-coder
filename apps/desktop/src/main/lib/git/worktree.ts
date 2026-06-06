@@ -134,7 +134,17 @@ export async function createWorktree(
       try {
         commitHash = (await git.revparse([`${localBranch}^{commit}`])).trim();
       } catch {
-        commitHash = (await git.revparse([startPoint])).trim();
+        try {
+          commitHash = (await git.revparse([startPoint])).trim();
+        } catch {
+          // The base ref doesn't exist (e.g. default-branch detection or the UI
+          // selection resolved to 'main' but the repo uses 'master'/another name,
+          // or a stale base branch). Fall back to the current HEAD commit so the
+          // worktree is still created off the repo's latest state instead of
+          // failing with "ambiguous argument '<branch>': unknown revision".
+          console.warn(`[worktree] base ref "${startPoint}" not found in ${mainRepoPath}; falling back to HEAD`);
+          commitHash = (await git.revparse(['HEAD'])).trim();
+        }
       }
     }
 
