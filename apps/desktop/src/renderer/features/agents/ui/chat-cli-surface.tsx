@@ -477,7 +477,15 @@ function CliSplitBody({
   }, [statusQuery.data?.sessionFile]);
 
   if (layout === 'off') {
-    return <Terminal paneId={paneId} cwd={cwd} workspaceId={workspaceId} bootstrap={bootstrap} />;
+    return (
+      <Terminal
+        paneId={paneId}
+        cwd={cwd}
+        workspaceId={workspaceId}
+        bootstrap={bootstrap}
+        clearScrollbackOnColChange={harness === 'claude-cli'}
+      />
+    );
   }
 
   // See terminology mapping in this function's doc comment.
@@ -494,7 +502,13 @@ function CliSplitBody({
       </ResizablePanel>
       <ResizableHandle />
       <ResizablePanel defaultSize={100 - chatSize} minSize={15} order={2} id={`cli-term-${subChatId}`}>
-        <Terminal paneId={paneId} cwd={cwd} workspaceId={workspaceId} bootstrap={bootstrap} />
+        <Terminal
+          paneId={paneId}
+          cwd={cwd}
+          workspaceId={workspaceId}
+          bootstrap={bootstrap}
+          clearScrollbackOnColChange={harness === 'claude-cli'}
+        />
       </ResizablePanel>
     </ResizablePanelGroup>
   );

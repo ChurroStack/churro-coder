@@ -38,6 +38,12 @@ export interface TerminalProps {
   initialCwd?: string;
   /** Optional bootstrap config for CLI-harness sessions. */
   bootstrap?: TerminalBootstrapConfig;
+  /**
+   * Erase scrollback when the column count changes. Pass true for Ink-based CLIs
+   * (claude-cli) that hard-wrap output to COLUMNS; omit for codex-cli and plain
+   * terminals that use terminal-native soft-wrapping xterm can reflow.
+   */
+  clearScrollbackOnColChange?: boolean;
 }
 
 export interface TerminalStreamEvent {

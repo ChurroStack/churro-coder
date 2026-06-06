@@ -171,19 +171,45 @@ export function useHarnessSendDispatcher(subChatId: string, harnessOverride?: 'b
 
   const dispatchReview = useCallback(() => {
     if (!isCliHarness) return;
-    writeChunks(
-      `cli:${subChatId}`,
-      'Please write a code review of the changes in the current branch compared to the base branch.\n\n' +
-        `Sub-chat id: ${subChatId}. Pass this exact string as subChatId on every churro-coder MCP tool call.\n\n` +
-        'Run a git command such as `git diff origin/HEAD` or `git log --oneline -10` to see what changed. ' +
-        'Then write a markdown review with:\n' +
-        '1. A brief summary of what the changes do\n' +
-        '2. A table of issues with columns: severity (🔴 high, 🟡 medium, 🟢 low), file:line, issue, suggestion\n' +
-        '3. If no issues: state the code looks good\n\n' +
-        'When complete, call the `write_review` tool from the churro-coder MCP server (pass the entire markdown as the `markdown` argument, and the sub-chat id above as `subChatId`). ' +
-        'This persists the review and updates the Review milestone in the UI.'
-    );
-  }, [isCliHarness, subChatId, writeChunks]);
+    const claudeMsg =
+      'Run the code-review skill to analyze the current diff, then produce and persist the Review artifact.\n\n' +
+      `Sub-chat id: ${subChatId}. Pass this exact string as subChatId on every churro-coder MCP tool call.\n\n` +
+      'Steps:\n' +
+      '1. Invoke the Skill tool with skill: "code-review". It returns a JSON array of findings\n' +
+      '   with fields: file, line, summary, failure_scenario.\n' +
+      '   If the Skill tool is unavailable, fall back to `git diff origin/HEAD` manually.\n' +
+      '2. If more than 15 findings, keep the 15 most impactful.\n' +
+      '3. For every finding classify severity using this rubric:\n' +
+      '   - 🔴 high: security holes, data corruption, crashes, data loss, critical broken paths\n' +
+      '   - 🟡 medium: edge-case bugs, perf regressions, UX problems, non-trivial incorrect behavior\n' +
+      '   - 🟢 low: code quality, style, minor inefficiencies, cleanup\n' +
+      '4. Derive a Suggestion (1–2 sentences) from the failure_scenario.\n' +
+      '5. Build a single markdown document:\n' +
+      '   # Code Review\n' +
+      '   ## Summary\n' +
+      '   [brief description of what the changes do]\n' +
+      '   ## Issues Found\n' +
+      '   | Severity | File:Line | Issue | Suggestion |\n' +
+      '   |----------|-----------|-------|------------|\n' +
+      '   | 🔴 high | path/file.ts:42 | [summary] | [suggestion] |\n' +
+      '   If no issues: state "Code looks good."\n' +
+      `6. Call write_review with subChatId: "${subChatId}" and the markdown above. ` +
+      'This persists the review and updates the Review milestone in the UI.';
+    const codexMsg =
+      'Review the code changes in the current branch compared to the base branch.\n' +
+      'Use your built-in /review capability to analyze the diff and surface findings.\n\n' +
+      `Sub-chat id: ${subChatId}. Pass this exact string as subChatId on every churro-coder MCP tool call.\n\n` +
+      'After gathering findings:\n' +
+      '1. If more than 15 findings, keep the 15 most impactful.\n' +
+      '2. Classify each finding:\n' +
+      '   - 🔴 high: security, crashes, data loss, critical broken paths\n' +
+      '   - 🟡 medium: edge-case bugs, perf, UX, non-trivial incorrect behavior\n' +
+      '   - 🟢 low: code quality, style, minor inefficiencies\n' +
+      '3. Format as a single markdown document (summary + severity table).\n' +
+      `4. Call write_review with subChatId: "${subChatId}" and the markdown. ` +
+      'This persists the review and updates the Review milestone in the UI.';
+    writeChunks(`cli:${subChatId}`, harness === 'claude-cli' ? claudeMsg : codexMsg);
+  }, [isCliHarness, harness, subChatId, writeChunks]);
 
   return { dispatch, dispatchBuildPlan, dispatchFixReviewIssues, dispatchReview, isCliHarness, harness };
 }
