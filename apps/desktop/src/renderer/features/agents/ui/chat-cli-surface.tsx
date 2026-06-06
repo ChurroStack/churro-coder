@@ -18,7 +18,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { useStuckDetection } from '../hooks/use-stuck-detection';
 import { markMcpInjected, forgetMcpInjected } from '../hooks/use-harness-send-dispatcher';
-import { useMcpFileChangesTracking } from '../hooks/use-mcp-file-changes-tracking';
 import { useCliAutoRenameOnFirstMessage } from '../hooks/use-cli-auto-rename-on-first-message';
 import {
   subChatHardResetDialogOpenAtomFamily,
@@ -170,7 +169,9 @@ export function ChatCliSurface({
   const killMutation = trpc.terminal.kill.useMutation();
   const clearScrollbackMutation = trpc.terminal.clearScrollback.useMutation();
 
-  useMcpFileChangesTracking(subChatId, cwd !== '~' ? cwd : undefined);
+  // Per-sub-chat file scoping (subChatFilesAtom) is seeded centrally by
+  // useSubChatFilesSync in the always-mounted DetailsRail, which re-seeds on
+  // every files-changed event — so no per-surface tracking is needed here.
 
   const buildBootstrapMutation = trpc.chats.buildCliBootstrap.useMutation({
     onSuccess: (result: unknown) => {
