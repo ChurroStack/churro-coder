@@ -1,6 +1,25 @@
 /**
  * Terminal utility functions.
  */
+import type { Terminal as XTerm } from 'xterm';
+
+/**
+ * Read xterm's measured character cell size in CSS px. xterm does not expose
+ * this on its public API, so we reach into `_core._renderService` — this is the
+ * single place that cast lives (the sizer and click-to-move both read through
+ * here). Returns 0,0 when the renderer has not measured yet.
+ *
+ * Lives in utils (not helpers) so importers don't pull in helpers' xterm-addon
+ * runtime imports, which reference `self` and break in the node test env.
+ */
+export function readCellDimensions(xterm: XTerm): { cellWidth: number; cellHeight: number } {
+  const cell = (
+    xterm as unknown as {
+      _core?: { _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } } };
+    }
+  )._core?._renderService?.dimensions?.css?.cell;
+  return { cellWidth: cell?.width ?? 0, cellHeight: cell?.height ?? 0 };
+}
 
 /**
  * Compute the terminal scope key for a chat/workspace.

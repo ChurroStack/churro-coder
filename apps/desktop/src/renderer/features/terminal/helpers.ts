@@ -1,21 +1,13 @@
 import { Terminal as XTerm } from 'xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { CanvasAddon } from '@xterm/addon-canvas';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { ITheme } from 'xterm';
-import {
-  TERMINAL_OPTIONS,
-  TERMINAL_THEME_DARK,
-  TERMINAL_THEME_LIGHT,
-  getTerminalTheme,
-  RESIZE_DEBOUNCE_MS
-} from './config';
+import { TERMINAL_OPTIONS, TERMINAL_THEME_DARK, TERMINAL_THEME_LIGHT, getTerminalTheme } from './config';
 import { FilePathLinkProvider } from './link-providers';
 import { isMac, isModifierPressed, showLinkPopup, removeLinkPopup } from './link-providers/link-popup';
-import { suppressQueryResponses } from './suppressQueryResponses';
-import { debounce } from './utils';
+import { readCellDimensions } from './utils';
 
 /**
  * Get the default terminal background color based on theme.
@@ -81,15 +73,15 @@ export interface CreateTerminalOptions {
 
 export interface TerminalInstance {
   xterm: XTerm;
-  fitAddon: FitAddon;
   serializeAddon: SerializeAddon;
   cleanup: () => void;
 }
 
 /**
  * Creates and initializes an xterm instance with all addons.
- * Does: create → open → addons → fit
- * This ensures dimensions are ready before PTY creation.
+ * Does: create → open → addons. Sizing (fit/resize) is owned by the
+ * TerminalSizer (see terminal-sizing.ts), not done here — committing a fit at
+ * mount time was unreliable (hidden container / renderer not yet measured).
  */
 export function createTerminalInstance(
   container: HTMLDivElement,
@@ -121,31 +113,22 @@ export function createTerminalInstance(
   const core = (xterm as unknown as { _core?: { _renderService?: unknown } })._core;
   console.log('[Terminal:create] After open - _renderService exists:', !!core?._renderService);
 
-  // 3. Load fit addon
-  console.log('[Terminal:create] Step 3: Loading FitAddon');
-  const fitAddon = new FitAddon();
-  xterm.loadAddon(fitAddon);
-
-  // 4. Load serialize addon for state persistence
-  console.log('[Terminal:create] Step 4: Loading SerializeAddon');
+  // 3. Load serialize addon for state persistence
+  console.log('[Terminal:create] Step 3: Loading SerializeAddon');
   const serializeAddon = new SerializeAddon();
   xterm.loadAddon(serializeAddon);
 
-  // 5. Load GPU-accelerated renderer
-  console.log('[Terminal:create] Step 5: Loading renderer');
+  // 4. Load GPU-accelerated renderer
+  console.log('[Terminal:create] Step 4: Loading renderer');
   const renderer = loadRenderer(xterm);
 
   // Debug: Check dimensions after renderer
   const coreAfter = (xterm as unknown as { _core?: { _renderService?: { dimensions?: unknown } } })._core;
   console.log('[Terminal:create] After renderer - dimensions:', coreAfter?._renderService?.dimensions);
 
-  // 6. Set up query response suppression
-  console.log('[Terminal:create] Step 6: Setting up query suppression');
-  const cleanupQuerySuppression = suppressQueryResponses(xterm);
-
-  // 7. Set up URL link provider using official WebLinksAddon
+  // 5. Set up URL link provider using official WebLinksAddon
   if (onUrlClick) {
-    console.log('[Terminal:create] Step 7: Registering WebLinksAddon');
+    console.log('[Terminal:create] Step 5: Registering WebLinksAddon');
     const webLinksAddon = new WebLinksAddon(
       (event: MouseEvent, uri: string) => {
         // Require Cmd+Click (Mac) or Ctrl+Click (Windows/Linux)
@@ -165,9 +148,9 @@ export function createTerminalInstance(
     xterm.loadAddon(webLinksAddon);
   }
 
-  // 8. Set up file path link provider
+  // 6. Set up file path link provider
   if (onFileLinkClick) {
-    console.log('[Terminal:create] Step 8: Registering file path link provider');
+    console.log('[Terminal:create] Step 6: Registering file path link provider');
     const filePathLinkProvider = new FilePathLinkProvider(xterm, (_event, path, line, column) => {
       console.log('[Terminal:create] File path link clicked:', path, line, column);
       onFileLinkClick(path, line, column);
@@ -175,23 +158,12 @@ export function createTerminalInstance(
     xterm.registerLinkProvider(filePathLinkProvider);
   }
 
-  // 9. Fit to get actual dimensions
-  console.log('[Terminal:create] Step 9: Fitting terminal');
-  try {
-    fitAddon.fit();
-    console.log('[Terminal:create] Fit successful - cols:', xterm.cols, 'rows:', xterm.rows);
-  } catch (err) {
-    console.log('[Terminal:create] Fit failed:', err);
-  }
-
-  console.log('[Terminal:create] Complete!');
+  console.log('[Terminal:create] Complete! (sizing deferred to TerminalSizer)');
 
   return {
     xterm,
-    fitAddon,
     serializeAddon,
     cleanup: () => {
-      cleanupQuerySuppression();
       renderer.dispose();
     }
   };
@@ -308,37 +280,6 @@ export function setupFocusListener(xterm: XTerm, onFocus: () => void): (() => vo
   };
 }
 
-/**
- * Setup resize handlers for the terminal container.
- *
- * Returns a cleanup function to remove the handlers.
- */
-export function setupResizeHandlers(
-  container: HTMLDivElement,
-  xterm: XTerm,
-  fitAddon: FitAddon,
-  onResize: (cols: number, rows: number) => void
-): () => void {
-  const debouncedHandleResize = debounce(() => {
-    try {
-      fitAddon.fit();
-      onResize(xterm.cols, xterm.rows);
-    } catch {
-      // Ignore resize errors
-    }
-  }, RESIZE_DEBOUNCE_MS);
-
-  const resizeObserver = new ResizeObserver(debouncedHandleResize);
-  resizeObserver.observe(container);
-  window.addEventListener('resize', debouncedHandleResize);
-
-  return () => {
-    window.removeEventListener('resize', debouncedHandleResize);
-    resizeObserver.disconnect();
-    debouncedHandleResize.cancel();
-  };
-}
-
 export interface ClickToMoveOptions {
   /** Callback to write data to the terminal PTY */
   onWrite: (data: string) => void;
@@ -355,21 +296,7 @@ function getTerminalCoordsFromEvent(xterm: XTerm, event: MouseEvent): { col: num
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
 
-  // Access internal render service for cell dimensions
-  const dimensions = (
-    xterm as unknown as {
-      _core?: {
-        _renderService?: {
-          dimensions?: { css: { cell: { width: number; height: number } } };
-        };
-      };
-    }
-  )._core?._renderService?.dimensions;
-
-  if (!dimensions?.css?.cell) return null;
-
-  const cellWidth = dimensions.css.cell.width;
-  const cellHeight = dimensions.css.cell.height;
+  const { cellWidth, cellHeight } = readCellDimensions(xterm);
 
   if (cellWidth <= 0 || cellHeight <= 0) return null;
 
