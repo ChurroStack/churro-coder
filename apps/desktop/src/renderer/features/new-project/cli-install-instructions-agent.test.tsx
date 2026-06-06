@@ -44,20 +44,29 @@ function render(provider: 'claude' | 'codex' | 'openspec', showWhenAvailable = f
 
 describe('CliInstallInstructions — agent CLI missing', () => {
   it('shows the macOS install command for claude when not installed', () => {
-    mockDetectCliQuery.mockReturnValue({ data: { available: false, requiredVersion: '2.1.156', meetsMinimum: false } });
+    mockDetectCliQuery.mockReturnValue({
+      data: { available: false, requiredVersion: '2.1.156', meetsMinimum: false },
+      isFetching: false
+    });
     render('claude', true);
     expect(screen.getByText('curl -fsSL https://claude.ai/install.sh | bash')).toBeTruthy();
     expect(screen.getByRole('button', { name: /recheck/i })).toBeTruthy();
   });
 
   it('shows the brew install command for codex on macOS', () => {
-    mockDetectCliQuery.mockReturnValue({ data: { available: false, requiredVersion: '0.135.0', meetsMinimum: false } });
+    mockDetectCliQuery.mockReturnValue({
+      data: { available: false, requiredVersion: '0.135.0', meetsMinimum: false },
+      isFetching: false
+    });
     render('codex', true);
     expect(screen.getByText('brew install codex')).toBeTruthy();
   });
 
   it('shows the npm install command for openspec', () => {
-    mockDetectCliQuery.mockReturnValue({ data: { available: false, requiredVersion: '1.3.1', meetsMinimum: false } });
+    mockDetectCliQuery.mockReturnValue({
+      data: { available: false, requiredVersion: '1.3.1', meetsMinimum: false },
+      isFetching: false
+    });
     render('openspec', true);
     expect(screen.getByText('npm install -g @fission-ai/openspec')).toBeTruthy();
   });
@@ -66,7 +75,8 @@ describe('CliInstallInstructions — agent CLI missing', () => {
 describe('CliInstallInstructions — agent CLI outdated', () => {
   it('shows an upgrade box naming current vs required version', () => {
     mockDetectCliQuery.mockReturnValue({
-      data: { available: true, version: '2.0.0', requiredVersion: '2.1.156', meetsMinimum: false }
+      data: { available: true, version: '2.0.0', requiredVersion: '2.1.156', meetsMinimum: false },
+      isFetching: false
     });
     render('claude', true);
     expect(screen.getByText(/v2\.0\.0 is below the required v2\.1\.156/)).toBeTruthy();
@@ -77,7 +87,8 @@ describe('CliInstallInstructions — agent CLI outdated', () => {
 describe('CliInstallInstructions — agent CLI installed & OK', () => {
   it('renders a status row with version when showWhenAvailable', () => {
     mockDetectCliQuery.mockReturnValue({
-      data: { available: true, version: '2.1.156', requiredVersion: '2.1.156', meetsMinimum: true }
+      data: { available: true, version: '2.1.156', requiredVersion: '2.1.156', meetsMinimum: true },
+      isFetching: false
     });
     render('claude', true);
     expect(screen.getByText('Claude Code CLI detected')).toBeTruthy();
@@ -86,7 +97,8 @@ describe('CliInstallInstructions — agent CLI installed & OK', () => {
 
   it('renders nothing when installed and showWhenAvailable is false', () => {
     mockDetectCliQuery.mockReturnValue({
-      data: { available: true, version: '2.1.156', requiredVersion: '2.1.156', meetsMinimum: true }
+      data: { available: true, version: '2.1.156', requiredVersion: '2.1.156', meetsMinimum: true },
+      isFetching: false
     });
     const { container } = renderWithProviders(<CliInstallInstructions provider="claude" />, {
       store: createTestStore()

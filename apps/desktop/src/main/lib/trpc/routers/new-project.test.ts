@@ -348,7 +348,7 @@ describe('createProject — openspecInit true', () => {
   it('runs openspec init in clonePath BEFORE git commit', async () => {
     // Record relative order of openspec CLI vs. exec (git) calls
     const callOrder: string[] = [];
-    mockAssertOpenspecBinAvailable.mockImplementation(() => {});
+    mockAssertOpenspecBinAvailable.mockImplementation(async () => {});
     mockRunOpenspecCli.mockImplementation(async () => {
       callOrder.push('openspec');
       return { stdout: '', stderr: '' };

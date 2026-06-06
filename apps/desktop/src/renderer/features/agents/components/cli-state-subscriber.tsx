@@ -75,7 +75,7 @@ export function CliStateSubscriber() {
       // idle snapshot (it was never running this session).
       const wasRunning = appStore.get(subChatBusyAtom).has(subChatId);
 
-      const setBusy = (fn: Parameters<typeof setSubChatBusy>[0]) => appStore.set(subChatBusyAtom, fn);
+      const setBusy = (fn: Parameters<Parameters<typeof setSubChatBusy>[0]>[0]) => appStore.set(subChatBusyAtom, fn);
       if (state === 'running') {
         setSubChatBusy(setBusy, subChatId, { state: 'running', parentChatId, source: 'cli' });
       } else {

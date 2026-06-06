@@ -997,7 +997,6 @@ export const ChatInputArea = memo(function ChatInputArea({
       // CLI harness: write the editor text directly to the embedded terminal PTY.
       // In an OpenSpec editor, prefix `/opsx:propose|apply` based on the active tab
       // since there is no transport that reads `pendingCommand` for CLI paths.
-      setCliAdvisoryBusy(true);
       const messageToSend = buildOpenSpecCliPrefixedMessage({
         message: inputValue,
         isOpenSpec,

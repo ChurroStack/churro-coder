@@ -37,7 +37,7 @@ export interface WorkspaceChatRecord {
   sandboxId?: string | null;
   projectId?: string | null;
   prNumber?: number | null;
-  meta?: { repository?: string; branch?: string | null };
+  meta?: { repository?: string; branch?: string | null } | null;
   [key: string]: unknown;
 }
 

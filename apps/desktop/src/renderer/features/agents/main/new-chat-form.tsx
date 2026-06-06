@@ -3,7 +3,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { AlignJustify, ClipboardList, FileText, Loader2, Plus, Telescope, Wand2, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { Button } from '../../../components/ui/button';
 import {
   AgentIcon,
@@ -278,7 +278,7 @@ function AgentHarnessDropdown({ value, onChange }: { value: CliHarness; onChange
  * the onChange reconciliation live in NewChatForm (`workflowMode` / `setWorkflowMode`),
  * which delegate the decision to `nextWorkflowSelection` in wizard-state.
  */
-const WORKFLOW_MODE_OPTIONS: { value: WorkflowMode; label: string; icon: typeof PlanIcon }[] = [
+const WORKFLOW_MODE_OPTIONS: { value: WorkflowMode; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { value: 'plan', label: 'Plan', icon: PlanIcon },
   { value: 'execute', label: 'Execute', icon: AgentIcon },
   { value: 'explore', label: 'Explore', icon: Telescope },

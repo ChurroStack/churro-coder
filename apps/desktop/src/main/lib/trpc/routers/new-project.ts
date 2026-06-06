@@ -296,12 +296,7 @@ export const newProjectRouter = router({
                     ? `OpenSpec CLI not installed — skipping init. Install: npm install -g @fission-ai/openspec`
                     : `OpenSpec init failed (continuing without it): ${rawMsg}`;
                   emitStep('openspec-init', 'error', msg);
-                  log(
-                    correlationId,
-                    'openspec-init',
-                    false,
-                    `${isBundleMissing ? 'bundle-missing' : 'cli-error'} ${rawMsg}`
-                  );
+                  log(correlationId, 'openspec-init', false, `${isCliMissing ? 'cli-missing' : 'cli-error'} ${rawMsg}`);
                   // non-fatal: continue with templates-only commit
                 }
               } catch (importErr) {
