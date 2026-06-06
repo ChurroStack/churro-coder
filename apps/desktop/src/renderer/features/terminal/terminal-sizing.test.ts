@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { proposeGeometry, geometryChanged } from './terminal-sizing';
+import { proposeGeometry, geometryChanged, colsChanged } from './terminal-sizing';
 
 describe('proposeGeometry', () => {
   it('computes cols/rows from a normal measurement', () => {
@@ -54,5 +54,23 @@ describe('geometryChanged', () => {
 
   it('is true when rows differ', () => {
     expect(geometryChanged({ cols: 80, rows: 24 }, { cols: 80, rows: 40 })).toBe(true);
+  });
+});
+
+describe('colsChanged (gates stale-scrollback clear to width changes only)', () => {
+  it('is false on the first commit (no prior history to invalidate)', () => {
+    expect(colsChanged(null, { cols: 80, rows: 24 })).toBe(false);
+  });
+
+  it('is true when cols change (would leave prior scrollback hard-wrapped)', () => {
+    expect(colsChanged({ cols: 80, rows: 24 }, { cols: 120, rows: 24 })).toBe(true);
+  });
+
+  it('is false when only rows change (height drag must not wipe history)', () => {
+    expect(colsChanged({ cols: 80, rows: 24 }, { cols: 80, rows: 40 })).toBe(false);
+  });
+
+  it('is false when geometry is unchanged', () => {
+    expect(colsChanged({ cols: 80, rows: 24 }, { cols: 80, rows: 24 })).toBe(false);
   });
 });

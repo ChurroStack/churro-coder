@@ -33,6 +33,12 @@ import { debounce, readCellDimensions } from './utils';
  *     ResizeObserver frames during a window/split drag — are debounced so the PTY
  *     receives one SIGWINCH after the drag settles, not ~60/sec. Without this the
  *     CLI would repaint on every frame mid-drag.
+ *   - **Dropping stale scrollback on a width change.** Claude Code (Ink) wraps its
+ *     own output to COLUMNS and emits hard newlines, so once the PTY width changes
+ *     the prior scrollback is frozen at the old width — xterm can reflow soft
+ *     wraps but not hard newlines, so scrolling up would show mangled text. On a
+ *     column change we erase the scrollback (CSI 3 J) and keep the live viewport;
+ *     full history stays in the read-only conversation pane (hydrated from JSONL).
  *
  * Per the per-subChat isolation invariant (apps/desktop/AGENTS.md) one controller
  * is created per Terminal mount and stored in a `useRef`; it is never shared.
@@ -86,6 +92,16 @@ export function proposeGeometry(input: SizingInput): Geometry | null {
 /** True when `next` differs from the last committed geometry (or none committed). */
 export function geometryChanged(prev: Geometry | null, next: Geometry): boolean {
   return !prev || prev.cols !== next.cols || prev.rows !== next.rows;
+}
+
+/**
+ * True when the column count changed from a *prior* commit. Used to decide
+ * whether to drop stale scrollback: only a width change re-wraps the frame and
+ * leaves prior (hard-wrapped) scrollback mismatched. Returns false on the first
+ * commit — there is no prior history to invalidate.
+ */
+export function colsChanged(prev: Geometry | null, next: Geometry): boolean {
+  return prev !== null && prev.cols !== next.cols;
 }
 
 export interface TerminalSizer {
@@ -157,13 +173,21 @@ export function createTerminalSizer(
       return;
     }
     invalidAttempts = 0;
-    const changed = geometryChanged(committed, next);
+    const prev = committed;
+    const changed = geometryChanged(prev, next);
     committed = next;
     if (changed) {
       try {
         xterm.resize(next.cols, next.rows);
+        // A width change re-wraps the live frame, but prior scrollback stays
+        // hard-wrapped at the old width — Claude Code (Ink) wraps its own output
+        // to COLUMNS, so xterm cannot reflow those hard newlines and scrolling up
+        // would show mangled text. Drop the now-mismatched scrollback (CSI 3 J =
+        // erase saved lines; the visible viewport is kept). The CLI repaints the
+        // live frame on SIGWINCH and full history remains in the conversation pane.
+        if (colsChanged(prev, next)) xterm.write('\x1b[3J');
       } catch {
-        // resize can throw if xterm is mid-dispose; ignore
+        // resize / write can throw if xterm is mid-dispose; ignore
       }
       onCommit(next);
     }
