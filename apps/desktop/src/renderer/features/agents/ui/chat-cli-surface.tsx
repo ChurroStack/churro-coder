@@ -18,7 +18,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { useStuckDetection } from '../hooks/use-stuck-detection';
 import { markMcpInjected, forgetMcpInjected } from '../hooks/use-harness-send-dispatcher';
-import { useMcpFileChangesTracking } from '../hooks/use-mcp-file-changes-tracking';
 import { useCliAutoRenameOnFirstMessage } from '../hooks/use-cli-auto-rename-on-first-message';
 import {
   subChatHardResetDialogOpenAtomFamily,
@@ -170,7 +169,9 @@ export function ChatCliSurface({
   const killMutation = trpc.terminal.kill.useMutation();
   const clearScrollbackMutation = trpc.terminal.clearScrollback.useMutation();
 
-  useMcpFileChangesTracking(subChatId, cwd !== '~' ? cwd : undefined);
+  // Per-sub-chat file scoping (subChatFilesAtom) is seeded centrally by
+  // useSubChatFilesSync in the always-mounted DetailsRail, which re-seeds on
+  // every files-changed event — so no per-surface tracking is needed here.
 
   const buildBootstrapMutation = trpc.chats.buildCliBootstrap.useMutation({
     onSuccess: (result: unknown) => {
@@ -476,7 +477,15 @@ function CliSplitBody({
   }, [statusQuery.data?.sessionFile]);
 
   if (layout === 'off') {
-    return <Terminal paneId={paneId} cwd={cwd} workspaceId={workspaceId} bootstrap={bootstrap} />;
+    return (
+      <Terminal
+        paneId={paneId}
+        cwd={cwd}
+        workspaceId={workspaceId}
+        bootstrap={bootstrap}
+        clearScrollbackOnColChange={harness === 'claude-cli'}
+      />
+    );
   }
 
   // See terminology mapping in this function's doc comment.
@@ -493,7 +502,13 @@ function CliSplitBody({
       </ResizablePanel>
       <ResizableHandle />
       <ResizablePanel defaultSize={100 - chatSize} minSize={15} order={2} id={`cli-term-${subChatId}`}>
-        <Terminal paneId={paneId} cwd={cwd} workspaceId={workspaceId} bootstrap={bootstrap} />
+        <Terminal
+          paneId={paneId}
+          cwd={cwd}
+          workspaceId={workspaceId}
+          bootstrap={bootstrap}
+          clearScrollbackOnColChange={harness === 'claude-cli'}
+        />
       </ResizablePanel>
     </ResizablePanelGroup>
   );

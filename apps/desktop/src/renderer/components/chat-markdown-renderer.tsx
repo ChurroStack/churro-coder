@@ -8,18 +8,6 @@ import { useCodeTheme } from '../lib/hooks/use-code-theme';
 import { highlightCode } from '../lib/themes/shiki-theme-loader';
 import { MermaidBlock } from './mermaid-block';
 
-// Function to strip emojis from text (only common emojis, preserving markdown symbols)
-export function stripEmojis(text: string): string {
-  return text
-    .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticons
-    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '') // Misc Symbols and Pictographs
-    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '') // Transport and Map
-    .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '') // Flags
-    .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Supplemental Symbols
-    .replace(/[\u{1FA00}-\u{1FAFF}]/gu, '') // Extended-A
-    .replace(/[\u{2700}-\u{27BF}]/gu, ''); // Dingbats
-}
-
 // Escape HTML special characters for safe rendering
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -284,9 +272,6 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
   const codeTheme = useCodeTheme();
   const styles = sizeStyles[size];
 
-  // Process content - strip emojis
-  const processedContent = useMemo(() => stripEmojis(content), [content]);
-
   // Memoize components object to prevent re-renders
   // This is critical for Streamdown's block-level memoization to work
   const components = useMemo(
@@ -442,7 +427,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
         isAnimating={isStreaming}
         parseIncompleteMarkdown={isStreaming}
         controls={false}>
-        {processedContent}
+        {content}
       </Streamdown>
     </div>
   );
@@ -690,12 +675,9 @@ export const MemoizedMarkdown = memo(function MemoizedMarkdown({
 }) {
   const codeTheme = useCodeTheme();
 
-  // Pre-process content - strip emojis
-  const processedContent = useMemo(() => stripEmojis(content), [content]);
-
   // Split into blocks - this recalculates when content changes,
   // but each block is individually memoized with content-based keys
-  const blocks = useMemo(() => parseIntoBlocks(processedContent), [processedContent]);
+  const blocks = useMemo(() => parseIntoBlocks(content), [content]);
 
   return (
     <div

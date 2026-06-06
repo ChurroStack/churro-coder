@@ -149,5 +149,3 @@ export const TERMINAL_OPTIONS: ITerminalOptions = {
   // Better letter spacing for code readability
   letterSpacing: 0
 };
-
-export const RESIZE_DEBOUNCE_MS = 150;

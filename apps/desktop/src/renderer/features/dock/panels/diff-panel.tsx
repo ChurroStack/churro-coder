@@ -271,6 +271,18 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   // through useQuery) would update. Without this bump the right panel
   // would stay "No changes detected" even though the file list refreshed.
   const bumpDiffRefreshTick = useSetAtom(useMemo(() => workspaceDiffRefreshTickAtomFamily(chatId), [chatId]));
+
+  // Refresh the working-tree diff whenever the panel opens (or its chat
+  // changes). The panel renders solely from `workspaceDiffCacheAtomFamily`, so
+  // without this it could open against a stale/empty cache — e.g. a CLI chat
+  // whose ChatView fetcher never ran — and show "No changes detected" even
+  // though the clicked file has a diff. The always-mounted DetailsRail sync
+  // (or ChatView) services the tick bump.
+  useEffect(() => {
+    if (!chatId) return;
+    bumpDiffRefreshTick((n) => n + 1);
+  }, [chatId, bumpDiffRefreshTick]);
+
   const handleRefresh = useCallback(() => {
     if (!chatId) return;
     void trpcUtils.chats.getParsedDiff.invalidate({ chatId });

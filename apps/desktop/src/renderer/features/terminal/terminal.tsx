@@ -1,12 +1,11 @@
 // Per-subChat isolation invariant (see apps/desktop/AGENTS.md):
-// one Terminal instance per paneId — xterm/fitAddon/serializeAddon refs MUST
+// one Terminal instance per paneId — xterm/sizer/serializeAddon refs MUST
 // live in useRef inside this component and never be reused across panels.
 // Two ChatCliSurface panels with distinct paneIds mount two independent
 // xterm instances; reintroducing instance reuse would let subChat A's PTY
 // bytes write into subChat B's canvas.
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import type { Terminal as XTerm } from 'xterm';
-import type { FitAddon } from '@xterm/addon-fit';
 import type { SearchAddon } from '@xterm/addon-search';
 import type { SerializeAddon } from '@xterm/addon-serialize';
 import { useTheme } from 'next-themes';
@@ -22,9 +21,9 @@ import {
   setupContextMenuHandler,
   setupFocusListener,
   setupKeyboardHandler,
-  setupPasteHandler,
-  setupResizeHandlers
+  setupPasteHandler
 } from './helpers';
+import { createTerminalSizer, type TerminalSizer } from './terminal-sizing';
 import { getTerminalTheme, getTerminalThemeFromVSCode } from './config';
 import { parseCwd } from './parseCwd';
 import { sanitizeForTitle } from './commandBuffer';
@@ -42,12 +41,13 @@ export function Terminal({
   tabId,
   initialCommands,
   initialCwd,
-  bootstrap
+  bootstrap,
+  clearScrollbackOnColChange = false
 }: TerminalProps) {
   const scopeRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
+  const sizerRef = useRef<TerminalSizer | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
   const isExitedRef = useRef(false);
@@ -159,7 +159,7 @@ export function Terminal({
     console.log('[Terminal:useEffect] Creating terminal instance...', {
       isDark
     });
-    const { xterm, fitAddon, serializeAddon, cleanup } = createTerminalInstance(container, {
+    const { xterm, serializeAddon, cleanup } = createTerminalInstance(container, {
       cwd: terminalCwdRef.current || cwd,
       isDark,
       onFileLinkClick: (path, line, column) => {
@@ -173,9 +173,23 @@ export function Terminal({
     });
 
     xtermRef.current = xterm;
-    fitAddonRef.current = fitAddon;
     serializeAddonRef.current = serializeAddon;
     isExitedRef.current = false;
+
+    // Own the measure -> fit -> resize lifecycle. The sizer attempts a
+    // synchronous fit at creation time so the PTY spawns at the correct size
+    // when the container is already laid out (visible tab). Falls back to the
+    // rAF retry loop when dimensions are not valid yet (hidden tab, renderer
+    // not ready). Keeps xterm/PTY columns in lockstep afterward.
+    const sizer = createTerminalSizer(
+      xterm,
+      container,
+      ({ cols, rows }) => {
+        resizeRef.current({ paneId, cols, rows });
+      },
+      { clearScrollbackOnColChange }
+    );
+    sizerRef.current = sizer;
 
     // Lazy load search addon
     import('@xterm/addon-search').then(({ SearchAddon }) => {
@@ -293,10 +307,6 @@ export function Terminal({
       // TODO: Set focused pane
     });
 
-    const cleanupResize = setupResizeHandlers(container, xterm, fitAddon, (cols, rows) => {
-      resizeRef.current({ paneId, cols, rows });
-    });
-
     const cleanupPaste = setupPasteHandler(xterm, {
       onPaste: (text) => {
         commandBufferRef.current += text;
@@ -327,7 +337,7 @@ export function Terminal({
       cleanupKeyboard();
       cleanupClickToMove();
       cleanupFocus?.();
-      cleanupResize();
+      sizer.dispose();
       cleanupPaste();
       cleanupContextMenu();
       cleanup();
@@ -342,7 +352,7 @@ export function Terminal({
       console.log('[Terminal:useEffect] Disposing xterm...');
       xterm.dispose();
       xtermRef.current = null;
-      fitAddonRef.current = null;
+      sizerRef.current = null;
       searchAddonRef.current = null;
       serializeAddonRef.current = null;
       console.log('[Terminal:useEffect] UNMOUNT complete');
