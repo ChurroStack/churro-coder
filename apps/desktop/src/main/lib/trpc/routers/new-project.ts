@@ -10,7 +10,9 @@ import { join, basename } from 'node:path';
 import { app } from 'electron';
 import { getProviderAdapter } from '../../providers/index';
 import { evict } from '../../providers/detect-cache';
+import { evictCliDetect } from '../../cli-harness/detect';
 import { clearShellEnvCache } from '../../git/shell-env';
+import type { CliTool } from '../../../../shared/cli-install-commands';
 import { cloneIntoRepos } from '../../git/clone-into-repos';
 import { getGitRemoteInfo } from '../../git';
 import { isWindows } from '../../platform/index';
@@ -40,13 +42,23 @@ function log(correlationId: string, step: string, ok: boolean, reason?: string):
 }
 
 const providerIdSchema = z.enum(['github', 'azure', 'local']);
+const cliToolSchema = z.enum(['claude', 'codex', 'openspec']);
+function isCliTool(v: string): v is CliTool {
+  return v === 'claude' || v === 'codex' || v === 'openspec';
+}
 
 export const newProjectRouter = router({
-  /** Detect whether the provider CLI (or openspec binary) is available. */
+  /**
+   * Detect whether a provider CLI (gh/az/git) or an agent CLI (claude/codex/
+   * openspec) is available on PATH. Agent CLIs additionally report a version
+   * gate (`requiredVersion` / `meetsMinimum`) so the UI can flag an outdated
+   * install; provider CLIs omit those fields (the component treats their absence
+   * as "no gate").
+   */
   detectCli: publicProcedure
     .input(
       z.object({
-        provider: z.union([providerIdSchema, z.literal('openspec')]),
+        provider: z.union([providerIdSchema, cliToolSchema]),
         evictCache: z.boolean().default(false)
       })
     )
@@ -57,17 +69,19 @@ export const newProjectRouter = router({
         // picked up by the very next runCli() call — otherwise the user would have
         // to wait for the 60 s shell-env TTL to expire.
         clearShellEnvCache();
-        if (input.provider !== 'openspec') evict(input.provider);
+        if (isCliTool(input.provider)) evictCliDetect(input.provider);
+        else evict(input.provider);
       }
 
-      if (input.provider === 'openspec') {
-        try {
-          const { assertOpenspecBinAvailable } = await import('../../openspec/openspec-bin-path');
-          assertOpenspecBinAvailable();
-          return { available: true, version: 'bundled' as string | undefined };
-        } catch {
-          return { available: false, version: undefined as string | undefined };
-        }
+      if (isCliTool(input.provider)) {
+        const { detectCliTool } = await import('../../cli-harness/detect');
+        const d = await detectCliTool(input.provider, { evict: input.evictCache });
+        return {
+          available: d.available,
+          version: d.version,
+          requiredVersion: d.requiredVersion,
+          meetsMinimum: d.meetsMinimum
+        };
       }
 
       const adapter = getProviderAdapter(input.provider);
@@ -264,22 +278,22 @@ export const newProjectRouter = router({
               emitStep('openspec-init', 'pending');
               currentStep = 'openspec-init';
               try {
-                const { assertOpenspecBinAvailable, OpenspecBundleMissingError } =
+                const { assertOpenspecBinAvailable, OpenspecCliMissingError } =
                   await import('../../openspec/openspec-bin-path');
                 try {
-                  assertOpenspecBinAvailable();
+                  await assertOpenspecBinAvailable();
                   const { runOpenspecCli } = await import('../../openspec/run-openspec-cli');
                   await runOpenspecCli(['init', '--tools', 'claude,codex', '--profile', 'core'], clonePath);
                   openspecInitSucceeded = true;
                   emitStep('openspec-init', 'done');
                   log(correlationId, 'openspec-init', true);
                 } catch (e) {
-                  // Distinguish a missing bundle (packaging defect, more actionable for the user)
+                  // Distinguish a missing CLI (user hasn't installed openspec, more actionable)
                   // from a transient CLI error. Both stay non-fatal for the overall flow.
-                  const isBundleMissing = e instanceof OpenspecBundleMissingError;
+                  const isCliMissing = e instanceof OpenspecCliMissingError;
                   const rawMsg = String(e);
-                  const msg = isBundleMissing
-                    ? `OpenSpec CLI bundle missing — skipping init. ${rawMsg}`
+                  const msg = isCliMissing
+                    ? `OpenSpec CLI not installed — skipping init. Install: npm install -g @fission-ai/openspec`
                     : `OpenSpec init failed (continuing without it): ${rawMsg}`;
                   emitStep('openspec-init', 'error', msg);
                   log(

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useSetAtom } from 'jotai';
 import { trpc } from '@/lib/trpc';
-import { selectedProjectAtom } from '@/lib/atoms';
 import { newProjectDialogOpenAtom } from './atoms';
+import { useApplyAddedProject } from './use-apply-added-project';
 import { parseAzureDevOpsRef } from '../../../shared/git-url-parsers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,14 +12,14 @@ export function CloneRepoSection() {
   const [url, setUrl] = useState('');
   const [parseError, setParseError] = useState<string | null>(null);
   const setDialogOpen = useSetAtom(newProjectDialogOpenAtom);
-  const setSelectedProject = useSetAtom(selectedProjectAtom);
+  const applyAddedProject = useApplyAddedProject();
 
   const clone = trpc.projects.cloneFromGitHub.useMutation({
     onSuccess: (project) => {
       if (project) {
-        setSelectedProject({ id: project.id, name: project.name, path: project.path });
+        applyAddedProject(project);
+        setDialogOpen(false);
       }
-      setDialogOpen(false);
     }
   });
 

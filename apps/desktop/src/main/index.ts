@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage } from 'electron';
-import { existsSync, readFileSync, readlinkSync, unlinkSync } from 'fs';
+import { existsSync, readlinkSync, unlinkSync } from 'fs';
 import { rename as renameDir } from 'fs/promises';
 import { createServer } from 'http';
 import { join } from 'path';
@@ -312,31 +312,30 @@ if (gotTheLock) {
       .then((m) => m.bootstrapIngestersOnAppStart())
       .catch((e) => console.warn('[cli-session] bootstrap failed:', e));
 
-    // Get bundled CLI versions for About panel
-    const isDev = !app.isPackaged;
-    const binDir = isDev ? join(app.getAppPath(), 'resources/bin') : join(process.resourcesPath, 'bin');
-
-    const readBundledVersion = (fileName: string, label: string): string => {
-      try {
-        const versionPath = join(binDir, fileName);
-        if (existsSync(versionPath)) {
-          const versionContent = readFileSync(versionPath, 'utf-8');
-          return versionContent.split('\n')[0]?.trim() || 'unknown';
-        }
-      } catch (error) {
-        console.warn(`[App] Failed to read ${label} version:`, error);
-      }
-      return 'unknown';
-    };
-
-    const claudeCodeVersion = readBundledVersion('VERSION', 'Claude Code');
-    const codexVersion = readBundledVersion('CODEX_VERSION', 'Codex');
-
+    // CLI versions for the About panel. The CLIs are no longer bundled, so probe
+    // the user's PATH-installed claude/codex lazily — set the base panel now and
+    // refresh it once the async `--version` probes resolve, never blocking startup.
     app.setAboutPanelOptions({
       applicationName: 'Churro Coder',
-      applicationVersion: `${app.getVersion()}\nClaude Code ${claudeCodeVersion} · Codex ${codexVersion}`,
+      applicationVersion: app.getVersion(),
       copyright: 'Copyright © 2026 ChurroStack'
     });
+
+    void (async () => {
+      try {
+        const { detectCliTool } = await import('./lib/cli-harness/detect');
+        const [claude, codex] = await Promise.all([detectCliTool('claude'), detectCliTool('codex')]);
+        const fmt = (d: { available: boolean; version?: string }): string =>
+          d.available ? (d.version ?? 'unknown') : 'not installed';
+        app.setAboutPanelOptions({
+          applicationName: 'Churro Coder',
+          applicationVersion: `${app.getVersion()}\nClaude Code ${fmt(claude)} · Codex ${fmt(codex)}`,
+          copyright: 'Copyright © 2026 ChurroStack'
+        });
+      } catch (error) {
+        console.warn('[App] Failed to probe CLI versions for About panel:', error);
+      }
+    })();
 
     // Track update availability for menu
     let updateAvailable = false;

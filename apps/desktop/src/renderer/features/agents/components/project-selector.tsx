@@ -17,10 +17,12 @@ import { IconChevronDown, CheckIcon, FolderPlusIcon, GitHubIcon } from '../../..
 import { ProjectIcon } from '../../../components/ui/project-icon';
 import { trpc } from '../../../lib/trpc';
 import { selectedProjectAtom } from '../atoms';
+import { useApplyAddedProject } from '../../new-project/use-apply-added-project';
 
 export function ProjectSelector() {
   const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom);
   const setNewProjectOpen = useSetAtom(newProjectDialogOpenAtom);
+  const applyAddedProject = useApplyAddedProject();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [githubDialogOpen, setGithubDialogOpen] = useState(false);
@@ -37,32 +39,11 @@ export function ProjectSelector() {
     return projects.filter((p) => p.name.toLowerCase().includes(query) || p.path.toLowerCase().includes(query));
   }, [projects, searchQuery]);
 
-  // Get tRPC utils for cache management
-  const utils = trpc.useUtils();
-
   // Open folder mutation
   const openFolder = trpc.projects.openFolder.useMutation({
     onSuccess: (project) => {
       if (project) {
-        // Optimistically update the projects list cache to prevent validation failures
-        utils.projects.list.setData(undefined, (oldData) => {
-          if (!Array.isArray(oldData)) return [project];
-          const exists = oldData.some((p) => p.id === project.id);
-          if (exists) {
-            return oldData.map((p) => (p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p));
-          }
-          return [project, ...oldData];
-        });
-
-        setSelectedProject({
-          id: project.id,
-          name: project.name,
-          path: project.path,
-          gitRemoteUrl: project.gitRemoteUrl,
-          gitProvider: project.gitProvider as 'github' | 'gitlab' | 'bitbucket' | null,
-          gitOwner: project.gitOwner,
-          gitRepo: project.gitRepo
-        });
+        applyAddedProject(project);
       }
     }
   });
@@ -71,24 +52,7 @@ export function ProjectSelector() {
   const cloneFromGitHub = trpc.projects.cloneFromGitHub.useMutation({
     onSuccess: (project) => {
       if (project) {
-        utils.projects.list.setData(undefined, (oldData) => {
-          if (!Array.isArray(oldData)) return [project];
-          const exists = oldData.some((p) => p.id === project.id);
-          if (exists) {
-            return oldData.map((p) => (p.id === project.id ? { ...p, updatedAt: project.updatedAt } : p));
-          }
-          return [project, ...oldData];
-        });
-
-        setSelectedProject({
-          id: project.id,
-          name: project.name,
-          path: project.path,
-          gitRemoteUrl: project.gitRemoteUrl,
-          gitProvider: project.gitProvider as 'github' | 'gitlab' | 'bitbucket' | null,
-          gitOwner: project.gitOwner,
-          gitRepo: project.gitRepo
-        });
+        applyAddedProject(project);
         setGithubDialogOpen(false);
         setGithubUrl('');
       }

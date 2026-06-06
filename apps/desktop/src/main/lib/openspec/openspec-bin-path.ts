@@ -1,72 +1,40 @@
-import { app } from 'electron';
-import fs from 'node:fs';
-import path from 'node:path';
+import { detectCliTool } from '../cli-harness/detect';
 
-export class OpenspecBundleMissingError extends Error {
-  constructor(binDir: string) {
-    const isDev = !app.isPackaged;
-    const hint = isDev
-      ? "Run 'bun run openspec:install' from apps/desktop to install the bundled CLI."
-      : 'The openspec bundle is missing from the app package. Please reinstall the app.';
-    super(`OpenSpec CLI bundle not found at ${binDir}. ${hint}`);
-    this.name = 'OpenspecBundleMissingError';
+export class OpenspecCliMissingError extends Error {
+  constructor() {
+    super('OpenSpec CLI not found on PATH. Install it with: npm install -g @fission-ai/openspec');
+    this.name = 'OpenspecCliMissingError';
   }
 }
 
-let cachedBinDir: string | null = null;
-
 /**
- * Returns the directory containing the openspec shim scripts.
- * Dev: apps/desktop/resources/openspec/bin/
- * Packaged: {resourcesPath}/openspec/bin/
+ * Resolve the absolute path of the user's PATH-installed `openspec`, or null if
+ * it is not installed. Detection goes through the shell-env-aware `detectCliTool`
+ * so a Finder-launched macOS app still finds Homebrew / npm-global installs.
  */
-export function getOpenspecBinDir(): string {
-  if (cachedBinDir !== null) return cachedBinDir;
-
-  const isDev = !app.isPackaged;
-  const dir = isDev
-    ? path.join(app.getAppPath(), 'resources', 'openspec', 'bin')
-    : path.join(process.resourcesPath, 'openspec', 'bin');
-
-  if (!fs.existsSync(dir)) {
-    console.warn(`[openspec-bin] Shim directory not found: ${dir}`);
-    console.warn("[openspec-bin] Run 'bun run openspec:install' to install the bundled CLI");
-  } else {
-    console.log(`[openspec-bin] Resolved shim directory: ${dir}`);
-  }
-
-  cachedBinDir = dir;
-  return dir;
+export async function resolveOpenspecBin(): Promise<string | null> {
+  const d = await detectCliTool('openspec');
+  return d.available ? (d.path ?? 'openspec') : null;
 }
 
 /**
- * Throws OpenspecBundleMissingError when the shim directory or binary is absent.
- * Call at the top of any procedure that invokes the CLI so the UI gets a typed error.
+ * Throws OpenspecCliMissingError when `openspec` is not installed on PATH.
+ * Call (with await) at the top of any procedure that invokes the CLI so the UI
+ * gets a typed error.
  */
-export function assertOpenspecBinAvailable(): void {
-  const binDir = getOpenspecBinDir();
-  const bin = path.join(binDir, 'openspec');
-  if (!fs.existsSync(bin)) {
-    throw new OpenspecBundleMissingError(binDir);
-  }
-  const pkgEntry = path.join(binDir, '..', 'pkg', 'bin', 'openspec.js');
-  if (!fs.existsSync(pkgEntry)) {
-    throw new OpenspecBundleMissingError(binDir);
-  }
+export async function assertOpenspecBinAvailable(): Promise<void> {
+  const bin = await resolveOpenspecBin();
+  if (!bin) throw new OpenspecCliMissingError();
 }
 
 /**
- * Env var overrides to inject when spawning agent CLIs so the openspec shim works.
- * - CSCODE_ELECTRON_PATH: path the shim execs with ELECTRON_RUN_AS_NODE=1
- * - OPENSPEC_BIN: absolute path to the shim for agents whose bash tool doesn't
- *   inherit the injected PATH (e.g. Codex sandbox environments)
- * - OPENSPEC_TELEMETRY: disabled to prevent PostHog traffic from inside the app
+ * Env overrides injected when spawning agent CLIs or invoking openspec directly:
+ * disable telemetry. The CLI itself is now resolved from the user's PATH, so we
+ * no longer inject the Electron-as-Node shim vars (CSCODE_ELECTRON_PATH /
+ * OPENSPEC_BIN) — the global `openspec` brings its own Node.
  */
 export function buildOpenspecEnvOverrides(): Record<string, string> {
-  const binDir = getOpenspecBinDir();
   return {
-    CSCODE_ELECTRON_PATH: process.execPath,
-    OPENSPEC_BIN: path.join(binDir, 'openspec'),
     OPENSPEC_TELEMETRY: '0',
     DO_NOT_TRACK: '1',
     CI: 'true'

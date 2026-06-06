@@ -68,18 +68,15 @@ bun run package:linux    # Build Linux (AppImage + DEB)
 bun run dist             # Full electron-builder release
 bun run dist:manifest    # Generate update-manifest JSON for the CDN
 bun run dist:upload      # Upload release artifacts (used by release pipeline)
-bun run release          # Full pipeline: clean → install → fetch CLIs → build → package:mac → manifest → upload
+bun run release          # Full pipeline: clean → install → build → package:mac → manifest → upload
 bun run release:dev      # Local release rehearsal (no upload)
 
-# Bundled CLI binaries (downloaded into resources/bin)
-bun run claude:download       # Fetch Claude Code CLI for current arch
-bun run claude:download:all   # Fetch for all arches
-bun run codex:download        # Fetch Codex CLI for current arch
-bun run codex:download:all    # Fetch for all arches
-
-# OpenSpec CLI (auto-installed by postinstall; run manually to reinstall or upgrade)
-bun run openspec:install        # Install pinned version into resources/openspec/pkg/
-bun run openspec:install:latest # Install latest version from npm
+# Agent CLIs (claude / codex / openspec) are NO LONGER bundled. The app detects
+# and uses the user's PATH-installed copies at runtime (welcome screen + Settings
+# → Models show install/upgrade commands when missing/outdated; detection lives
+# in `newProject.detectCli` + `cli-harness/detect.ts`, install commands + min
+# versions in `src/shared/cli-install-commands.ts`).
+bun run codex:gen-types  # Maintainer-only: refresh committed src/shared/codex-app-server-schema/ when bumping codex
 
 # Database (Drizzle + SQLite)
 bun run db:generate      # Generate migrations from schema
@@ -143,7 +140,7 @@ Each subChat has an immutable `harness` column (`'builtin' | 'claude-cli' | 'cod
 
 `src/main/lib/cli-harness/index.ts` — called by `chats.buildCliBootstrap` tRPC procedure.
 
-**Binary discovery:** bundled binary under `resources/bin/<platform>-<arch>/` first; falls back to PATH lookup + version probe. Results cached per session in an in-memory `Map`. Invalidate with `invalidateBinaryCache()`.
+**Binary discovery:** PATH-only via the shared `cli-harness/detect.ts` (`detectCliTool`), which resolves `claude`/`codex` through the shell-env-aware `runCli` (so a Finder-launched macOS app finds Homebrew / npm-global installs) + version probe. The CLIs are no longer bundled. One 60 s cache in `detect.ts` is shared with the `newProject.detectCli` UI query — `invalidateBinaryCache()` (→ `evictCliDetect()`) busts it so a Recheck that flips the UI to "installed" also lets the very next spawn succeed.
 
 **MCP injection (single shared registration):**
 - The MCP HTTP server is a singleton with one stable logical entry per CLI host: `mcpServers.churro-coder` (Claude) / `mcp_servers.churro-coder.*` (Codex). subChatId is **not** in the entry name — it's a required argument on every tool call.

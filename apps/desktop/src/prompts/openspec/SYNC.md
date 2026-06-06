@@ -27,17 +27,16 @@ Sync flow:
 4. Keep `{# LOCAL: ... #}` blocks intact.
 5. Re-run the relevant desktop tests.
 
-## Upgrading the bundled CLI
+## Upgrading the OpenSpec prompts / supported version
 
-The vendored prompts and the bundled `@fission-ai/openspec` CLI are pinned together. When upgrading:
+The vendored prompts track the `@fission-ai/openspec` CLI version users are expected to install. The CLI itself is NOT bundled anymore — users install it on PATH (`npm install -g @fission-ai/openspec`); the app detects it (Settings → Models) and gates on `CLI_MIN_VERSIONS.openspec`. When upgrading the supported version:
 
 1. Edit **two** constants to the new version:
-   - `PINNED_VERSION` in `apps/desktop/scripts/download-openspec.mjs`
+   - `openspec` in `CLI_MIN_VERSIONS` in `apps/desktop/src/shared/cli-install-commands.ts` (the detection floor)
    - `UPSTREAM_REF` in `apps/desktop/scripts/sync-openspec-prompts.mjs`
 2. Run:
    ```bash
-   bun run openspec:install   # refreshes resources/openspec/pkg/
-   bun run sync:openspec      # refreshes src/prompts/openspec/*.j2
+   bun run sync:openspec      # refreshes src/prompts/openspec/*.j2 (fetches from npm, no bundling)
    ```
 3. Resolve any `*.upstream` sidecars (manual merge required when local blocks can't auto-merge).
 4. Smoke-test the four slash commands (`/opsx:propose`, `/opsx:apply`, `/opsx:archive`, `/opsx:verify`) in a dev build.

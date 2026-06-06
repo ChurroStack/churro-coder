@@ -1,15 +1,10 @@
 import { app } from 'electron';
-import { existsSync } from 'node:fs';
-import { access } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { ensureMcpHttpServerAlive } from '../mcp/http-transport';
 import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
+import { detectCliTool, evictCliDetect } from './detect';
+import { getCliInstallCommands } from '../../../shared/cli-install-commands';
 import type { TerminalBootstrap } from '../terminal/types';
-
-const execFileAsync = promisify(execFile);
 
 export type CliHarness = 'claude-cli' | 'codex-cli';
 
@@ -22,8 +17,6 @@ export function isBootstrapError(v: unknown): v is BootstrapError {
   return typeof v === 'object' && v !== null && 'kind' in v;
 }
 
-const binaryCache = new Map<string, string | null>();
-
 /**
  * Stable single registration key. Every CLI session in this app shares this
  * one entry (Claude: a per-instance `--mcp-config` file; Codex: `-c` overrides).
@@ -32,63 +25,24 @@ const binaryCache = new Map<string, string | null>();
  */
 const MCP_SERVER_NAME = 'churro-coder';
 
-function bundledBinaryPath(name: 'claude' | 'codex'): string | null {
-  const binName = process.platform === 'win32' ? `${name}.exe` : name;
-  const dir = app.isPackaged
-    ? join(process.resourcesPath, 'bin')
-    : join(app.getAppPath(), 'resources', 'bin', `${process.platform}-${process.arch}`);
-  const p = join(dir, binName);
-  return existsSync(p) ? p : null;
-}
-
-async function pathLookup(name: string): Promise<string | null> {
-  try {
-    const cmd = process.platform === 'win32' ? 'where' : 'which';
-    const { stdout } = await execFileAsync(cmd, [name], { timeout: 5_000 });
-    const candidate = stdout.trim().split('\n')[0].trim();
-    if (!candidate) return null;
-    await access(candidate, fsConstants.X_OK);
-    return candidate;
-  } catch {
-    return null;
-  }
-}
-
-async function versionProbe(binaryPath: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync(binaryPath, ['--version'], { timeout: 5_000 });
-    return stdout.trim().split('\n')[0].trim();
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * Resolve the absolute path of the user's PATH-installed `claude`/`codex` via the
+ * shared shell-env-aware detector (the CLIs are no longer bundled). One cache
+ * lives in `detect.ts`, shared with the `newProject.detectCli` UI query — so a
+ * Recheck that flips the UI to "installed" also lets the very next spawn succeed.
+ */
 async function resolveBinary(name: 'claude' | 'codex'): Promise<string | null> {
-  if (binaryCache.has(name)) return binaryCache.get(name)!;
-  const bundled = bundledBinaryPath(name);
-  if (bundled) {
-    const version = await versionProbe(bundled);
-    console.log(
-      `[harness-bootstrap] binary resolved binary=${name} path=${bundled} version=${version ?? 'unknown'} source=bundled`
-    );
-    binaryCache.set(name, bundled);
-    return bundled;
-  }
-  const onPath = await pathLookup(name);
-  if (onPath) {
-    const version = await versionProbe(onPath);
-    console.log(
-      `[harness-bootstrap] binary resolved binary=${name} path=${onPath} version=${version ?? 'unknown'} source=PATH`
-    );
-  } else {
-    console.warn(`[harness-bootstrap] binary not found binary=${name}`);
-  }
-  binaryCache.set(name, onPath);
-  return onPath;
+  const d = await detectCliTool(name);
+  const path = d.available ? (d.path ?? name) : null;
+  console.log(
+    `[harness-bootstrap] binary resolved binary=${name} path=${path ?? '(not found)'} version=${d.version ?? 'unknown'}`
+  );
+  return path;
 }
 
+/** Invalidate the shared CLI-detection cache (claude/codex/openspec). */
 export function invalidateBinaryCache(): void {
-  binaryCache.clear();
+  evictCliDetect();
 }
 
 async function ensureMcpEndpoint(): Promise<{ url: string; bearer: string }> {
@@ -189,10 +143,10 @@ export async function buildBootstrap(
 
   const binaryPath = await resolveBinary(binaryName);
   if (!binaryPath) {
-    const hint =
-      harness === 'claude-cli'
-        ? 'Install with: npm install -g @anthropic-ai/claude-code'
-        : 'Install with: npm install -g @openai/codex';
+    // First non-comment line from the platform install commands is the hint.
+    const cmds = getCliInstallCommands(binaryName, process.platform as 'darwin' | 'win32' | 'linux');
+    const install = cmds.find((c) => !c.startsWith('#')) ?? cmds[0];
+    const hint = `Install with: ${install}`;
     console.warn(`[harness-bootstrap] binary-missing harness=${harness} sub=${subChatId} binary=${binaryName}`);
     return { kind: 'binary-missing', binary: binaryName, hint, message: `"${binaryName}" was not found. ${hint}` };
   }

@@ -7,7 +7,7 @@ import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { chats, getDatabase, projects, subChats } from '../../db';
-import { buildOpenspecEnvOverrides, getOpenspecBinDir } from '../../openspec/openspec-bin-path';
+import { buildOpenspecEnvOverrides, resolveOpenspecBin } from '../../openspec/openspec-bin-path';
 import { readCurrentPlan } from '../../plans/plan-store';
 import { SUB_CHAT_ID_MISSING_ERROR } from './sub-chat-id-helper';
 
@@ -112,8 +112,10 @@ async function readOpenSpecPlan(subChatId: string): Promise<OpenSpecPlanLookup> 
     return { kind: 'change-missing', changeId: row.changeId, rootDir };
   }
 
-  const binName = process.platform === 'win32' ? 'openspec.cmd' : 'openspec';
-  const openspecBin = join(getOpenspecBinDir(), binName);
+  const openspecBin = await resolveOpenspecBin();
+  if (!openspecBin) {
+    throw new Error('OpenSpec CLI not found on PATH. Install it with: npm install -g @fission-ai/openspec');
+  }
   const args = ['instructions', 'apply', '--change', row.changeId, '--json'];
   console.log(`[churro-coder] read_plan openspec cli start sub=${subChatId} change=${row.changeId} root=${rootDir}`);
   let stdout: string;
@@ -239,7 +241,7 @@ export function registerReadPlanTool(server: McpServer): void {
         'Retrieve the approved plan for the current sub-chat. ' +
         'Call this whenever you need to consult the plan — including after compaction or a provider switch. ' +
         'For sub-chats bound to an OpenSpec change, this tool returns the OpenSpec apply-instructions context ' +
-        '(proposal, design, specs, tasks) rendered from the bundled `openspec instructions apply` CLI. ' +
+        '(proposal, design, specs, tasks) rendered from the `openspec instructions apply` CLI. ' +
         'You MUST pass subChatId, which the host app provides in the prompt context (look for "Sub-chat id: <value>"). ' +
         'Do NOT pass the OpenSpec changeId as subChatId — they are different identifiers.',
       inputSchema: {

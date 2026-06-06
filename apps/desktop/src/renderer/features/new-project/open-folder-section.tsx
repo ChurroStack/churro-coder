@@ -1,21 +1,22 @@
 import { useSetAtom } from 'jotai';
 import { trpc } from '@/lib/trpc';
-import { selectedProjectAtom, selectedAgentChatIdAtom } from '@/lib/atoms';
 import { newProjectDialogOpenAtom } from './atoms';
+import { useApplyAddedProject } from './use-apply-added-project';
 import { Button } from '@/components/ui/button';
 import { FolderOpen, Loader2 } from 'lucide-react';
 
 export function OpenFolderSection() {
   const setDialogOpen = useSetAtom(newProjectDialogOpenAtom);
-  const setSelectedProject = useSetAtom(selectedProjectAtom);
-  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom);
+  const applyAddedProject = useApplyAddedProject();
 
   const openFolder = trpc.projects.openFolder.useMutation({
     onSuccess: (project) => {
+      // `project` is null when the user cancels the native picker — closing the
+      // dialog then would strand the forced empty-state on a blank screen.
       if (project) {
-        setSelectedProject({ id: project.id, name: project.name, path: project.path });
+        applyAddedProject(project);
+        setDialogOpen(false);
       }
-      setDialogOpen(false);
     }
   });
 

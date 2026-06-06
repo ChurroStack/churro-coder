@@ -105,7 +105,7 @@ const RESTARTABLE_HINTS = [
 
 const RATE_LIMIT_HINTS = ['rate limit', 'too many requests', 'quota exceeded', '429'];
 
-const FATAL_HINTS = ['bundled codex cli not found', 'sub-chat not found'];
+const FATAL_HINTS = ['codex cli not found', 'sub-chat not found'];
 
 function describeError(error: unknown): string {
   if (typeof error === 'string') return error.toLowerCase();

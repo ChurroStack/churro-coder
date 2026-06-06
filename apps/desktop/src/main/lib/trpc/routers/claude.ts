@@ -12,7 +12,6 @@ import {
   buildClaudeEnv,
   checkOfflineFallback,
   createTransformer,
-  getBundledClaudeBinaryPath,
   logClaudeEnv,
   type UIMessageChunk
 } from '../../claude';
@@ -1461,9 +1460,6 @@ export const claudeRouter = router({
                 console.log('[claude-auth] Using ANTHROPIC_AUTH_TOKEN:', !!finalEnv.ANTHROPIC_AUTH_TOKEN);
                 console.log('[claude-auth] ============================================');
 
-                // Get bundled Claude binary path
-                const claudeBinaryPath = getBundledClaudeBinaryPath();
-
                 let resumeSessionId = input.sessionId || existingSessionId || undefined;
 
                 // Used by forceFreshSession below — set true when mode changed between turns.
@@ -2103,8 +2099,8 @@ ${prompt}
                         console.error('[claude stderr]', data);
                       }
                     },
-                    // Use bundled binary
-                    pathToClaudeCodeExecutable: claudeBinaryPath,
+                    // No pathToClaudeCodeExecutable: the agent SDK resolves its own
+                    // bundled native CLI (the CLIs are no longer shipped separately).
                     // Session-mode keys (resume / continue / resumeSessionAt / forkSession)
                     // are assigned per loop iteration via applySessionMode() so a silent
                     // SESSION_EXPIRED retry can swap to a fresh session.
@@ -2668,8 +2664,11 @@ ${prompt}
                     // Check for session-not-found error in stderr.
                     const isSessionNotFound = stderrOutput?.includes('No conversation found with session ID');
 
-                    // Pre-classify ENOENT: distinguish missing binary from other path errors.
-                    const binaryMissing = err.message?.includes('ENOENT') && !existsSync(claudeBinaryPath);
+                    // The agent SDK throws a distinctive message when its own bundled
+                    // native CLI can't be located (a corrupt/incomplete app install).
+                    const binaryMissing = /Native CLI binary .* not found|Claude Code executable not found/i.test(
+                      err.message ?? ''
+                    );
                     const classifyError = binaryMissing ? new Error('claude binary not found') : streamError;
 
                     const streamClassification = classifyClaudeFailure(classifyError, {
@@ -2722,7 +2721,7 @@ ${prompt}
                         } as UIMessageChunk);
                       } else {
                         const errorText = binaryMissing
-                          ? `Claude binary not found at ${claudeBinaryPath}. Run \`bun run claude:download\` and restart the app.`
+                          ? 'Claude Code runtime is missing or corrupt in the app bundle. Please reinstall Churro Coder.'
                           : stderrOutput
                             ? `${streamClassification.userMessage}: ${err.message}\n\nProcess output:\n${stderrOutput}`
                             : `${streamClassification.userMessage}: ${err.message}`;

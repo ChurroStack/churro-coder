@@ -4,9 +4,8 @@ import { app } from 'electron';
 import * as Sentry from '@sentry/electron/main';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { basename, delimiter as pathDelimiter, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { z } from 'zod';
 import { normalizeCodexAssistantMessage } from '../../../../shared/codex-tool-normalizer';
 import type { ServerRequest } from '../../../../shared/codex-app-server-schema';
@@ -32,7 +31,7 @@ import { resolveCodexIdleTimeoutMs } from '../../codex/idle-timeout';
 import { mapAppServerUsageToMetadata, type CodexUsageMetadata } from '../../codex/usage-metadata';
 import { cleanupCodexThreadSubscription, trackCodexThreadSubscription } from '../../codex/thread-subscriptions';
 import { getClaudeShellEnvironment } from '../../claude/env';
-import { buildOpenspecEnvOverrides, getOpenspecBinDir } from '../../openspec/openspec-bin-path';
+import { buildOpenspecEnvOverrides } from '../../openspec/openspec-bin-path';
 import { resolveProjectPathFromWorktree } from '../../claude-config';
 import { getDatabase, projects as projectsTable, subChats } from '../../db';
 import { readMessagesFromTable, writeMessagesToTable, replaceMessagesInTable } from '../../db/messages-table';
@@ -286,22 +285,20 @@ const codexMcpListEntrySchema = z
 
 type CodexMcpListEntry = z.infer<typeof codexMcpListEntrySchema>;
 
-function resolveBundledCodexCliPath(): string {
-  const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
-  const resourcesDir = app.isPackaged
-    ? join(process.resourcesPath, 'bin')
-    : join(app.getAppPath(), 'resources', 'bin', `${process.platform}-${process.arch}`);
-
-  const binaryPath = join(resourcesDir, binaryName);
-  if (existsSync(binaryPath)) {
-    return binaryPath;
+/**
+ * Resolve the user's PATH-installed `codex` binary (shell-env-aware, so a
+ * Finder-launched macOS app finds Homebrew / npm-global installs). The Codex CLI
+ * is no longer bundled — throws with an install hint when it is not found.
+ */
+async function resolveCodexCliPath(): Promise<string> {
+  const { detectCliTool } = await import('../../cli-harness/detect');
+  const d = await detectCliTool('codex');
+  if (!d.available || !d.path) {
+    throw new Error(
+      '[codex] Codex CLI not found on PATH. Install it with: npm install -g @openai/codex (or `brew install codex` on macOS).'
+    );
   }
-
-  const hint = app.isPackaged
-    ? 'Binary is missing from bundled resources.'
-    : 'Run `bun run codex:download` to download it for local dev.';
-
-  throw new Error(`[codex] Bundled Codex CLI not found at ${binaryPath}. ${hint}`);
+  return d.path;
 }
 
 function stripAnsi(input: string): string {
@@ -398,7 +395,7 @@ async function runCodexCli(
   stderr: string;
   exitCode: number | null;
 }> {
-  const codexCliPath = resolveBundledCodexCliPath();
+  const codexCliPath = await resolveCodexCliPath();
   const cwd = options?.cwd?.trim();
 
   return await new Promise((resolvePromise, rejectPromise) => {
@@ -1079,11 +1076,9 @@ function buildCodexProviderEnv(authConfig?: { apiKey: string }): Record<string, 
     env.CHURRO_MCP_BEARER = currentMcpBearer;
   }
 
-  // Inject bundled openspec shim into PATH so agents can call `openspec ...` directly
-  const openspecBinDir = getOpenspecBinDir();
-  if (existsSync(openspecBinDir)) {
-    env.PATH = `${openspecBinDir}${pathDelimiter}${env.PATH || ''}`;
-  }
+  // OpenSpec telemetry-off env. The CLI is resolved from the user's PATH now
+  // (no bundled shim) — the agent's inherited PATH already includes the global
+  // `openspec` install.
   Object.assign(env, buildOpenspecEnvOverrides());
 
   const apiKey = authConfig?.apiKey?.trim();
@@ -1566,8 +1561,9 @@ async function getOrCreateAppServerSession(params: {
   appServerSessions.delete(sessionKey);
 
   let session: CodexAppServerSession | null = null;
+  const codexCommand = await resolveCodexCliPath();
   const client = new CodexAppServerClient({
-    command: resolveBundledCodexCliPath(),
+    command: codexCommand,
     clientInfoVersion: app.getVersion(),
     args: buildCodexAppServerArgs(),
     env: buildCodexProviderEnv(params.authConfig),
@@ -2834,13 +2830,13 @@ export const codexRouter = router({
     };
   }),
 
-  startLogin: publicProcedure.mutation(() => {
+  startLogin: publicProcedure.mutation(async () => {
     const existingSession = getActiveLoginSession();
     if (existingSession) {
       return toLoginSessionResponse(existingSession);
     }
 
-    const codexCliPath = resolveBundledCodexCliPath();
+    const codexCliPath = await resolveCodexCliPath();
     const sessionId = crypto.randomUUID();
 
     const child = spawn(codexCliPath, ['login'], {
