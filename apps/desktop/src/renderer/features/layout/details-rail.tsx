@@ -5,9 +5,12 @@ import { trpc } from '../../lib/trpc';
 import {
   currentPlanPathAtomFamily,
   workspaceDiffCacheAtomFamily,
+  workspaceDiffRefreshTickAtomFamily,
   planEditRefetchTriggerAtomFamily,
   selectedDiffFilePathAtom
 } from '../agents/atoms';
+import { useWorkspaceDiffSync } from '../agents/hooks/use-workspace-diff-sync';
+import { useSubChatFilesSync } from '../agents/hooks/use-sub-chat-files-sync';
 import { useSubChatMode } from '../agents/hooks/use-sub-chat-mode';
 import { useHarnessSendDispatcher } from '../agents/hooks/use-harness-send-dispatcher';
 import { defaultAgentModeAtom } from '../../lib/atoms';
@@ -127,6 +130,21 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     console.log(`[DetailsRail] switch-invalidate worktree=${worktreePath}`);
   }, [worktreePath, trpcUtils]);
 
+  // Always-mounted data sync. The diff cache + per-sub-chat file scoping were
+  // historically produced only inside transient chat surfaces (ChatView /
+  // ChatCliSurface), which don't run for CLI chats or when their dock tab is
+  // inactive — leaving the always-mounted Changes widget / Diff panel /
+  // left-sidebar counts stale or empty. Mounting these here keeps both fresh
+  // regardless of the active tab. See use-workspace-diff-sync.ts /
+  // use-sub-chat-files-sync.ts.
+  const subChatsForSync = (chatRecord as { subChats?: { id: string }[] } | null)?.subChats ?? null;
+  const remoteStats =
+    (chatRecord as { remoteStats?: { fileCount: number; additions: number; deletions: number } } | null)?.remoteStats ??
+    null;
+  useWorkspaceDiffSync({ chatId, worktreePath, sandboxId, remoteStats });
+  const { syncOne: syncSubChatFiles } = useSubChatFilesSync(subChatsForSync, worktreePath ?? undefined);
+  const bumpDiffRefreshTick = useSetAtom(workspaceDiffRefreshTickAtomFamily(chatId ?? ''));
+
   // Central sidebar refresh: fires on write_plan, write_tasks, update_task_status,
   // or write_review from any sub-chat under this chat. Subscribing at the
   // chat level (not sub-chat) keeps the stream alive across activeSubChatId
@@ -169,6 +187,12 @@ export function DetailsRail(_props: IGridviewPanelProps) {
       void trpcUtils.chats.getReviewContent.invalidate({ subChatId: eventSubChatId });
       if (kind === 'files-changed') {
         void trpcUtils.chats.getMcpFileChanges.invalidate({ subChatId: eventSubChatId });
+        // Re-seed per-sub-chat scoping (Changes widget / left-sidebar counts /
+        // quick-switch) and refresh the working-tree diff so the sidebar reflects
+        // the edit live — including CLI edits the ingester recovered from the
+        // session JSON when notify_files_changed was never called.
+        void syncSubChatFiles(eventSubChatId);
+        bumpDiffRefreshTick((n) => n + 1);
       }
       if (chatId) {
         void trpcUtils.chats.getPrStatus.invalidate({ chatId });
@@ -188,7 +212,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   // button never renders even when mode === 'plan'.
   const { dispatchBuildPlan } = useHarnessSendDispatcher(activeSubChatId ?? '');
 
-  // Diff cache populated by ChatView
+  // Diff cache — kept fresh by useWorkspaceDiffSync mounted above.
   const diffCache = useAtomValue(workspaceDiffCacheAtomFamily(chatId ?? ''));
 
   // Git data — only fetched when there's a worktree

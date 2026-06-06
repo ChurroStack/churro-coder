@@ -7,9 +7,15 @@ import { gitCache } from '../cache';
  * Handles subscription/unsubscription from renderer and forwards file change events.
  */
 
-// Track active subscriptions per worktree with subscribing window ID
-// This ensures events are sent to the window that subscribed, not the focused window
-const activeSubscriptions: Map<string, { windowId: number; unsubscribe: () => void }> = new Map();
+// Track active subscriptions per worktree with subscribing window ID.
+// This ensures events are sent to the window that subscribed, not the focused window.
+//
+// `refCount` makes multiple renderer consumers of the same worktree safe: each
+// `useGitWatcher` mount subscribes and each unmount unsubscribes, but the
+// underlying chokidar watcher is only torn down once the last consumer leaves.
+// Without it, the first unmount would kill the watcher for every other still-
+// mounted consumer (e.g. ChatView + the always-mounted DetailsRail diff sync).
+const activeSubscriptions: Map<string, { windowId: number; unsubscribe: () => void; refCount: number }> = new Map();
 
 /**
  * Register IPC handlers for git watcher.
@@ -20,8 +26,10 @@ export function registerGitWatcherIPC(): void {
   ipcMain.handle('git:subscribe-watcher', async (event, worktreePath: string) => {
     if (!worktreePath) return;
 
-    // Already subscribed?
-    if (activeSubscriptions.has(worktreePath)) {
+    // Already subscribed? Bump the ref-count and reuse the existing watcher.
+    const existing = activeSubscriptions.get(worktreePath);
+    if (existing) {
+      existing.refCount += 1;
       return;
     }
 
@@ -57,20 +65,24 @@ export function registerGitWatcherIPC(): void {
       }
     });
 
-    activeSubscriptions.set(worktreePath, { windowId, unsubscribe });
+    activeSubscriptions.set(worktreePath, { windowId, unsubscribe, refCount: 1 });
     console.log(`[GitWatcher] Window ${windowId} subscribed to: ${worktreePath}`);
   });
 
-  // Handle unsubscription requests from renderer
+  // Handle unsubscription requests from renderer. Tear the watcher down only
+  // when the last consumer for this worktree has unsubscribed.
   ipcMain.handle('git:unsubscribe-watcher', async (_event, worktreePath: string) => {
     if (!worktreePath) return;
 
     const subscription = activeSubscriptions.get(worktreePath);
-    if (subscription) {
-      subscription.unsubscribe();
-      activeSubscriptions.delete(worktreePath);
-      console.log(`[GitWatcher] Window ${subscription.windowId} unsubscribed from: ${worktreePath}`);
-    }
+    if (!subscription) return;
+
+    subscription.refCount -= 1;
+    if (subscription.refCount > 0) return;
+
+    subscription.unsubscribe();
+    activeSubscriptions.delete(worktreePath);
+    console.log(`[GitWatcher] Window ${subscription.windowId} unsubscribed from: ${worktreePath}`);
   });
 }
 

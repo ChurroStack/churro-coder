@@ -196,14 +196,9 @@ import { clearSubChatRuntimeCaches } from '../stores/sub-chat-runtime-cleanup';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
 import { useAgentSubChatStore, type SubChatMeta } from '../stores/sub-chat-store';
 import type { DiffViewMode } from '../ui/agent-diff-view';
-import {
-  AgentDiffView,
-  diffViewModeAtom,
-  splitUnifiedDiffByFile,
-  type AgentDiffViewRef,
-  type ParsedDiffFile
-} from '../ui/agent-diff-view';
+import { AgentDiffView, diffViewModeAtom, type AgentDiffViewRef, type ParsedDiffFile } from '../ui/agent-diff-view';
 import { AgentPreview } from '../ui/agent-preview';
+import { fetchParsedDiffIntoCache } from '../hooks/use-workspace-diff-sync';
 import { AgentQueueIndicator } from '../ui/agent-queue-indicator';
 import { AgentToolCall } from '../ui/agent-tool-call';
 import { AgentToolRegistry } from '../ui/agent-tool-registry';
@@ -4409,174 +4404,34 @@ export function ChatView({
   // The sidebar render is guarded by canOpenDiff, so it naturally hides.
   // Per-chat state (diffSidebarOpenAtomFamily) preserves each chat's preference.
 
-  // Fetch diff stats - extracted as callback for reuse in onFinish
+  // Fetch diff stats - extracted as callback for reuse in onFinish.
+  // Delegates to the shared fetcher (use-workspace-diff-sync.ts) so the diff
+  // cache write logic lives in exactly one place; the same fetcher is mounted
+  // in the always-mounted DetailsRail to keep the cache fresh for CLI chats /
+  // inactive tabs. A module-level per-chat in-flight guard coalesces concurrent
+  // fetches from both producers.
   const fetchDiffStatsDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const isFetchingDiffRef = useRef(false);
 
   const fetchDiffStats = useCallback(async () => {
-    console.log('[fetchDiffStats] Called with:', { worktreePath, sandboxId, chatId, isDesktop: isDesktopApp() });
-
-    // Desktop uses worktreePath, web uses sandboxId
-    // Don't reset stats if worktreePath is temporarily undefined - just skip the fetch
-    // This prevents the button from becoming disabled when component re-renders
-    if (!worktreePath && !sandboxId) {
-      console.log('[fetchDiffStats] Skipping - no worktreePath or sandboxId');
-      return;
-    }
-
-    // Prevent duplicate parallel fetches
-    if (isFetchingDiffRef.current) {
-      console.log('[fetchDiffStats] Skipping - already fetching');
-      return;
-    }
-    isFetchingDiffRef.current = true;
-    console.log('[fetchDiffStats] Starting fetch...');
-
-    try {
-      // Desktop: use new getParsedDiff endpoint (all-in-one: parsing + file contents)
-      if (worktreePath && chatId) {
-        const result = await trpcClient.chats.getParsedDiff.query({ chatId });
-        // Defensive: `files` should always be present per the procedure
-        // contract, but a stale gitCache entry from a previous response
-        // shape (or an unexpected error path) was crashing here. Treat
-        // missing arrays as empty.
-        const files = result?.files ?? [];
-        const fileContents = result?.fileContents ?? {};
-        const totalAdditions = result?.totalAdditions ?? 0;
-        const totalDeletions = result?.totalDeletions ?? 0;
-
-        if (files.length > 0) {
-          // Store parsed files directly (already parsed on server)
-          setParsedFileDiffs(files);
-
-          // Store prefetched file contents
-          setPrefetchedFileContents(fileContents);
-
-          // Set diff content to null since we have parsed files
-          // (AgentDiffView will use parsedFileDiffs when available)
-          setDiffContent(null);
-
-          setDiffStats({
-            fileCount: files.length,
-            additions: totalAdditions,
-            deletions: totalDeletions,
-            isLoading: false,
-            hasChanges: files.length > 0
-          });
-        } else {
-          setDiffStats({
-            fileCount: 0,
-            additions: 0,
-            deletions: 0,
-            isLoading: false,
-            hasChanges: false
-          });
-          // Use empty array instead of null to signal "no changes" vs "still loading"
-          setParsedFileDiffs([]);
-          setPrefetchedFileContents({});
-          setDiffContent(null);
-        }
-        return;
-      }
-
-      // Desktop without chat (viewing main repo directly)
-      if (worktreePath && !chatId) {
-        // TODO: Need to add endpoint that accepts worktreePath directly
-        return;
-      }
-
-      // Remote sandbox: use stats from chat data (desktop) or fetch diff (web)
-      if (sandboxId) {
-        console.log('[fetchDiffStats] Sandbox mode - sandboxId:', sandboxId);
-
-        // Desktop app: use stats already provided in chat data
-        // The diff sidebar won't work for remote chats (no worktree), but stats will show
-        if (isDesktopApp()) {
-          const remoteStats = (agentChat as any)?.remoteStats;
-          console.log('[fetchDiffStats] Desktop remote chat - using remoteStats:', remoteStats);
-
-          if (remoteStats) {
-            setDiffStats({
-              fileCount: remoteStats.fileCount,
-              additions: remoteStats.additions,
-              deletions: remoteStats.deletions,
-              isLoading: false,
-              hasChanges: remoteStats.fileCount > 0
-            });
-          } else {
-            setDiffStats({
-              fileCount: 0,
-              additions: 0,
-              deletions: 0,
-              isLoading: false,
-              hasChanges: false
-            });
-          }
-          // No parsed files for remote chats - diff view not available
-          setParsedFileDiffs([]);
-          setPrefetchedFileContents({});
-          setDiffContent(null);
-          return;
-        }
-
-        // Web: use relative fetch to get actual diff
-        let rawDiff: string | null = null;
-        const response = await fetch(`/api/agents/sandbox/${sandboxId}/diff`);
-        if (!response.ok) {
-          setDiffStats((prev: typeof diffStats) => ({ ...prev, isLoading: false }));
-          return;
-        }
-        const data = await response.json();
-        rawDiff = data.diff || null;
-
-        // Store raw diff for AgentDiffView
-        console.log('[fetchDiffStats] Setting diff content, length:', rawDiff?.length ?? 0);
-        setDiffContent(rawDiff);
-
-        if (rawDiff && rawDiff.trim()) {
-          // Parse diff to get file list and stats (client-side for web)
-          console.log('[fetchDiffStats] Parsing diff...');
-          const parsedFiles = splitUnifiedDiffByFile(rawDiff);
-          console.log('[fetchDiffStats] Parsed files:', parsedFiles.length, 'files');
-          setParsedFileDiffs(parsedFiles);
-
-          let additions = 0;
-          let deletions = 0;
-          for (const file of parsedFiles) {
-            additions += file.additions;
-            deletions += file.deletions;
-          }
-
-          console.log('[fetchDiffStats] Setting stats:', { fileCount: parsedFiles.length, additions, deletions });
-          setDiffStats({
-            fileCount: parsedFiles.length,
-            additions,
-            deletions,
-            isLoading: false,
-            hasChanges: parsedFiles.length > 0
-          });
-        } else {
-          console.log('[fetchDiffStats] No diff content, setting empty stats');
-          setDiffStats({
-            fileCount: 0,
-            additions: 0,
-            deletions: 0,
-            isLoading: false,
-            hasChanges: false
-          });
-          // Use empty array instead of null to signal "no changes" vs "still loading"
-          setParsedFileDiffs([]);
-          setPrefetchedFileContents({});
-        }
-      }
-    } catch (error) {
-      console.error('[fetchDiffStats] Error:', error);
-      setDiffStats((prev: typeof diffStats) => ({ ...prev, isLoading: false }));
-    } finally {
-      console.log('[fetchDiffStats] Done');
-      isFetchingDiffRef.current = false;
-    }
-  }, [worktreePath, sandboxId, chatId, agentChat]); // Note: activeSubChatId removed - diff is same for whole chat
+    await fetchParsedDiffIntoCache({
+      chatId,
+      worktreePath,
+      sandboxId,
+      remoteStats:
+        (agentChat as { remoteStats?: { fileCount: number; additions: number; deletions: number } } | null)
+          ?.remoteStats ?? null,
+      setters: { setParsedFileDiffs, setPrefetchedFileContents, setDiffContent, setDiffStats }
+    });
+  }, [
+    worktreePath,
+    sandboxId,
+    chatId,
+    agentChat,
+    setParsedFileDiffs,
+    setPrefetchedFileContents,
+    setDiffContent,
+    setDiffStats
+  ]);
 
   // Debounced version for calling after stream ends
   const fetchDiffStatsDebounced = useCallback(() => {
