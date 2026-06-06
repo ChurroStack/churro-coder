@@ -2,6 +2,7 @@ import { Provider as JotaiProvider, useAtomValue, useSetAtom } from 'jotai';
 import { ThemeProvider, useTheme } from 'next-themes';
 import { useEffect, useMemo, useRef } from 'react';
 import { Toaster, toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 import { AppErrorBoundary } from './components/ui/error-boundary';
 import { TooltipProvider } from './components/ui/tooltip';
 import { TRPCProvider } from './contexts/TRPCProvider';
@@ -281,6 +282,29 @@ export function AppContent() {
     refetchProjects();
   }, [isLoadingProjects, projects, refetchProjects]);
 
+  // Safety net: a freshly-selected project that isn't yet in the settled projects.list
+  // (e.g. an add-project flow that didn't optimistically write the cache) leaves
+  // validatedProject null → App would otherwise strand on the blank EmptyStateShell.
+  // Refetch once (capped) so the selection resolves without a page reload. The counter
+  // resets as soon as the selection validates or is cleared.
+  const selectionRefetchAttemptsRef = useRef(0);
+  useEffect(() => {
+    if (validatedProject || !selectedProject) {
+      selectionRefetchAttemptsRef.current = 0;
+      return;
+    }
+    // Only act once the list has settled as an array.
+    if (isLoadingProjects || !Array.isArray(projects)) return;
+    if (selectionRefetchAttemptsRef.current >= 2) return;
+    selectionRefetchAttemptsRef.current += 1;
+    console.warn('[App] selectedProject not in settled projects.list — refetching', {
+      attempt: selectionRefetchAttemptsRef.current,
+      selectedProjectId: selectedProject.id,
+      projectsCount: projects.length
+    });
+    refetchProjects();
+  }, [validatedProject, selectedProject, isLoadingProjects, projects, refetchProjects]);
+
   const lastSelectionKindRef = useRef<PickProjectOutput['kind'] | null>(null);
   useEffect(() => {
     if (lastSelectionKindRef.current === projectSelection.kind) return;
@@ -338,7 +362,15 @@ export function AppContent() {
   }
 
   if (projectSelection.kind !== 'keep') {
-    return null;
+    // Transitional (`wait` / `select`) — render a spinner rather than `null` so a
+    // brief inconsistency between `selectedProject` and the projects.list cache never
+    // paints a blank screen. The selection resolves via the auto-select effect or the
+    // refetch safety net below.
+    return (
+      <div className="flex h-full items-center justify-center bg-background">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   return <AgentsLayout />;
