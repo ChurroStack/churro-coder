@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.4](https://github.com/ChurroStack/churro-coder/compare/v0.1.3...v0.1.4) (2026-06-06)
+
+
+### Features
+
+* **desktop:** native /code-review dispatch + terminal sizer bug fixes ([#188](https://github.com/ChurroStack/churro-coder/issues/188)) ([9872dba](https://github.com/ChurroStack/churro-coder/commit/9872dba508c770190c8c28fb580814af5f5ca881))
+
+
+### Bug Fixes
+
+* **desktop:** harden xterm terminal sizing (truncation + glyph overlap) ([#185](https://github.com/ChurroStack/churro-coder/issues/185)) ([68d8bda](https://github.com/ChurroStack/churro-coder/commit/68d8bda977ee89c275611826bd084b71a48a081e))
+* **desktop:** keep Changes widget + diff fresh for CLI chats; reliable file-diff on click ([#187](https://github.com/ChurroStack/churro-coder/issues/187)) ([7baf6f9](https://github.com/ChurroStack/churro-coder/commit/7baf6f9825549c03c50c1e95ec4d2050a8bc5f68))
+* **desktop:** white screen when opening a folder from the welcome screen ([#189](https://github.com/ChurroStack/churro-coder/issues/189)) ([a8e0b1c](https://github.com/ChurroStack/churro-coder/commit/a8e0b1c979492a814a382ff7bae42384b893316b))
+
 ## [0.1.3](https://github.com/ChurroStack/churro-coder/compare/v0.1.2...v0.1.3) (2026-06-04)
 
 
