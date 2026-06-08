@@ -740,6 +740,63 @@ describe('computeWorkflowState — CLI harness plan milestone', () => {
     expect(s.plan.hint).toBe('Drafting plan…');
   });
 
+  // Regression: in plan mode, Claude's TodoWrite (ingested as a tasks artifact
+  // mid-turn) must NOT drop the "Drafting plan…" spinner while still planning.
+  test('CLI + plan mode + cliBusy + tasks present (todos) + no plan yet → plan in_progress', () => {
+    const s = computeWorkflowState({
+      ...cliBase,
+      mode: 'plan',
+      cliBusy: true,
+      plan: { exists: false },
+      tasks: { exists: true, total: 4, completed: 0, updatedAt: '2026-01-01T00:30:00.000Z' }
+    });
+    expect(s.plan.status).toBe('in_progress');
+    expect(s.plan.hint).toBe('Drafting plan…');
+  });
+
+  // Plan written but not yet approved (no tasks for it, no approvedAt): the
+  // agent is still drafting/revising → keep the spinner.
+  test('CLI + plan mode + cliBusy + plan written but NOT approved → plan in_progress (revising)', () => {
+    const s = computeWorkflowState({
+      ...cliBase,
+      mode: 'plan',
+      cliBusy: true,
+      plan: { exists: true, meta: { createdAt: '2026-01-01T00:00:00.000Z' } }
+      // no tasks, no approvedAt → not approved
+    });
+    expect(s.plan.status).toBe('in_progress');
+  });
+
+  // Finding-1 regression guard: an APPROVED plan-mode CLI chat that is now
+  // executing must release Plan→done and let Code show progress — even though
+  // the `mode` column still reads 'plan' (CLI never flips it on approve). Gating
+  // on `mode === 'plan'` alone would pin "Drafting plan…" and hide Code.
+  test('CLI + plan mode + cliBusy + approved plan (tasks after plan) → plan done, code in_progress', () => {
+    const s = computeWorkflowState({
+      ...cliBase,
+      mode: 'plan',
+      cliBusy: true,
+      plan: { exists: true, meta: { createdAt: '2026-01-01T00:00:00.000Z' } },
+      tasks: { exists: true, total: 4, completed: 1, updatedAt: '2026-01-01T01:00:00.000Z' }
+    });
+    expect(s.plan.status).toBe('done');
+    expect(s.code.status).toBe('in_progress');
+  });
+
+  // Guard: outside plan mode a tasks artifact still hands off to Code — the plan
+  // pill must NOT hijack in_progress when real implementation tasks exist.
+  test('CLI + execute mode + cliBusy + tasks present + no plan → plan NOT in_progress, code in_progress', () => {
+    const s = computeWorkflowState({
+      ...cliBase,
+      mode: 'execute',
+      cliBusy: true,
+      plan: { exists: false },
+      tasks: { exists: true, total: 3, completed: 1, updatedAt: '2026-01-01T01:00:00.000Z' }
+    });
+    expect(s.plan.status).not.toBe('in_progress');
+    expect(s.code.status).toBe('in_progress');
+  });
+
   test('CLI + write_plan makes plan green go back to orange (regression rule)', () => {
     // Start: plan approved via tasks, then a new write_plan with a later createdAt
     const newPlanTime = '2026-01-01T02:00:00.000Z';

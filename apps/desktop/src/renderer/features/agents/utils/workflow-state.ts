@@ -244,8 +244,26 @@ function computePlan(s: WorkflowSnapshot): MilestoneState {
     return { id: 'plan', status: 'idle', label: 'Plan', hint: 'Skipped (execute mode)' };
   }
 
-  // CLI harness: pure artifact + timestamp rules
-  if (s.cliBusy && !s.tasks?.exists) {
+  // CLI harness: pure artifact + timestamp rules.
+  //
+  // "Approved" = tasks exist for the current plan OR an explicit approvedAt —
+  // that is the exit from the planning phase. We gate the in-progress state on
+  // approval, NOT on the raw `mode` column: the CLI mode column LAGS reality
+  // (it isn't flipped to 'execute' on approve and never tracks the TUI
+  // shift+tab), so keying off `mode === 'plan'` alone would pin "Drafting plan…"
+  // through the entire execution run and starve the Code milestone. See
+  // project_cli_mode_column_lag.
+  const planApproved = hasPlan && (tasksForCurrentPlan(s) || tApprove(s) >= tPlan(s));
+
+  // in_progress = agent busy and still planning.
+  //   plan mode: drafting/revising until the plan is APPROVED. We must NOT gate
+  //     on the tasks artifact here — Claude's TodoWrite / Codex update_plan are
+  //     ingested as a tasks list mid-plan (cli-session/ingester.ts), which would
+  //     wrongly end the "Drafting plan…" spinner the instant the model writes
+  //     its first todo. Once approved, the next branches hand off to Code.
+  //   other modes: a tasks artifact genuinely means execution has started, so
+  //     keep gating on it so the milestone hands off to Code.
+  if (s.cliBusy && (s.mode === 'plan' ? !planApproved : !s.tasks?.exists)) {
     return { id: 'plan', status: 'in_progress', label: 'Plan', hint: 'Drafting plan…' };
   }
 
@@ -254,7 +272,7 @@ function computePlan(s: WorkflowSnapshot): MilestoneState {
   }
 
   // Plan written: green when tasks for current plan exist OR approved
-  if (tasksForCurrentPlan(s) || tApprove(s) >= tPlan(s)) {
+  if (planApproved) {
     return { id: 'plan', status: 'done', label: 'Plan', hint: 'Plan approved' };
   }
 

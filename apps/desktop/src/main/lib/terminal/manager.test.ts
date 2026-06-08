@@ -159,14 +159,20 @@ describe('TerminalManager.resize — SIGWINCH propagation', () => {
 const RUNNING_WINDOWS = 2;
 const IDLE_WINDOWS = 4;
 
-function makeTrackedSession(paneId: string): TerminalSession {
+function makeTrackedSession(paneId: string, extra: Partial<TerminalSession> = {}): TerminalSession {
   return makeSession({
     paneId,
     idleDetection: {},
     outputState: 'idle',
     pendingMoves: 0,
     pendingBytes: 0,
-    recentMoves: []
+    recentMoves: [],
+    // These tests exercise the steady-state OUTPUT heuristic, which only opens
+    // idle→running after the first explicit turn-start (banner-suppression
+    // gate). Default to post-first-turn so they keep asserting heuristic
+    // behavior; the gate itself is covered by the dedicated turn-start block.
+    hasStartedTurn: true,
+    ...extra
   });
 }
 
@@ -416,6 +422,231 @@ describe('TerminalManager idle detection — state machine', () => {
     session.suppressActivityUntil = Date.now() - 1;
     tick(manager, 'p-supp-3', QUIET, IDLE_WINDOWS);
     expect(events).toEqual(['running', 'idle']);
+  });
+});
+
+// ── Deterministic turn-start ─────────────────────────────────────────────────
+// The spinner must open the instant a turn is submitted — not after the output
+// heuristic (maybe) trips 1-2s later. markCliTurnStart() is the deterministic
+// opener; it is invoked from manager.write() (user/dispatcher Enter) and from
+// the bootstrap's onTurnStart (first injected prompt). Before the first
+// turn-start the output heuristic is gated so the startup banner can't open a
+// spurious spinner.
+
+type CliStateEventPayload = { subChatId: string; parentChatId: string | null; state: string };
+
+describe('TerminalManager deterministic turn-start', () => {
+  let manager: TerminalManager;
+
+  beforeEach(() => {
+    manager = new TerminalManager();
+  });
+
+  afterEach(async () => {
+    await manager.cleanup();
+  });
+
+  test('markCliTurnStart opens running immediately, seeds the ring, and marks hasStartedTurn', () => {
+    const session = makeTrackedSession('cli:sc-1', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-1', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    (manager as any).markCliTurnStart(session);
+
+    expect(events).toEqual([{ subChatId: 'sc-1', parentChatId: 'ws-1', state: 'running' }]);
+    expect(session.outputState).toBe('running');
+    expect(session.hasStartedTurn).toBe(true);
+    // Ring seeded fully-active → built-in running floor (IDLE_WINDOWS entries).
+    expect(session.recentMoves).toEqual(new Array(IDLE_WINDOWS).fill(1));
+    expect(session.pendingMoves).toBe(0);
+    expect(session.pendingBytes).toBe(0);
+  });
+
+  test('write() ending in CR to a CLI pane opens running deterministically (dispatcher / direct typing)', () => {
+    const session = makeTrackedSession('cli:sc-2', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-2', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    manager.write({ paneId: 'cli:sc-2', data: '\r' });
+
+    expect(session.pty.write).toHaveBeenCalledWith('\r');
+    expect(events).toEqual([{ subChatId: 'sc-2', parentChatId: 'ws-1', state: 'running' }]);
+    expect(session.outputState).toBe('running');
+  });
+
+  test('write() of a non-submit keystroke (no trailing newline) does NOT open running', () => {
+    const session = makeTrackedSession('cli:sc-3', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-3', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    manager.write({ paneId: 'cli:sc-3', data: 'h' });
+
+    expect(session.pty.write).toHaveBeenCalledWith('h');
+    expect(events).toEqual([]);
+    expect(session.outputState).toBe('idle');
+  });
+
+  test('write() ending in CR to a NON-cli pane does not trigger turn-start', () => {
+    const session = makeTrackedSession('shell-pane', { hasStartedTurn: false });
+    (manager as any).sessions.set('shell-pane', session);
+
+    const events: string[] = [];
+    manager.on('state:shell-pane', (s: string) => events.push(s));
+
+    manager.write({ paneId: 'shell-pane', data: 'ls\r' });
+
+    expect(session.pty.write).toHaveBeenCalledWith('ls\r');
+    expect(events).toEqual([]);
+    expect(session.outputState).toBe('idle');
+  });
+
+  test('banner suppression: sustained output before the first turn-start does NOT open running', () => {
+    const session = makeTrackedSession('cli:sc-4', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-4', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    // Banner streams plenty of bytes for many windows — heuristic stays gated.
+    tick(manager, 'cli:sc-4', ACTIVE, RUNNING_WINDOWS + 5);
+    expect(events).toEqual([]);
+    expect(session.outputState).toBe('idle');
+
+    // First turn-start opens it deterministically.
+    (manager as any).markCliTurnStart(session);
+    expect(events).toEqual([{ subChatId: 'sc-4', parentChatId: 'ws-1', state: 'running' }]);
+  });
+
+  test('after the first turn-start, the output heuristic opener works again (continuations / direct typing)', () => {
+    const session = makeTrackedSession('cli:sc-5', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-5', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    // First turn opens then idles out.
+    (manager as any).markCliTurnStart(session);
+    tick(manager, 'cli:sc-5', QUIET, IDLE_WINDOWS);
+    expect(events).toEqual([
+      { subChatId: 'sc-5', parentChatId: 'ws-1', state: 'running' },
+      { subChatId: 'sc-5', parentChatId: 'ws-1', state: 'idle' }
+    ]);
+
+    // hasStartedTurn now true → heuristic reopens on sustained output with no
+    // new explicit turn-start (model-initiated continuation).
+    tick(manager, 'cli:sc-5', ACTIVE, RUNNING_WINDOWS);
+    expect(events[events.length - 1]).toEqual({ subChatId: 'sc-5', parentChatId: 'ws-1', state: 'running' });
+  });
+
+  test('running floor: seeded ring requires IDLE_WINDOWS quiet windows before closing', () => {
+    const session = makeTrackedSession('cli:sc-6', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-6', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    (manager as any).markCliTurnStart(session);
+    // One short of the floor — still running even with zero output (silent think).
+    tick(manager, 'cli:sc-6', QUIET, IDLE_WINDOWS - 1);
+    expect(session.outputState).toBe('running');
+    // The floor drains → idle.
+    tick(manager, 'cli:sc-6', QUIET, 1);
+    expect(session.outputState).toBe('idle');
+  });
+
+  test('duplicate turn-start while already running does not re-emit', () => {
+    const session = makeTrackedSession('cli:sc-7', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-7', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    (manager as any).markCliTurnStart(session);
+    (manager as any).markCliTurnStart(session);
+    manager.write({ paneId: 'cli:sc-7', data: '\r' });
+
+    expect(events).toEqual([{ subChatId: 'sc-7', parentChatId: 'ws-1', state: 'running' }]);
+  });
+
+  test('markCliTurnStart is a no-op for a session without idle detection', () => {
+    const session = makeSession({ paneId: 'cli:sc-8', outputState: 'idle' }); // no idleDetection
+    (manager as any).sessions.set('cli:sc-8', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    (manager as any).markCliTurnStart(session);
+
+    expect(events).toEqual([]);
+    expect(session.hasStartedTurn).toBeUndefined();
+  });
+
+  test('markCliTurnStart is a no-op for a dead session (no resurrecting an exited pane)', () => {
+    const session = makeTrackedSession('cli:sc-dead', { hasStartedTurn: false, isAlive: false });
+    (manager as any).sessions.set('cli:sc-dead', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    (manager as any).markCliTurnStart(session);
+
+    expect(events).toEqual([]);
+    expect(session.outputState).toBe('idle');
+    expect(session.hasStartedTurn).toBe(false);
+  });
+
+  test('Shift+Enter line continuation (ESC+CR) does NOT open running', () => {
+    const session = makeTrackedSession('cli:sc-shift', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-shift', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    manager.write({ paneId: 'cli:sc-shift', data: '\x1b\r' });
+
+    expect(session.pty.write).toHaveBeenCalledWith('\x1b\r');
+    expect(events).toEqual([]);
+    expect(session.outputState).toBe('idle');
+  });
+
+  test('multi-line paste merely ending in a newline does NOT open running', () => {
+    const session = makeTrackedSession('cli:sc-paste', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:sc-paste', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    manager.write({ paneId: 'cli:sc-paste', data: 'line1\nline2\n' });
+
+    expect(events).toEqual([]);
+    expect(session.outputState).toBe('idle');
+  });
+
+  test('handleCliTurnStart (bootstrap onTurnStart wiring) marks the registered session running by paneId', () => {
+    const session = makeTrackedSession('cli:wire-1', { hasStartedTurn: false });
+    (manager as any).sessions.set('cli:wire-1', session);
+
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    (manager as any).handleCliTurnStart('cli:wire-1');
+
+    expect(events).toEqual([{ subChatId: 'wire-1', parentChatId: 'ws-1', state: 'running' }]);
+    expect(session.hasStartedTurn).toBe(true);
+  });
+
+  test('handleCliTurnStart is a no-op for an unknown paneId (orphaned-timer safety)', () => {
+    const events: CliStateEventPayload[] = [];
+    manager.on('cli-state', (e: CliStateEventPayload) => events.push(e));
+
+    expect(() => (manager as any).handleCliTurnStart('cli:gone')).not.toThrow();
+    expect(events).toEqual([]);
   });
 });
 
