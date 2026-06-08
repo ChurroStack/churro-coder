@@ -36,6 +36,16 @@ export interface TerminalSession {
    * transitionTo() — also the only place that emits the `state:` event.
    */
   outputState?: TerminalOutputState;
+  /**
+   * Set true the first time an explicit turn-start is observed for this
+   * session (a user/dispatcher Enter through `manager.write`, or the
+   * bootstrap injecting its first prompt via `onTurnStart`). Until then the
+   * output-activity heuristic is NOT allowed to flip idle→running, so the
+   * startup banner can't produce a spurious "running" spinner. After the
+   * first turn the heuristic opener is re-enabled to cover model-initiated
+   * continuations and direct TUI typing. See manager.ts markCliTurnStart().
+   */
+  hasStartedTurn?: boolean;
   /** Mirror parser used to count cursor moves per sampling window. */
   headlessTerminal?: HeadlessTerminal;
   /** Sampler that evaluates cursor-move rate every IDLE_TUNING.windowMs. */
