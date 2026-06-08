@@ -27,6 +27,7 @@ import {
   setSubChatBusy,
   subChatBusyAtom,
   subChatBusyAtomFamily,
+  subChatCliTurnActiveAtomFamily,
   subChatErrorAtom,
   subChatErrorAtomFamily,
   type SubChatBusyEntry
@@ -150,5 +151,55 @@ describe('subChatBusyAtom — cross-surface propagation contract', () => {
     store.set(subChatErrorAtom, new Set([SUB_A]));
     expect(store.get(subChatErrorAtomFamily(SUB_A))).toBe(true);
     expect(store.get(subChatBusyAtomFamily(SUB_A))).toBe(false); // not also busy
+  });
+});
+
+describe('subChatCliTurnActiveAtomFamily — CLI-scoped turn-active (drives non-last-message running vs interrupted)', () => {
+  // The read-only CLI transcript feeds in-flight tools in NON-last messages a
+  // 'turn-active' status (→ "running", not "interrupted") only when the sub-chat
+  // is in an active CLI turn. This family is `true` ONLY for `source: 'cli'` — so
+  // a builtin turn (also tracked in subChatBusyAtom) never flips builtin messages.
+  let store: ReturnType<typeof createStore>;
+
+  beforeEach(() => {
+    store = createStore();
+    store.set(subChatBusyAtom, new Map());
+    store.set(subChatErrorAtom, new Set());
+  });
+
+  test('true when the sub-chat is busy with a CLI turn (source: "cli")', () => {
+    setSubChatBusy((fn) => store.set(subChatBusyAtom, fn), SUB_A, {
+      state: 'running',
+      parentChatId: PARENT,
+      source: 'cli'
+    });
+    expect(store.get(subChatCliTurnActiveAtomFamily(SUB_A))).toBe(true);
+  });
+
+  test('false for a builtin turn (source: "builtin") — guards builtin no-regression', () => {
+    setSubChatBusy((fn) => store.set(subChatBusyAtom, fn), SUB_B, {
+      state: 'running',
+      parentChatId: PARENT,
+      source: 'builtin'
+    });
+    // The generic busy family sees it; the CLI-scoped one does not.
+    expect(store.get(subChatBusyAtomFamily(SUB_B))).toBe(true);
+    expect(store.get(subChatCliTurnActiveAtomFamily(SUB_B))).toBe(false);
+  });
+
+  test('false when idle (no entry) and for an empty id', () => {
+    expect(store.get(subChatCliTurnActiveAtomFamily(SUB_A))).toBe(false);
+    expect(store.get(subChatCliTurnActiveAtomFamily(''))).toBe(false);
+  });
+
+  test('flips back to false when the CLI turn clears', () => {
+    setSubChatBusy((fn) => store.set(subChatBusyAtom, fn), SUB_A, {
+      state: 'running',
+      parentChatId: PARENT,
+      source: 'cli'
+    });
+    expect(store.get(subChatCliTurnActiveAtomFamily(SUB_A))).toBe(true);
+    clearSubChatBusy((fn) => store.set(subChatBusyAtom, fn), SUB_A);
+    expect(store.get(subChatCliTurnActiveAtomFamily(SUB_A))).toBe(false);
   });
 });

@@ -11,7 +11,7 @@ import {
   useRef,
   useSyncExternalStore
 } from 'react';
-import { showMessageJsonAtom } from '../atoms';
+import { showMessageJsonAtom, subChatCliTurnActiveAtomFamily } from '../atoms';
 import { extractTextMentions, TextMentionBlocks } from '../mentions/render-file-mentions';
 import { getPerChatMessageKey, isLastMessagePerChatAtomFamily, messageAtomFamily } from '../stores/message-store';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
@@ -398,6 +398,17 @@ const NonStreamingMessageItem = memo(function NonStreamingMessageItem({
   const messageKey = getPerChatMessageKey(subChatId, messageId);
   const message = useAtomValue(messageAtomFamily(messageKey));
 
+  // While a CLI turn is active, a still-pending tool in a NON-last message is
+  // running (e.g. a subagent dispatched earlier whose result hasn't been ingested
+  // yet), not interrupted. Feed the dedicated 'turn-active' status: getToolStatus
+  // reads it to mark such tools pending instead of interrupted, but — unlike
+  // 'streaming' — it does NOT trip isActivelyStreaming, so older messages get no
+  // shimmer, no live-thinking, and their plan/review action buttons stay enabled.
+  // Scoped to source==='cli', so builtin chat keeps the plain 'ready' path. The
+  // atom flips only on running↔idle (never per token).
+  const isCliTurnActive = useAtomValue(subChatCliTurnActiveAtomFamily(subChatId));
+  const status = isCliTurnActive ? 'turn-active' : 'ready';
+
   if (!message) return null;
 
   return (
@@ -405,7 +416,7 @@ const NonStreamingMessageItem = memo(function NonStreamingMessageItem({
       message={message}
       isLastMessage={false}
       isStreaming={false}
-      status="ready"
+      status={status}
       subChatId={subChatId}
       chatId={chatId}
       isMobile={isMobile}

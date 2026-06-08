@@ -51,9 +51,19 @@ export function getToolStatus(part: any, chatStatus?: string) {
   // Critical: if chat stopped streaming, pending tools should show as complete
   // Include "submitted" status - this is when request was sent but streaming hasn't started yet
   const isActivelyStreaming = chatStatus === 'streaming' || chatStatus === 'submitted';
-  const isPending = basePending && isActivelyStreaming;
-  // Tool was in progress but chat stopped streaming (user interrupted)
-  const isInterrupted = basePending && !isActivelyStreaming && chatStatus !== undefined;
+  // 'turn-active': the sub-chat's turn is running, but THIS message is no longer
+  // the live/last one — e.g. a CLI subagent dispatched in an earlier message
+  // whose result hasn't been ingested yet. Its in-flight tools are still running
+  // (pending, NOT interrupted), but they must NOT count as "actively streaming":
+  // shimmer, live-thinking, and mid-stream action-button gating all key off
+  // isActivelyStreaming and must stay off for older messages. Keeping this as a
+  // distinct status (rather than reusing 'streaming') is what prevents those
+  // collateral effects on non-last messages.
+  const isTurnActive = isActivelyStreaming || chatStatus === 'turn-active';
+  const isPending = basePending && isTurnActive;
+  // Interrupted = was in progress but the owning turn is no longer active
+  // (user/turn stopped before it completed). A known-but-inactive status only.
+  const isInterrupted = basePending && !isTurnActive && chatStatus !== undefined;
 
   return { isPending, isError, isSuccess, isInterrupted };
 }
