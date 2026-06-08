@@ -1,4 +1,4 @@
-import { asc, and, eq, inArray, sql } from 'drizzle-orm';
+import { asc, and, desc, eq, inArray, like, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type * as schema from './schema';
 import { messages, subChats } from './schema';
@@ -7,6 +7,15 @@ import { computeFileStatsFromMessages } from '../file-stats';
 import { firstTextOfParts } from '../../../shared/message-parts';
 
 type DB = BetterSQLite3Database<typeof schema>;
+
+/**
+ * Escape SQL LIKE metacharacters (`\ % _`) in a value so it can be embedded in a
+ * `... LIKE '%' || value || '%' ESCAPE '\'` pattern as a literal substring.
+ * Tool-call ids contain `_`, which is otherwise a single-char wildcard.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
 
 function processPartsForStorage(subChatId: string, messageId: string, parts: unknown[]): unknown[] {
   if (!Array.isArray(parts)) return [];
@@ -234,6 +243,119 @@ function extractFirstTrimmedText(partsJson: string, subChatId: string, idx: numb
   } catch (err) {
     console.warn(`[messages-table] claim-merge: malformed prior parts JSON sub=${subChatId} idx=${idx}`, err);
     return null;
+  }
+}
+
+/**
+ * Re-persist the parts of an already-ingested message (CLI-session path).
+ *
+ * Used when a `tool_result` arrives on a JSONL record *after* the `tool_use`
+ * record was already inserted: the in-memory part was merged with its output,
+ * but the immutable INSERT can't see that mutation, so the persisted row stays
+ * at state 'input-available' and renders as "interrupted". This UPDATE lands the
+ * merged parts. Re-runs `processPartsForStorage` so large parts still spill; the
+ * caller passes the full in-memory parts array (un-spilled originals), so spill
+ * is reconstructed correctly. `idx`/`createdAt` are intentionally untouched.
+ * Idempotent. Returns true when a row was updated.
+ */
+export function updateIngestedMessageParts(db: DB, subChatId: string, messageId: string, parts: unknown[]): boolean {
+  try {
+    const processedParts = processPartsForStorage(subChatId, messageId, parts);
+    const res = db
+      .update(messages)
+      .set({ parts: JSON.stringify(processedParts) })
+      .where(and(eq(messages.subChatId, subChatId), eq(messages.id, messageId)))
+      .run();
+    return res.changes > 0;
+  } catch (err) {
+    console.warn(`[messages-table] updateIngestedMessageParts failed sub=${subChatId} msg=${messageId}`, err);
+    return false;
+  }
+}
+
+/**
+ * Patch a single tool part's output/state, located by `toolCallId`, in whichever
+ * persisted message contains it. Fallback for the restart-mid-tool case where the
+ * `tool_use` was persisted in a prior app session (so the in-memory pending ref is
+ * gone) but its `tool_result` is read live. Bounded to the most recent `limit`
+ * assistant rows — tool results follow their use within a turn — to keep the scan
+ * cheap; the on-attach repair walk is the comprehensive backstop. Returns true on
+ * a successful patch.
+ *
+ * Note: only finds parts stored inline (the common case). A part whose JSON
+ * exceeded the 256 KB spill threshold loses `toolCallId` in its on-disk stub and
+ * won't match here; such parts are healed by the repair walk, which rebuilds from
+ * the transcript. (The stub does retain `state`, so `hasOrphanedToolPart` still
+ * gates the repair walk on a spilled orphan — see part-spill.ts.)
+ */
+export function updateMessagePartByToolCallId(
+  db: DB,
+  subChatId: string,
+  toolCallId: string,
+  output: unknown,
+  state: 'output-available' | 'output-error',
+  limit = 20
+): boolean {
+  try {
+    // toolCallId contains `_` (e.g. `toolu_…`, `call_…`) which is a LIKE
+    // wildcard. Escape `\ % _` and add an ESCAPE clause so the substring match
+    // is literal — otherwise the pattern is broadened and, combined with the
+    // LIMIT below, could evict the true owner row from the scanned window.
+    const pattern = `%${escapeLikePattern(toolCallId)}%`;
+    const rows = db
+      .select({ id: messages.id, parts: messages.parts })
+      .from(messages)
+      .where(and(eq(messages.subChatId, subChatId), sql`${messages.parts} LIKE ${pattern} ESCAPE '\\'`))
+      .orderBy(desc(messages.idx))
+      .limit(limit)
+      .all();
+    for (const row of rows) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.parts);
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(parsed)) continue;
+      const i = parsed.findIndex(
+        (p) => p && typeof p === 'object' && (p as { toolCallId?: unknown }).toolCallId === toolCallId
+      );
+      if (i === -1) continue;
+      parsed[i] = { ...(parsed[i] as Record<string, unknown>), output, state };
+      return updateIngestedMessageParts(db, subChatId, row.id, parsed);
+    }
+    console.warn(
+      `[messages-table] updateMessagePartByToolCallId no inline match sub=${subChatId} toolCallId=${toolCallId}`
+    );
+    return false;
+  } catch (err) {
+    console.warn(
+      `[messages-table] updateMessagePartByToolCallId failed sub=${subChatId} toolCallId=${toolCallId}`,
+      err
+    );
+    return false;
+  }
+}
+
+/**
+ * Cheap gate for the on-attach tool-result repair: does this sub_chat have any
+ * persisted part still at state 'input-available'? Such a part is either an
+ * orphaned tool call (result dropped before the persistence fix / across a
+ * restart) or a genuinely interrupted one. Only when this is true does the
+ * ingester pay for a repair walk.
+ */
+export function hasOrphanedToolPart(db: DB, subChatId: string): boolean {
+  try {
+    const row = db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(and(eq(messages.subChatId, subChatId), like(messages.parts, '%"state":"input-available"%')))
+      .limit(1)
+      .get();
+    return !!row;
+  } catch (err) {
+    console.warn(`[messages-table] hasOrphanedToolPart failed sub=${subChatId}`, err);
+    return false;
   }
 }
 

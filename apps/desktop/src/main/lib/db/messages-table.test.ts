@@ -20,7 +20,7 @@ import { join } from 'node:path';
 let tmpRoot: string;
 vi.mock('electron', () => ({ app: { getPath: () => tmpRoot } }));
 
-import { appendIngestedMessage } from './messages-table';
+import { appendIngestedMessage, escapeLikePattern } from './messages-table';
 
 interface StoredRow {
   subChatId: string;
@@ -333,5 +333,24 @@ describe('appendIngestedMessage — claim-merge', () => {
       expect.stringContaining('claim-merge: malformed prior parts JSON sub=sub-1 idx=0'),
       expect.anything()
     );
+  });
+});
+
+describe('escapeLikePattern', () => {
+  it('escapes the LIKE wildcards `_` and `%` and the escape char `\\`', () => {
+    // tool-call ids contain `_`, which is a single-char LIKE wildcard.
+    expect(escapeLikePattern('toolu_01ABC')).toBe('toolu\\_01ABC');
+    expect(escapeLikePattern('call_a_b')).toBe('call\\_a\\_b');
+    expect(escapeLikePattern('a%b')).toBe('a\\%b');
+    expect(escapeLikePattern('a\\b')).toBe('a\\\\b');
+  });
+
+  it('leaves wildcard-free ids untouched', () => {
+    expect(escapeLikePattern('toolu01ABC')).toBe('toolu01ABC');
+    expect(escapeLikePattern('')).toBe('');
+  });
+
+  it('builds a literal substring pattern (the `_` is escaped, not a wildcard)', () => {
+    expect(`%${escapeLikePattern('toolu_01')}%`).toBe('%toolu\\_01%');
   });
 });

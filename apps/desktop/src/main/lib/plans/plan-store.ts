@@ -11,8 +11,7 @@
 
 import { app } from 'electron';
 import { EventEmitter } from 'node:events';
-import { readFile, access } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
 import type { RenameOnPlanResult } from '../sub-chats/rename-on-plan';
@@ -126,22 +125,42 @@ export function emitPlanWritten(event: PlanWrittenEvent): void {
 export async function readCurrentPlan(subChatId: string): Promise<PlanData | null> {
   const dir = getPlanDir(subChatId);
   console.log(`[churro-coder] plan read start sub=${subChatId} dir=${dir}`);
+
+  // The body is authoritative — read it first. A missing or empty body means
+  // "no plan".
+  let content: string;
   try {
-    const [content, metaRaw] = await Promise.all([
-      readFile(join(dir, 'current.md'), 'utf8'),
-      readFile(join(dir, 'current.meta.json'), 'utf8')
-    ]);
-    const meta = JSON.parse(metaRaw) as PlanMeta;
-    console.log(
-      `[churro-coder] plan read success sub=${subChatId} bytes=${Buffer.byteLength(content, 'utf8')} metaBytes=${Buffer.byteLength(metaRaw, 'utf8')}`
-    );
-    return { content, meta };
+    content = await readFile(join(dir, 'current.md'), 'utf8');
   } catch (err) {
     const code = typeof (err as NodeJS.ErrnoException).code === 'string' ? (err as NodeJS.ErrnoException).code : 'ERR';
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[churro-coder] plan read miss sub=${subChatId} code=${code} message=${message}`);
     return null;
   }
+  if (!content.trim()) {
+    console.warn(`[churro-coder] plan read empty-body sub=${subChatId}`);
+    return null;
+  }
+
+  // A missing/corrupt meta sidecar must NOT make the plan invisible. This can
+  // happen on a crash between the two atomic writes in persistCurrentPlan, or
+  // when CLI-ingest recovered a plan body whose meta never landed. Synthesize a
+  // default meta so getCurrentPlan still reports exists:true and the widget
+  // renders. No approvedAt ⇒ treated as unapproved, which is correct here.
+  let meta: PlanMeta;
+  try {
+    meta = JSON.parse(await readFile(join(dir, 'current.meta.json'), 'utf8')) as PlanMeta;
+  } catch (err) {
+    const code = typeof (err as NodeJS.ErrnoException).code === 'string' ? (err as NodeJS.ErrnoException).code : 'ERR';
+    console.warn(`[churro-coder] plan meta miss sub=${subChatId} code=${code} — synthesizing default meta`);
+    meta = {
+      source: 'recovered',
+      title: extractPlanTitleFromContent(content),
+      createdAt: new Date().toISOString()
+    };
+  }
+  console.log(`[churro-coder] plan read success sub=${subChatId} bytes=${Buffer.byteLength(content, 'utf8')}`);
+  return { content, meta };
 }
 
 export async function markApproved(subChatId: string): Promise<void> {
@@ -159,8 +178,14 @@ export async function markApproved(subChatId: string): Promise<void> {
 
 export async function hasPlan(subChatId: string): Promise<boolean> {
   try {
-    await access(join(getPlanDir(subChatId), 'current.md'), fsConstants.R_OK);
-    return true;
+    // Mirror readCurrentPlan's body gate EXACTLY so the invariant
+    // `hasPlan(id) === (readCurrentPlan(id) !== null)` holds: read the body
+    // (which also re-checks read permission) and treat a missing, unreadable,
+    // or whitespace-only file as "no plan". Anything weaker — e.g. stat().size>0
+    // — lets a blank-but-nonzero body report present here while readCurrentPlan
+    // reports absent, which re-blocks the CLI-ingest fill-gaps recovery.
+    const content = await readFile(join(getPlanDir(subChatId), 'current.md'), 'utf8');
+    return content.trim().length > 0;
   } catch {
     return false;
   }

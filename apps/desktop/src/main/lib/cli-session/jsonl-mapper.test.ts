@@ -280,3 +280,120 @@ describe('jsonl-mapper / Codex', () => {
     }
   });
 });
+
+// Regression suite for the "interrupted via churro-coder" bug: a tool_result that
+// lands on a LATER record than its tool_use must surface a re-persist instruction
+// (updatedMessages / orphanToolResults), because the owner row was already written
+// to SQLite and the in-place mutation alone never reaches disk.
+describe('jsonl-mapper / cross-record tool_result re-persistence', () => {
+  function claudeToolUse(callId: string, name: string, input: unknown, uuid = 'a1'): string {
+    return JSON.stringify({
+      type: 'assistant',
+      uuid,
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: callId, name, input }] }
+    });
+  }
+  function claudeToolResult(callId: string, content: unknown, isError = false, uuid = 'u1'): string {
+    return JSON.stringify({
+      type: 'user',
+      uuid,
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: callId, content, is_error: isError }] }
+    });
+  }
+
+  it('emits updatedMessages referencing the owner row + the same parts array', () => {
+    const state = createMapperState();
+    const resultContent = [{ type: 'text', text: 'Task `t1` is now in_progress.' }];
+    const r1 = mapClaudeLine(
+      claudeToolUse('call-1', 'mcp__churro-coder__update_task_status', { id: 't1', status: 'in_progress' }),
+      state
+    );
+    expect(r1.updatedMessages).toBeUndefined();
+
+    const r2 = mapClaudeLine(claudeToolResult('call-1', resultContent), state);
+    expect(r2.messages).toHaveLength(0);
+    expect(r2.updatedMessages).toHaveLength(1);
+    expect(r2.updatedMessages![0].uuid).toBe('a1');
+    expect(r2.updatedMessages![0].parts[0]).toMatchObject({ state: 'output-available', output: resultContent });
+    // Must be the EXACT array the owner message was emitted with, so re-persisting
+    // it serializes the merged output.
+    expect(r2.updatedMessages![0].parts).toBe(r1.messages[0].parts);
+  });
+
+  it('marks an errored tool_result as output-error', () => {
+    const state = createMapperState();
+    mapClaudeLine(claudeToolUse('call-2', 'mcp__churro-coder__write_plan', {}), state);
+    const r = mapClaudeLine(claudeToolResult('call-2', 'boom', true), state);
+    expect(r.updatedMessages![0].parts[0].state).toBe('output-error');
+  });
+
+  it('emits orphanToolResults when the tool_use is not pending (e.g. after a restart)', () => {
+    const state = createMapperState();
+    const r = mapClaudeLine(claudeToolResult('call-orphan', [{ type: 'text', text: 'done' }]), state);
+    expect(r.messages).toHaveLength(0);
+    expect(r.updatedMessages).toBeUndefined();
+    expect(r.orphanToolResults).toHaveLength(1);
+    expect(r.orphanToolResults![0]).toMatchObject({ toolCallId: 'call-orphan', state: 'output-available' });
+    expect(r.orphanToolResults![0].output).toEqual([{ type: 'text', text: 'done' }]);
+  });
+
+  it('does NOT emit an update when tool_use and tool_result share a record', () => {
+    // Same-record: the merge happens before the message is emitted, so the part is
+    // persisted complete with no separate update needed.
+    const state = createMapperState();
+    const line = JSON.stringify({
+      type: 'assistant',
+      uuid: 'same-1',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'c-same', name: 'Bash', input: { command: 'ls' } },
+          { type: 'tool_result', tool_use_id: 'c-same', content: 'ok' }
+        ]
+      }
+    });
+    const r = mapClaudeLine(line, state);
+    expect(r.messages[0].parts[0]).toMatchObject({ state: 'output-available', output: 'ok' });
+    expect(r.updatedMessages).toBeUndefined();
+    expect(r.orphanToolResults).toBeUndefined();
+  });
+
+  it('Codex: function_call_output emits updatedMessages for its function_call', () => {
+    const state = createMapperState();
+    const r1 = mapCodexLine(
+      JSON.stringify({
+        type: 'response_item',
+        payload: { type: 'function_call', id: 'fc1', call_id: 'call-x', name: 'exec_command', arguments: '{}' }
+      }),
+      state
+    );
+    expect(r1.updatedMessages).toBeUndefined();
+    const r2 = mapCodexLine(
+      JSON.stringify({
+        type: 'response_item',
+        payload: { type: 'function_call_output', call_id: 'call-x', output: 'done' }
+      }),
+      state
+    );
+    expect(r2.messages).toHaveLength(0);
+    expect(r2.updatedMessages).toHaveLength(1);
+    expect(r2.updatedMessages![0].uuid).toBe('fc1');
+    expect(r2.updatedMessages![0].parts[0]).toMatchObject({ state: 'output-available', output: 'done' });
+  });
+
+  it('Codex: orphan function_call_output emits orphanToolResults', () => {
+    const r = mapCodexLine(
+      JSON.stringify({
+        type: 'response_item',
+        payload: { type: 'function_call_output', call_id: 'call-gone', output: 'late' }
+      }),
+      createMapperState()
+    );
+    expect(r.orphanToolResults).toHaveLength(1);
+    expect(r.orphanToolResults![0]).toMatchObject({
+      toolCallId: 'call-gone',
+      output: 'late',
+      state: 'output-available'
+    });
+  });
+});
