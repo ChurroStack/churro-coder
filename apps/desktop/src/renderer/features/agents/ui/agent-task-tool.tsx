@@ -13,7 +13,7 @@ import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { cn } from '../../../lib/utils';
 import { formatModelLabel } from '../lib/models';
-import { formatTokens } from './agent-format-utils';
+import { formatTokens, summarizeToolStats } from './agent-format-utils';
 import type { AgentSubagentInfo } from './agent-message-usage';
 
 interface AgentTaskToolProps {
@@ -70,6 +70,44 @@ export const AgentTaskTool = memo(function AgentTaskTool({
 
   const description = part.input?.description || '';
 
+  // Rich result fields from `toolUseResult` (CLI path) or the SDK's
+  // `tool_use_result` (builtin path) — both land on `part.output`. All reads are
+  // optional-chained so a pending Task (no output yet) is unaffected.
+  const output = part.output as
+    | {
+        agentType?: string;
+        totalToolUseCount?: number;
+        totalTokens?: number;
+        usage?: { input_tokens?: number; output_tokens?: number };
+        toolStats?: Parameters<typeof summarizeToolStats>[0];
+      }
+    | undefined;
+  const agentType: string = part.input?.subagent_type || output?.agentType || 'Subagent';
+  const toolUseCount = typeof output?.totalToolUseCount === 'number' ? output.totalToolUseCount : undefined;
+  const totalTokens = typeof output?.totalTokens === 'number' ? output.totalTokens : undefined;
+  const activitySummary = !isPending ? summarizeToolStats(output?.toolStats) : '';
+
+  // Compact "31 tool uses · 67.9k tok" segment for the header (completed only).
+  const countsLabel = !isPending
+    ? [
+        toolUseCount !== undefined ? `${toolUseCount} tool ${toolUseCount === 1 ? 'use' : 'uses'}` : null,
+        totalTokens !== undefined ? `${formatTokens(totalTokens)} tok` : null
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+
+  // Token tooltip on the bot icon — prefer builtin `subagentInfo` (carries the
+  // model), else fall back to the CLI result's own token totals.
+  const tooltipTokens =
+    info?.inputTokens !== undefined
+      ? (info.inputTokens ?? 0) + (info.outputTokens ?? 0)
+      : output?.usage?.input_tokens !== undefined || output?.usage?.output_tokens !== undefined
+        ? (output.usage?.input_tokens ?? 0) + (output.usage?.output_tokens ?? 0)
+        : totalTokens;
+  const tooltipLabel = info?.model ? formatModelLabel(info.model) : agentType;
+  const hasIconTooltip = Boolean(info?.model) || tooltipTokens !== undefined;
+
   const startedAt = resolvePartStartedAt(part, messageCreatedAt);
 
   // Tick elapsed time while task is running
@@ -118,9 +156,10 @@ export const AgentTaskTool = memo(function AgentTaskTool({
 
   const subtitle = getSubtitle();
 
-  // Get title text based on status
+  // Get title text based on status. When complete, lead with the agent type
+  // (e.g. "Explore") to match the native CLI; the bot icon conveys "subagent".
   const getTitle = () => {
-    return isPending ? 'Running Subagent' : 'Completed Subagent';
+    return isPending ? 'Running Subagent' : agentType;
   };
 
   // Show interrupted state if task was interrupted without completing
@@ -135,7 +174,7 @@ export const AgentTaskTool = memo(function AgentTaskTool({
         onClick={() => setIsExpanded(!isExpanded)}
         className="group flex items-start gap-1.5 py-0.5 px-2 cursor-pointer">
         <div className="flex-shrink-0 flex items-start pt-[1px]">
-          {info?.model ? (
+          {hasIconTooltip ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex">
@@ -143,11 +182,9 @@ export const AgentTaskTool = memo(function AgentTaskTool({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top" className="flex items-center gap-1">
-                <span>{formatModelLabel(info.model)}</span>
-                {info.inputTokens !== undefined && (
-                  <span className="text-muted-foreground/70 tabular-nums">
-                    · {formatTokens((info.inputTokens ?? 0) + (info.outputTokens ?? 0))} tok
-                  </span>
+                <span>{tooltipLabel}</span>
+                {tooltipTokens !== undefined && (
+                  <span className="text-muted-foreground/70 tabular-nums">· {formatTokens(tooltipTokens)} tok</span>
                 )}
               </TooltipContent>
             </Tooltip>
@@ -166,6 +203,10 @@ export const AgentTaskTool = memo(function AgentTaskTool({
               <span className="font-medium whitespace-nowrap flex-shrink-0 text-muted-foreground">{getTitle()}</span>
             )}
             {subtitle && <span className="text-muted-foreground/60 truncate">{subtitle}</span>}
+            {/* Tool-use + token counts from the subagent result (completed only) */}
+            {countsLabel && (
+              <span className="text-muted-foreground/50 tabular-nums flex-shrink-0">· {countsLabel}</span>
+            )}
             {/* Show elapsed time while running or final time when done */}
             {elapsedTimeDisplay && (
               <span className="text-muted-foreground/50 tabular-nums flex-shrink-0">{elapsedTimeDisplay}</span>
@@ -181,6 +222,12 @@ export const AgentTaskTool = memo(function AgentTaskTool({
           </div>
         </div>
       </div>
+
+      {/* Activity summary from the subagent's toolStats (e.g. "18 reads · 13
+          commands") — always visible once complete, mirrors the native CLI. */}
+      {activitySummary && (
+        <div className="pl-7 pr-2 -mt-0.5 text-[11px] text-muted-foreground/50 tabular-nums">{activitySummary}</div>
+      )}
 
       {/* Nested tools + subagent reply - only show when expanded */}
       {isExpanded && (

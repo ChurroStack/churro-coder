@@ -195,6 +195,57 @@ describe('CliSessionIngester — cross-record tool_result persistence', () => {
     expect(owner!.parts[0].output).toEqual([{ type: 'text', text: 'Task `t1` is now in_progress.' }]);
   });
 
+  it('persists the rich subagent toolUseResult on the owner row', async () => {
+    const subChatId = 'sub-tr-subagent';
+    const sessionFile = join(tmpRoot, 'tr-subagent.jsonl');
+    const taskResult = {
+      status: 'completed',
+      agentType: 'Explore',
+      totalTokens: 67917,
+      totalToolUseCount: 31,
+      toolStats: { readCount: 18, bashCount: 13 },
+      content: [{ type: 'text', text: 'Investigation summary…' }]
+    };
+    const lines =
+      [
+        JSON.stringify({
+          type: 'assistant',
+          uuid: 'task-a',
+          timestamp: '2026-06-08T12:00:00Z',
+          message: {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'task-1',
+                name: 'Agent',
+                input: { description: 'Find X', subagent_type: 'Explore' }
+              }
+            ]
+          }
+        }),
+        JSON.stringify({
+          type: 'user',
+          uuid: 'task-u',
+          timestamp: '2026-06-08T12:00:05Z',
+          toolUseResult: taskResult,
+          message: {
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: 'task-1', content: taskResult.content }]
+          }
+        })
+      ].join('\n') + '\n';
+    await writeFile(sessionFile, lines, 'utf8');
+
+    const ing = new CliSessionIngester(subChatId, 'claude-cli', sessionFile);
+    await ing.ingestPending();
+
+    const owner = mdb.rows.get(subChatId)?.find((r) => r.id === 'task-a');
+    expect(owner!.parts[0]).toMatchObject({ type: 'tool-Agent', state: 'output-available' });
+    // The whole structured object reaches SQLite — totals/toolStats the renderer needs.
+    expect(owner!.parts[0].output).toEqual(taskResult);
+  });
+
   it('heals a pre-existing orphaned input-available row on repair', async () => {
     const subChatId = 'sub-tr-repair';
     const sessionFile = join(tmpRoot, 'tr-repair.jsonl');

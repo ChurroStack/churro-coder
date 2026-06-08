@@ -397,3 +397,147 @@ describe('jsonl-mapper / cross-record tool_result re-persistence', () => {
     });
   });
 });
+
+// The native Claude JSONL attaches a record-level `toolUseResult` (sibling of
+// `message`) to every tool_result — rich structured data the shared renderers
+// read via `part.output.*` (subagent toolStats/tokens, Bash stdout/stderr, …).
+// We prefer it over the bare tool_result content whenever it's an object,
+// mirroring the builtin SDK path (`output = msg.tool_use_result || block.content`).
+describe('jsonl-mapper / toolUseResult capture', () => {
+  const taskResult = {
+    status: 'completed',
+    agentType: 'Explore',
+    totalDurationMs: 106824,
+    totalTokens: 67917,
+    totalToolUseCount: 31,
+    usage: { input_tokens: 0, output_tokens: 4464 },
+    toolStats: { readCount: 18, searchCount: 0, bashCount: 13, editFileCount: 0, linesAdded: 0, linesRemoved: 0 },
+    content: [{ type: 'text', text: 'Investigation summary…' }]
+  };
+
+  function agentToolUse(callId: string, uuid = 'a-task'): string {
+    return JSON.stringify({
+      type: 'assistant',
+      uuid,
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: callId, name: 'Agent', input: { description: 'Find X', subagent_type: 'Explore' } }
+        ]
+      }
+    });
+  }
+  function resultWithMeta(
+    callId: string,
+    content: unknown,
+    toolUseResult: unknown,
+    isError = false,
+    uuid = 'u-res'
+  ): string {
+    return JSON.stringify({
+      type: 'user',
+      uuid,
+      toolUseResult,
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: callId, content, is_error: isError }] }
+    });
+  }
+
+  it('captures the record-level toolUseResult as part.output for an Agent/Task result', () => {
+    const state = createMapperState();
+    const r1 = mapClaudeLine(agentToolUse('task-1'), state);
+    const r2 = mapClaudeLine(resultWithMeta('task-1', taskResult.content, taskResult), state);
+    expect(r2.updatedMessages).toHaveLength(1);
+    expect(r1.messages[0].parts[0]).toMatchObject({ type: 'tool-Agent', state: 'output-available' });
+    // The full rich object lands on output (not the bare content array).
+    expect(r1.messages[0].parts[0].output).toEqual(taskResult);
+  });
+
+  it('captures toolUseResult for non-Task tools (Bash stdout/stderr), same-record', () => {
+    const state = createMapperState();
+    const bashMeta = { stdout: 'hello\n', stderr: '', interrupted: false, isImage: false };
+    const line = JSON.stringify({
+      type: 'assistant',
+      uuid: 'a-bash',
+      toolUseResult: bashMeta,
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'b-1', name: 'Bash', input: { command: 'echo hello' } },
+          { type: 'tool_result', tool_use_id: 'b-1', content: 'hello\n' }
+        ]
+      }
+    });
+    const r = mapClaudeLine(line, state);
+    expect(r.messages[0].parts[0]).toMatchObject({ type: 'tool-Bash', state: 'output-available' });
+    expect(r.messages[0].parts[0].output).toEqual(bashMeta);
+  });
+
+  it('keeps the structured object on an errored subagent result (state output-error)', () => {
+    const state = createMapperState();
+    const errMeta = {
+      status: 'error',
+      agentType: 'Explore',
+      content: [{ type: 'text', text: 'failed' }],
+      toolStats: {}
+    };
+    mapClaudeLine(agentToolUse('e-1', 'a-err'), state);
+    const r = mapClaudeLine(resultWithMeta('e-1', errMeta.content, errMeta, true), state);
+    expect(r.updatedMessages![0].parts[0]).toMatchObject({ state: 'output-error' });
+    expect(r.updatedMessages![0].parts[0].output).toEqual(errMeta);
+  });
+
+  it('carries the rich toolUseResult into orphanToolResults', () => {
+    const r = mapClaudeLine(resultWithMeta('orphan-1', taskResult.content, taskResult), createMapperState());
+    expect(r.orphanToolResults).toHaveLength(1);
+    expect(r.orphanToolResults![0].output).toEqual(taskResult);
+  });
+
+  it('falls back to block.content when no toolUseResult is present', () => {
+    const state = createMapperState();
+    mapClaudeLine(
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'a-nc',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'nc-1', name: 'Bash', input: { command: 'ls' } }]
+        }
+      }),
+      state
+    );
+    const r = mapClaudeLine(
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u-nc',
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'nc-1', content: 'README.md' }] }
+      }),
+      state
+    );
+    expect(r.updatedMessages![0].parts[0].output).toBe('README.md');
+  });
+
+  it('ignores a non-object (string) toolUseResult and uses block.content', () => {
+    const state = createMapperState();
+    mapClaudeLine(
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'a-str',
+        message: { role: 'assistant', content: [{ type: 'tool_use', id: 's-1', name: 'ExitPlanMode', input: {} }] }
+      }),
+      state
+    );
+    const r = mapClaudeLine(
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u-str',
+        toolUseResult: 'Plan approved',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 's-1', content: [{ type: 'text', text: 'ok' }] }]
+        }
+      }),
+      state
+    );
+    expect(r.updatedMessages![0].parts[0].output).toEqual([{ type: 'text', text: 'ok' }]);
+  });
+});
