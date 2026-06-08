@@ -24,6 +24,7 @@ export {
   assertRegisteredWorktree,
   assertValidGitPath,
   getRegisteredChat,
+  isUnregisteredWorktreeError,
   PathValidationError,
   type PathValidationErrorCode,
   resolvePathInWorktree,

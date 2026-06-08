@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '../../../components/ui/button';
+import { resolveHasUpstream } from '../../../../shared/changes-types';
 import {
   AgentIcon,
   AttachIcon,
@@ -4660,7 +4661,7 @@ export function ChatView({
     dialog: pushDialog
   } = usePushAction({
     worktreePath,
-    hasUpstream: gitStatus?.hasUpstream ?? true,
+    hasUpstream: resolveHasUpstream(gitStatus, true),
     onSuccess: handleCommitChangesRefresh
   });
 
