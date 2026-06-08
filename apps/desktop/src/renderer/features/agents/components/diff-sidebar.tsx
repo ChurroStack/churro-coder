@@ -46,7 +46,7 @@ import { IconCloseSidebarRight } from '../../../components/ui/icons';
 import { ResizableSidebar } from '../../../components/ui/resizable-sidebar';
 import { cn } from '../../../lib/utils';
 import { trpc } from '../../../lib/trpc';
-import type { FileStatus } from '../../../../shared/changes-types';
+import { resolveHasUpstream, type FileStatus } from '../../../../shared/changes-types';
 import { ChangesPanel } from '../../changes';
 import { DiffCenterPeekDialog } from '../../changes/components/diff-center-peek-dialog';
 import { DiffFullPageView } from '../../changes/components/diff-full-page-view';
@@ -858,7 +858,7 @@ export const DiffSidebarRenderer = memo(function DiffSidebarRenderer({
           sidebarWidth={effectiveWidth}
           pushCount={gitStatus?.pushCount ?? 0}
           pullCount={gitStatus?.pullCount ?? 0}
-          hasUpstream={gitStatus?.hasUpstream ?? true}
+          hasUpstream={resolveHasUpstream(gitStatus, true)}
           isSyncStatusLoading={isGitStatusLoading}
           aheadOfDefault={gitStatus?.ahead ?? 0}
           behindDefault={gitStatus?.behind ?? 0}
