@@ -10,6 +10,13 @@ import { appStore } from '../../lib/jotai-store';
 import { subChatBusyAtom, subChatErrorAtom } from '../agents/atoms';
 import type { DockviewApi } from 'dockview-react';
 
+// The component now sources pending-plan approvals from a tRPC-backed hook.
+// These tests render without a tRPC provider and exercise streaming-driven tab
+// promotion (not plan approvals), so stub the hook to "no pending plans".
+vi.mock('../agents/hooks/use-pending-plan-approvals', () => ({
+  usePendingPlanApprovals: () => ({ subChatIds: new Set<string>(), chatIds: new Set<string>() })
+}));
+
 // ── Minimal dockview mock types ───────────────────────────────────────────────
 
 type MockPanel = {

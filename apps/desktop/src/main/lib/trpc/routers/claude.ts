@@ -13,6 +13,7 @@ import {
   checkOfflineFallback,
   createTransformer,
   logClaudeEnv,
+  resolveClaudeCodeExecutable,
   type UIMessageChunk
 } from '../../claude';
 import {
@@ -1855,6 +1856,10 @@ ${prompt}
                   subChatIdShort: subId
                 });
 
+                // Concrete on-disk path to the SDK's native CLI (asarUnpack-aware).
+                // Cached after first resolution; null only if unresolvable.
+                const claudeCodeExecutable = resolveClaudeCodeExecutable();
+
                 const queryOptions = {
                   prompt: finalQueryPrompt,
                   options: {
@@ -2099,8 +2104,13 @@ ${prompt}
                         console.error('[claude stderr]', data);
                       }
                     },
-                    // No pathToClaudeCodeExecutable: the agent SDK resolves its own
-                    // bundled native CLI (the CLIs are no longer shipped separately).
+                    // Hand the SDK the concrete on-disk path to its native CLI. The
+                    // SDK's own `createRequire(import.meta.url).resolve(...)` fallback
+                    // returns an `app.asar` path in a packaged build that the OS can't
+                    // exec ("Native CLI binary ... not found"); resolveClaudeCodeExecutable
+                    // remaps to the asarUnpack-ed copy. null in the rare unresolvable
+                    // case → omit the option and let the SDK self-resolve (dev only).
+                    ...(claudeCodeExecutable && { pathToClaudeCodeExecutable: claudeCodeExecutable }),
                     // Session-mode keys (resume / continue / resumeSessionAt / forkSession)
                     // are assigned per loop iteration via applySessionMode() so a silent
                     // SESSION_EXPIRED retry can swap to a fresh session.

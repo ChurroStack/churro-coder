@@ -1113,10 +1113,6 @@ export type PendingUserQuestions = PendingUserQuestion;
 // Map<subChatId, PendingUserQuestion>
 export const expiredUserQuestionsAtom = atom<Map<string, PendingUserQuestion>>(new Map());
 
-// Track sub-chats with pending plan approval (plan ready but not yet implemented)
-// Map<subChatId, parentChatId> - allows filtering by workspace
-export const pendingPlanApprovalsAtom = atom<Map<string, string>>(new Map());
-
 // Pending "Build plan" trigger — per-subChat boolean flag. Was previously a
 // global `string | null` atom carrying the subChatId; converted to atomFamily
 // so two subChats can have independent pending-approval state (see the
