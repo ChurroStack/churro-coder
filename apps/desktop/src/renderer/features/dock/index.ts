@@ -12,6 +12,10 @@ export {
   type PanelKind
 } from './atoms';
 export { addOrFocus, type AddOrFocusOptions } from './add-or-focus';
+// Note: useOpenFileInDock is intentionally NOT re-exported here. It is consumed
+// from the agents feature; importing it via this barrel would pull the whole
+// dock subsystem (panel-registry → chat-panel-sync → active-chat) back into
+// agents and close an agents↔dock cycle. Import it from its module directly.
 export { PANEL_COMPONENTS, dockviewComponents } from './panel-registry';
 export { useWidgetPanel, type WidgetPanelHandle } from './use-widget-panel';
 export { usePanelActions, type PanelActions } from './use-panel-actions';

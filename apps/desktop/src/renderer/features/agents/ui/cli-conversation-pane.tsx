@@ -22,6 +22,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSetAtom } from 'jotai';
 import { trpc } from '@/lib/trpc';
 import { IsolatedMessagesSection } from '../main/isolated-messages-section';
+import { FileOpenProvider } from '../mentions';
+import { useOpenFileInDock } from '../../dock/use-open-file-in-dock';
 import { MessageGroup } from '../components/message-group';
 import { AgentToolCall } from './agent-tool-call';
 import { AgentToolRegistry } from './agent-tool-registry';
@@ -53,8 +55,18 @@ function parseJsonField<T>(v: string | T | undefined | null, fallback: T): T {
   }
 }
 
+// The read-only CLI pane has no side-peek overlay of its own, and it always
+// renders inside a dock panel, so the dock-API fallback is a no-op here.
+const NO_FALLBACK = () => {};
+
 export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: CliConversationPaneProps) {
   const utils = trpc.useUtils();
+  // Resolve relative paths against THIS pane's chat worktree (keyed by its own
+  // chatId, not the globally active chat). Make the same file boxes / @mentions
+  // clickable here as in the builtin chat, opening files in a full dockview tab.
+  const { data: cliChat } = trpc.chats.get.useQuery({ id: chatId }, { enabled: !!chatId });
+  const worktreePath = (cliChat?.worktreePath as string | null | undefined) ?? null;
+  const openFileInDock = useOpenFileInDock(subChatId, worktreePath, NO_FALLBACK);
   const messagesQuery = trpc.messages.getLatest.useQuery(
     { subChatId, limit: 200 },
     { staleTime: 0, refetchOnWindowFocus: false }
@@ -181,18 +193,20 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
           </div>
         ) : (
           <div className="mx-auto w-full max-w-5xl px-2 py-4">
-            <IsolatedMessagesSection
-              subChatId={subChatId}
-              chatId={chatId}
-              isMobile={false}
-              sandboxSetupStatus="ready"
-              stickyTopClass="top-0"
-              UserBubbleComponent={AgentUserMessageBubble}
-              ToolCallComponent={AgentToolCall}
-              MessageGroupWrapper={MessageGroup}
-              toolRegistry={AgentToolRegistry}
-              showContinueButton={false}
-            />
+            <FileOpenProvider onOpenFile={openFileInDock}>
+              <IsolatedMessagesSection
+                subChatId={subChatId}
+                chatId={chatId}
+                isMobile={false}
+                sandboxSetupStatus="ready"
+                stickyTopClass="top-0"
+                UserBubbleComponent={AgentUserMessageBubble}
+                ToolCallComponent={AgentToolCall}
+                MessageGroupWrapper={MessageGroup}
+                toolRegistry={AgentToolRegistry}
+                showContinueButton={false}
+              />
+            </FileOpenProvider>
           </div>
         )}
       </div>
