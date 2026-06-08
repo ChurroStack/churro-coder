@@ -35,9 +35,16 @@ import chokidar, { type FSWatcher } from 'chokidar';
 import { Mutex } from 'async-mutex';
 import type { CliHarness } from '../cli-harness';
 import { getDatabase } from '../db';
-import { appendIngestedMessage, nextMessageIdx, refreshSubChatCountersAfterIngest } from '../db/messages-table';
+import {
+  appendIngestedMessage,
+  hasOrphanedToolPart,
+  nextMessageIdx,
+  refreshSubChatCountersAfterIngest,
+  updateIngestedMessageParts,
+  updateMessagePartByToolCallId
+} from '../db/messages-table';
 import { notifyFilesChanged } from '../file-changes/file-changes-store';
-import { ensurePlanWritten } from '../plans/plan-store';
+import { ensurePlanWritten, hasPlan } from '../plans/plan-store';
 import { writeTasks } from '../tasks/task-store';
 import {
   createMapperState,
@@ -45,6 +52,7 @@ import {
   mapCodexLine,
   type IngestedMessage,
   type IngestedSideEffect,
+  type MapperResult,
   type MapperState
 } from './jsonl-mapper';
 import { emptyIngestState, mutateIngestState, readIngestState, type IngestState } from './ingest-state-store';
@@ -82,6 +90,8 @@ export class CliSessionIngester {
   private watcher: FSWatcher | null = null;
   private mapperState: MapperState = createMapperState();
   private stopped = false;
+  /** Repair runs at most once per ingester instance (per attach lifecycle). */
+  private repairAttempted = false;
 
   constructor(
     public readonly subChatId: string,
@@ -96,6 +106,12 @@ export class CliSessionIngester {
     // pointing into the middle of a file that has grown since).
     await this.ingestPending().catch((err) => {
       console.warn(`${TRACE} initial catch-up failed sub=${this.subChatId} err=${err}`);
+    });
+
+    // Heal tool parts persisted before the tool-result-persistence fix (or
+    // dropped across a restart): gated so healthy sessions skip the walk.
+    await this.repairPersistedToolResults().catch((err) => {
+      console.warn(`${TRACE} repair failed sub=${this.subChatId} err=${err}`);
     });
 
     this.watcher = chokidar.watch(this.sessionFile, {
@@ -212,17 +228,27 @@ export class CliSessionIngester {
     let bytesConsumed = byteOffset;
     let messagesIngested = 0;
     let sideEffectsApplied = 0;
+    let messagesUpdated = 0;
+    let planSideEffectSeen = false;
 
-    await new Promise<void>((resolve, reject) => {
+    // `for await (const line of rl)` AWAITS each line's full processing —
+    // including the async side-effect fan-out — before reading the next line
+    // and before the loop ends. The previous `rl.on('line', async …)` form did
+    // NOT await its listeners, so the stream's 'close' could resolve (and the
+    // watermark below advance to EOF) while a plan/file/task write was still
+    // pending on the microtask queue. A manual Refresh would then return, fire
+    // `getCurrentPlan.invalidate()`, and re-read the file before it existed —
+    // leaving the Plan widget empty. Awaiting here makes reingest deterministic.
+    try {
       const stream = createReadStream(this.sessionFile, {
         encoding: 'utf8',
         start: byteOffset
       });
       const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
-      rl.on('line', async (line) => {
+      for await (const line of rl) {
         bytesConsumed += Buffer.byteLength(line, 'utf8') + 1; // +1 for the newline
-        if (!line.trim()) return;
+        if (!line.trim()) continue;
 
         const result =
           this.harness === 'claude-cli' ? mapClaudeLine(line, this.mapperState) : mapCodexLine(line, this.mapperState);
@@ -245,18 +271,33 @@ export class CliSessionIngester {
 
         // Apply side-effects with fill-gaps semantics.
         for (const se of result.sideEffects) {
+          if (se.kind === 'plan') planSideEffectSeen = true;
           const applied = await applySideEffect(this.subChatId, se);
           if (applied) sideEffectsApplied += 1;
         }
-      });
-      rl.on('close', resolve);
-      rl.on('error', reject);
-      stream.on('error', reject);
-    }).catch((err) => {
+
+        // Land cross-record tool_result outputs onto their already-persisted
+        // owner rows. Without this the tool part stays at 'input-available' and
+        // the renderer marks the call "interrupted" even though it succeeded.
+        messagesUpdated += applyResultUpdates(db, this.subChatId, result);
+      }
+    } catch (err) {
       console.warn(`${TRACE} read stream error sub=${this.subChatId} err=${err}`);
-    });
+    }
 
     if (messagesIngested > 0) refreshSubChatCountersAfterIngest(db, this.subChatId);
+
+    // Recovery diagnostic: a full re-walk starts at byteOffset 0 (manual
+    // Refresh, first ingest, or post-truncation rewind). Surface whether a plan
+    // tool_use was present in the JSON and whether one ended up on disk so the
+    // next "plan didn't show up" report can distinguish "no plan in the JSON"
+    // from "a plan was present but recovery dropped it".
+    if (byteOffset === 0) {
+      const planOnDisk = await hasPlan(this.subChatId);
+      console.log(
+        `${TRACE} plan-recovery sub=${this.subChatId} planInJson=${planSideEffectSeen} planOnDisk=${planOnDisk}`
+      );
+    }
 
     // Persist new watermark.
     await mutateIngestState(
@@ -270,19 +311,86 @@ export class CliSessionIngester {
       () => ({ sessionFile: this.sessionFile, byteOffset: bytesConsumed, messageUuids: Array.from(seen), nextIdx })
     );
 
-    if (messagesIngested > 0 || sideEffectsApplied > 0) {
+    if (messagesIngested > 0 || sideEffectsApplied > 0 || messagesUpdated > 0) {
       ingestEmitter.emit('ingest', {
         subChatId: this.subChatId,
         newMessageCount: messagesIngested,
         sideEffectsApplied
       });
       console.log(
-        `${TRACE} ingested sub=${this.subChatId} messages=${messagesIngested} side-effects=${sideEffectsApplied} bytes=${bytesConsumed}`
+        `${TRACE} ingested sub=${this.subChatId} messages=${messagesIngested} side-effects=${sideEffectsApplied} updates=${messagesUpdated} bytes=${bytesConsumed}`
       );
     }
 
     return { newMessageCount: messagesIngested, sideEffectsApplied };
   }
+
+  /**
+   * One-time heal of tool parts left at 'input-available' because their
+   * tool_result landed on a later record than the (already-persisted) tool_use —
+   * the symptom is a tool call rendering as "interrupted" even though it
+   * succeeded. Walks the whole transcript from byte 0 with a FRESH local mapper
+   * state (never `this.mapperState`, which would corrupt live pairing) and
+   * re-pairs tool_use ↔ tool_result, re-persisting the merged owner rows.
+   * Inserts and side-effects are skipped — those rows/artifacts already exist;
+   * the live watermark is left untouched.
+   *
+   * Runs at most once per instance and only when an orphan is actually present,
+   * so healthy sessions pay nothing and a genuinely-interrupted call (no result
+   * on disk) doesn't trigger repeated walks. Reuses the per-subchat mutex so it
+   * can't interleave with a live ingest pass.
+   */
+  async repairPersistedToolResults(): Promise<number> {
+    if (this.repairAttempted) return 0;
+    this.repairAttempted = true;
+    return lockFor(this.subChatId).runExclusive(async () => {
+      const db = getDatabase();
+      if (!hasOrphanedToolPart(db, this.subChatId)) return 0;
+
+      const localState = createMapperState();
+      let updated = 0;
+      try {
+        const stream = createReadStream(this.sessionFile, { encoding: 'utf8', start: 0 });
+        const rl = createInterface({ input: stream, crlfDelay: Infinity });
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+          const result =
+            this.harness === 'claude-cli' ? mapClaudeLine(line, localState) : mapCodexLine(line, localState);
+          updated += applyResultUpdates(db, this.subChatId, result);
+        }
+      } catch (err) {
+        console.warn(`${TRACE} repair read error sub=${this.subChatId} err=${err}`);
+      }
+
+      if (updated > 0) {
+        ingestEmitter.emit('ingest', { subChatId: this.subChatId, newMessageCount: 0, sideEffectsApplied: 0 });
+        console.log(`${TRACE} repaired sub=${this.subChatId} toolResults=${updated}`);
+      }
+      return updated;
+    });
+  }
+}
+
+// ── tool-result re-persistence ──────────────────────────────────────────────
+
+/** Land a mapper line's tool-result side-channel onto the persisted rows.
+ *  Returns the number of rows patched. Shared by live ingestion and the repair
+ *  walk. `updatedMessages` re-persists owner rows from the full in-memory parts
+ *  (spill-correct); `orphanToolResults` patches by toolCallId when the owner was
+ *  persisted in a prior app session. */
+function applyResultUpdates(db: ReturnType<typeof getDatabase>, subChatId: string, result: MapperResult): number {
+  let n = 0;
+  if (result.updatedMessages) {
+    for (const u of result.updatedMessages) {
+      if (updateIngestedMessageParts(db, subChatId, u.uuid, u.parts)) n += 1;
+    }
+  }
+  if (result.orphanToolResults) {
+    for (const o of result.orphanToolResults) {
+      if (updateMessagePartByToolCallId(db, subChatId, o.toolCallId, o.output, o.state)) n += 1;
+    }
+  }
+  return n;
 }
 
 // ── side-effect fan-out ─────────────────────────────────────────────────────

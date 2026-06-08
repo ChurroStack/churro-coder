@@ -56,16 +56,37 @@ export type IngestedSideEffect =
 export interface MapperResult {
   messages: IngestedMessage[];
   sideEffects: IngestedSideEffect[];
+  /** Owner messages whose parts were mutated by a tool_result that arrived on a
+   *  *later* record than the tool_use. The owner row was already persisted (at
+   *  state 'input-available'), so the caller must re-persist `parts` to land the
+   *  output — otherwise the part stays output-less and renders as "interrupted".
+   *  `parts` is the SAME array reference that was originally emitted (and
+   *  serialized), now containing the merged part. */
+  updatedMessages?: Array<{ uuid: string; parts: MessagePart[] }>;
+  /** tool_result whose tool_use is no longer in `pendingTools` (its owner was
+   *  persisted in a prior app session, so the in-memory ref is gone). The caller
+   *  patches the persisted row by toolCallId. */
+  orphanToolResults?: Array<{ toolCallId: string; output: unknown; state: 'output-available' | 'output-error' }>;
+}
+
+/** A tool part awaiting its result, plus the owner message needed to re-persist
+ *  it once the result arrives on a later record. */
+interface PendingTool {
+  part: MessagePart;
+  ownerUuid: string;
+  /** The parts array of the owner IngestedMessage. `part` is an element of it;
+   *  it is the exact array reference that was serialized on insert, so mutating
+   *  `part` and re-persisting `ownerParts` is spill-correct. */
+  ownerParts: MessagePart[];
 }
 
 /** Per-session cross-line state. Construct once per session-file (or once per
  *  full re-scan) and reuse for every line. */
 export interface MapperState {
   /** Pending tool parts keyed by call_id awaiting a tool_result /
-   *  function_call_output. Stored as a shallow ref into the most recent
-   *  IngestedMessage that contains them, so when the result arrives we
-   *  flush the merged part out. */
-  pendingTools: Map<string, MessagePart>;
+   *  function_call_output, carrying enough context to re-persist the owner row
+   *  when the result lands on a later record. */
+  pendingTools: Map<string, PendingTool>;
 }
 
 export function createMapperState(): MapperState {
@@ -158,6 +179,9 @@ function mapClaudeMessageRecord(obj: ClaudeRecord, state: MapperState): MapperRe
 
   const parts: MessagePart[] = [];
   const sideEffects: IngestedSideEffect[] = [];
+  const updatedMessages: Array<{ uuid: string; parts: MessagePart[] }> = [];
+  const orphanToolResults: Array<{ toolCallId: string; output: unknown; state: 'output-available' | 'output-error' }> =
+    [];
 
   const content = msg.content;
   if (typeof content === 'string') {
@@ -178,20 +202,24 @@ function mapClaudeMessageRecord(obj: ClaudeRecord, state: MapperState): MapperRe
         if (stripped.trim()) parts.push({ type: 'text', text: stripped });
         continue;
       }
-      mapClaudeContentBlock(block, parts, sideEffects, state);
+      mapClaudeContentBlock(block, parts, sideEffects, state, uuid, updatedMessages, orphanToolResults);
     }
   }
 
-  // tool_result events for tool_uses emitted by earlier messages reach us
-  // through the pendingTools side-channel. They're applied in-place to the
-  // pending part there; if the result arrived alongside its tool_use in this
-  // same record, mapClaudeContentBlock already merged them.
+  // tool_result blocks for tool_uses emitted by EARLIER records reach us through
+  // the pendingTools side-channel: mapClaudeContentBlock mutates the pending part
+  // in place AND records an `updatedMessages` entry so the caller re-persists the
+  // already-written owner row (the in-place mutation alone never reaches SQLite).
+  // If the result arrived alongside its tool_use in THIS same record, the merge
+  // happened before this message is emitted, so no update entry is produced.
 
-  if (parts.length === 0) return { messages: [], sideEffects };
-  return {
-    messages: [{ uuid, role, parts, createdAt }],
+  const result: MapperResult = {
+    messages: parts.length === 0 ? [] : [{ uuid, role, parts, createdAt }],
     sideEffects
   };
+  if (updatedMessages.length > 0) result.updatedMessages = updatedMessages;
+  if (orphanToolResults.length > 0) result.orphanToolResults = orphanToolResults;
+  return result;
 }
 
 function pickClaudeUuid(obj: ClaudeRecord, msg: NonNullable<ClaudeRecord['message']>): string | null {
@@ -205,7 +233,10 @@ function mapClaudeContentBlock(
   block: ClaudeContentBlock,
   parts: MessagePart[],
   sideEffects: IngestedSideEffect[],
-  state: MapperState
+  state: MapperState,
+  ownerUuid: string,
+  updatedMessages: Array<{ uuid: string; parts: MessagePart[] }>,
+  orphanToolResults: Array<{ toolCallId: string; output: unknown; state: 'output-available' | 'output-error' }>
 ): void {
   if (!block || typeof block !== 'object') return;
   switch (block.type) {
@@ -227,7 +258,10 @@ function mapClaudeContentBlock(
         state: 'input-available'
       };
       parts.push(part);
-      if (callId) state.pendingTools.set(callId, part);
+      // `parts` is the owner message's parts array (a stable reference shared
+      // with the emitted IngestedMessage). Registering it here lets a later
+      // tool_result re-persist the owner row after the in-place merge.
+      if (callId) state.pendingTools.set(callId, { part, ownerUuid, ownerParts: parts });
 
       const se = extractClaudeSideEffect(name, block.input);
       if (se) sideEffects.push(...se);
@@ -236,11 +270,22 @@ function mapClaudeContentBlock(
     case 'tool_result': {
       const targetId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
       if (!targetId) return;
+      const newState: 'output-available' | 'output-error' = block.is_error ? 'output-error' : 'output-available';
       const target = state.pendingTools.get(targetId);
       if (target) {
-        target.output = block.content;
-        target.state = block.is_error ? 'output-error' : 'output-available';
+        target.part.output = block.content;
+        target.part.state = newState;
         state.pendingTools.delete(targetId);
+        // Cross-record result: the owner row is already persisted, so flag it for
+        // re-persistence. Same-record (owner is THIS message) needs no update —
+        // the merged part will be persisted with the message itself.
+        if (target.ownerUuid !== ownerUuid) {
+          updatedMessages.push({ uuid: target.ownerUuid, parts: target.ownerParts });
+        }
+      } else {
+        // No in-memory owner (tool_use persisted in a prior app session). Patch
+        // the persisted row by toolCallId.
+        orphanToolResults.push({ toolCallId: targetId, output: block.content, state: newState });
       }
       // tool_result blocks themselves don't render as a separate part.
       return;
@@ -366,15 +411,16 @@ function mapCodexFunctionCall(payload: CodexResponsePayload, createdAt: number, 
   const uuid = payload.id ?? callId ?? `${name}:${createdAt}`;
 
   // A function_call lands on its own response_item — wrap it as a single-part
-  // assistant message.
-  if (callId) state.pendingTools.set(callId, part);
+  // assistant message. `ownerParts` is that single-element array.
+  const parts = [part];
+  if (callId) state.pendingTools.set(callId, { part, ownerUuid: uuid, ownerParts: parts });
 
   const sideEffects: IngestedSideEffect[] = [];
   const se = extractCodexSideEffect(name, input);
   if (se) sideEffects.push(...se);
 
   return {
-    messages: [{ uuid, role: 'assistant', parts: [part], createdAt }],
+    messages: [{ uuid, role: 'assistant', parts, createdAt }],
     sideEffects
   };
 }
@@ -383,11 +429,23 @@ function mapCodexFunctionCallOutput(payload: CodexResponsePayload, state: Mapper
   const callId = payload.call_id ?? '';
   if (!callId) return EMPTY;
   const target = state.pendingTools.get(callId);
-  if (!target) return EMPTY;
-  target.output = payload.output;
-  target.state = 'output-available';
+  // Codex emits function_call and its output as separate response_items (always
+  // cross-record), so a paired result must re-persist the owner row.
+  if (!target) {
+    return {
+      messages: [],
+      sideEffects: [],
+      orphanToolResults: [{ toolCallId: callId, output: payload.output, state: 'output-available' }]
+    };
+  }
+  target.part.output = payload.output;
+  target.part.state = 'output-available';
   state.pendingTools.delete(callId);
-  return EMPTY; // mutation only — the merged part already lives in a prior IngestedMessage
+  return {
+    messages: [],
+    sideEffects: [],
+    updatedMessages: [{ uuid: target.ownerUuid, parts: target.ownerParts }]
+  };
 }
 
 function mapCodexPatchApplyEnd(payload: CodexPatchApplyEndPayload): MapperResult {

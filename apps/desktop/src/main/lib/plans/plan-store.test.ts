@@ -73,12 +73,78 @@ describe('plan-store', () => {
     expect(result!.meta.title).toBe('t2');
   });
 
-  test('readCurrentPlan returns null when meta file is corrupted', async () => {
-    await writeCurrentPlan({ subChatId: 'sub-5', content: 'body', source: 's', title: 't' });
+  test('readCurrentPlan recovers content with synthesized meta when meta is corrupt', async () => {
+    // The body is authoritative; a corrupt meta sidecar must not hide the plan.
+    await writeCurrentPlan({ subChatId: 'sub-5', content: '# Heading\nbody', source: 's', title: 't' });
     const metaPath = join(tmpRoot, 'sub-chats', 'sub-5', 'plans', 'current.meta.json');
     await writeFile(metaPath, '{ not json', 'utf8');
 
-    expect(await readCurrentPlan('sub-5')).toBeNull();
+    const result = await readCurrentPlan('sub-5');
+    expect(result).not.toBeNull();
+    expect(result!.content).toBe('# Heading\nbody');
+    expect(result!.meta.source).toBe('recovered');
+    expect(result!.meta.title).toBe('Heading'); // derived from the first # heading
+    expect(result!.meta.approvedAt).toBeUndefined();
+  });
+
+  test('readCurrentPlan synthesizes meta when the meta file is missing', async () => {
+    await writeCurrentPlan({ subChatId: 'sub-5b', content: '# Plan B\nbody', source: 's', title: 't' });
+    await rm(join(tmpRoot, 'sub-chats', 'sub-5b', 'plans', 'current.meta.json'), { force: true });
+
+    const result = await readCurrentPlan('sub-5b');
+    expect(result).not.toBeNull();
+    expect(result!.content).toBe('# Plan B\nbody');
+    expect(result!.meta.source).toBe('recovered');
+  });
+
+  test('readCurrentPlan returns null for an empty body', async () => {
+    const planDir = join(tmpRoot, 'sub-chats', 'sub-5c', 'plans');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(planDir, { recursive: true });
+    await writeFile(join(planDir, 'current.md'), '', 'utf8');
+
+    expect(await readCurrentPlan('sub-5c')).toBeNull();
+  });
+
+  test('hasPlan is false for an empty body, and ensurePlanWritten overwrites it', async () => {
+    // A crash between persistCurrentPlan's two writes can leave a zero-byte
+    // body. Treat it as "no plan" so CLI-ingest recovery can repair it.
+    const planDir = join(tmpRoot, 'sub-chats', 'sub-5d', 'plans');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(planDir, { recursive: true });
+    await writeFile(join(planDir, 'current.md'), '', 'utf8');
+
+    expect(await hasPlan('sub-5d')).toBe(false);
+
+    const res = await ensurePlanWritten({
+      subChatId: 'sub-5d',
+      content: '# Recovered\nbody',
+      source: 'cli-ingest',
+      title: 'Recovered'
+    });
+    expect(res).toEqual({ written: true });
+    expect((await readCurrentPlan('sub-5d'))?.content).toBe('# Recovered\nbody');
+  });
+
+  test('whitespace-only body is "no plan" for both hasPlan and readCurrentPlan (invariant)', async () => {
+    // Regression: hasPlan(size>0) once disagreed with readCurrentPlan(!trim),
+    // re-blocking CLI-ingest recovery for a blank-but-nonzero current.md.
+    const planDir = join(tmpRoot, 'sub-chats', 'sub-5e', 'plans');
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(planDir, { recursive: true });
+    await writeFile(join(planDir, 'current.md'), '  \n  ', 'utf8');
+
+    expect(await hasPlan('sub-5e')).toBe(false);
+    expect(await readCurrentPlan('sub-5e')).toBeNull();
+
+    const res = await ensurePlanWritten({
+      subChatId: 'sub-5e',
+      content: '# Recovered\nbody',
+      source: 'cli-ingest',
+      title: 'Recovered'
+    });
+    expect(res).toEqual({ written: true });
+    expect((await readCurrentPlan('sub-5e'))?.content).toBe('# Recovered\nbody');
   });
 
   test('isolates plans per sub-chat', async () => {
