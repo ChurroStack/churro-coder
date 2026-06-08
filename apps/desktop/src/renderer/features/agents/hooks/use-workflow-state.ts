@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { resolveHasUpstream } from '../../../../shared/changes-types';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { trpc } from '@/lib/trpc';
 import { usePushAction } from '@/features/changes/hooks/use-push-action';
@@ -192,7 +193,7 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
   // a Push click during the cold-load window doesn't pass `setUpstream: true`
   // for a branch that already has tracking configured. Mirrors the same
   // asymmetric-fallback fix applied in use-workflow-snapshot.ts.
-  const hasUpstream = gitStatus?.hasUpstream ?? (!!prStatusDataForUpstream?.pr || !!chat?.prNumber);
+  const hasUpstream = resolveHasUpstream(gitStatus, !!prStatusDataForUpstream?.pr || !!chat?.prNumber);
 
   const { isCliHarness, dispatch: dispatchCliText, dispatchReview, harness } = useHarnessSendDispatcher(safeSubChatId);
 

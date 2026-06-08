@@ -4,7 +4,7 @@ import { memo, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { useCodeTheme } from '../../../lib/hooks/use-code-theme';
 import { highlightCode } from '../../../lib/themes/shiki-theme-loader';
-import { IconSpinner, ExpandIcon, CollapseIcon } from '../../../components/ui/icons';
+import { IconSpinner, ExpandIcon, CollapseIcon, ExternalLinkIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { getDisplayPath, getToolStatus } from './agent-tool-registry';
@@ -499,6 +499,22 @@ export const AgentEditTool = memo(function AgentEditTool({
                 <span className="text-red-600 dark:text-red-400">-{diffStats.removedLines}</span>
               )}
             </div>
+          )}
+
+          {/* Open file in a dockview panel - explicit action, available once written */}
+          {!isPending && !isInputStreaming && filePath && onOpenFile && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleFilenameClick}
+                  aria-label="Open in panel"
+                  className="p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95">
+                  <ExternalLinkIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Open in panel</TooltipContent>
+            </Tooltip>
           )}
 
           {/* Expand/Collapse button or spinner */}

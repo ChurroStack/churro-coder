@@ -1,8 +1,9 @@
 import type { ChangedFile, GitChangesStatus } from '../../../shared/changes-types';
+import { createEmptyGitChangesStatus } from '../../../shared/changes-types';
 import simpleGit from 'simple-git';
 import { z } from 'zod';
 import { publicProcedure, router } from '../trpc';
-import { assertRegisteredWorktree, secureFs } from './security';
+import { assertRegisteredWorktree, isUnregisteredWorktreeError, secureFs } from './security';
 import { applyNumstatToFiles } from './utils/apply-numstat';
 import { parseGitLog, parseGitStatus, parseNameStatus } from './utils/parse-status';
 import { gitCache } from './cache';
@@ -39,7 +40,20 @@ export const createStatusRouter = () => {
         })
       )
       .query(async ({ input }): Promise<GitChangesStatus> => {
-        assertRegisteredWorktree(input.worktreePath);
+        try {
+          assertRegisteredWorktree(input.worktreePath);
+        } catch (error) {
+          // Stale/deleted worktree path (e.g. an in-flight query racing worktree deletion, or a
+          // blanket cache invalidation): degrade to an empty status instead of throwing. The
+          // boundary still holds — no git command runs against an unregistered directory.
+          if (isUnregisteredWorktreeError(error)) {
+            console.warn('[git:unregistered-worktree] getStatus returning empty for stale/deleted path', {
+              worktreePath: input.worktreePath
+            });
+            return createEmptyGitChangesStatus(input.defaultBranch || 'main');
+          }
+          throw error;
+        }
 
         // Check cache first
         const cached = gitCache.getStatus<GitChangesStatus>(input.worktreePath);
@@ -139,6 +153,13 @@ export const createStatusRouter = () => {
           console.log('[getCommitFiles] SUCCESS:', { filesCount: files.length });
           return files;
         } catch (error) {
+          // Stale/deleted worktree path → treat as empty (see getStatus).
+          if (isUnregisteredWorktreeError(error)) {
+            console.warn('[git:unregistered-worktree] getCommitFiles returning empty for stale/deleted path', {
+              worktreePath: input.worktreePath
+            });
+            return [];
+          }
           // Stale commit hash from a different worktree → treat as empty.
           if (isUnknownRevisionError(error)) {
             console.warn('[getCommitFiles] Unknown revision in this worktree:', {
@@ -183,7 +204,18 @@ export const createStatusRouter = () => {
         })
       )
       .query(async ({ input }): Promise<string> => {
-        assertRegisteredWorktree(input.worktreePath);
+        try {
+          assertRegisteredWorktree(input.worktreePath);
+        } catch (error) {
+          // Stale/deleted worktree path → empty diff (see getStatus).
+          if (isUnregisteredWorktreeError(error)) {
+            console.warn('[git:unregistered-worktree] getCommitFileDiff returning empty for stale/deleted path', {
+              worktreePath: input.worktreePath
+            });
+            return '';
+          }
+          throw error;
+        }
 
         const git = simpleGit(input.worktreePath);
 

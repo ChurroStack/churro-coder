@@ -86,3 +86,53 @@ export interface ParsedDiffResponse {
   totalDeletions: number;
   fileContents: Record<string, string>;
 }
+
+/**
+ * Placeholder status returned by the main-process `getStatus` query when a worktree path is no
+ * longer registered (stale/deleted). `branch: ''` is the sentinel that distinguishes a placeholder
+ * from a real result: `parseGitStatus` always sets a genuine status's branch to
+ * `status.current || 'HEAD'`, so a real status never has an empty branch. Consumers must treat a
+ * placeholder as "git status unknown", not as an authoritative "clean / no upstream" answer —
+ * see resolveHasUpstream.
+ */
+export function createEmptyGitChangesStatus(defaultBranch: string): GitChangesStatus {
+  return {
+    branch: '',
+    defaultBranch,
+    againstBase: [],
+    commits: [],
+    staged: [],
+    unstaged: [],
+    untracked: [],
+    ahead: 0,
+    behind: 0,
+    pushCount: 0,
+    pullCount: 0,
+    hasUpstream: false,
+    hasRemote: false
+  };
+}
+
+/**
+ * Resolve `hasUpstream` from a getStatus result, falling back to `fallback` when the status is
+ * unknown — i.e. still loading (`undefined`) OR the unregistered-worktree placeholder
+ * (`createEmptyGitChangesStatus`, identified by `branch === ''`).
+ *
+ * Using `status?.hasUpstream ?? fallback` directly is wrong: the placeholder supplies a *defined*
+ * `false`, which suppresses the fallback. Downstream that drives `usePushAction`'s
+ * `setUpstream: !hasUpstream`, so a placeholder would push `-u` onto a branch that may already
+ * track an upstream — the exact regression the PR-based fallback guards against. See
+ * docs/postmortems/2026-05-status-widget-amber-flash-on-load.md.
+ *
+ * Accepts the minimal structural shape it reads (not the full `GitChangesStatus`) so it also works
+ * with narrowed views of the status object, e.g. `DiffSidebarRenderer`'s `gitStatus` prop. A real
+ * status always has a non-empty `branch` (`parseGitStatus` → `status.current || 'HEAD'`), so a
+ * falsy/absent branch marks "status unknown" (loading or the placeholder) → fall back.
+ */
+export function resolveHasUpstream(
+  status: { branch?: string | null; hasUpstream?: boolean | null } | undefined | null,
+  fallback: boolean
+): boolean {
+  if (!status || !status.branch) return fallback;
+  return status.hasUpstream ?? fallback;
+}
