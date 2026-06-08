@@ -3,7 +3,7 @@ import { getDatabase, chats } from '../db';
 import simpleGit from 'simple-git';
 import { z } from 'zod';
 import { publicProcedure, router } from '../trpc';
-import { assertRegisteredWorktree, getRegisteredChat, gitSwitchBranch } from './security';
+import { assertRegisteredWorktree, getRegisteredChat, gitSwitchBranch, isUnregisteredWorktreeError } from './security';
 import { createGit, createGitForNetwork, withGitLock, withLockRetry } from './git-factory';
 import { hasOriginRemote } from './worktree';
 
@@ -24,7 +24,19 @@ export const createBranchesRouter = () => {
         defaultBranch: string;
         checkedOutBranches: Record<string, string>;
       }> => {
-        assertRegisteredWorktree(input.worktreePath);
+        try {
+          assertRegisteredWorktree(input.worktreePath);
+        } catch (error) {
+          // Fired alongside getStatus on the changes surface; degrade to an empty branch set when
+          // the worktree path is stale/deleted instead of throwing (see status.ts:getStatus).
+          if (isUnregisteredWorktreeError(error)) {
+            console.warn('[git:unregistered-worktree] getBranches returning empty for stale/deleted path', {
+              worktreePath: input.worktreePath
+            });
+            return { current: '', local: [], remote: [], defaultBranch: 'main', checkedOutBranches: {} };
+          }
+          throw error;
+        }
         const git = createGit(input.worktreePath);
         const branchSummary = await git.branch(['-a']);
 

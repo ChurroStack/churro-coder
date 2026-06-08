@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { resolveHasUpstream } from '../../../../shared/changes-types';
 import { useAtomValue } from 'jotai';
 import { trpc } from '@/lib/trpc';
 import {
@@ -123,7 +124,7 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
         hasRemote: !!gitStatus?.hasRemote || !!prStatusData?.pr || !!chat?.prNumber
       },
       pushCount: gitStatus?.pushCount ?? 0,
-      hasUpstream: gitStatus?.hasUpstream ?? (!!prStatusData?.pr || !!chat?.prNumber),
+      hasUpstream: resolveHasUpstream(gitStatus, !!prStatusData?.pr || !!chat?.prNumber),
       baseBranchBehind: prStatusData?.baseBranchBehind ?? 0,
       pr: { state: prState, reviewDecision, creating: prCreating },
       hasHistory: aiEverResponded

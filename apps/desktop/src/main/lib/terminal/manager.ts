@@ -33,6 +33,24 @@ const IDLE_TUNING = {
   resizeSuppressMs: 1500
 } as const;
 
+/**
+ * Length of the activity ring — enough windows to evaluate either threshold.
+ * Single source so the seeded "running floor" in markCliTurnStart and the
+ * sliding window in evaluateWindow can never disagree on the cap.
+ */
+const RING_LIMIT = Math.max(IDLE_TUNING.runningWindowsRequired, IDLE_TUNING.idleWindowsRequired);
+
+/**
+ * A raw PTY write counts as a turn-submit ONLY when it is a bare Enter — the
+ * dispatcher isolates the submit `\r` in its own chunk and xterm sends a lone
+ * `\r` for the Enter key. This deliberately excludes Shift+Enter line
+ * continuation (`\x1b\r`, ESC+CR) and multi-line pastes that merely end in a
+ * newline, both of which would otherwise false-open the spinner mid-compose.
+ */
+function isCliSubmitKeystroke(data: string): boolean {
+  return data === '\r' || data === '\n' || data === '\r\n';
+}
+
 type KillSignal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP';
 
 /**
@@ -118,25 +136,31 @@ export class TerminalManager extends EventEmitter {
     const { paneId, workspaceId, initialCommands } = params;
 
     // Create the session
-    const session = await createSession(params, (id, data) => {
-      this.emit(`data:${id}`, data);
-      const target = this.sessions.get(id);
-      if (!target?.idleDetection) return;
-      // Activity-meter signal #1: raw PTY byte volume. Counts even when the
-      // TUI rewrites in place without moving the cursor (claude's spinner
-      // does this — hide cursor, overwrite glyph at the same column, show).
-      target.pendingBytes = (target.pendingBytes ?? 0) + data.length;
-      // Activity-meter signal #2: cursor moves on the headless mirror — fed
-      // by writing the same chunk into the parser. onCursorMove counts how
-      // many positions the TUI actually re-positioned to.
-      if (target.headlessTerminal) {
-        try {
-          target.headlessTerminal.write(data);
-        } catch (err) {
-          console.warn(`[TerminalManager] headlessTerminal.write failed for ${id}:`, err);
+    const session = await createSession(
+      params,
+      (id, data) => {
+        this.emit(`data:${id}`, data);
+        const target = this.sessions.get(id);
+        if (!target?.idleDetection) return;
+        // Activity-meter signal #1: raw PTY byte volume. Counts even when the
+        // TUI rewrites in place without moving the cursor (claude's spinner
+        // does this — hide cursor, overwrite glyph at the same column, show).
+        target.pendingBytes = (target.pendingBytes ?? 0) + data.length;
+        // Activity-meter signal #2: cursor moves on the headless mirror — fed
+        // by writing the same chunk into the parser. onCursorMove counts how
+        // many positions the TUI actually re-positioned to.
+        if (target.headlessTerminal) {
+          try {
+            target.headlessTerminal.write(data);
+          } catch (err) {
+            console.warn(`[TerminalManager] headlessTerminal.write failed for ${id}:`, err);
+          }
         }
-      }
-    });
+      },
+      // Deterministic turn-start for the bootstrap's first prompt (which is
+      // written via session.pty.write, bypassing manager.write).
+      this.handleCliTurnStart
+    );
 
     // Set up initial commands (only for new sessions)
     setupInitialCommands(session, initialCommands);
@@ -183,6 +207,49 @@ export class TerminalManager extends EventEmitter {
       console.log(`[terminal-cli-state] sub=${subChatId} state=${next}`);
     }
   }
+
+  /**
+   * Deterministic turn-start: open the "running" state the instant a turn is
+   * submitted, instead of waiting for the output-activity heuristic to (maybe)
+   * trip 1-2s later. This is the fix for the flaky spinner that "usually
+   * doesn't show before the plan is written" — busy state now reflects a fact
+   * we own (we submitted a turn), not a guess about output volume.
+   *
+   * Called from two complementary places, which together cover every turn:
+   *   - manager.write(): a user/dispatcher Enter to a `cli:` pane.
+   *   - createSession's onTurnStart: the bootstrap injecting its first prompt.
+   *
+   * Seeding the activity ring fully-active gives a built-in ~idleWindowsRequired
+   * "running floor" so a brief silent first-think can't be misread as idle
+   * before any output arrives; the silence detector still closes the turn after
+   * the floor drains. `transitionTo` is idempotent, so repeat calls while
+   * already running just extend the turn without re-emitting.
+   */
+  private markCliTurnStart(session: TerminalSession): void {
+    // isAlive guard: a turn-start must never resurrect a dead/exiting session.
+    // Sessions linger in this.sessions for ~5s after exit (and the sampler is
+    // already torn down by then), so without this a late/racing turn-start
+    // could flip a dead pane to 'running' with nothing left to close it.
+    if (!session.isAlive || !session.paneId.startsWith('cli:') || !session.idleDetection) return;
+    session.recentMoves = new Array(RING_LIMIT).fill(1);
+    session.pendingMoves = 0;
+    session.pendingBytes = 0;
+    session.hasStartedTurn = true;
+    this.transitionTo(session, 'running');
+  }
+
+  /**
+   * Wiring for the bootstrap's `onTurnStart` callback (createSession). Resolves
+   * the CURRENT session at the paneId and marks it running. The lookup-and-no-op
+   * (plus markCliTurnStart's isAlive guard) is load-bearing: an orphaned startup
+   * timer can fire after its session died, and the paneId (`cli:<subChatId>`) is
+   * stable, so a naive call could otherwise target a successor session that
+   * reused the paneId. Arrow-bound so it can be passed by reference.
+   */
+  private readonly handleCliTurnStart = (paneId: string): void => {
+    const session = this.sessions.get(paneId);
+    if (session) this.markCliTurnStart(session);
+  };
 
   /**
    * Enumerate alive `cli:*` sessions for the initial snapshot delivered to
@@ -250,12 +317,18 @@ export class TerminalManager extends EventEmitter {
     const active = moves > 0 || bytes > 0 ? 1 : 0;
 
     const ring = session.recentMoves ?? [];
-    const ringLimit = Math.max(IDLE_TUNING.runningWindowsRequired, IDLE_TUNING.idleWindowsRequired);
     ring.push(active);
-    if (ring.length > ringLimit) ring.shift();
+    if (ring.length > RING_LIMIT) ring.shift();
     session.recentMoves = ring;
 
     if (session.outputState === 'idle') {
+      // The heuristic opener is a FALLBACK for output that arrives without an
+      // explicit turn-start (model-initiated continuations, direct TUI typing
+      // edge cases). It is gated until the first real turn-start so the startup
+      // banner — which streams plenty of bytes — can't open a spurious spinner
+      // before the user/bootstrap has actually submitted anything. The
+      // deterministic markCliTurnStart() is what opens the first turn.
+      if (!session.hasStartedTurn) return;
       // Need N consecutive active windows at the tail of the ring.
       const need = IDLE_TUNING.runningWindowsRequired;
       if (ring.length < need) return;
@@ -371,6 +444,18 @@ export class TerminalManager extends EventEmitter {
 
     session.pty.write(data);
     session.lastActive = Date.now();
+
+    // Deterministic turn-start: a bare Enter to a CLI pane is a turn submit —
+    // from the input-box dispatcher (which sends '\r' as its own chunk) or from
+    // pressing Enter while typing directly in the embedded TUI (xterm onData →
+    // terminal.write). Open the spinner now rather than waiting on the output
+    // heuristic. isCliSubmitKeystroke matches ONLY a lone CR/LF, so Shift+Enter
+    // line continuation ('\x1b\r') and multi-line pastes that merely end in a
+    // newline do not false-open. refreshPromptsForWorkspace's '\n' bypasses
+    // this method (direct pty.write), so it never reaches here.
+    if (session.paneId.startsWith('cli:') && isCliSubmitKeystroke(data)) {
+      this.markCliTurnStart(session);
+    }
   }
 
   resize(params: { paneId: string; cols: number; rows: number }): void {

@@ -80,6 +80,17 @@ export function assertRegisteredWorktree(workspacePath: string): void {
 }
 
 /**
+ * True for the specific PathValidationError thrown by assertRegisteredWorktree when a worktree
+ * path is not registered. Read-only changes-surface queries use this to degrade gracefully
+ * (return an empty result) instead of throwing when a path goes stale — e.g. a getStatus query
+ * still in-flight for a worktree that was just deleted, or a blanket cache invalidation that
+ * refetches a now-unregistered path. Mutations and file-access paths intentionally keep throwing.
+ */
+export function isUnregisteredWorktreeError(err: unknown): boolean {
+  return err instanceof PathValidationError && err.code === 'UNREGISTERED_WORKTREE';
+}
+
+/**
  * Gets the chat record if registered. Returns record for updates.
  *
  * @throws PathValidationError if chat is not registered

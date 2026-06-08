@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { resolveHasUpstream } from '../../../shared/changes-types';
 import { useAtomValue, useSetAtom } from 'jotai';
 import type { IGridviewPanelProps } from 'dockview-react';
 import { trpc } from '../../lib/trpc';
@@ -253,7 +254,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
     // pushes on a freshly opened workspace to be sent without `-u`, which
     // silently fails the user's first push. See
     // docs/postmortems/2026-05-status-widget-amber-flash-on-load.md.
-    hasUpstream: gitStatus?.hasUpstream ?? (!!prStatusData?.pr || !!chat?.prNumber),
+    hasUpstream: resolveHasUpstream(gitStatus, !!prStatusData?.pr || !!chat?.prNumber),
     onSuccess: handleCommitRefresh
   });
 

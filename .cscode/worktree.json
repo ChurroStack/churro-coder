@@ -1,7 +1,7 @@
 {
   "setup-worktree": [
     "pnpm install",
-    "cd apps/desktop && bun install && bun run claude:download && bun run codex:download"
+    "cd apps/desktop && bun install"
   ],
   "scripts": [
     { "name": "desktop-dev", "command": "pnpm exec nx run desktop:dev" },

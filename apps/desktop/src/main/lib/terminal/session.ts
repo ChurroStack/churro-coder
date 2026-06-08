@@ -84,7 +84,16 @@ function resolveShellPath(shell: string): string {
 
 export async function createSession(
   params: InternalCreateSessionParams,
-  onData: (paneId: string, data: string) => void
+  onData: (paneId: string, data: string) => void,
+  /**
+   * Fired exactly once, when the bootstrap injects its first prompt (the
+   * `start()` gate below). The manager wires this to markCliTurnStart so a
+   * plan-mode bootstrap deterministically opens the "running" spinner the
+   * instant the turn is submitted — instead of waiting for the output-activity
+   * heuristic to (maybe) detect it 1-2s later. User-typed / dispatcher turns
+   * are handled separately by manager.write's Enter-detection.
+   */
+  onTurnStart?: (paneId: string) => void
 ): Promise<TerminalSession> {
   const {
     paneId,
@@ -200,6 +209,16 @@ export async function createSession(
     const start = () => {
       if (started) return;
       started = true;
+      // The idle/ceiling timers that schedule start() are not cancelled when the
+      // PTY exits early, so this can fire after the session died (and after a new
+      // session may have reused the same paneId). Bail on the captured — now
+      // dead — session so we neither write stale chunks nor fire a turn-start
+      // that the manager would resolve onto a successor session.
+      if (!session.isAlive) return;
+      // Deterministic turn-start: the first prompt is being submitted now.
+      // Fire before the chunk writes so the spinner opens at submit time, not
+      // after the model's output heuristically trips the idle sampler.
+      onTurnStart?.(paneId);
       writeSequentially(chunks);
     };
 
