@@ -14,7 +14,6 @@ import {
   subChatErrorAtom,
   pendingUserQuestionsAtom,
   expiredUserQuestionsAtom,
-  pendingPlanApprovalsAtom,
   selectedAgentChatIdAtom
 } from '../atoms';
 import { trpcClient } from '../../../lib/trpc';
@@ -387,11 +386,13 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
       next.delete(subChatId);
       return next;
     });
-    // Scrub any pending needs-input signals so the sidebar workspace-row
-    // aggregator (parentChatBusyAtomFamily + pendingPlanApprovalsAtom) stops
-    // flagging this sub-chat the moment its tab closes. The per-subChat
-    // cleanup hook in active-chat.tsx only runs on panel unmount, which can
-    // lag behind close/archive in dockview.
+    // Scrub any pending needs-input question signals so the sidebar workspace-row
+    // aggregator stops flagging this sub-chat the moment its tab closes. The
+    // per-subChat cleanup hook in active-chat.tsx only runs on panel unmount,
+    // which can lag behind close/archive in dockview. (Pending plan approvals
+    // need no scrub here — they're sourced from `getPendingPlanApprovals`, which
+    // is queried by `openSubChatIds`; dropping the closed tab from that list
+    // removes it automatically.)
     const deleteSubChatKey = <V>(targetAtom: PrimitiveAtom<Map<string, V>>) => {
       appStore.set(targetAtom, (prev) => {
         if (!prev.has(subChatId)) return prev;
@@ -402,7 +403,6 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
     };
     deleteSubChatKey(pendingUserQuestionsAtom);
     deleteSubChatKey(expiredUserQuestionsAtom);
-    deleteSubChatKey(pendingPlanApprovalsAtom);
     clearSubChatRuntimeCaches(subChatId);
     clearSubChatSidebarAtoms(subChatId);
     agentChatStore.delete(subChatId);

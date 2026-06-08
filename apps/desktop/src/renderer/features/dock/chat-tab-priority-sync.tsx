@@ -2,8 +2,9 @@ import { useEffect, useRef } from 'react';
 import { useAtomValue } from 'jotai';
 import type { DockviewApi } from 'dockview-react';
 import { useStreamingStatusStore, type StreamingStatus } from '../agents/stores/streaming-status-store';
-import { pendingUserQuestionsAtom, expiredUserQuestionsAtom, pendingPlanApprovalsAtom } from '../agents/atoms/index';
+import { pendingUserQuestionsAtom, expiredUserQuestionsAtom } from '../agents/atoms/index';
 import { useAgentSubChatStore } from '../agents/stores/sub-chat-store';
+import { usePendingPlanApprovals } from '../agents/hooks/use-pending-plan-approvals';
 
 export interface ChatTabPrioritySyncProps {
   workspaceId: string | null;
@@ -52,10 +53,13 @@ export function reasonFor(
  */
 export function ChatTabPrioritySync({ workspaceId, active, dockApi }: ChatTabPrioritySyncProps) {
   const storeChatId = useAgentSubChatStore((s) => s.chatId);
+  const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
   const statuses = useStreamingStatusStore((s) => s.statuses);
   const pendingUserQuestions = useAtomValue(pendingUserQuestionsAtom);
   const expiredUserQuestions = useAtomValue(expiredUserQuestionsAtom);
-  const pendingPlanApprovals = useAtomValue(pendingPlanApprovalsAtom);
+  // Single source of truth for pending plans (the former `pendingPlanApprovalsAtom`
+  // is gone). Scoped to this workspace's open tabs — `pendingPlanIds` is a Set.
+  const { subChatIds: pendingPlanIds } = usePendingPlanApprovals(openSubChatIds);
 
   // Track previous "active" value per subChatId to detect false→true transitions.
   const prevActive = useRef<Map<string, boolean>>(new Map());
@@ -70,7 +74,6 @@ export function ChatTabPrioritySync({ workspaceId, active, dockApi }: ChatTabPri
     if (storeChatId !== workspaceId) return;
 
     const pendingQIds = new Set([...pendingUserQuestions.keys(), ...expiredUserQuestions.keys()]);
-    const pendingPlanIds = new Set(pendingPlanApprovals.keys());
     const seeding = !hasSeeded.current;
     const seen = new Set<string>();
 
@@ -116,16 +119,7 @@ export function ChatTabPrioritySync({ workspaceId, active, dockApi }: ChatTabPri
     }
 
     if (seeding) hasSeeded.current = true;
-  }, [
-    active,
-    dockApi,
-    workspaceId,
-    storeChatId,
-    statuses,
-    pendingUserQuestions,
-    expiredUserQuestions,
-    pendingPlanApprovals
-  ]);
+  }, [active, dockApi, workspaceId, storeChatId, statuses, pendingUserQuestions, expiredUserQuestions, pendingPlanIds]);
 
   return null;
 }

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { router, publicProcedure } from '../index';
 import { observable } from '@trpc/server/observable';
 import { terminalManager } from '../../terminal/manager';
+import { resolveCliParentChatId } from '../../terminal/resolve-cli-parent';
 import type { CliStateEvent, TerminalEvent, TerminalOutputState } from '../../terminal/types';
 import { TRPCError } from '@trpc/server';
 import { postSpawnLocateAndAttach } from './cli-session';
@@ -283,13 +284,23 @@ export const terminalRouter = router({
    */
   allCliStates: publicProcedure.subscription(() => {
     return observable<CliStateEvent>((emit) => {
-      const onCliState = (evt: CliStateEvent) => emit.next(evt);
+      // Backfill a missing parentChatId from subChats.chatId. A session whose
+      // PTY recorded no workspaceId (restored / remote-controlled CLI) would
+      // otherwise emit parentChatId: null, and the parent-keyed sidebar /
+      // project-group / kanban busy spinners skip null-parented entries — so
+      // the CLI looks idle in the chrome while it's working.
+      const onCliState = (evt: CliStateEvent) =>
+        emit.next({ ...evt, parentChatId: resolveCliParentChatId(evt.subChatId, evt.parentChatId) });
       // Step 1: attach listener BEFORE reading snapshot.
       terminalManager.on('cli-state', onCliState);
       // Step 2: snapshot. Duplicates of in-flight transitions are
       // idempotent on the renderer (Map.set with the same value).
       for (const s of terminalManager.listActiveCliSessions()) {
-        emit.next({ subChatId: s.subChatId, parentChatId: s.parentChatId, state: s.state });
+        emit.next({
+          subChatId: s.subChatId,
+          parentChatId: resolveCliParentChatId(s.subChatId, s.parentChatId),
+          state: s.state
+        });
       }
       return () => terminalManager.off('cli-state', onCliState);
     });

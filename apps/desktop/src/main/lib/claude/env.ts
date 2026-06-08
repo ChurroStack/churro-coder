@@ -1,6 +1,9 @@
 import { app } from 'electron';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
+import { sep } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { getDefaultShell, isWindows, platform } from '../platform';
 import { buildOpenspecEnvOverrides } from '../openspec/openspec-bin-path';
@@ -215,6 +218,85 @@ export function buildClaudeEnv(options?: {
  */
 export function clearClaudeEnvCache(): void {
   cachedShellEnv = null;
+}
+
+/**
+ * Remap a path that resolves *inside* `app.asar` to its `app.asar.unpacked`
+ * twin. Pure + exported for unit testing. A no-op for dev paths (no `app.asar`
+ * segment) and for paths already pointing at `app.asar.unpacked`.
+ *
+ * Uses the OS path separator so it works on both POSIX (`/app.asar/`) and
+ * Windows (`\app.asar\`).
+ */
+export function remapAsarToUnpacked(resolvedPath: string): string {
+  const packed = `${sep}app.asar${sep}`;
+  const unpacked = `${sep}app.asar.unpacked${sep}`;
+  if (resolvedPath.includes(unpacked)) return resolvedPath;
+  // Rewrite the LAST `app.asar` segment — the app bundle's asar container is the
+  // deepest one (…/Resources/app.asar/node_modules/…). Replacing an earlier match
+  // would corrupt an install path that happens to contain an ancestor directory
+  // literally named `app.asar`.
+  const idx = resolvedPath.lastIndexOf(packed);
+  if (idx === -1) return resolvedPath;
+  return resolvedPath.slice(0, idx) + unpacked + resolvedPath.slice(idx + packed.length);
+}
+
+let cachedClaudeExecutable: string | null | undefined;
+
+/**
+ * Resolve the absolute, spawnable path to the Claude Code native CLI bundled in
+ * the Agent SDK's per-platform package
+ * (`@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude`), and pass it to the
+ * SDK via `pathToClaudeCodeExecutable`.
+ *
+ * Why we resolve it ourselves instead of letting the SDK do it: the SDK locates
+ * the binary with `createRequire(import.meta.url).resolve(...)`, which in a
+ * packaged Electron app yields a path *inside* `app.asar`. That virtual path is
+ * readable through Electron's fs shim but is NOT a real on-disk file the OS can
+ * `exec`, so the SDK's own spawn throws "Native CLI binary for
+ * <platform>-<arch> not found". The binary is `asarUnpack`-ed (see
+ * package.json → build.asarUnpack), so the real copy lives under
+ * `app.asar.unpacked`; we remap to it and verify it exists.
+ *
+ * Returns null when the platform package can't be resolved or the file is
+ * missing — callers then omit the option and let the SDK attempt its own
+ * resolution (no regression vs. the prior behaviour). Cached after first call.
+ */
+export function resolveClaudeCodeExecutable(): string | null {
+  if (cachedClaudeExecutable !== undefined) return cachedClaudeExecutable;
+
+  const pkg = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
+  const binId = process.platform === 'win32' ? `${pkg}/claude.exe` : `${pkg}/claude`;
+
+  let resolved: string;
+  try {
+    // Anchor on this bundled module so resolution walks the same node_modules
+    // the externalized SDK import uses (dev and packaged alike).
+    resolved = createRequire(__filename).resolve(binId);
+  } catch {
+    console.warn(`[claude-env] native CLI platform package not resolvable: ${pkg} — letting SDK self-resolve`);
+    cachedClaudeExecutable = null;
+    return null;
+  }
+
+  resolved = remapAsarToUnpacked(resolved);
+
+  if (!existsSync(resolved)) {
+    console.warn(`[claude-env] resolved native CLI missing on disk: ${resolved} — letting SDK self-resolve`);
+    cachedClaudeExecutable = null;
+    return null;
+  }
+
+  console.log(`[claude-env] resolved Claude Code executable: ${resolved}`);
+  cachedClaudeExecutable = resolved;
+  return resolved;
+}
+
+/**
+ * Clear the cached executable path (testing only).
+ */
+export function clearClaudeExecutableCache(): void {
+  cachedClaudeExecutable = undefined;
 }
 
 /**

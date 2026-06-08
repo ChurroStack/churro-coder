@@ -83,7 +83,6 @@ import {
   type PendingChatHistory,
   pendingMentionAtom,
   pendingMergeBaseMessageAtomFamily,
-  pendingPlanApprovalsAtom,
   pendingPrMessageAtomFamily,
   pendingReviewMessageAtomFamily,
   pendingUserQuestionsAtom,
@@ -3036,23 +3035,19 @@ export const ChatViewInner = memo(function ChatViewInner({
   // Keep ref in sync for use in initializeScroll (which runs in useLayoutEffect)
   hasUnapprovedPlanRef.current = hasUnapprovedPlan;
 
-  // Update pending plan approvals atom for sidebar indicators
-  const setPendingPlanApprovals = useSetAtom(pendingPlanApprovalsAtom);
+  // Pending plan approval is sourced from the DB query `chats.getPendingPlanApprovals`
+  // (single source of truth — the former `pendingPlanApprovalsAtom` is gone). To
+  // keep the amber dot instant for the mounted chat instead of waiting on that
+  // query's 5s refetch, invalidate it whenever this sub-chat's `hasUnapprovedPlan`
+  // flips (plan finished → true, plan approved → false). The ref gate fires only
+  // on a real transition, not on every mount, so already-pending chats are left
+  // to the query's own fetch/refetchInterval.
+  const prevHasUnapprovedPlanRef = useRef(hasUnapprovedPlan);
   useEffect(() => {
-    setPendingPlanApprovals((prev: Map<string, string>) => {
-      const newMap = new Map(prev);
-      if (hasUnapprovedPlan) {
-        newMap.set(subChatId, parentChatId);
-      } else {
-        newMap.delete(subChatId);
-      }
-      // Only return new map if it changed
-      if (newMap.size !== prev.size || ![...newMap.keys()].every((id) => prev.has(id))) {
-        return newMap;
-      }
-      return prev;
-    });
-  }, [hasUnapprovedPlan, subChatId, parentChatId, setPendingPlanApprovals]);
+    if (prevHasUnapprovedPlanRef.current === hasUnapprovedPlan) return;
+    prevHasUnapprovedPlanRef.current = hasUnapprovedPlan;
+    void trpcUtils.chats.getPendingPlanApprovals.invalidate();
+  }, [hasUnapprovedPlan, trpcUtils]);
 
   // Keyboard shortcut: Cmd+Enter to approve plan
   useEffect(() => {
@@ -3091,19 +3086,9 @@ export const ChatViewInner = memo(function ChatViewInner({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isActive, scrollToBottom]);
 
-  // Clean up pending plan approval when unmounting
-  useEffect(() => {
-    return () => {
-      setPendingPlanApprovals((prev: Map<string, string>) => {
-        if (prev.has(subChatId)) {
-          const newMap = new Map(prev);
-          newMap.delete(subChatId);
-          return newMap;
-        }
-        return prev;
-      });
-    };
-  }, [subChatId, setPendingPlanApprovals]);
+  // (No atom cleanup on unmount needed — pending plan approval is now read from
+  // `chats.getPendingPlanApprovals`, scoped by `openSubChatIds`, so a closed/
+  // unmounted sub-chat drops out of the result automatically.)
 
   // Compute sticky top class for user messages
   const stickyTopClass = isMobile

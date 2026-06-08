@@ -10,7 +10,6 @@ import {
   subChatBusyAtom,
   pendingUserQuestionsAtom,
   expiredUserQuestionsAtom,
-  pendingPlanApprovalsAtom,
   agentsUnseenChangesAtom,
   selectedProjectAtom,
   agentsSidebarOpenAtom
@@ -59,7 +58,6 @@ export function KanbanView() {
   const subChatBusyMap = useAtomValue(subChatBusyAtom);
   const pendingQuestions = useAtomValue(pendingUserQuestionsAtom);
   const expiredQuestions = useAtomValue(expiredUserQuestionsAtom);
-  const pendingPlanApprovals = useAtomValue(pendingPlanApprovalsAtom);
   const unseenChanges = useAtomValue(agentsUnseenChangesAtom);
 
   // Project for pinned chats storage
@@ -198,8 +196,11 @@ export function KanbanView() {
     { refetchInterval: 5000, enabled: allOpenSubChatIds.length > 0, placeholderData: (prev) => prev }
   );
 
-  // Build set of chatIds with pending plan approvals from DB
-  const workspacesWithPendingApprovalsFromDb = useMemo(() => {
+  // Build set of chatIds with pending plan approvals. The DB query is the single
+  // source of truth (the former runtime atom union is gone). active-chat
+  // invalidates `getPendingPlanApprovals` the instant a plan flips, so the dot
+  // still updates immediately for the mounted chat.
+  const workspacesWithPendingApprovals = useMemo(() => {
     const set = new Set<string>();
     if (pendingPlanApprovalsData) {
       for (const item of pendingPlanApprovalsData) {
@@ -208,15 +209,6 @@ export function KanbanView() {
     }
     return set;
   }, [pendingPlanApprovalsData]);
-
-  // Build set of chatIds with pending plan approvals (DB + runtime atom union)
-  const workspacesWithPendingApprovals = useMemo(() => {
-    const set = new Set<string>(workspacesWithPendingApprovalsFromDb);
-    pendingPlanApprovals.forEach((parentChatId) => {
-      set.add(parentChatId);
-    });
-    return set;
-  }, [workspacesWithPendingApprovalsFromDb, pendingPlanApprovals]);
 
   // Build file stats map (chatId -> stats)
   const workspaceFileStats = useMemo(() => {
