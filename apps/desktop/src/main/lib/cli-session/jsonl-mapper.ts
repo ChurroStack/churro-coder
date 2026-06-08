@@ -153,6 +153,12 @@ interface ClaudeRecord {
     role?: string;
     content?: string | ClaudeContentBlock[];
   };
+  /** Record-level structured result that travels with a tool_result block (e.g.
+   *  a subagent's `{agentType, totalTokens, totalToolUseCount, toolStats, content}`,
+   *  Bash's `{stdout, stderr}`, Grep's `{numFiles, numLines}`). The builtin SDK
+   *  path keeps the equivalent `msg.tool_use_result`; we mirror that here so the
+   *  shared renderers receive the same rich object on the CLI path. */
+  toolUseResult?: unknown;
 }
 
 interface ClaudeContentBlock {
@@ -202,7 +208,16 @@ function mapClaudeMessageRecord(obj: ClaudeRecord, state: MapperState): MapperRe
         if (stripped.trim()) parts.push({ type: 'text', text: stripped });
         continue;
       }
-      mapClaudeContentBlock(block, parts, sideEffects, state, uuid, updatedMessages, orphanToolResults);
+      mapClaudeContentBlock(
+        block,
+        parts,
+        sideEffects,
+        state,
+        uuid,
+        updatedMessages,
+        orphanToolResults,
+        obj.toolUseResult
+      );
     }
   }
 
@@ -236,7 +251,11 @@ function mapClaudeContentBlock(
   state: MapperState,
   ownerUuid: string,
   updatedMessages: Array<{ uuid: string; parts: MessagePart[] }>,
-  orphanToolResults: Array<{ toolCallId: string; output: unknown; state: 'output-available' | 'output-error' }>
+  orphanToolResults: Array<{ toolCallId: string; output: unknown; state: 'output-available' | 'output-error' }>,
+  /** The current record's `toolUseResult` (sibling of `message`). It always
+   *  travels with the tool_result block, so it applies to whatever tool_result
+   *  this record carries. */
+  recordToolUseResult?: unknown
 ): void {
   if (!block || typeof block !== 'object') return;
   switch (block.type) {
@@ -271,9 +290,17 @@ function mapClaudeContentBlock(
       const targetId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
       if (!targetId) return;
       const newState: 'output-available' | 'output-error' = block.is_error ? 'output-error' : 'output-available';
+      // Prefer the record-level structured result when it's an object — it carries
+      // the rich data (subagent toolStats/tokens, Bash stdout/stderr, …) the shared
+      // renderers read via `part.output.*`. Mirrors the builtin path's
+      // `output = msg.tool_use_result || block.content` (transform.ts), with one
+      // deliberate addition: we keep the object on errors too (the error is already
+      // carried by `state`), so an errored subagent still renders its summary.
+      const richOutput =
+        recordToolUseResult !== null && typeof recordToolUseResult === 'object' ? recordToolUseResult : block.content;
       const target = state.pendingTools.get(targetId);
       if (target) {
-        target.part.output = block.content;
+        target.part.output = richOutput;
         target.part.state = newState;
         state.pendingTools.delete(targetId);
         // Cross-record result: the owner row is already persisted, so flag it for
@@ -285,7 +312,7 @@ function mapClaudeContentBlock(
       } else {
         // No in-memory owner (tool_use persisted in a prior app session). Patch
         // the persisted row by toolCallId.
-        orphanToolResults.push({ toolCallId: targetId, output: block.content, state: newState });
+        orphanToolResults.push({ toolCallId: targetId, output: richOutput, state: newState });
       }
       // tool_result blocks themselves don't render as a separate part.
       return;

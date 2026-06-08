@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Terminal } from '@/features/terminal/terminal';
 import { trpc } from '@/lib/trpc';
@@ -47,9 +47,10 @@ interface ChatCliSurfaceProps {
   /** Whether this panel should be visible / mounted. */
   shouldMountContent?: boolean;
   /**
-   * Start in the disconnected state (restored after app restart).
-   * No PTY spawns until the user clicks "Reattach". The xterm scrollback
-   * from the prior session is still visible behind the banner.
+   * Start in the disconnected state (restored after app restart). No PTY spawns
+   * until the user clicks "Reattach". The Reattach prompt is scoped to the
+   * terminal pane; the conversation pane keeps rendering the persisted
+   * transcript beside it.
    */
   startDisconnected?: boolean;
   /**
@@ -89,8 +90,9 @@ const REATTACH_BANNER =
  * uses it to spawn the correct binary with MCP config injected.
  *
  * After app restart, pass `startDisconnected={true}` to mount in a disconnected
- * state (scrollback visible, Reattach banner overlaid). No PTY spawns until
- * the user clicks Reattach.
+ * state — the Reattach prompt fills the terminal pane while the conversation
+ * pane still renders the persisted transcript. No PTY spawns until the user
+ * clicks Reattach.
  */
 export function ChatCliSurface({
   subChatId,
@@ -320,6 +322,59 @@ export function ChatCliSurface({
     }
   }, [bootstrapState.status, isOwner, cwdReady, doBootstrap]);
 
+  // Terminal-pane content, swapped by bootstrap state. The conversation pane
+  // (CliSplitBody → CliConversationPane, fed by the persisted messages table)
+  // stays mounted across every state — only this terminal-side slot changes, so
+  // the Reattach prompt / loading / error are scoped to the terminal pane while
+  // the chat transcript stays visible (including while detached after restart).
+  // Plain (not memoized): the ready-state <Terminal> reconciles in place by its
+  // stable panel position, so xterm/PTY survive re-renders without a memo.
+  const terminalSlot: ReactNode = (() => {
+    switch (bootstrapState.status) {
+      case 'ready':
+        return (
+          <Terminal
+            paneId={paneId}
+            cwd={cwd}
+            workspaceId={chatId}
+            bootstrap={bootstrapState.bootstrap}
+            clearScrollbackOnColChange={harness === 'claude-cli'}
+          />
+        );
+      case 'loading':
+        return (
+          <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Starting {label}…</div>
+        );
+      case 'disconnected':
+        return (
+          <div className="h-full w-full flex flex-col items-center justify-center gap-3 p-4 text-center">
+            <p className="text-sm text-muted-foreground max-w-sm">{REATTACH_BANNER}</p>
+            <button
+              data-testid="cli-reattach-button"
+              onClick={() => doBootstrap('reattach')}
+              className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+              Reattach
+            </button>
+          </div>
+        );
+      case 'error':
+        return (
+          <div className="flex flex-col items-center justify-center h-full gap-3 p-4 text-center">
+            <p className="text-sm text-destructive font-medium">{bootstrapState.message}</p>
+            {bootstrapState.hint && <p className="text-xs text-muted-foreground font-mono">{bootstrapState.hint}</p>}
+            <button
+              onClick={() => setBootstrapState({ status: 'idle' })}
+              className="text-xs underline text-muted-foreground hover:text-foreground">
+              Retry
+            </button>
+          </div>
+        );
+      case 'idle':
+      default:
+        return null;
+    }
+  })();
+
   if (!shouldMountContent) return null;
 
   return (
@@ -350,60 +405,19 @@ export function ChatCliSurface({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Body: disconnected / loading / error / terminal (+ optional split) */}
+      {/* Body: the conversation pane (from the persisted messages table) always
+          renders; only the terminal-side slot swaps with bootstrap state (see
+          `terminalSlot` above), so Reattach / loading / error stay scoped to the
+          terminal pane and the chat transcript is always visible.
+
+          The ready-state <Terminal> in `terminalSlot` passes workspaceId={chatId}
+          so the main-process session records the parent chat id — the global
+          <CliStateSubscriber/> reads it back via terminal.allCliStates to
+          populate loadingSubChatsAtom so the chats sidebar workspace spinner
+          lights up. CliSplitBody renders the slot at a stable position (panel 2,
+          id=cli-term-<subChatId>) so xterm/PTY never remount on layout changes. */}
       <div className="flex-1 overflow-hidden relative">
-        {/* Terminal always mounts once ready, stays mounted for scrollback.
-            When the conversation pane is enabled, the Terminal is wrapped in a
-            resizable split. Critical: the <Terminal /> element keeps a stable
-            React key so the xterm/PTY does not remount on layout changes
-            (xterm state is paneId-scoped — remount = lose alt-screen + signals
-            to running processes like htop).
-
-            workspaceId={chatId} is required so the main-process session
-            records the parent chat id — the global <CliStateSubscriber/>
-            reads it back via terminal.allCliStates to populate
-            loadingSubChatsAtom (Map<subChatId, parentChatId>) so the chats
-            sidebar workspace spinner lights up. CliSplitBody threads it to
-            both Terminal mounts (with-pane and layout='off'). */}
-        {bootstrapState.status === 'ready' && (
-          <CliSplitBody
-            subChatId={subChatId}
-            chatId={chatId ?? ''}
-            paneId={paneId}
-            cwd={cwd}
-            workspaceId={chatId}
-            harness={harness}
-            bootstrap={bootstrapState.bootstrap}
-          />
-        )}
-
-        {bootstrapState.status === 'loading' && (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Starting {label}…</div>
-        )}
-
-        {bootstrapState.status === 'disconnected' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center bg-background/90 backdrop-blur-sm">
-            <p className="text-sm text-muted-foreground max-w-sm">{REATTACH_BANNER}</p>
-            <button
-              data-testid="cli-reattach-button"
-              onClick={() => doBootstrap('reattach')}
-              className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-              Reattach
-            </button>
-          </div>
-        )}
-
-        {bootstrapState.status === 'error' && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 p-4 text-center">
-            <p className="text-sm text-destructive font-medium">{bootstrapState.message}</p>
-            {bootstrapState.hint && <p className="text-xs text-muted-foreground font-mono">{bootstrapState.hint}</p>}
-            <button
-              onClick={() => setBootstrapState({ status: 'idle' })}
-              className="text-xs underline text-muted-foreground hover:text-foreground">
-              Retry
-            </button>
-          </div>
-        )}
+        <CliSplitBody subChatId={subChatId} chatId={chatId ?? ''} ptyActive={ptyActive} terminalSlot={terminalSlot} />
       </div>
 
       {/* Workflow notch — same widget used above the builtin chat textarea.
@@ -440,10 +454,14 @@ export function ChatCliSurface({
 }
 
 /**
- * Split body — the conversation pane sits beside (or above) the terminal,
- * resizable, with the layout persisted per-subChat. When the user disables the
- * pane (layout='off'), only the terminal renders. The Terminal element keeps
- * a stable React position so xterm never remounts on layout changes.
+ * Split body — the read-only conversation pane sits beside (or above) the
+ * terminal-side slot, resizable, with the layout persisted per-subChat. The
+ * conversation pane renders from the persisted messages table and is therefore
+ * independent of the live PTY, so it stays mounted in every bootstrap state;
+ * the parent swaps `terminalSlot` (live Terminal / Reattach prompt / loading /
+ * error) without remounting the chat. When the user disables the pane
+ * (layout='off'), only the slot renders. The slot keeps a stable React position
+ * (panel 2) so the ready-state xterm never remounts on layout changes.
  *
  * Library/our terminology mapping:
  *   our 'vertical'   = panes side-by-side = react-resizable-panels direction="horizontal"
@@ -452,25 +470,23 @@ export function ChatCliSurface({
 function CliSplitBody({
   subChatId,
   chatId,
-  paneId,
-  cwd,
-  workspaceId,
-  harness,
-  bootstrap
+  ptyActive,
+  terminalSlot
 }: {
   subChatId: string;
   chatId: string;
-  paneId: string;
-  cwd: string;
-  workspaceId?: string;
-  harness: Harness;
-  bootstrap: TerminalBootstrapConfig;
+  ptyActive: boolean;
+  terminalSlot: ReactNode;
 }) {
   const layout = useAtomValue(cliSplitLayoutAtomFamily(subChatId));
   const [chatSize, setChatSize] = useAtom(cliSplitSizeAtomFamily(subChatId));
+  // Only poll while the PTY is live — the session-file label can't change while
+  // detached, so a restored-but-not-reattached panel must not poll every 5 s.
+  // The one-shot initial fetch still runs, so the label shows from the prior
+  // session; refetch-on-invalidate (terminal events) still applies when live.
   const statusQuery = trpc.cliSession.getStatus.useQuery(
     { subChatId },
-    { refetchInterval: 5_000, refetchOnWindowFocus: false }
+    { refetchInterval: ptyActive ? 5_000 : false, refetchOnWindowFocus: false }
   );
   const sessionFileLabel = useMemo(() => {
     const f = statusQuery.data?.sessionFile;
@@ -480,15 +496,7 @@ function CliSplitBody({
   }, [statusQuery.data?.sessionFile]);
 
   if (layout === 'off') {
-    return (
-      <Terminal
-        paneId={paneId}
-        cwd={cwd}
-        workspaceId={workspaceId}
-        bootstrap={bootstrap}
-        clearScrollbackOnColChange={harness === 'claude-cli'}
-      />
-    );
+    return <>{terminalSlot}</>;
   }
 
   // See terminology mapping in this function's doc comment.
@@ -505,13 +513,7 @@ function CliSplitBody({
       </ResizablePanel>
       <ResizableHandle />
       <ResizablePanel defaultSize={100 - chatSize} minSize={15} order={2} id={`cli-term-${subChatId}`}>
-        <Terminal
-          paneId={paneId}
-          cwd={cwd}
-          workspaceId={workspaceId}
-          bootstrap={bootstrap}
-          clearScrollbackOnColChange={harness === 'claude-cli'}
-        />
+        {terminalSlot}
       </ResizablePanel>
     </ResizablePanelGroup>
   );

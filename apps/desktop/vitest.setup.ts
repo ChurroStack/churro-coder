@@ -32,3 +32,16 @@ Object.defineProperty(globalThis, "electronTRPC", {
   value: electronTRPC,
   writable: true,
 })
+
+// jsdom doesn't implement ResizeObserver. Components that mount
+// react-resizable-panels (ResizablePanelGroup) reference it at mount, so install
+// a no-op stub globally instead of per-test. Guarded so a real implementation
+// (if a future environment provides one) is never clobbered.
+if (typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver === "undefined") {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub
+}
