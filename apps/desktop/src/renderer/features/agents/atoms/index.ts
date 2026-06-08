@@ -255,6 +255,22 @@ export const subChatBusyAtomFamily = atomFamily((subChatId: string) =>
   })
 );
 
+/** Derived: is this subChat in an active CLI turn? `CliStateSubscriber` tags its
+ *  entries `source: 'cli'`; the queue processor tags builtin turns
+ *  `source: 'builtin'`. The read-only CLI transcript uses this to feed older
+ *  (non-last) messages a `'turn-active'` status so their in-flight tools render
+ *  as "running" rather than "interrupted" — without affecting builtin chat
+ *  rendering, which stays on its existing path. Distinct from the legacy
+ *  `cliBusyAtomFamily`, which is source-AGNOSTIC (an alias of
+ *  `subChatBusyAtomFamily`) — this one is `true` ONLY for `source: 'cli'`. Flips
+ *  only on running↔idle transitions (never per token). */
+export const subChatCliTurnActiveAtomFamily = atomFamily((subChatId: string) =>
+  atom((get) => {
+    if (!subChatId) return false;
+    return get(subChatBusyAtom).get(subChatId)?.source === 'cli';
+  })
+);
+
 /** Derived: is any sub-chat under this parent chat busy? Used by the sidebar
  *  workspace row, the project group header, and the kanban card. Keys off
  *  parentChatId so the kanban doesn't depend on a fresh chats.list query
