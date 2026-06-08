@@ -51,6 +51,11 @@ vi.mock('../../../lib/trpc', () => {
         kill: { useMutation: vi.fn(emptyMutation) },
         clearScrollback: { useMutation: vi.fn(emptyMutation) },
         stream: { useSubscription: vi.fn() }
+      },
+      // CliSplitBody now mounts in every bootstrap state (the conversation pane
+      // always renders), so getStatus is queried even while disconnected/loading.
+      cliSession: {
+        getStatus: { useQuery: vi.fn(emptyQuery) }
       }
     }
   };
@@ -67,6 +72,12 @@ vi.mock('../hooks/use-cli-auto-rename-on-first-message', () => ({
 // Stub the Terminal component — we only care about whether bootstrap was fetched.
 vi.mock('@/features/terminal/terminal', () => ({
   Terminal: () => <div data-testid="terminal-stub" />
+}));
+
+// Stub the read-only conversation pane — it mounts alongside the terminal slot
+// now, but its messages/onMessages/file-open chain is irrelevant to these tests.
+vi.mock('./cli-conversation-pane', () => ({
+  CliConversationPane: () => <div data-testid="cli-conversation-pane-stub" />
 }));
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,6 +101,19 @@ describe('ChatCliSurface — lazy reattach (task 10.3)', () => {
       <ChatCliSurface subChatId="sc-restored" harness="claude-cli" startDisconnected={true} />
     );
     expect(getByTestId('cli-reattach-button')).toBeTruthy();
+  });
+
+  it('renders the conversation pane alongside the Reattach prompt (chat stays visible while detached)', () => {
+    // No chatId here: it would mount the workflow notch (SubChatStatusCard),
+    // which needs a QueryClientProvider these mocks don't set up. The pane
+    // renders independent of chatId — it's the layout split we're asserting.
+    const { getByTestId } = render(
+      <ChatCliSurface subChatId="sc-restored" harness="claude-cli" startDisconnected={true} />
+    );
+    // Reattach prompt is scoped to the terminal slot; the chat transcript pane
+    // renders next to it instead of being hidden by a full-screen overlay.
+    expect(getByTestId('cli-reattach-button')).toBeTruthy();
+    expect(getByTestId('cli-conversation-pane-stub')).toBeTruthy();
   });
 
   it('clicking Reattach triggers buildCliBootstrap with the correct subChatId', async () => {

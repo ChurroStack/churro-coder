@@ -66,6 +66,11 @@ vi.mock('@/lib/trpc', () => {
         kill: { useMutation: vi.fn(emptyMutation) },
         clearScrollback: { useMutation: vi.fn(emptyMutation) },
         stream: { useSubscription: vi.fn() }
+      },
+      // CliSplitBody now mounts in every bootstrap state (the conversation pane
+      // always renders), so getStatus is queried even while disconnected.
+      cliSession: {
+        getStatus: { useQuery: vi.fn(emptyQuery) }
       }
     }
   };
@@ -76,6 +81,12 @@ vi.mock('../hooks/use-cli-auto-rename-on-first-message', () => ({ useCliAutoRena
 
 vi.mock('@/features/terminal/terminal', () => ({
   Terminal: () => <div data-testid="terminal-stub" />
+}));
+
+// Stub the read-only conversation pane — it mounts alongside the terminal slot
+// now; its messages/onMessages/file-open chain is irrelevant to these tests.
+vi.mock('./cli-conversation-pane', () => ({
+  CliConversationPane: () => <div data-testid="cli-conversation-pane-stub" />
 }));
 
 // ── Imports ───────────────────────────────────────────────────────────────────
@@ -139,6 +150,16 @@ describe('11.13(b) — CLI scrollback restore after restart', () => {
   test('startDisconnected=true: chat-cli-surface testid is visible (scrollback frame mounts)', () => {
     render(<ChatCliSurface subChatId="sc-frame" harness="claude-cli" startDisconnected={true} isOwner={true} />);
     expect(screen.getByTestId('chat-cli-surface')).toBeTruthy();
+  });
+
+  test('startDisconnected=true: conversation pane renders next to the Reattach prompt', () => {
+    // No chatId: it mounts the workflow notch, which needs a QueryClientProvider
+    // these mocks don't set up. The pane renders independent of chatId.
+    render(<ChatCliSurface subChatId="sc-coexist" harness="claude-cli" startDisconnected={true} isOwner={true} />);
+    // The Reattach prompt is scoped to the terminal pane; the transcript pane
+    // stays mounted (it reads the persisted messages table, not the live PTY).
+    expect(screen.getByTestId('cli-reattach-button')).toBeTruthy();
+    expect(screen.getByTestId('cli-conversation-pane-stub')).toBeTruthy();
   });
 });
 

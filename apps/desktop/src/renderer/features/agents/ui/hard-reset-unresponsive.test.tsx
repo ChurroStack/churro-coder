@@ -70,10 +70,23 @@ vi.mock('@/lib/trpc', () => {
           useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: mockClearScrollbackMutateAsync, isPending: false }))
         },
         stream: { useSubscription: vi.fn() }
+      },
+      // CliSplitBody now mounts in every bootstrap state (the conversation pane
+      // stays visible while the terminal slot swaps), so its getStatus query runs
+      // unconditionally — mirror the sibling chat-cli-surface.test.tsx mock.
+      cliSession: {
+        getStatus: { useQuery: vi.fn(emptyQuery) }
       }
     }
   };
 });
+
+// The always-mounted conversation pane is irrelevant to the hard-reset
+// assertions; stub it (as chat-cli-surface.test.tsx does) so it doesn't pull in
+// cliSession.onMessages/getMessages.
+vi.mock('./cli-conversation-pane', () => ({
+  CliConversationPane: () => <div data-testid="cli-conversation-pane-stub" />
+}));
 
 vi.mock('../hooks/use-stuck-detection', () => ({
   useStuckDetection: vi.fn()
