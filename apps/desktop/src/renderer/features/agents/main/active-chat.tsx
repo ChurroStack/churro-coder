@@ -182,6 +182,7 @@ import {
 } from '../lib/queue-utils';
 import { RemoteChatTransport } from '../lib/remote-chat-transport';
 import { FileOpenProvider, MENTION_PREFIXES, messageToTitleText, type AgentsMentionsEditorHandle } from '../mentions';
+import { useOpenFileInDock } from '../../dock/use-open-file-in-dock';
 import { ChatSearchBar, chatSearchCurrentMatchAtom, SearchHighlightProvider } from '../search';
 import { agentChatStore } from '../stores/agent-chat-store';
 import { EMPTY_QUEUE, useMessageQueueStore } from '../stores/message-queue-store';
@@ -4287,6 +4288,11 @@ export function ChatView({
 
   // Desktop: use worktreePath instead of sandbox
   const worktreePath = agentChat?.worktreePath as string | null;
+  // Open in-chat file references (file box, @mentions, diff badges) in a full
+  // dockview tab, resolving relative paths against THIS chat's worktree. Falls
+  // back to the side-peek/full-page overlay when no dock API is available
+  // (cold start / mobile) or a relative path has no worktree. See useOpenFileInDock.
+  const openFileInDock = useOpenFileInDock(activeSubChatId ?? undefined, worktreePath, setFileViewerPath);
   // Desktop: original project path for MCP config lookup
   const originalProjectPath = (agentChat as any)?.project?.path as string | undefined;
 
@@ -5723,7 +5729,7 @@ export function ChatView({
   // No early return - let the UI render with loading state handled by activeChat check below
 
   return (
-    <FileOpenProvider onOpenFile={setFileViewerPath}>
+    <FileOpenProvider onOpenFile={openFileInDock}>
       <TextSelectionProvider>
         {pushDialog}
         <SubChatFilesTracker chatId={chatId} subChats={agentSubChats} projectPath={worktreePath || undefined} />
