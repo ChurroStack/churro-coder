@@ -1,12 +1,67 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent } from '@testing-library/react';
+/**
+ * Two concerns covered here:
+ *
+ * 1. Running-vs-interrupted contract (#198): the verdict for a Task/Agent tool
+ *    with no output yet is decided by `chatStatus` via getToolStatus — a pending
+ *    Task renders "Subagent interrupted" when idle, but "Running Subagent" while
+ *    the turn is active ('streaming' or the CLI-only 'turn-active').
+ *
+ * 2. Rich subagent rendering: once the record-level `toolUseResult` lands on
+ *    `part.output`, a completed subagent leads with its agent type and shows the
+ *    tool-use/token counts, a toolStats activity line, and an expandable reply.
+ */
+import { afterEach, describe, expect, it, test } from 'vitest';
+import { cleanup, fireEvent, screen } from '@testing-library/react';
 
 import { renderWithProviders } from '../../../../../test-utils';
 import { TooltipProvider } from '../../../components/ui/tooltip';
 import { AgentTaskTool } from './agent-task-tool';
 
 afterEach(cleanup);
+
+describe('AgentTaskTool — running vs interrupted [chat/cli-subagent-status]', () => {
+  const pendingTaskPart = {
+    type: 'tool-Task',
+    toolCallId: 'task-1',
+    input: { description: 'investigate the thing', subagent_type: 'Explore' },
+    state: 'input-available' as const
+  };
+
+  test('renders "Subagent interrupted" for a pending Task when the chat is idle (ready)', () => {
+    renderWithProviders(<AgentTaskTool part={pendingTaskPart} nestedTools={[]} chatStatus="ready" />);
+    // getByText throws if absent, so this asserts presence.
+    expect(screen.getByText('Subagent interrupted')).toBeTruthy();
+    expect(screen.queryByText('Running Subagent')).toBeNull();
+  });
+
+  test('renders "Running Subagent" (NOT interrupted) for a pending Task while the chat is streaming', () => {
+    renderWithProviders(<AgentTaskTool part={pendingTaskPart} nestedTools={[]} chatStatus="streaming" />);
+    expect(screen.getByText('Running Subagent')).toBeTruthy();
+    expect(screen.queryByText('Subagent interrupted')).toBeNull();
+  });
+
+  test('renders "Running Subagent" for a non-last pending Task while the CLI turn is active', () => {
+    // 'turn-active' is what NonStreamingMessageItem feeds a non-last message while
+    // the CLI sub-chat is mid-turn — the exact case the fix targets.
+    renderWithProviders(<AgentTaskTool part={pendingTaskPart} nestedTools={[]} chatStatus="turn-active" />);
+    expect(screen.getByText('Running Subagent')).toBeTruthy();
+    expect(screen.queryByText('Subagent interrupted')).toBeNull();
+  });
+
+  test('a Task with output is never "interrupted", even when idle', () => {
+    const completed = {
+      ...pendingTaskPart,
+      state: 'output-available' as const,
+      output: { content: [{ type: 'text', text: 'done' }] }
+    };
+    renderWithProviders(<AgentTaskTool part={completed} nestedTools={[]} chatStatus="ready" />);
+    expect(screen.queryByText('Subagent interrupted')).toBeNull();
+    // Completed rows now lead with the agent type (was a generic "Completed
+    // Subagent" before the toolUseResult enrichment).
+    expect(screen.getByText('Explore')).toBeTruthy();
+  });
+});
 
 // A completed subagent whose rich `toolUseResult` landed on `part.output`
 // (the CLI-ingest fix). Mirrors the native Claude CLI's Explore subagent shape.
