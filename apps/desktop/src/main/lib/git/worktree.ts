@@ -865,6 +865,39 @@ export interface CreateWorktreeForChatOptions {
   onSetupComplete?: (result: WorktreeSetupResult) => void;
 }
 
+export interface WorktreeSupport {
+  supported: boolean;
+  /** Why a worktree can't be created — surfaced by the New Workspace gate. */
+  reason?: 'not-a-repo' | 'no-commits';
+}
+
+/**
+ * Whether a git worktree can be created for `projectPath`. Mirrors the gates in
+ * {@link createWorktreeForChat} (must be a git repo with at least one commit) so
+ * the New Workspace form can disable Send and explain why *before* submitting,
+ * instead of silently falling back to a Local workspace.
+ */
+export async function canCreateWorktree(projectPath: string): Promise<WorktreeSupport> {
+  try {
+    const git = simpleGit(projectPath);
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) return { supported: false, reason: 'not-a-repo' };
+    try {
+      await git.revparse(['--verify', 'HEAD']);
+    } catch {
+      return { supported: false, reason: 'no-commits' };
+    }
+    return { supported: true };
+  } catch {
+    // An unexpected git failure (e.g. a transient `.git/index.lock`, FS hiccup)
+    // is NOT proof the folder isn't a repo — reporting `not-a-repo` here would
+    // wrongly disable Send and mislabel a genuine repo. Treat the unknown as
+    // supported (advisory): `createWorktreeForChat` re-runs the real checks at
+    // create time and falls back to the project dir if it truly can't.
+    return { supported: true };
+  }
+}
+
 /**
  * Create a git worktree for a chat (wrapper for chats.ts)
  * @param projectPath - Path to the main repository

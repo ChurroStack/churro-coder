@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useListKeyboardNav } from './use-list-keyboard-nav';
-import { useAtomValue } from 'jotai';
-import { selectedProjectAtom, settingsAgentsSidebarWidthAtom } from '../../../features/agents/atoms';
+import { settingsAgentsSidebarWidthAtom } from '../../../features/agents/atoms';
+import { GLOBAL_SCOPE_MODE, type SettingsScopeMode } from './settings-scope-mode';
 import { trpc } from '../../../lib/trpc';
 import { cn } from '../../../lib/utils';
 import { Plus } from 'lucide-react';
@@ -184,7 +184,7 @@ function CreateAgentForm({
   onCreated,
   onCancel,
   isSaving,
-  hasProject
+  mode
 }: {
   onCreated: (data: {
     name: string;
@@ -195,13 +195,19 @@ function CreateAgentForm({
   }) => void;
   onCancel: () => void;
   isSaving: boolean;
-  hasProject: boolean;
+  mode: SettingsScopeMode;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState('inherit');
-  const [source, setSource] = useState<'user' | 'project'>('user');
+  // Scope is fixed by surface: global Settings creates user agents, the
+  // workspace Project Settings panel creates project agents.
+  const source: 'user' | 'project' = mode.kind === 'project' ? 'project' : 'user';
+  const scopeLabel =
+    mode.kind === 'project'
+      ? `${mode.projectName ? `Project: ${mode.projectName}` : 'Project'} (.claude/agents/)`
+      : 'User (~/.claude/agents/)';
 
   const canSave = name.trim().length > 0;
 
@@ -253,20 +259,12 @@ function CreateAgentForm({
           </Select>
         </div>
 
-        {hasProject && (
-          <div className="space-y-1.5">
-            <Label>Scope</Label>
-            <Select value={source} onValueChange={(v) => setSource(v as 'user' | 'project')}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="user">User (~/.claude/agents/)</SelectItem>
-                <SelectItem value="project">Project (.claude/agents/)</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="space-y-1.5">
+          <Label>Location</Label>
+          <div className="px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg">
+            <code className="text-xs text-foreground">{scopeLabel}</code>
           </div>
-        )}
+        </div>
 
         <div className="space-y-1.5">
           <Label>System Prompt</Label>
@@ -284,7 +282,10 @@ function CreateAgentForm({
 }
 
 // --- Main Component ---
-export function AgentsCustomAgentsTab() {
+export function AgentsCustomAgentsTab({ mode = GLOBAL_SCOPE_MODE }: { mode?: SettingsScopeMode } = {}) {
+  // Scope path: project mode reads/writes `<path>/.claude/agents`; global mode
+  // passes no cwd so only user agents are returned.
+  const projectPath = mode.kind === 'project' ? mode.path : undefined;
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -303,13 +304,11 @@ export function AgentsCustomAgentsTab() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
-  const selectedProject = useAtomValue(selectedProjectAtom);
-
   const {
     data: agents = [],
     isLoading,
     refetch
-  } = trpc.agents.list.useQuery(selectedProject?.path ? { cwd: selectedProject.path } : undefined);
+  } = trpc.agents.list.useQuery(projectPath ? { cwd: projectPath } : undefined);
 
   const updateMutation = trpc.agents.update.useMutation();
   const createMutation = trpc.agents.create.useMutation();
@@ -323,7 +322,7 @@ export function AgentsCustomAgentsTab() {
           prompt: data.prompt,
           model: (data.model && data.model !== 'inherit' ? data.model : undefined) as FileAgent['model'],
           source: data.source,
-          cwd: selectedProject?.path
+          cwd: projectPath
         });
         toast.success('Agent created', { description: result.name });
         setShowAddForm(false);
@@ -334,7 +333,7 @@ export function AgentsCustomAgentsTab() {
         toast.error('Failed to create', { description: message });
       }
     },
-    [createMutation, selectedProject?.path, refetch]
+    [createMutation, projectPath, refetch]
   );
 
   const filteredAgents = useMemo(() => {
@@ -343,13 +342,14 @@ export function AgentsCustomAgentsTab() {
     return agents.filter((a) => a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q));
   }, [agents, searchQuery]);
 
-  const userAgents = filteredAgents.filter((a) => a.source === 'user');
-  const projectAgents = filteredAgents.filter((a) => a.source === 'project');
+  // Project mode shows only project agents; global mode shows only user agents
+  // (project agents are never fetched without a cwd).
+  const isProjectScope = mode.kind === 'project';
+  const userAgents = isProjectScope ? [] : filteredAgents.filter((a) => a.source === 'user');
+  const projectAgents = isProjectScope ? filteredAgents.filter((a) => a.source === 'project') : [];
 
-  const allAgentNames = useMemo(
-    () => [...userAgents, ...projectAgents].map((a) => a.name),
-    [userAgents, projectAgents]
-  );
+  const visibleAgents = useMemo(() => [...userAgents, ...projectAgents], [userAgents, projectAgents]);
+  const allAgentNames = useMemo(() => visibleAgents.map((a) => a.name), [visibleAgents]);
 
   const { containerRef: listRef, onKeyDown: listKeyDown } = useListKeyboardNav({
     items: allAgentNames,
@@ -357,13 +357,13 @@ export function AgentsCustomAgentsTab() {
     onSelect: setSelectedAgentName
   });
 
-  const selectedAgent = agents.find((a) => a.name === selectedAgentName) || null;
+  const selectedAgent = visibleAgents.find((a) => a.name === selectedAgentName) || null;
 
-  // Auto-select first agent when data loads
+  // Auto-select first visible agent when data loads
   useEffect(() => {
-    if (selectedAgentName || isLoading || agents.length === 0) return;
-    setSelectedAgentName(agents[0]!.name);
-  }, [agents, selectedAgentName, isLoading]);
+    if (selectedAgentName || isLoading || visibleAgents.length === 0) return;
+    setSelectedAgentName(visibleAgents[0]!.name);
+  }, [visibleAgents, selectedAgentName, isLoading]);
 
   const handleSave = useCallback(
     async (agent: FileAgent, data: { description: string; prompt: string; model?: FileAgent['model'] }) => {
@@ -380,7 +380,7 @@ export function AgentsCustomAgentsTab() {
           // dropdown only allows selecting "user"/"project". Cast for the
           // mutation input which doesn't accept "plugin".
           source: agent.source as 'user' | 'project',
-          cwd: selectedProject?.path
+          cwd: projectPath
         });
         toast.success('Agent saved', { description: agent.name });
         await refetch();
@@ -389,7 +389,7 @@ export function AgentsCustomAgentsTab() {
         toast.error('Failed to save', { description: message });
       }
     },
-    [updateMutation, selectedProject?.path, refetch]
+    [updateMutation, projectPath, refetch]
   );
 
   return (
@@ -441,7 +441,7 @@ export function AgentsCustomAgentsTab() {
               <div className="flex items-center justify-center h-full">
                 <p className="text-xs text-muted-foreground">Loading...</p>
               </div>
-            ) : agents.length === 0 ? (
+            ) : visibleAgents.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center px-4">
                 <CustomAgentIconFilled className="h-8 w-8 text-border mb-3" />
                 <p className="text-sm text-muted-foreground mb-1">No agents</p>
@@ -544,7 +544,7 @@ export function AgentsCustomAgentsTab() {
             onCreated={handleCreate}
             onCancel={() => setShowAddForm(false)}
             isSaving={createMutation.isPending}
-            hasProject={!!selectedProject?.path}
+            mode={mode}
           />
         ) : selectedAgent ? (
           <AgentDetail
@@ -556,9 +556,9 @@ export function AgentsCustomAgentsTab() {
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <CustomAgentIconFilled className="h-12 w-12 text-border mb-4" />
             <p className="text-sm text-muted-foreground">
-              {agents.length > 0 ? 'Select an agent to view details' : 'No custom agents found'}
+              {visibleAgents.length > 0 ? 'Select an agent to view details' : 'No custom agents found'}
             </p>
-            {agents.length === 0 && (
+            {visibleAgents.length === 0 && (
               <Button variant="outline" size="sm" className="mt-3" onClick={() => setShowAddForm(true)}>
                 <Plus className="h-3.5 w-3.5 mr-1.5" />
                 Create your first agent

@@ -27,25 +27,31 @@ export const worktreeConfigRouter = router({
    * Get worktree config for a project
    * Detects from .cursor/worktrees.json or .cscode/worktree.json (legacy: .1code/worktree.json read-only)
    */
-  get: publicProcedure.input(z.object({ projectId: z.string() })).query(async ({ input }) => {
-    const db = getDatabase();
-    const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
+  get: publicProcedure
+    .input(z.object({ projectId: z.string(), worktreePath: z.string().optional() }))
+    .query(async ({ input }) => {
+      const db = getDatabase();
+      const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
 
-    if (!project) {
-      throw new Error('Project not found');
-    }
+      if (!project) {
+        throw new Error('Project not found');
+      }
 
-    const detected = await detectWorktreeConfig(project.path);
-    const available = await getAvailableConfigPaths(project.path);
+      // Scope to the workspace's own working tree when provided so edits land in
+      // that tree (and commit with its branch), not the base repo. Falls back to
+      // the base repo path for Local workspaces / legacy callers.
+      const scopePath = input.worktreePath ?? project.path;
+      const detected = await detectWorktreeConfig(scopePath);
+      const available = await getAvailableConfigPaths(scopePath);
 
-    return {
-      config: detected.config,
-      path: detected.path,
-      source: detected.source,
-      available,
-      projectPath: project.path
-    };
-  }),
+      return {
+        config: detected.config,
+        path: detected.path,
+        source: detected.source,
+        available,
+        projectPath: scopePath
+      };
+    }),
 
   /**
    * Save worktree config for a project
@@ -54,6 +60,7 @@ export const worktreeConfigRouter = router({
     .input(
       z.object({
         projectId: z.string(),
+        worktreePath: z.string().optional(),
         config: WorktreeConfigSchema,
         target: z.enum(['cursor', 'cscode']).or(z.string()).default('cscode')
       })
@@ -66,22 +73,25 @@ export const worktreeConfigRouter = router({
         throw new Error('Project not found');
       }
 
-      const result = await saveWorktreeConfig(project.path, input.config as WorktreeConfig, input.target);
+      const scopePath = input.worktreePath ?? project.path;
+      const result = await saveWorktreeConfig(scopePath, input.config as WorktreeConfig, input.target);
 
       return result;
     }),
 
   /**
-   * Get available config paths for a project
+   * Get available config paths for a project (optionally a specific worktree)
    */
-  getAvailablePaths: publicProcedure.input(z.object({ projectId: z.string() })).query(async ({ input }) => {
-    const db = getDatabase();
-    const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
+  getAvailablePaths: publicProcedure
+    .input(z.object({ projectId: z.string(), worktreePath: z.string().optional() }))
+    .query(async ({ input }) => {
+      const db = getDatabase();
+      const project = db.select().from(projects).where(eq(projects.id, input.projectId)).get();
 
-    if (!project) {
-      throw new Error('Project not found');
-    }
+      if (!project) {
+        throw new Error('Project not found');
+      }
 
-    return getAvailableConfigPaths(project.path);
-  })
+      return getAvailableConfigPaths(input.worktreePath ?? project.path);
+    })
 });

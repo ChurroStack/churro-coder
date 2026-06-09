@@ -51,6 +51,7 @@ import { ProjectStatsContent } from '../project-stats/project-stats-content';
 import { KanbanView } from '../kanban';
 import { AutomationsView, AutomationsDetailView, InboxView } from '../automations';
 import { NewChatForm } from '../agents/main/new-chat-form';
+import { useOpenLocalWorkspace } from '../agents/hooks/use-open-local-workspace';
 import { detailsSidebarOpenAtom, detailsSidebarWidthAtom } from '../details-sidebar/atoms';
 import {
   DockProvider,
@@ -306,6 +307,7 @@ export function AgentsLayout() {
   const [detailsWidth, setDetailsWidth] = useAtom(detailsSidebarWidthAtom);
   const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
   const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom);
+  const openLocalWorkspace = useOpenLocalWorkspace();
   const desktopView = useAtomValue(desktopViewAtom);
   const [selectedChatId, setSelectedChatId] = useAtom(selectedAgentChatIdAtom);
   const [selectedProject, setSelectedProject] = useAtom(selectedProjectAtom);
@@ -394,11 +396,18 @@ export function AgentsLayout() {
               const projectMatch = Array.isArray(projects)
                 ? projects.find((project) => project.id === payload.projectId)
                 : undefined;
-              if (projectMatch) {
-                setSelectedProject(projectMatch as any);
-              }
-              setSettingsActiveTab('projects');
-              setSettingsDialogOpen(true);
+              if (!projectMatch) return;
+              // Worktree config now lives in the workspace Project Settings
+              // panel — open the project's Local workspace, which lands on it.
+              void openLocalWorkspace({
+                id: projectMatch.id,
+                name: projectMatch.name ?? projectMatch.gitRepo ?? 'Untitled project',
+                path: projectMatch.path,
+                gitRemoteUrl: projectMatch.gitRemoteUrl ?? null,
+                gitProvider: (projectMatch.gitProvider as string | null | undefined) ?? null,
+                gitOwner: projectMatch.gitOwner ?? null,
+                gitRepo: projectMatch.gitRepo ?? null
+              });
             }
           }
         });
@@ -406,7 +415,7 @@ export function AgentsLayout() {
     );
 
     return unsubscribe;
-  }, [projects, setSelectedProject, setSettingsActiveTab, setSettingsDialogOpen]);
+  }, [projects, openLocalWorkspace]);
 
   // Reconciliation backstop for the store's "current workspace". The hot
   // switch paths call `selectWorkspace(chatId)` which updates the store and

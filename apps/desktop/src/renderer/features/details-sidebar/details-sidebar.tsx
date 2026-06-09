@@ -59,14 +59,12 @@ import { FilesTab, type FilesTabHandle } from './sections/files-tab';
 import { SearchTab } from './sections/search-tab';
 import type { ParsedDiffFile } from './types';
 import { fileViewerOpenAtomFamily, type AgentMode } from '../agents/atoms';
+import { visibleSidebarToggleButtonsAtom, SIDEBAR_TOGGLE_REGISTRY, sessionInfoAtom } from '@/lib/atoms';
 import {
-  agentsSettingsDialogOpenAtom,
-  agentsSettingsDialogActiveTabAtom,
-  selectedProjectAtom,
-  visibleSidebarToggleButtonsAtom,
-  SIDEBAR_TOGGLE_REGISTRY,
-  sessionInfoAtom
-} from '@/lib/atoms';
+  pendingProjectSettingsPanelAtom,
+  workspaceProjectSettingsSectionAtomFamily,
+  type ProjectSettingsSection
+} from '../dock/atoms';
 
 // ============================================================================
 // WidgetCard — extracted as a real component to avoid remounts
@@ -277,15 +275,6 @@ export function DetailsSidebar({
   const fileViewerAtom = useMemo(() => fileViewerOpenAtomFamily(chatId), [chatId]);
   const fileViewerPath = useAtomValue(fileViewerAtom);
 
-  // Settings dialog atoms for MCP settings
-  const setSettingsOpen = useSetAtom(agentsSettingsDialogOpenAtom);
-  const setSettingsTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
-
-  const handleOpenMcpSettings = useCallback(() => {
-    setSettingsTab('mcp');
-    setSettingsOpen(true);
-  }, [setSettingsTab, setSettingsOpen]);
-
   // Fetch chat to derive projectId + terminal scope for the Scripts widget
   const { data: chatData } = trpc.chats.get.useQuery({ id: chatId });
   const projectIdForScripts = chatData?.projectId ?? null;
@@ -310,24 +299,31 @@ export function DetailsSidebar({
     [chatId, chatData?.branch, worktreePath]
   );
 
-  // Pre-select the right project when opening settings from the Scripts widget
-  // so the user doesn't have to find it manually in the project list.
-  const setSelectedProject = useSetAtom(selectedProjectAtom);
-  const handleOpenScriptsSettings = useCallback(() => {
-    if (chatData?.project) {
-      setSelectedProject({
-        id: chatData.project.id,
-        name: chatData.project.name,
-        path: chatData.project.path,
-        gitRemoteUrl: chatData.project.gitRemoteUrl ?? null,
-        gitProvider: (chatData.project.gitProvider as 'github' | 'gitlab' | 'bitbucket' | null) ?? null,
-        gitOwner: chatData.project.gitOwner ?? null,
-        gitRepo: chatData.project.gitRepo ?? null
+  // Open this workspace's Project Settings panel at a given section — scripts and
+  // MCP now both live there, scoped to the workspace. Seed the pending-PS atom
+  // (opens the panel in the live workspace dock if not already open) AND set the
+  // per-workspace section atom (deep-links to the section even when it's open).
+  const setPendingProjectSettings = useSetAtom(pendingProjectSettingsPanelAtom);
+  const sectionAtom = useMemo(() => workspaceProjectSettingsSectionAtomFamily(chatId), [chatId]);
+  const setProjectSettingsSection = useSetAtom(sectionAtom);
+  const openProjectSettingsAtSection = useCallback(
+    (target: ProjectSettingsSection) => {
+      if (!chatData?.project) return;
+      setProjectSettingsSection(target);
+      setPendingProjectSettings({
+        chatId,
+        projectId: chatData.project.id,
+        path: worktreePath ?? chatData.project.path,
+        projectName: chatData.project.name
       });
-    }
-    setSettingsTab('projects');
-    setSettingsOpen(true);
-  }, [chatData?.project, setSelectedProject, setSettingsTab, setSettingsOpen]);
+    },
+    [chatId, chatData?.project, worktreePath, setProjectSettingsSection, setPendingProjectSettings]
+  );
+  const handleOpenScriptsSettings = useCallback(
+    () => openProjectSettingsAtSection('worktree'),
+    [openProjectSettingsAtSection]
+  );
+  const handleOpenMcpSettings = useCallback(() => openProjectSettingsAtSection('mcp'), [openProjectSettingsAtSection]);
 
   // Per-workspace widget visibility
   const widgetVisibilityAtom = useMemo(() => widgetVisibilityAtomFamily(chatId), [chatId]);

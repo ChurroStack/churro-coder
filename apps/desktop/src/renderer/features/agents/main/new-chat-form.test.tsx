@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createChatMutateAsync: vi.fn(async () => ({ id: 'new-chat-1' })),
   openspecQuery: vi.fn(),
   projectsListQuery: vi.fn(),
+  supportsWorktreeQuery: vi.fn(),
   openspecInitMutateAsync: vi.fn(async () => ({
     targetRoot: '/test/project',
     tools: ['claude', 'codex'],
@@ -23,7 +24,7 @@ vi.mock('../../../lib/trpc', () => {
   const q = (data: unknown = undefined) => vi.fn(() => ({ data, isLoading: false, isError: false, refetch: vi.fn() }));
   const m = () => vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(async () => undefined), isPending: false }));
   const utils = {
-    chats: { list: { invalidate: vi.fn() } },
+    chats: { list: { invalidate: vi.fn(), fetch: vi.fn(async () => []) } },
     projects: { list: { setData: vi.fn() } },
     commands: {
       list: { fetch: vi.fn(async () => []) },
@@ -35,6 +36,7 @@ vi.mock('../../../lib/trpc', () => {
     trpc: {
       projects: {
         list: { useQuery: mocks.projectsListQuery },
+        supportsWorktree: { useQuery: mocks.supportsWorktreeQuery },
         openFolder: { useMutation: m() },
         cloneFromGitHub: { useMutation: m() }
       },
@@ -134,6 +136,8 @@ beforeEach(() => {
   mocks.projectsListQuery.mockReturnValue({ data: [], isLoading: false, isError: false });
   // Default: no openspec changes
   mocks.openspecQuery.mockReturnValue({ data: [], isLoading: false, isError: false });
+  // Default: project supports worktrees (Send enabled)
+  mocks.supportsWorktreeQuery.mockReturnValue({ data: { supported: true }, isLoading: false, isError: false });
 });
 
 function renderNoProject() {
@@ -479,5 +483,49 @@ describe('NewChatForm — wizard axis independence', () => {
     expect(mocks.createChatMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ harness: 'codex-cli', mode: 'execute' })
     );
+  });
+});
+
+// New Workspace is worktree-only: a non-git / commit-less folder can't create a
+// worktree, so Send is disabled and a warning offers the Local workspace instead.
+describe('NewChatForm — worktree git gate', () => {
+  it('non-git folder disables Send and shows the Open local workspace warning', () => {
+    mocks.supportsWorktreeQuery.mockReturnValue({
+      data: { supported: false, reason: 'not-a-repo' },
+      isLoading: false,
+      isError: false
+    });
+    const { container, getByText, getByRole } = renderWithProject();
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    expect(btn?.disabled).toBe(true);
+    expect(getByText(/not a git repository/i)).toBeTruthy();
+    expect(getByRole('button', { name: /open local workspace/i })).toBeTruthy();
+  });
+
+  it('a repo with no commits shows the "make an initial commit" reason', () => {
+    mocks.supportsWorktreeQuery.mockReturnValue({
+      data: { supported: false, reason: 'no-commits' },
+      isLoading: false,
+      isError: false
+    });
+    const { container, getByText } = renderWithProject();
+
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    expect(btn?.disabled).toBe(true);
+    expect(getByText(/make an initial commit/i)).toBeTruthy();
+  });
+
+  it('keeps Send enabled when the project supports worktrees', () => {
+    const { container } = renderWithProject();
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    expect(btn?.disabled).toBe(false);
+  });
+
+  it('disables Send while the worktree gate is still loading (no fast-submit slip-through)', () => {
+    mocks.supportsWorktreeQuery.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    const { container } = renderWithProject();
+    const btn = container.querySelector('button[aria-label="Send message"]') as HTMLButtonElement | null;
+    expect(btn?.disabled).toBe(true);
   });
 });

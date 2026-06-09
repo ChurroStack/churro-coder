@@ -12,7 +12,6 @@ import { AgentsMcpTab } from '../../components/dialogs/settings-tabs/agents-mcp-
 import { AgentsModelsTab } from '../../components/dialogs/settings-tabs/agents-models-tab';
 import { AgentsPreferencesTab } from '../../components/dialogs/settings-tabs/agents-preferences-tab';
 import { AgentsProfileTab } from '../../components/dialogs/settings-tabs/agents-profile-tab';
-import { AgentsProjectsTab } from '../../components/dialogs/settings-tabs/agents-project-worktree-tab';
 import { AgentsSkillsTab } from '../../components/dialogs/settings-tabs/agents-skills-tab';
 import { AgentsPluginsTab } from '../../components/dialogs/settings-tabs/agents-plugins-tab';
 import { AgentsSandboxTab } from '../../components/dialogs/settings-tabs/agents-sandbox-tab';
@@ -59,8 +58,6 @@ export function SettingsContent() {
         return <AgentsMcpTab />;
       case 'plugins':
         return <AgentsPluginsTab />;
-      case 'projects':
-        return <AgentsProjectsTab />;
       case 'beta':
         return <AgentsBetaTab />;
       case 'debug':
@@ -77,7 +74,6 @@ export function SettingsContent() {
     activeTab === 'mcp' ||
     activeTab === 'skills' ||
     activeTab === 'agents' ||
-    activeTab === 'projects' ||
     activeTab === 'keyboard' ||
     activeTab === 'plugins';
 

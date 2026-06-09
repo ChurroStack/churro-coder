@@ -1,4 +1,5 @@
 import { atom } from 'jotai';
+import { atomFamily } from 'jotai/utils';
 import { atomWithWindowStorage } from '../../lib/window-storage';
 import type { WidgetId } from '../details-sidebar/atoms';
 
@@ -12,7 +13,8 @@ export type PanelKind =
   | 'diff'
   | 'search'
   | 'files-tree'
-  | 'openspec-change';
+  | 'openspec-change'
+  | 'project-settings';
 
 /**
  * Snapshot of a single dockview panel — kept in sync by `DockHotkeysHost`
@@ -101,6 +103,19 @@ export interface OpenSpecChangePanelEntity {
   name?: string;
 }
 
+/**
+ * Per-workspace Project Settings panel. Scoped to `path` (the workspace's own
+ * working tree — worktree dir or, for a Local workspace, the base repo) so
+ * edits land in that tree and ride along with the branch. One per workspace,
+ * keyed by `chatId` (the workspace id).
+ */
+export interface ProjectSettingsPanelEntity {
+  chatId: string;
+  projectId: string;
+  path: string;
+  projectName?: string;
+}
+
 export type PanelEntity =
   | { kind: 'chat'; data: ChatPanelEntity }
   | { kind: 'chat-new'; data: NewChatPanelEntity }
@@ -111,7 +126,8 @@ export type PanelEntity =
   | { kind: 'diff'; data: DiffPanelEntity }
   | { kind: 'search'; data: SearchPanelEntity }
   | { kind: 'files-tree'; data: FilesTreePanelEntity }
-  | { kind: 'openspec-change'; data: OpenSpecChangePanelEntity };
+  | { kind: 'openspec-change'; data: OpenSpecChangePanelEntity }
+  | { kind: 'project-settings'; data: ProjectSettingsPanelEntity };
 
 export function panelIdFor(entity: PanelEntity): string {
   switch (entity.kind) {
@@ -135,6 +151,8 @@ export function panelIdFor(entity: PanelEntity): string {
       return `files-tree:${entity.data.projectId}`;
     case 'openspec-change':
       return `openspec-change:${entity.data.changeId}`;
+    case 'project-settings':
+      return `project-settings:${entity.data.chatId}`;
   }
 }
 
@@ -162,6 +180,8 @@ export function panelTitleFor(entity: PanelEntity): string {
       return 'Files';
     case 'openspec-change':
       return entity.data.name ?? entity.data.changeId;
+    case 'project-settings':
+      return 'Project Settings';
   }
 }
 
@@ -189,3 +209,40 @@ export const dockReadyAtom = atom<boolean>(false);
  * the window reloads, since this is intentionally not persisted).
  */
 export const mountedWorkspaceIdsAtom = atom<string[]>([]);
+
+/**
+ * Per-workspace "Project Settings panel is open" flag. The `ProjectSettingsPanel`
+ * self-registers `true` on mount / `false` on unmount (gated on workspace
+ * identity), exactly mirroring the chat-panel self-registration into
+ * `openSubChatIds`. `ChatPanelSync` reads this so the `main` placeholder exists
+ * iff the workspace has zero anchors (no open chats AND no PS panel) — without
+ * it, the openSubChatIds-driven effect wouldn't re-run when only the PS panel
+ * opens/closes and `main` would go stale.
+ */
+export const workspaceProjectSettingsOpenAtomFamily = atomFamily((_workspaceId: string) => atom<boolean>(false));
+
+/**
+ * Request to open the Project Settings panel in a specific workspace once its
+ * `WorkspaceDockShell` is mounted and active. Seeded by `useOpenLocalWorkspace`
+ * (and the layout-reset reseed path) and consumed + cleared by the sync effect
+ * in `ChatPanelSync` — mirrors `pendingOpenSpecPanelAtom`.
+ */
+export interface PendingProjectSettingsPanel {
+  chatId: string;
+  projectId: string;
+  path: string;
+  projectName?: string;
+}
+export const pendingProjectSettingsPanelAtom = atom<PendingProjectSettingsPanel | null>(null);
+
+export type ProjectSettingsSection = 'worktree' | 'skills' | 'agents' | 'mcp';
+
+/**
+ * The active section of a workspace's Project Settings panel. An atomFamily
+ * (keyed by workspaceId) rather than panel-local state so external triggers —
+ * e.g. the details-sidebar Scripts/MCP widget gears — can deep-link to a
+ * section even when the panel is already open. Defaults to 'worktree'.
+ */
+export const workspaceProjectSettingsSectionAtomFamily = atomFamily((_workspaceId: string) =>
+  atom<ProjectSettingsSection>('worktree')
+);

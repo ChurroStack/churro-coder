@@ -31,7 +31,6 @@ import {
   lastSelectedModelIdAtom,
   lastSelectedRepoAtom,
   lastSelectedWorkTypeAtom,
-  lastSelectedWorkModeAtom,
   selectedAgentChatIdAtom,
   selectedChatIsRemoteAtom,
   selectedDraftIdAtom,
@@ -54,7 +53,7 @@ import {
 } from '../lib/model-switching';
 import { defaultAgentModeAtom } from '../../../lib/atoms';
 import { ProjectSelector } from '../components/project-selector';
-import { WorkModeSelector } from '../components/work-mode-selector';
+import { useOpenLocalWorkspace } from '../hooks/use-open-local-workspace';
 // import { selectedTeamIdAtom } from "@/lib/atoms/team"
 import { atom } from 'jotai';
 const selectedTeamIdAtom = atom<string | null>(null);
@@ -77,7 +76,7 @@ import {
 // Desktop uses real tRPC
 import { toast } from 'sonner';
 import { trpc } from '../../../lib/trpc';
-import { AgentsSlashCommand, COMMAND_PROMPTS, BUILTIN_SLASH_COMMANDS, type SlashCommandOption } from '../commands';
+import { AgentsSlashCommand, BUILTIN_SLASH_COMMANDS, type SlashCommandOption } from '../commands';
 import { useAgentsFileUpload } from '../hooks/use-agents-file-upload';
 import { usePastedTextFiles } from '../hooks/use-pasted-text-files';
 import { useFocusInputOnEnter } from '../hooks/use-focus-input-on-enter';
@@ -399,7 +398,22 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const [selectedSpecId, setSelectedSpecId] = useState<string | null>(null);
   const [, setContinueFromSpecExpanded] = useAtom(continueFromSpecExpandedAtom);
   const [, setSpecPickerOpen] = useAtom(specPickerOpenAtom);
-  const [workMode, setWorkMode] = useAtom(lastSelectedWorkModeAtom);
+  const openLocalWorkspace = useOpenLocalWorkspace();
+
+  // New Workspace is worktree-only. Gate Send on whether the project supports
+  // worktrees (git repo with ≥1 commit); a non-git / commit-less folder must use
+  // the Local workspace instead.
+  const { data: worktreeSupport, isLoading: worktreeSupportLoading } = trpc.projects.supportsWorktree.useQuery(
+    { path: validatedProject?.path ?? '' },
+    { enabled: !!validatedProject?.path }
+  );
+  const worktreeUnsupported = !!validatedProject && worktreeSupport?.supported === false;
+  const worktreeUnsupportedReason = worktreeSupport?.reason;
+  // Block Send until the gate resolves so a fast submit on a non-git folder
+  // can't slip a worktree create through the loading window (which would
+  // silently fall back to a base-repo chat). `isLoading` clears on resolve or
+  // error, so an errored gate doesn't hard-block.
+  const worktreeGatePending = !!validatedProject?.path && worktreeSupportLoading;
 
   // Combined workflow mode shown in the in-input dropdown. Spec-driven is derived from
   // the OpenSpec harness; plan/execute/explore mirror agentMode. Funnel every write
@@ -422,18 +436,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     setAgentMode(getNextMode);
     setSelectedHarness('vibe-coding');
   }, [setSelectedHarness]);
-
-  // Detect existing Local-mode workspace for the selected project.
-  // Used to enforce one-Local-per-repo and show the conflict hint.
-  const { data: projectChatList } = trpc.chats.list.useQuery(
-    { projectId: validatedProject?.id ?? '' },
-    { enabled: !!validatedProject?.id && workMode === 'local' }
-  );
-  const existingLocalChat = useMemo(() => {
-    if (!validatedProject || workMode !== 'local') return null;
-    if (!Array.isArray(projectChatList)) return null;
-    return projectChatList.find((c) => c.worktreePath === validatedProject.path) ?? null;
-  }, [projectChatList, validatedProject, workMode]);
 
   const { data: openspecChanges = [], isLoading: isLoadingOpenSpecChanges } = trpc.openspec.listChanges.useQuery(
     { projectId: validatedProject?.id ?? '' },
@@ -483,40 +485,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const [repoSearchQuery, setRepoSearchQuery] = useState('');
   const [createBranchDialogOpen, setCreateBranchDialogOpen] = useState(false);
 
-  // Worktree config banner state
-  const [worktreeBannerDismissed, setWorktreeBannerDismissed] = useState(() => {
-    try {
-      return localStorage.getItem('worktree-banner-dismissed') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  // Check if project has worktree config
-  const { data: worktreeConfigData } = trpc.worktreeConfig.get.useQuery(
-    { projectId: validatedProject?.id ?? '' },
-    { enabled: !!validatedProject?.id && workMode === 'worktree' && !worktreeBannerDismissed }
-  );
-
-  const showWorktreeBanner =
-    workMode === 'worktree' &&
-    validatedProject &&
-    !worktreeBannerDismissed &&
-    worktreeConfigData &&
-    !worktreeConfigData.config;
-
-  const handleDismissWorktreeBanner = () => {
-    setWorktreeBannerDismissed(true);
-    try {
-      localStorage.setItem('worktree-banner-dismissed', 'true');
-    } catch {}
-  };
-
-  const handleConfigureWorktree = () => {
-    // Open the projects settings tab
-    setSettingsActiveTab('projects');
-    setSettingsDialogOpen(true);
-  };
   // Parse owner/repo from GitHub URL
   const parseGitHubUrl = (url: string) => {
     const match = url.match(/(?:github\.com\/)?([^\/]+)\/([^\/\s#?]+)/);
@@ -1390,7 +1358,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       if (selectSpecInFlightRef.current) return;
       selectSpecInFlightRef.current = true;
       try {
-        let chatId: string | null = selectedChatId ?? existingLocalChat?.id ?? null;
+        let chatId: string | null = selectedChatId ?? null;
         if (!chatId) {
           const newChat = await createChatMutation.mutateAsync({
             projectId,
@@ -1434,7 +1402,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       selectedSpecId,
       selectedChatId,
       selectedProject,
-      existingLocalChat,
       openSubChatForChange,
       createChatMutation,
       selectedChatModel,
@@ -1462,7 +1429,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       sendInFlightRef.current = true;
       try {
         const projectId = selectedProject.id;
-        let chatId: string | null = selectedChatId ?? existingLocalChat?.id ?? null;
+        let chatId: string | null = selectedChatId ?? null;
         if (!chatId) {
           const newChat = await createChatMutation.mutateAsync({
             projectId,
@@ -1504,16 +1471,16 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       sendInFlightRef.current = true;
       try {
         const projectId = selectedProject.id;
-        let chatId: string | null = selectedChatId ?? existingLocalChat?.id ?? null;
+        let chatId: string | null = selectedChatId ?? null;
         if (!chatId) {
           const newChat = await createChatMutation.mutateAsync({
             projectId,
             name: messageToTitleText(message).slice(0, 50) || 'OpenSpec change',
             model: selectedChatModel,
             initialMessageParts: [],
-            baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
-            branchType: workMode === 'worktree' ? selectedBranchType : undefined,
-            useWorktree: workMode === 'worktree',
+            baseBranch: selectedBranch || undefined,
+            branchType: selectedBranchType,
+            useWorktree: true,
             mode: 'execute',
             harness: selectedAgentHarness
           });
@@ -1570,10 +1537,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       } finally {
         sendInFlightRef.current = false;
       }
-      return;
-    }
-
-    if (existingLocalChat) {
       return;
     }
 
@@ -1711,9 +1674,9 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
           name: messageToTitleText(message).slice(0, 50) || 'New Chat',
           model: reviewModelOverride ?? selectedChatModel,
           initialMessageParts: parts,
-          baseBranch: workMode === 'worktree' ? selectedBranch || undefined : undefined,
-          branchType: workMode === 'worktree' ? selectedBranchType : undefined,
-          useWorktree: workMode === 'worktree',
+          baseBranch: selectedBranch || undefined,
+          branchType: selectedBranchType,
+          useWorktree: true,
           mode: agentMode,
           harness: selectedAgentHarness,
           tempPastedSubChatId: pastedTexts.length > 0 ? tempPastedIdRef.current : undefined
@@ -1745,7 +1708,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     hasContent,
     selectedBranch,
     selectedBranchType,
-    workMode,
     images,
     files,
     pastedTexts,
@@ -1758,7 +1720,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     getFormSelection,
     trpcUtils,
     selectedChatId,
-    existingLocalChat,
     openSubChatForChange,
     createOpenSpecChange,
     openspecInit,
@@ -2464,7 +2425,8 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                               disabled={Boolean(
                                 !wizardState.canSubmit ||
                                 isUploading ||
-                                existingLocalChat ||
+                                worktreeUnsupported ||
+                                worktreeGatePending ||
                                 createChatMutation.isPending
                               )}
                               onClick={handleSend}
@@ -2496,21 +2458,14 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       </div>
                     )}
 
-                    {/* Project, Work Mode, and Branch selectors - directly under input */}
+                    {/* Project and Branch selectors - directly under input */}
                     <div className="mt-1.5 md:mt-2 ml-[5px] flex items-center gap-2">
                       <ProjectSelector />
 
-                      {/* Work mode selector - between project and branch */}
+                      {/* Branch selector — New Workspace is worktree-only, so it's
+                          always shown for a valid project (the worktree is based
+                          off this branch). */}
                       {validatedProject && (
-                        <WorkModeSelector
-                          value={workMode}
-                          onChange={setWorkMode}
-                          disabled={createChatMutation.isPending}
-                        />
-                      )}
-
-                      {/* Branch selector - only visible when worktree mode is selected */}
-                      {validatedProject && workMode === 'worktree' && (
                         <Popover
                           open={branchPopoverOpen}
                           onOpenChange={(open) => {
@@ -2643,21 +2598,32 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       )}
                     </div>
 
-                    {/* Local workspace conflict hint */}
-                    {existingLocalChat && validatedProject && (
+                    {/* Worktree unavailable → can't create a worktree workspace.
+                        Offer the Local workspace (which works in the base repo). */}
+                    {worktreeUnsupported && validatedProject && (
                       <div className="flex items-center gap-1 mt-1 ml-[5px] text-xs text-amber-600 dark:text-amber-500">
                         <span>
-                          A Local workspace is already open for <strong>{validatedProject.name}</strong>.
+                          {worktreeUnsupportedReason === 'no-commits'
+                            ? 'Make an initial commit to enable worktrees.'
+                            : 'This folder is not a git repository, so worktrees can’t be created.'}
                         </span>
                         <button
                           className="underline hover:no-underline ml-0.5 transition-opacity hover:opacity-80"
-                          onClick={() => setSelectedChatId(existingLocalChat.id)}>
-                          Go to it →
+                          onClick={() =>
+                            openLocalWorkspace({
+                              id: validatedProject.id,
+                              name: validatedProject.name,
+                              path: validatedProject.path,
+                              gitRemoteUrl: validatedProject.gitRemoteUrl ?? null,
+                              gitProvider: (validatedProject.gitProvider as string | null | undefined) ?? null,
+                              gitOwner: validatedProject.gitOwner ?? null,
+                              gitRepo: validatedProject.gitRepo ?? null
+                            })
+                          }>
+                          Open local workspace →
                         </button>
                       </div>
                     )}
-
-                    {/* Worktree config banner - moved to corner banner below */}
 
                     {/* File mention dropdown */}
                     {/* Desktop: use projectPath for local file search */}
@@ -2702,47 +2668,6 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         </div>
       </div>
       <NewWorkspaceExplorer worktreePath={validatedProjectPath} />
-
-      {/* Worktree config banner - fixed bottom-right corner */}
-      {showWorktreeBanner && (
-        <div className="absolute bottom-4 right-4 z-50 max-w-sm rounded-lg border border-border bg-muted/50 p-3 pb-4 shadow-lg backdrop-blur-sm">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-1 top-1 h-7 w-7 text-muted-foreground hover:text-foreground"
-            aria-label="Dismiss"
-            onClick={handleDismissWorktreeBanner}>
-            <X className="h-3.5 w-3.5" />
-          </Button>
-          <div className="space-y-3 pr-8">
-            <p className="text-sm text-muted-foreground">
-              Configure a worktree setup script to install dependencies or copy environment variables.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={handleConfigureWorktree}>
-                Settings
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  const prompt = COMMAND_PROMPTS['worktree-setup'];
-                  if (prompt && validatedProject) {
-                    createChatMutation.mutate({
-                      projectId: validatedProject.id,
-                      name: 'Worktree Setup',
-                      model: selectedChatModel,
-                      initialMessageParts: [{ type: 'text', text: prompt }],
-                      useWorktree: false,
-                      mode: 'execute'
-                    });
-                  }
-                }}>
-                Fill with AI
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

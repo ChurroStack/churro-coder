@@ -1,16 +1,12 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'jotai';
 import type { PropsWithChildren } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../../components/ui/tooltip';
 import { createTestStore } from '../../../../../test-utils/create-test-store';
-import {
-  agentsSettingsDialogActiveTabAtom,
-  agentsSidebarOpenAtom,
-  selectedProjectAtom,
-  desktopViewAtom
-} from '../../../lib/atoms';
+import { selectedProjectAtom, desktopViewAtom } from '../../../lib/atoms';
+import { showNewChatFormAtom } from '../../agents/atoms';
 import { ProjectGroup } from './project-group';
 
 const archiveBatchMutate = vi.fn();
@@ -18,6 +14,8 @@ const deleteProjectMutate = vi.fn();
 const openInAppMutate = vi.fn();
 const openInFinderMutate = vi.fn();
 const invalidate = vi.fn();
+const createChatMutateAsync = vi.fn().mockResolvedValue({ id: 'local-chat-1' });
+const listFetch = vi.fn().mockResolvedValue([]);
 
 vi.mock('../../../components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: PropsWithChildren) => <div>{children}</div>,
@@ -47,7 +45,7 @@ vi.mock('../../../components/ui/dropdown-menu', () => ({
 vi.mock('../../../lib/trpc', () => ({
   trpc: {
     useUtils: () => ({
-      chats: { list: { invalidate } },
+      chats: { list: { invalidate, fetch: listFetch } },
       projects: { list: { invalidate } }
     }),
     external: {
@@ -55,7 +53,8 @@ vi.mock('../../../lib/trpc', () => ({
       openInFinder: { useMutation: () => ({ mutate: openInFinderMutate }) }
     },
     chats: {
-      archiveBatch: { useMutation: () => ({ mutate: archiveBatchMutate, isPending: false }) }
+      archiveBatch: { useMutation: () => ({ mutate: archiveBatchMutate, isPending: false }) },
+      create: { useMutation: () => ({ mutateAsync: createChatMutateAsync, isPending: false }) }
     },
     projects: {
       delete: { useMutation: () => ({ mutate: deleteProjectMutate, isPending: false }) }
@@ -64,7 +63,7 @@ vi.mock('../../../lib/trpc', () => ({
 }));
 
 describe('ProjectGroup', () => {
-  it('toggles open state, shows menu actions, and deep-links to project settings', async () => {
+  it('toggles open state, shows menu actions, and opens the local workspace', async () => {
     const store = createTestStore();
     render(
       <Provider store={store}>
@@ -98,11 +97,17 @@ describe('ProjectGroup', () => {
     expect(screen.getByText('Archive workspaces')).toBeTruthy();
     expect(screen.getByRole('button', { name: /remove repository/i }).hasAttribute('disabled')).toBe(true);
 
-    fireEvent.click(screen.getByText('Settings'));
+    fireEvent.click(screen.getByText(/open local workspace/i));
+    // The kebab now opens the project's Local workspace (which lands on its
+    // Project Settings panel), not the deleted global Projects tab.
     expect(store.get(selectedProjectAtom)?.id).toBe('p1');
-    expect(store.get(agentsSettingsDialogActiveTabAtom)).toBe('projects');
-    expect(store.get(desktopViewAtom)).toBe('settings');
-    expect(store.get(agentsSidebarOpenAtom)).toBe(true);
+    expect(store.get(showNewChatFormAtom)).toBe(false);
+    expect(store.get(desktopViewAtom)).toBeNull();
+    await waitFor(() =>
+      expect(createChatMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId: 'p1', useWorktree: false })
+      )
+    );
   });
 
   it('shows the empty state and no actions menu for unknown groups', () => {

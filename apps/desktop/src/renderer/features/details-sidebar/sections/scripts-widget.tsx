@@ -90,8 +90,11 @@ export const ScriptsWidget = memo(function ScriptsWidget({
   scopeKey,
   onOpenSettings
 }: ScriptsWidgetProps) {
+  // Scope to this workspace's own working tree so the widget shows the same
+  // scripts the per-workspace Project Settings panel reads/writes (a worktree's
+  // .cscode/worktree.json), not the base repo's.
   const { data: configData } = trpc.worktreeConfig.get.useQuery(
-    { projectId: projectId ?? '' },
+    { projectId: projectId ?? '', worktreePath: worktreePath || undefined },
     { enabled: !!projectId }
   );
 

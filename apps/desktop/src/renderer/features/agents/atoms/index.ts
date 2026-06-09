@@ -1033,15 +1033,6 @@ export interface PendingChatHistory {
 }
 export const pendingChatHistoryAtom = atom<PendingChatHistory | null>(null);
 
-// Work mode preference (local = work in project dir, worktree = create isolated worktree)
-export type WorkMode = 'local' | 'worktree';
-export const lastSelectedWorkModeAtom = atomWithStorage<WorkMode>(
-  'agents:lastSelectedWorkMode',
-  'worktree', // default to worktree for current behavior
-  undefined,
-  { getOnInit: true }
-);
-
 // Last selected branch per project (persisted)
 // Maps projectId -> { name: string, type: "local" | "remote" }
 // Custom storage with migration from old string format

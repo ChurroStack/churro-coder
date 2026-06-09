@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useListKeyboardNav } from './use-list-keyboard-nav';
-import { useAtomValue } from 'jotai';
-import { selectedProjectAtom, settingsSkillsSidebarWidthAtom } from '../../../features/agents/atoms';
+import { settingsSkillsSidebarWidthAtom } from '../../../features/agents/atoms';
+import { GLOBAL_SCOPE_MODE, type SettingsScopeMode } from './settings-scope-mode';
 import { trpc } from '../../../lib/trpc';
 import { cn } from '../../../lib/utils';
 import { Plus, Trash2 } from 'lucide-react';
@@ -224,8 +224,7 @@ function CreateItemForm({
   onCreated,
   onCancel,
   isSaving,
-  hasProject,
-  projectName
+  mode
 }: {
   onCreated: (data: {
     name: string;
@@ -236,14 +235,21 @@ function CreateItemForm({
   }) => void;
   onCancel: () => void;
   isSaving: boolean;
-  hasProject: boolean;
-  projectName?: string;
+  mode: SettingsScopeMode;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
-  const [source, setSource] = useState<'user' | 'project'>('user');
   const [kind, setKind] = useState<'skill' | 'command'>('skill');
+  // Scope is fixed by surface: global Settings creates user-scoped items,
+  // the workspace Project Settings panel creates project-scoped items.
+  const source: 'user' | 'project' = mode.kind === 'project' ? 'project' : 'user';
+  const scopeLabel =
+    mode.kind === 'project'
+      ? `${mode.projectName ? `Project: ${mode.projectName}` : 'Project'} (${kind === 'skill' ? '.claude/skills/' : '.claude/commands/'})`
+      : kind === 'skill'
+        ? 'User (~/.claude/skills/)'
+        : 'User (~/.claude/commands/)';
 
   const canSave = name.trim().length > 0;
 
@@ -300,25 +306,12 @@ function CreateItemForm({
           />
         </div>
 
-        {hasProject && (
-          <div className="space-y-1.5">
-            <Label>Scope</Label>
-            <Select value={source} onValueChange={(v) => setSource(v as 'user' | 'project')}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="user">
-                  {kind === 'skill' ? 'User (~/.claude/skills/)' : 'User (~/.claude/commands/)'}
-                </SelectItem>
-                <SelectItem value="project">
-                  {projectName ? `Project: ${projectName}` : 'Project'} (
-                  {kind === 'skill' ? '.claude/skills/' : '.claude/commands/'})
-                </SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="space-y-1.5">
+          <Label>Location</Label>
+          <div className="px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg">
+            <code className="text-xs text-foreground">{scopeLabel}</code>
           </div>
-        )}
+        </div>
 
         <div className="space-y-1.5">
           <Label>Instructions</Label>
@@ -373,7 +366,10 @@ function SidebarListItem({
 }
 
 // --- Main Component ---
-export function AgentsSkillsTab() {
+export function AgentsSkillsTab({ mode = GLOBAL_SCOPE_MODE }: { mode?: SettingsScopeMode } = {}) {
+  // Scope path: project mode reads/writes `<path>/.claude/...`; global mode
+  // passes no cwd so only user/plugin items are returned.
+  const projectPath = mode.kind === 'project' ? mode.path : undefined;
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -393,21 +389,19 @@ export function AgentsSkillsTab() {
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
-  const selectedProject = useAtomValue(selectedProjectAtom);
-
   // Fetch skills
   const {
     data: skills = [],
     isLoading: isLoadingSkills,
     refetch: refetchSkills
-  } = trpc.skills.list.useQuery(selectedProject?.path ? { cwd: selectedProject.path } : undefined);
+  } = trpc.skills.list.useQuery(projectPath ? { cwd: projectPath } : undefined);
 
   // Fetch commands
   const {
     data: commands = [],
     isLoading: isLoadingCommands,
     refetch: refetchCommands
-  } = trpc.commands.list.useQuery(selectedProject?.path ? { projectPath: selectedProject.path } : undefined);
+  } = trpc.commands.list.useQuery(projectPath ? { projectPath } : undefined);
 
   const isLoading = isLoadingSkills || isLoadingCommands;
 
@@ -459,15 +453,18 @@ export function AgentsSkillsTab() {
     return allItems.filter((i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q));
   }, [allItems, searchQuery]);
 
-  // Group by source
-  const userItems = filteredItems.filter((i) => i.source === 'user');
-  const projectItems = filteredItems.filter((i) => i.source === 'project');
-  const pluginItems = filteredItems.filter((i) => i.source === 'plugin');
+  // Group by source. Project mode shows only project-scoped items; global mode
+  // shows user + plugin (project items are never fetched without a cwd).
+  const isProjectScope = mode.kind === 'project';
+  const userItems = isProjectScope ? [] : filteredItems.filter((i) => i.source === 'user');
+  const projectItems = isProjectScope ? filteredItems.filter((i) => i.source === 'project') : [];
+  const pluginItems = isProjectScope ? [] : filteredItems.filter((i) => i.source === 'plugin');
 
-  const allItemIds = useMemo(
-    () => [...userItems, ...projectItems, ...pluginItems].map((i) => i.id),
+  const visibleItems = useMemo(
+    () => [...userItems, ...projectItems, ...pluginItems],
     [userItems, projectItems, pluginItems]
   );
+  const allItemIds = useMemo(() => visibleItems.map((i) => i.id), [visibleItems]);
 
   const { containerRef: listRef, onKeyDown: listKeyDown } = useListKeyboardNav({
     items: allItemIds,
@@ -475,13 +472,13 @@ export function AgentsSkillsTab() {
     onSelect: setSelectedItemId
   });
 
-  const selectedItem = allItems.find((i) => i.id === selectedItemId) || null;
+  const selectedItem = visibleItems.find((i) => i.id === selectedItemId) || null;
 
-  // Auto-select first item when data loads
+  // Auto-select first visible item when data loads
   useEffect(() => {
-    if (selectedItemId || isLoading || allItems.length === 0) return;
-    setSelectedItemId(allItems[0]!.id);
-  }, [allItems, selectedItemId, isLoading]);
+    if (selectedItemId || isLoading || visibleItems.length === 0) return;
+    setSelectedItemId(visibleItems[0]!.id);
+  }, [visibleItems, selectedItemId, isLoading]);
 
   const handleCreate = useCallback(
     async (data: {
@@ -498,7 +495,7 @@ export function AgentsSkillsTab() {
             description: data.description,
             content: data.content,
             source: data.source,
-            cwd: selectedProject?.path
+            cwd: projectPath
           });
           toast.success('Skill created', { description: result.name });
           setShowAddForm(false);
@@ -510,7 +507,7 @@ export function AgentsSkillsTab() {
             description: data.description,
             content: data.content,
             source: data.source,
-            projectPath: selectedProject?.path
+            projectPath: projectPath
           });
           toast.success('Command created', { description: result.name });
           setShowAddForm(false);
@@ -522,7 +519,7 @@ export function AgentsSkillsTab() {
         toast.error('Failed to create', { description: message });
       }
     },
-    [createSkillMutation, createCommandMutation, selectedProject?.path, refetchAll]
+    [createSkillMutation, createCommandMutation, projectPath, refetchAll]
   );
 
   const handleSave = useCallback(
@@ -534,7 +531,7 @@ export function AgentsSkillsTab() {
             name: item.name,
             description: data.description,
             content: data.content,
-            cwd: selectedProject?.path
+            cwd: projectPath
           });
         } else {
           await updateCommandMutation.mutateAsync({
@@ -543,7 +540,7 @@ export function AgentsSkillsTab() {
             description: data.description,
             content: data.content,
             argumentHint: item.argumentHint,
-            projectPath: selectedProject?.path
+            projectPath: projectPath
           });
         }
         toast.success(`${item.kind === 'skill' ? 'Skill' : 'Command'} saved`, { description: item.name });
@@ -553,7 +550,7 @@ export function AgentsSkillsTab() {
         toast.error('Failed to save', { description: message });
       }
     },
-    [updateSkillMutation, updateCommandMutation, selectedProject?.path, refetchAll]
+    [updateSkillMutation, updateCommandMutation, projectPath, refetchAll]
   );
 
   const handleDelete = useCallback(async () => {
@@ -562,12 +559,12 @@ export function AgentsSkillsTab() {
       if (deletingItem.kind === 'skill') {
         await deleteSkillMutation.mutateAsync({
           path: deletingItem.path,
-          cwd: selectedProject?.path
+          cwd: projectPath
         });
       } else {
         await deleteCommandMutation.mutateAsync({
           path: deletingItem.path,
-          projectPath: selectedProject?.path
+          projectPath: projectPath
         });
       }
       toast.success(`${deletingItem.kind === 'skill' ? 'Skill' : 'Command'} deleted`, {
@@ -580,12 +577,12 @@ export function AgentsSkillsTab() {
       const message = error instanceof Error ? error.message : 'Failed to delete';
       toast.error('Failed to delete', { description: message });
     }
-  }, [deletingItem, deleteSkillMutation, deleteCommandMutation, selectedProject?.path, refetchAll]);
+  }, [deletingItem, deleteSkillMutation, deleteCommandMutation, projectPath, refetchAll]);
 
   const isSaving = updateSkillMutation.isPending || updateCommandMutation.isPending;
   const isCreating = createSkillMutation.isPending || createCommandMutation.isPending;
   const isDeleting = deleteSkillMutation.isPending || deleteCommandMutation.isPending;
-  const totalCount = allItems.length;
+  const totalCount = visibleItems.length;
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -720,8 +717,7 @@ export function AgentsSkillsTab() {
             onCreated={handleCreate}
             onCancel={() => setShowAddForm(false)}
             isSaving={isCreating}
-            hasProject={!!selectedProject?.path}
-            projectName={selectedProject?.name}
+            mode={mode}
           />
         ) : selectedItem ? (
           <ItemDetail
