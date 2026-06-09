@@ -58,7 +58,10 @@ vi.mock('../db/messages-table', () => ({
     return false;
   },
   hasOrphanedToolPart: (_db: unknown, sub: string) =>
-    mdb.list(sub).some((r) => r.parts.some((p: any) => p && p.state === 'input-available'))
+    mdb.list(sub).some((r) => r.parts.some((p: any) => p && p.state === 'input-available')),
+  deleteMessagesForSubChat: (_db: unknown, sub: string) => {
+    mdb.rows.delete(sub);
+  }
 }));
 
 import { CliSessionIngester } from './ingester';
@@ -135,6 +138,58 @@ describe('CliSessionIngester.reingestFull — plan recovery (fill-gaps)', () => 
     await ing.reingestFull();
 
     expect((await readCurrentPlan(subChatId))?.content).toBe('# Authoritative\nMCP wrote this');
+  });
+});
+
+/** A 3-line Codex transcript in chronological order: an assistant TEXT turn,
+ *  then a shell tool call, then its output. The pre-fix mapper dropped the
+ *  id-less text message and persisted only the tool call. */
+function codexTextThenTool(): string {
+  return (
+    [
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-06-09T20:10:50Z',
+        payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Voy a revisar.' }] }
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-06-09T20:10:51Z',
+        payload: { type: 'function_call', name: 'exec_command', call_id: 'c1', arguments: '{"command":"ls"}' }
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-06-09T20:10:52Z',
+        payload: { type: 'function_call_output', call_id: 'c1', output: 'a\nb' }
+      })
+    ].join('\n') + '\n'
+  );
+}
+
+describe('CliSessionIngester.rebuildFromScratch — Codex heal', () => {
+  it('wipes gutted rows and re-ingests the transcript in chronological order', async () => {
+    const subChatId = 'sub-codex-heal';
+    const sessionFile = join(tmpRoot, 'rollout.jsonl');
+    await writeFile(sessionFile, codexTextThenTool(), 'utf8');
+
+    // Simulate the pre-fix gutted state: only a stale tool row, no assistant text.
+    mdb.list(subChatId).push({
+      idx: 0,
+      id: 'stale-tool',
+      role: 'assistant',
+      parts: [{ type: 'tool-Bash', toolCallId: 'old', state: 'input-available' }]
+    });
+
+    const ing = new CliSessionIngester(subChatId, 'codex-cli', sessionFile);
+    await ing.rebuildFromScratch();
+
+    const rows = mdb.list(subChatId);
+    // Stale row gone; rebuilt in transcript order: text (idx 0) BEFORE tool (idx 1).
+    expect(rows.some((r) => r.id === 'stale-tool')).toBe(false);
+    expect(rows).toHaveLength(2);
+    const byIdx = [...rows].sort((a, b) => a.idx - b.idx);
+    expect(byIdx[0].parts[0]).toMatchObject({ type: 'text', text: 'Voy a revisar.' });
+    expect(byIdx[1].parts[0]).toMatchObject({ type: 'tool-Bash', state: 'output-available', output: 'a\nb' });
   });
 });
 

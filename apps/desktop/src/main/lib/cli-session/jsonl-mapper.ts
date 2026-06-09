@@ -14,6 +14,7 @@
  * See mapping-table.ts for the declarative rules driving this code.
  */
 
+import { createHash } from 'node:crypto';
 import {
   CLAUDE_SKIP_EVENT_TYPES,
   CLAUDE_TOOL_NAME_INDEX,
@@ -21,7 +22,7 @@ import {
   CODEX_SKIP_PAYLOAD_TYPES,
   type SideEffectKind
 } from './mapping-table';
-import { stripClaudeCliEnvelopes } from '../../../shared/cli-text-envelopes';
+import { stripClaudeCliEnvelopes, stripCodexUserEnvelopes } from '../../../shared/cli-text-envelopes';
 
 export interface MessagePart {
   type: string;
@@ -341,10 +342,33 @@ interface CodexResponsePayload {
   id?: string;
   role?: string;
   content?: Array<{ type: string; text?: string }> | unknown;
+  summary?: Array<{ type?: string; text?: string }> | unknown; // reasoning text lives here
+  encrypted_content?: unknown; // opaque reasoning blob (unrenderable)
   name?: string; // function_call name
   call_id?: string;
   arguments?: string; // JSON-stringified call args
   output?: unknown; // function_call_output
+}
+
+/** Codex `message` / `reasoning` response_items carry NO `id` field (verified
+ *  across every on-disk rollout transcript). Synthesize a stable id from the
+ *  record's intrinsic, immutable fields so ingestion stays idempotent: an
+ *  append-only file re-walked from byte 0 (manual Refresh / repair / crash
+ *  catch-up) derives the SAME id and the unique (sub_chat_id, id) index +
+ *  `seen` set dedup it. Must NOT depend on record position (a counter breaks
+ *  across the resume/full-rewalk boundary) or on Date.now() (non-deterministic).
+ *  The raw envelope timestamp + role + content/summary/encrypted_content
+ *  uniquely identify a record; encrypted_content disambiguates reasoning blocks
+ *  with empty summaries. */
+function codexSyntheticId(prefix: string, tsRaw: string, payload: CodexResponsePayload): string {
+  const sig = JSON.stringify({
+    t: tsRaw,
+    r: payload.role ?? null,
+    c: payload.content ?? null,
+    s: payload.summary ?? null,
+    e: payload.encrypted_content ?? null
+  });
+  return `${prefix}-${createHash('sha1').update(sig).digest('hex').slice(0, 32)}`;
 }
 
 interface CodexPatchApplyEndPayload {
@@ -356,12 +380,15 @@ interface CodexPatchApplyEndPayload {
 
 function mapCodexResponseItem(envelope: CodexRecord, payload: CodexResponsePayload, state: MapperState): MapperResult {
   const createdAt = parseTimestamp(envelope.timestamp) ?? Date.now();
+  // Pass the RAW timestamp string (not the Date.now()-fallback `createdAt`) to
+  // the id synthesizer so a record with no timestamp can't get a non-deterministic id.
+  const tsRaw = typeof envelope.timestamp === 'string' ? envelope.timestamp : '';
 
   switch (payload.type) {
     case 'message':
-      return mapCodexMessage(payload, createdAt);
+      return mapCodexMessage(payload, createdAt, tsRaw);
     case 'reasoning':
-      return mapCodexReasoning(payload, createdAt);
+      return mapCodexReasoning(payload, createdAt, tsRaw);
     case 'function_call':
     case 'custom_tool_call':
       return mapCodexFunctionCall(payload, createdAt, state);
@@ -373,33 +400,46 @@ function mapCodexResponseItem(envelope: CodexRecord, payload: CodexResponsePaylo
   }
 }
 
-function mapCodexMessage(payload: CodexResponsePayload, createdAt: number): MapperResult {
+function mapCodexMessage(payload: CodexResponsePayload, createdAt: number, tsRaw: string): MapperResult {
+  // Codex `developer`-role records (system prompt, collaboration mode, skills)
+  // map to no role and are intentionally dropped.
   const role = payload.role === 'user' ? 'user' : payload.role === 'assistant' ? 'assistant' : null;
   if (!role) return EMPTY;
-  const uuid = payload.id ?? null;
-  if (!uuid) return EMPTY;
 
   const parts: MessagePart[] = [];
   if (Array.isArray(payload.content)) {
     for (const block of payload.content) {
       if (!block || typeof block !== 'object') continue;
       if (block.type === 'input_text' || block.type === 'output_text') {
-        if (block.text && block.text.trim()) parts.push({ type: 'text', text: block.text });
+        const raw = typeof block.text === 'string' ? block.text : '';
+        // Strip Codex's machine-injected wrappers (environment_context,
+        // turn_aborted, MCP reminder) from user turns so only the human's
+        // prompt renders; an all-wrapper record strips to empty and is dropped.
+        const text = role === 'user' ? stripCodexUserEnvelopes(raw) : raw;
+        if (text.trim()) parts.push({ type: 'text', text });
       }
     }
   }
   if (parts.length === 0) return EMPTY;
+  // Codex messages carry no `id`; synthesize a stable one (see codexSyntheticId).
+  const uuid = payload.id ?? codexSyntheticId('codex-msg', tsRaw, payload);
   return { messages: [{ uuid, role, parts, createdAt }], sideEffects: [] };
 }
 
-function mapCodexReasoning(payload: CodexResponsePayload, createdAt: number): MapperResult {
-  const uuid = payload.id ?? null;
-  if (!uuid) return EMPTY;
-  // Codex packs reasoning under content[].text (sometimes nested differently
-  // across versions). Accept both shapes.
+function mapCodexReasoning(payload: CodexResponsePayload, createdAt: number, tsRaw: string): MapperResult {
+  // Codex packs reasoning text under `summary[]` ({type:'summary_text', text}).
+  // `content[]` is always empty in practice and `encrypted_content` is opaque;
+  // accept summary[] first, then content[], then a top-level `text` for forward/
+  // backward-compat across Codex versions. Records with no decodable text
+  // (empty summary + encrypted-only) yield nothing and are dropped.
   let text = '';
-  if (Array.isArray(payload.content)) {
-    for (const block of payload.content) {
+  const blocks = Array.isArray(payload.summary)
+    ? payload.summary
+    : Array.isArray(payload.content)
+      ? payload.content
+      : null;
+  if (blocks) {
+    for (const block of blocks) {
       if (block && typeof block === 'object' && typeof block.text === 'string') {
         text += (text ? '\n' : '') + block.text;
       }
@@ -408,6 +448,7 @@ function mapCodexReasoning(payload: CodexResponsePayload, createdAt: number): Ma
     text = (payload as unknown as { text: string }).text;
   }
   if (!text.trim()) return EMPTY;
+  const uuid = payload.id ?? codexSyntheticId('codex-reasoning', tsRaw, payload);
   return {
     messages: [{ uuid, role: 'assistant', parts: [{ type: 'reasoning', text }], createdAt }],
     sideEffects: []

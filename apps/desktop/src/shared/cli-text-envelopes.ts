@@ -38,3 +38,22 @@ export function stripClaudeCliEnvelopes(text: string): string {
   s = s.replace(/\n{3,}/g, '\n\n').trim();
   return s;
 }
+
+/**
+ * Strip Codex's machine-injected wrappers from a user-role message so only the
+ * human's actual prompt renders. Codex prepends an `<environment_context>` block
+ * (cwd / shell / date / filesystem permissions) to the first turn of every
+ * session and emits a standalone `<turn_aborted>` notice when the user
+ * interrupts — neither is user-typed. A user record that is *only* such a
+ * wrapper strips to empty, and the mapper drops the message entirely.
+ *
+ * Delegates to `stripClaudeCliEnvelopes` for the shared MCP first-turn reminder
+ * line and whitespace normalization (the local-command tags it also removes
+ * never appear in Codex records, so they're harmless no-ops).
+ */
+export function stripCodexUserEnvelopes(text: string): string {
+  let s = text;
+  s = s.replace(/<environment_context>[\s\S]*?<\/environment_context>/g, '');
+  s = s.replace(/<turn_aborted>[\s\S]*?<\/turn_aborted>/g, '');
+  return stripClaudeCliEnvelopes(s);
+}

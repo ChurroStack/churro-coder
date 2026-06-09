@@ -37,6 +37,7 @@ import type { CliHarness } from '../cli-harness';
 import { getDatabase } from '../db';
 import {
   appendIngestedMessage,
+  deleteMessagesForSubChat,
   hasOrphanedToolPart,
   nextMessageIdx,
   refreshSubChatCountersAfterIngest,
@@ -175,6 +176,33 @@ export class CliSessionIngester {
     });
     this.stopped = false;
     await this.start();
+  }
+
+  /** Wipe ALL persisted messages for this sub-chat and re-ingest the JSONL from
+   *  byte 0, so rows land in correct file order with the current mapper.
+   *
+   *  Differs from `reingestFull` (which preserves rows and dedups) because the
+   *  one-time Codex heal needs to REORDER: chats ingested by the pre-fix mapper
+   *  kept only tool calls (assistant/user text + reasoning were dropped for
+   *  lacking an `id`). A plain re-walk would append the recovered prose AFTER
+   *  the existing tool rows (rows render in idx order), scrambling the
+   *  conversation. Wiping first lets idx restart at 0 in transcript order. The
+   *  JSONL is the source of truth, so dropping the render-cache rows is safe. */
+  async rebuildFromScratch(): Promise<{ newMessageCount: number; sideEffectsApplied: number }> {
+    return lockFor(this.subChatId).runExclusive(async () => {
+      const db = getDatabase();
+      deleteMessagesForSubChat(db, this.subChatId);
+      refreshSubChatCountersAfterIngest(db, this.subChatId); // count → 0
+      await mutateIngestState(
+        this.subChatId,
+        () => emptyIngestState(this.sessionFile, 0),
+        () => emptyIngestState(this.sessionFile, 0)
+      );
+      this.mapperState = createMapperState();
+      // Allow the repair walk to run again for this freshly-rebuilt transcript.
+      this.repairAttempted = false;
+      return this.ingestPendingLocked();
+    });
   }
 
   /** Re-walk the session file from byte 0. Wipes ingest-state UUIDs and resets

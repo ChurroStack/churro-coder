@@ -308,9 +308,20 @@ if (gotTheLock) {
     // Re-attach CLI session ingesters for sub-chats with a recorded
     // cliSessionFile (recovered from disk). Failures here are non-fatal — the
     // status-widget Refresh button is the manual escape hatch.
-    import('./lib/trpc/routers/cli-session')
-      .then((m) => m.bootstrapIngestersOnAppStart())
-      .catch((e) => console.warn('[cli-session] bootstrap failed:', e));
+    //
+    // A one-time Codex heal runs FIRST: chats ingested before the missing-`id`
+    // mapper fix kept only tool calls, so we wipe + re-ingest their JSONL in
+    // transcript order. It attaches the healed ingesters, so the subsequent
+    // bootstrap is a no-op for them and still recovers claude-cli rows. Chained
+    // so the heal's rebuild can't race bootstrap's catch-up on the same row.
+    import('./lib/cli-session/codex-heal')
+      .then((m) => m.runCodexHealIfNeeded())
+      .catch((e) => console.warn('[codex-heal] failed:', e))
+      .finally(() => {
+        import('./lib/trpc/routers/cli-session')
+          .then((m) => m.bootstrapIngestersOnAppStart())
+          .catch((e) => console.warn('[cli-session] bootstrap failed:', e));
+      });
 
     // CLI versions for the About panel. The CLIs are no longer bundled, so probe
     // the user's PATH-installed claude/codex lazily — set the base panel now and

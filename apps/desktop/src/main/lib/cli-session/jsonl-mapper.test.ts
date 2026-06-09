@@ -279,6 +279,100 @@ describe('jsonl-mapper / Codex', () => {
       expect(r.sideEffects).toEqual([]);
     }
   });
+
+  // Regression: real Codex `message` / `reasoning` response_items carry NO `id`
+  // field. The mapper used to `return EMPTY` on the missing id, dropping ALL
+  // assistant/user text + reasoning and persisting only function_calls (which
+  // fall back to call_id) — leaving the conversation pane blank.
+  const idlessAssistant = (text: string) =>
+    JSON.stringify({
+      type: 'response_item',
+      timestamp: '2026-06-09T20:10:50.735Z',
+      payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }
+    });
+
+  it('ingests an id-less assistant message with a synthesized stable id', () => {
+    const r = mapCodexLine(idlessAssistant('Es un Buscaminas clásico.'), createMapperState());
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages[0].parts).toEqual([{ type: 'text', text: 'Es un Buscaminas clásico.' }]);
+    expect(r.messages[0].uuid).toMatch(/^codex-msg-[0-9a-f]{32}$/);
+  });
+
+  it('synthesizes the SAME id for the same record across re-walks (idempotent)', () => {
+    const a = mapCodexLine(idlessAssistant('hola'), createMapperState());
+    const b = mapCodexLine(idlessAssistant('hola'), createMapperState());
+    expect(a.messages[0].uuid).toBe(b.messages[0].uuid);
+    // Different content → different id.
+    const c = mapCodexLine(idlessAssistant('adiós'), createMapperState());
+    expect(c.messages[0].uuid).not.toBe(a.messages[0].uuid);
+  });
+
+  it('strips the environment_context wrapper from an id-less user message', () => {
+    const r = mapCodexLine(
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-06-09T20:10:40Z',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: '<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>\nde que trata'
+            }
+          ]
+        }
+      }),
+      createMapperState()
+    );
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages[0].role).toBe('user');
+    expect(r.messages[0].parts).toEqual([{ type: 'text', text: 'de que trata' }]);
+  });
+
+  it('drops a user message that is ONLY an environment_context wrapper', () => {
+    const r = mapCodexLine(
+      JSON.stringify({
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: '<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>' }]
+        }
+      }),
+      createMapperState()
+    );
+    expect(r.messages).toEqual([]);
+  });
+
+  it('maps reasoning text from summary[] (the real Codex shape)', () => {
+    const r = mapCodexLine(
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-06-09T20:10:48Z',
+        payload: {
+          type: 'reasoning',
+          summary: [{ type: 'summary_text', text: 'Clarifying the project plan' }],
+          encrypted_content: 'gAAAA...'
+        }
+      }),
+      createMapperState()
+    );
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages[0].parts).toEqual([{ type: 'reasoning', text: 'Clarifying the project plan' }]);
+    expect(r.messages[0].uuid).toMatch(/^codex-reasoning-[0-9a-f]{32}$/);
+  });
+
+  it('drops reasoning with an empty summary and only encrypted_content', () => {
+    const r = mapCodexLine(
+      JSON.stringify({
+        type: 'response_item',
+        payload: { type: 'reasoning', summary: [], encrypted_content: 'gAAAA...' }
+      }),
+      createMapperState()
+    );
+    expect(r.messages).toEqual([]);
+  });
 });
 
 // Regression suite for the "interrupted via churro-coder" bug: a tool_result that
