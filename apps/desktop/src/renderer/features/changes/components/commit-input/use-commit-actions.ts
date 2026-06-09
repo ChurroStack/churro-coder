@@ -1,9 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAtomValue } from 'jotai';
 import { toast } from 'sonner';
 import { trpc } from '../../../../lib/trpc';
-import { selectedOllamaModelAtom, showOfflineModeFeaturesAtom } from '../../../../lib/atoms';
+import {
+  customClaudeConfigAtom,
+  normalizeCustomClaudeConfig,
+  selectedOllamaModelAtom,
+  showOfflineModeFeaturesAtom
+} from '../../../../lib/atoms';
 import { getCommitGenerationNeeds, buildFinalCommitMessage } from './commit-message-utils';
 
 interface CommitActionInput {
@@ -31,6 +36,10 @@ export function useCommitActions({
   const queryClient = useQueryClient();
   const selectedOllamaModel = useAtomValue(selectedOllamaModelAtom);
   const useOllamaFallback = useAtomValue(showOfflineModeFeaturesAtom);
+  // Explicit in-app Anthropic API key, when configured. Commit-message
+  // generation must use an API key only — never the Claude subscription token.
+  const customClaudeConfig = useAtomValue(customClaudeConfigAtom);
+  const normalizedCustomConfig = useMemo(() => normalizeCustomClaudeConfig(customClaudeConfig), [customClaudeConfig]);
 
   const handleSuccess = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: [['changes', 'getStatus']] });
@@ -76,7 +85,8 @@ export function useCommitActions({
             filePaths,
             ollamaModel: selectedOllamaModel,
             existingTitle: needsTitle ? undefined : commitTitle,
-            useOllamaFallback
+            useOllamaFallback,
+            customConfig: normalizedCustomConfig
           });
           console.log('[CommitActions] AI generated:', result.title, 'provider:', result.provider);
 
@@ -122,6 +132,7 @@ export function useCommitActions({
       generateCommitMutation,
       selectedOllamaModel,
       useOllamaFallback,
+      normalizedCustomConfig,
       onMessageGenerated,
       atomicCommitMutation,
       commitMutation,
