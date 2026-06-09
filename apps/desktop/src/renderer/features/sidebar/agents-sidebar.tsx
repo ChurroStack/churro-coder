@@ -114,6 +114,7 @@ import { TypewriterText } from '../../components/ui/typewriter-text';
 import { exportChat, copyChat, type ExportFormat } from '../agents/lib/export-chat';
 import { ProjectGroup } from './project-group/project-group';
 import { useGroupedAgentChats } from './grouping/use-grouped-agent-chats';
+import { deriveWorkspaceStatus } from './grouping/group-chats-by-project';
 
 // Feedback URL: uses env variable for hosted version, falls back to public Discord for open source
 const FEEDBACK_URL = import.meta.env.VITE_FEEDBACK_URL || 'https://discord.gg/8ektTZGnj4';
@@ -198,6 +199,8 @@ const ChatIcon = React.memo(function ChatIcon({
     return null;
   }
 
+  const badgeStatus = deriveWorkspaceStatus({ isLoading, hasPendingQuestion, hasPendingPlan, hasUnseenChanges });
+
   return (
     <div className="relative flex-shrink-0 w-4 h-4">
       {/* Checkbox slides in from left, icon slides out */}
@@ -217,9 +220,9 @@ const ChatIcon = React.memo(function ChatIcon({
         )}>
         {renderMainIcon()}
       </div>
-      {/* Badge in bottom-right corner: question > loader > amber dot > blue dot - hidden during multi-select or when icon is hidden */}
+      {/* Badge in bottom-right corner: loader > question > amber dot > blue dot - hidden during multi-select or when icon is hidden */}
       <AnimatePresence mode="wait">
-        {(hasPendingQuestion || isLoading || hasUnseenChanges || hasPendingPlan) && !isMultiSelectMode && showIcon && (
+        {badgeStatus !== 'none' && !isMultiSelectMode && showIcon && (
           <motion.div
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -233,14 +236,15 @@ const ChatIcon = React.memo(function ChatIcon({
             )}>
             {/*
               Workspace-row badge has 4 visual states (loader, question, amber pending-plan, blue unseen),
-              so it intentionally does NOT use deriveSubChatIconKind (which is a 3-state classifier).
-              Priority MUST stay: loader > question > amber dot (pending plan) > blue dot (unseen).
-              Spinner first so a busy agent never hides behind a stale question/plan signal. The two
-              tail states (plan / unseen) are workspace-level attention signals that live below the
-              main "is the agent working / asking?" question.
+              so it intentionally does NOT use deriveSubChatIconKind (which is a 3-state classifier). The
+              4-state precedence lives in deriveWorkspaceStatus (group-chats-by-project.ts), shared with
+              the project-group rollup so the two can't drift. Priority MUST stay:
+              loader > question > amber dot (pending plan) > blue dot (unseen). Spinner first so a busy
+              agent never hides behind a stale question/plan signal. The two tail states (plan / unseen)
+              are workspace-level attention signals that live below the main "is the agent working / asking?" question.
             */}
             <AnimatePresence mode="wait">
-              {isLoading ? (
+              {badgeStatus === 'loading' ? (
                 <motion.div
                   key="loading"
                   initial={{ opacity: 0, scale: 0.5 }}
@@ -249,7 +253,7 @@ const ChatIcon = React.memo(function ChatIcon({
                   transition={{ duration: 0.15 }}>
                   <LoadingDot isLoading={true} className="w-2.5 h-2.5 text-muted-foreground" />
                 </motion.div>
-              ) : hasPendingQuestion ? (
+              ) : badgeStatus === 'pendingQuestion' ? (
                 <motion.div
                   key="question"
                   initial={{ opacity: 0, scale: 0.5 }}
@@ -258,7 +262,7 @@ const ChatIcon = React.memo(function ChatIcon({
                   transition={{ duration: 0.15 }}>
                   <QuestionIcon className="w-2.5 h-2.5 text-blue-500" />
                 </motion.div>
-              ) : hasPendingPlan ? (
+              ) : badgeStatus === 'pendingPlan' ? (
                 <motion.div
                   key="plan"
                   initial={{ opacity: 0, scale: 0.5 }}
@@ -490,6 +494,11 @@ const AgentChatItem = React.memo(function AgentChatItem({
   const isParentChatBusy = useAtomValue(useMemo(() => parentChatBusyAtomFamily(chatId), [chatId]));
   const isLoading = isLoadingFromParent || isParentChatBusy;
 
+  // Shared 4-state precedence (loader > question > pending plan > unseen), also fed to
+  // the ChatIcon badge and the project-group rollup. `isLoading` keeps its
+  // defense-in-depth busy input (loadingChatIds Set OR parentChatBusyAtomFamily).
+  const rowStatus = deriveWorkspaceStatus({ isLoading, hasPendingQuestion, hasPendingPlan, hasUnseenChanges });
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -572,12 +581,13 @@ const AgentChatItem = React.memo(function AgentChatItem({
                   <div className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center relative">
                     {/* Inline loader/status when icon is hidden - always visible, hides on hover.
                         4-state cascade (loader > question > pending-plan > unseen) mirrors the
-                        ChatIcon badge above and intentionally does not use deriveSubChatIconKind
-                        (which is 3-state). Keep loader first so a busy agent stays visible. */}
-                    {!showIcon && (hasPendingQuestion || isLoading || hasUnseenChanges || hasPendingPlan) && (
+                        ChatIcon badge above via the shared deriveWorkspaceStatus precedence
+                        (group-chats-by-project.ts); intentionally not deriveSubChatIconKind
+                        (which is 3-state). Loader first so a busy agent stays visible. */}
+                    {!showIcon && rowStatus !== 'none' && (
                       <div className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover:opacity-0">
                         <AnimatePresence mode="wait">
-                          {isLoading ? (
+                          {rowStatus === 'loading' ? (
                             <motion.div
                               key="loading"
                               initial={{ opacity: 0, scale: 0.5 }}
@@ -586,7 +596,7 @@ const AgentChatItem = React.memo(function AgentChatItem({
                               transition={{ duration: 0.15 }}>
                               <LoadingDot isLoading={true} className="w-2.5 h-2.5 text-muted-foreground" />
                             </motion.div>
-                          ) : hasPendingQuestion ? (
+                          ) : rowStatus === 'pendingQuestion' ? (
                             <motion.div
                               key="question"
                               initial={{ opacity: 0, scale: 0.5 }}
@@ -595,7 +605,7 @@ const AgentChatItem = React.memo(function AgentChatItem({
                               transition={{ duration: 0.15 }}>
                               <QuestionIcon className="w-2.5 h-2.5 text-blue-500" />
                             </motion.div>
-                          ) : hasPendingPlan ? (
+                          ) : rowStatus === 'pendingPlan' ? (
                             <motion.div
                               key="plan"
                               initial={{ opacity: 0, scale: 0.5 }}

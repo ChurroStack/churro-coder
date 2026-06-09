@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import {
+  deriveWorkspaceStatus,
   groupChatsByProject,
   reduceProjectStatus,
   type GroupableAgentChat,
@@ -37,13 +38,14 @@ export function useGroupedAgentChats(
     }).map((group) => ({
       ...group,
       status: reduceProjectStatus(
-        group.chats.map((chat) => {
-          if (statusMaps.workspacePendingQuestions.has(chat.id)) return 'pendingQuestion';
-          if (statusMaps.loadingChatIds.has(chat.id)) return 'loading';
-          if (statusMaps.workspacePendingPlans.has(chat.id)) return 'pendingPlan';
-          if (statusMaps.unseenChanges.has(chat.id)) return 'unseen';
-          return 'none';
-        })
+        group.chats.map((chat) =>
+          deriveWorkspaceStatus({
+            isLoading: statusMaps.loadingChatIds.has(chat.id),
+            hasPendingQuestion: statusMaps.workspacePendingQuestions.has(chat.id),
+            hasPendingPlan: statusMaps.workspacePendingPlans.has(chat.id),
+            hasUnseenChanges: statusMaps.unseenChanges.has(chat.id)
+          })
+        )
       )
     }));
 
