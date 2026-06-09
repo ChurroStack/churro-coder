@@ -63,7 +63,9 @@ vi.mock('../../../lib/trpc', () => ({
         getPrStatus: { invalidate: vi.fn() },
         getCurrentPlan: { invalidate: vi.fn() },
         getCurrentReview: { invalidate: vi.fn() },
-        getReviewContent: { invalidate: vi.fn() }
+        getReviewContent: { invalidate: vi.fn() },
+        getCurrentTasks: { invalidate: vi.fn() },
+        getMcpFileChanges: { invalidate: vi.fn() }
       },
       changes: { getStatus: { invalidate: vi.fn() } },
       cliSession: { getStatus: { invalidate: vi.fn() } },
