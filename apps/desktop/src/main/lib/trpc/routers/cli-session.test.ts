@@ -82,7 +82,7 @@ vi.mock('../../cli-session/ingester', () => ({
   onCliSessionIngest: vi.fn().mockReturnValue(() => {})
 }));
 
-import { postSpawnLocateAndAttach } from './cli-session';
+import { postSpawnLocateAndAttach, ensureIngesterAttached, bootstrapIngestersOnAppStart } from './cli-session';
 import { encodeClaudeProjectDirName } from '../../cli-session/locator';
 import { subChats, chats, projects } from '../../db/schema';
 
@@ -285,4 +285,66 @@ describe.skipIf(!nativeSqliteUsable)(suiteTitle, () => {
     expect(bound?.cliSessionId).toBeNull();
     expect(attachIngesterMock).not.toHaveBeenCalledWith('B', expect.anything(), expect.anything());
   }, 15_000);
+});
+
+const ensureTitle = nativeSqliteUsable
+  ? 'ensureIngesterAttached — deterministic orphaned-row recovery'
+  : `ensureIngesterAttached — SKIPPED (better-sqlite3 ABI mismatch: ${nativeSqliteSkipReason})`;
+describe.skipIf(!nativeSqliteUsable)(ensureTitle, () => {
+  // The bug this pins: a claude-cli sub-chat whose cliSessionFile was never
+  // persisted (the post-spawn locator missed its single shot) stays empty
+  // forever. Its transcript is deterministically locatable from cliSessionId.
+  it('recovers a null-file claude-cli row when the deterministic transcript exists', async () => {
+    const idB = 'b93a36ff-f760-402c-8851-8f8a271d3977';
+    seedSubChat({ id: 'B', cliSessionId: idB /* cliSessionFile null */ });
+    const fileB = await makeClaudeJsonl(idB);
+
+    const res = await ensureIngesterAttached('B');
+
+    expect(res.via).toBe('recovered');
+    expect(res.attached).toBe(true);
+    expect(res.sessionFile).toBe(fileB);
+    expect(attachIngesterMock).toHaveBeenCalledWith('B', 'claude-cli', fileB);
+    // The binding is now persisted so app-start / future opens re-attach directly.
+    const bound = readSubChatBinding('B');
+    expect(bound?.cliSessionFile).toBe(fileB);
+    expect(bound?.cliSessionId).toBe(idB);
+  });
+
+  // A1 from the plan critique: the auto path must be deterministic-only. With no
+  // cliSessionId it must NOT mtime-scan, even when a foreign transcript is the
+  // newest file in the same encoded-cwd dir (which a scan would latch onto).
+  it('does NOT attach or mtime-scan when cliSessionId is null', async () => {
+    // A foreign sub-chat's freshly-written transcript sits in the same dir.
+    await makeClaudeJsonl('cccccccc-aaaa-bbbb-cccc-dddddddddddd');
+    seedSubChat({ id: 'B' /* cliSessionId null, cliSessionFile null */ });
+
+    const res = await ensureIngesterAttached('B');
+
+    expect(res.via).toBe('none');
+    expect(res.attached).toBe(false);
+    expect(res.sessionFile).toBeNull();
+    expect(attachIngesterMock).not.toHaveBeenCalled();
+    expect(readSubChatBinding('B')?.cliSessionFile).toBeNull();
+  });
+
+  it('no-ops (does not throw) when the deterministic transcript is not yet on disk', async () => {
+    seedSubChat({ id: 'B', cliSessionId: 'dddddddd-aaaa-bbbb-cccc-dddddddddddd' });
+    // No file written — single-shot lookup returns null immediately (no ~10s hang).
+    const res = await ensureIngesterAttached('B');
+    expect(res.via).toBe('none');
+    expect(res.attached).toBe(false);
+    expect(attachIngesterMock).not.toHaveBeenCalled();
+  });
+
+  it('bootstrapIngestersOnAppStart recovers orphaned rows (null cliSessionFile + id + on-disk transcript)', async () => {
+    const idB = 'eeeeeeee-aaaa-bbbb-cccc-dddddddddddd';
+    seedSubChat({ id: 'B', cliSessionId: idB /* cliSessionFile null */ });
+    const fileB = await makeClaudeJsonl(idB);
+
+    await bootstrapIngestersOnAppStart();
+
+    expect(attachIngesterMock).toHaveBeenCalledWith('B', 'claude-cli', fileB);
+    expect(readSubChatBinding('B')?.cliSessionFile).toBe(fileB);
+  });
 });

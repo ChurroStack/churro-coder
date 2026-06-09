@@ -24,7 +24,7 @@ import { publicProcedure, router } from '../index';
 import { getDatabase } from '../../db';
 import { subChats, chats, projects } from '../../db/schema';
 import type { CliHarness } from '../../cli-harness';
-import { locateSessionFile } from '../../cli-session/locator';
+import { locateSessionFile, locateSessionFileOnce } from '../../cli-session/locator';
 import {
   attachIngester,
   detachIngester,
@@ -131,6 +131,67 @@ function persistLocatedSession(subChatId: string, sessionFile: string, sessionId
   });
 }
 
+/**
+ * Idempotent, DETERMINISTIC-ONLY recovery primitive. Attaches the ingester for
+ * a CLI sub-chat if it isn't already watching, without ever running the locator's
+ * mtime scan — so it is safe to call automatically (panel mount, app start)
+ * without the cross-latch risk that `relocate` carries when no session id is
+ * known (a null-`cliSessionFile` sibling in the same worktree could otherwise be
+ * picked up). Resolution order:
+ *   1. ingester already attached → no-op
+ *   2. `cliSessionFile` recorded and on disk → attach the watcher
+ *   3. `cliSessionId` set (claude-cli only) → look for the exact deterministic
+ *      path `~/.claude/projects/<encoded-cwd>/<id>.jsonl`; persist + attach if found
+ *   4. otherwise → no-op (NO mtime scan; the post-spawn locator or the manual
+ *      Refresh button handle the id-less / not-yet-written cases)
+ *
+ * Single-shot lookup (no backoff): this recovers transcripts that already exist,
+ * so a not-yet-written file returns immediately rather than hanging ~10s.
+ */
+export async function ensureIngesterAttached(subChatId: string): Promise<{
+  sessionFile: string | null;
+  sessionId: string | null;
+  attached: boolean;
+  via: 'already-watching' | 'known-file' | 'recovered' | 'none';
+}> {
+  const row = loadCliRow(subChatId);
+  if (!row) return { sessionFile: null, sessionId: null, attached: false, via: 'none' };
+
+  if (getIngester(subChatId)) {
+    return { sessionFile: row.cliSessionFile, sessionId: row.cliSessionId, attached: true, via: 'already-watching' };
+  }
+
+  // Known file still on disk → just attach the watcher.
+  if (row.cliSessionFile && existsSync(row.cliSessionFile)) {
+    await attachIngester(subChatId, row.harness, row.cliSessionFile);
+    return { sessionFile: row.cliSessionFile, sessionId: row.cliSessionId, attached: true, via: 'known-file' };
+  }
+
+  // Deterministic recovery: claude-cli only (codex has no pre-allocated id, so
+  // it cannot be located without an mtime/spawn anchor — left to Refresh / mount
+  // self-heal once a file is known).
+  if (row.harness === 'claude-cli' && row.cliSessionId && row.cwd) {
+    const located = await locateSessionFileOnce({
+      harness: row.harness,
+      cwd: row.cwd,
+      spawnedAt: Date.now(), // unused by the deterministic (expectedSessionId) path
+      expectedSessionId: row.cliSessionId,
+      excludePaths: claimedSessionFiles(subChatId)
+    });
+    if (!located) return { sessionFile: null, sessionId: null, attached: false, via: 'none' };
+    const persistResult = persistLocatedSession(subChatId, located.sessionFile, located.sessionId);
+    if (persistResult === 'collision') {
+      console.warn(`${TRACE} ensure-attached-collision sub=${subChatId} file=${located.sessionFile}`);
+      return { sessionFile: null, sessionId: null, attached: false, via: 'none' };
+    }
+    await attachIngester(subChatId, row.harness, located.sessionFile);
+    console.log(`${TRACE} ensure-attached-recovered sub=${subChatId} file=${located.sessionFile}`);
+    return { sessionFile: located.sessionFile, sessionId: located.sessionId, attached: true, via: 'recovered' };
+  }
+
+  return { sessionFile: null, sessionId: null, attached: false, via: 'none' };
+}
+
 export const cliSessionRouter = router({
   getStatus: publicProcedure.input(subChatIdInput).query(({ input }) => {
     const row = loadCliRow(input.subChatId);
@@ -183,6 +244,15 @@ export const cliSessionRouter = router({
     }
     await attachIngester(input.subChatId, row.harness, located.sessionFile);
     return { sessionFile: located.sessionFile, sessionId: located.sessionId };
+  }),
+
+  /**
+   * Idempotent self-heal. Fired automatically when a CLI conversation pane
+   * mounts with no attached ingester. Deterministic-only (see
+   * {@link ensureIngesterAttached}) — safe to call without user intent.
+   */
+  ensureAttached: publicProcedure.input(subChatIdInput).mutation(async ({ input }) => {
+    return ensureIngesterAttached(input.subChatId);
   }),
 
   /** Re-parse the session file. `full: true` walks from byte 0. */
@@ -289,27 +359,31 @@ export async function postSpawnLocateAndAttach(
 }
 
 /**
- * App-start hook. Walks all sub-chats with a recorded cliSessionFile and
- * starts an ingester for each (so reopened panels show their transcript
- * immediately). Skips files that no longer exist on disk.
+ * App-start hook. Walks all CLI sub-chats and attaches an ingester for each
+ * (so reopened panels show their transcript immediately). Routes through
+ * {@link ensureIngesterAttached}, which both re-attaches rows that already have
+ * a recorded `cliSessionFile` AND deterministically RECOVERS claude-cli rows
+ * whose `cliSessionFile` is null but whose `cliSessionId` points at an on-disk
+ * transcript (the orphaned-row case that previously stayed empty until the user
+ * hit Refresh). Sequential + fire-and-forget at the call site, so it doesn't
+ * block startup and doesn't hammer the disk with concurrent full-file reads.
  */
 export async function bootstrapIngestersOnAppStart(): Promise<void> {
   const db = getDatabase();
-  const rows = db
-    .select({ id: subChats.id, harness: subChats.harness, file: subChats.cliSessionFile })
-    .from(subChats)
-    .all();
+  const rows = db.select({ id: subChats.id, harness: subChats.harness }).from(subChats).all();
   let attached = 0;
+  let recovered = 0;
   for (const row of rows) {
-    if (!row.file) continue;
     if (row.harness !== 'claude-cli' && row.harness !== 'codex-cli') continue;
-    if (!existsSync(row.file)) continue;
     try {
-      await attachIngester(row.id, row.harness as CliHarness, row.file);
-      attached += 1;
+      const result = await ensureIngesterAttached(row.id);
+      if (result.attached) attached += 1;
+      if (result.via === 'recovered') recovered += 1;
     } catch (err) {
       console.warn(`${TRACE} bootstrap attach failed sub=${row.id} err=${err}`);
     }
   }
-  if (attached > 0) console.log(`${TRACE} bootstrapped ${attached} ingester(s) on app start`);
+  if (attached > 0) {
+    console.log(`${TRACE} bootstrapped ${attached} ingester(s) on app start (recovered=${recovered})`);
+  }
 }
