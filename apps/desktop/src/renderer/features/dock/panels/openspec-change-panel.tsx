@@ -36,6 +36,7 @@ export function OpenSpecChangePanel({ params, api, containerApi }: IDockviewPane
   const [isActive, setIsActive] = useState(api.isActive);
   const { active: isWorkspaceActive } = useDockWorkspace();
   const setActiveSubChat = useAgentSubChatStore((s) => s.setActiveSubChat);
+  const storeChatId = useAgentSubChatStore((s) => s.chatId);
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
   const allSubChats = useAgentSubChatStore((s) => s.allSubChats);
@@ -59,13 +60,17 @@ export function OpenSpecChangePanel({ params, api, containerApi }: IDockviewPane
     };
   }, [api, containerApi]);
 
-  // Push activeSubChatId when this panel is focused (same guard as ChatPanel)
+  // Push activeSubChatId when this panel is focused (same guard as ChatPanel).
+  // Pass `params.chatId` as the cross-workspace guard so a background panel
+  // (renderer:always) of another workspace can't clobber activeSubChatId under
+  // a mismatched store chatId during the selectedChatId-vs-store desync;
+  // `storeChatId` in deps lets the claim retry once the store finishes syncing.
   useEffect(() => {
     if (!isWorkspaceActive || !isActive) return;
     const selectedWorkspaceId = appStore.get(selectedAgentChatIdAtom);
     if (params.chatId !== selectedWorkspaceId) return;
-    setActiveSubChat(params.subChatId);
-  }, [isWorkspaceActive, isActive, params.chatId, params.subChatId, setActiveSubChat]);
+    setActiveSubChat(params.subChatId, params.chatId);
+  }, [isWorkspaceActive, isActive, storeChatId, params.chatId, params.subChatId, setActiveSubChat]);
 
   // Keep tab title in sync with sub-chat name
   useEffect(() => {

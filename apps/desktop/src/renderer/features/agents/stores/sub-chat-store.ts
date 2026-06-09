@@ -286,10 +286,29 @@ export const useAgentSubChatStore = create<AgentSubChatStore>((set, get) => ({
         return { id, name: 'New Chat', harness, cwd };
       });
 
+    // Sanitize the restored active tab: if it is missing, or no longer in the
+    // open set (e.g. localStorage was cross-workspace-contaminated by an
+    // unguarded setActiveSubChat, or the tab was closed), reset it to the first
+    // open tab. The read-side resolver (resolveValidatedSubChatId) does NOT
+    // self-heal a non-null-but-stale activeSubChatId — `activeSubChatId ??
+    // openSubChatIds[0]` keeps the stale value and then returns null at the
+    // `!openSubChatIds.includes(candidate)` guard, blanking the whole right rail
+    // (confirmed via the `candidate-not-open` diagnostic). Healing here keeps
+    // activeSubChatId an actual open tab of THIS workspace.
+    const resolvedActiveSubChatId =
+      activeSubChatId && openSubChatIds.includes(activeSubChatId) ? activeSubChatId : (openSubChatIds[0] ?? null);
+    // Persist the resolved value whenever it changed — including null, which
+    // clears a stale/foreign id out of localStorage (loadFromLS round-trips
+    // JSON.stringify(null) back to null). Otherwise the contaminated id would
+    // linger in LS across restarts even after being healed in memory.
+    if (resolvedActiveSubChatId !== activeSubChatId) {
+      saveToLS(chatId, 'active', resolvedActiveSubChatId);
+    }
+
     set({
       chatId,
       openSubChatIds,
-      activeSubChatId,
+      activeSubChatId: resolvedActiveSubChatId,
       pinnedSubChatIds,
       splitPaneIds,
       splitRatios,
