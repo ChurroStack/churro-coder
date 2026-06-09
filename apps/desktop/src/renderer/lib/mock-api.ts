@@ -340,8 +340,16 @@ export const api = {
       useMutation: () => {
         const mutation = trpc.chats.generateSubChatName.useMutation();
         return {
-          mutateAsync: async (args: { userMessage: string; ollamaModel?: string | null }) => {
-            return mutation.mutateAsync({ userMessage: args.userMessage, ollamaModel: args.ollamaModel });
+          mutateAsync: async (args: {
+            userMessage: string;
+            ollamaModel?: string | null;
+            customConfig?: { model: string; token: string; baseUrl: string };
+          }) => {
+            return mutation.mutateAsync({
+              userMessage: args.userMessage,
+              ollamaModel: args.ollamaModel,
+              customConfig: args.customConfig
+            });
           },
           isPending: mutation.isPending
         };

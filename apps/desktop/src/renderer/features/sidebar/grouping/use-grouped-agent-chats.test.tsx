@@ -50,4 +50,36 @@ describe('useGroupedAgentChats', () => {
     expect(result.current.visibleGroups.map((group) => group.id)).toEqual(['p2', 'p1', 'p3']);
     expect(result.current.visibleGroups.find((group) => group.id === 'p3')?.chats).toEqual([]);
   });
+
+  it('shows loading (not pendingQuestion) when a busy workspace still carries a question', () => {
+    // Regression: a workspace that is busy AND has a stale/expired question must
+    // resolve to 'loading' at the project level, mirroring the workspace-row badge.
+    const busyAndQuestion = {
+      ...statusMaps,
+      loadingChatIds: new Set(['c1']),
+      workspacePendingQuestions: new Set(['c1'])
+    };
+    const { result } = renderHook(() => useGroupedAgentChats(chats, projectsMap, new Set(), '', busyAndQuestion));
+
+    expect(result.current.visibleGroups.find((group) => group.id === 'p1')?.status).toBe('loading');
+  });
+
+  it('surfaces pendingQuestion across siblings even when one workspace is busy', () => {
+    // Two workspaces in one project: c1 busy, c2 genuinely waiting (not busy).
+    // The cross-workspace reducer must still surface the question.
+    const sharedProjectChats = [
+      { ...chats[0], id: 'c1', projectId: 'p1' },
+      { ...chats[1], id: 'c2', projectId: 'p1' }
+    ];
+    const busyPlusWaiting = {
+      ...statusMaps,
+      loadingChatIds: new Set(['c1']),
+      workspacePendingQuestions: new Set(['c2'])
+    };
+    const { result } = renderHook(() =>
+      useGroupedAgentChats(sharedProjectChats, projectsMap, new Set(), '', busyPlusWaiting)
+    );
+
+    expect(result.current.visibleGroups.find((group) => group.id === 'p1')?.status).toBe('pendingQuestion');
+  });
 });

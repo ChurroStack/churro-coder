@@ -30,6 +30,30 @@ export type ProjectGroup = {
 
 export type WorkspaceStatus = 'pendingQuestion' | 'loading' | 'pendingPlan' | 'unseen' | 'none';
 
+export interface WorkspaceStatusInputs {
+  isLoading: boolean;
+  hasPendingQuestion: boolean;
+  hasPendingPlan: boolean;
+  hasUnseenChanges: boolean;
+}
+
+// Single source of truth for per-workspace status precedence, shared by the
+// left-sidebar workspace-row badge (agents-sidebar.tsx) and the project-group
+// rollup (use-grouped-agent-chats.ts). Precedence MUST stay
+// loader > question > pending plan > unseen so a busy agent never hides behind a
+// stale question/plan signal (same rule as deriveSubChatIconKind: busy > needs-input).
+//
+// NOTE: this resolves a SINGLE workspace to one status. The cross-workspace
+// rollup (reduceProjectStatus below) intentionally ranks pendingQuestion above
+// loading, so a genuinely-waiting sibling still surfaces over a busy one.
+export function deriveWorkspaceStatus(i: WorkspaceStatusInputs): WorkspaceStatus {
+  if (i.isLoading) return 'loading';
+  if (i.hasPendingQuestion) return 'pendingQuestion';
+  if (i.hasPendingPlan) return 'pendingPlan';
+  if (i.hasUnseenChanges) return 'unseen';
+  return 'none';
+}
+
 const STATUS_PRIORITY: WorkspaceStatus[] = ['pendingQuestion', 'loading', 'pendingPlan', 'unseen', 'none'];
 
 export function reduceProjectStatus(statuses: WorkspaceStatus[]): WorkspaceStatus {
