@@ -14,7 +14,7 @@ import {
 import { hasReview, readCurrentReview, onReviewWritten, markAccepted } from '../../reviews/review-store';
 import { onTasksWritten, readTasks } from '../../tasks/task-store';
 import { onFileChangesNotified, readFileChanges } from '../../file-changes/file-changes-store';
-import { app, BrowserWindow, safeStorage } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import * as fs from 'fs/promises';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -22,16 +22,7 @@ import * as path from 'path';
 import simpleGit from 'simple-git';
 import { z } from 'zod';
 import { trackPRCreated, trackWorkspaceArchived, trackWorkspaceCreated, trackWorkspaceDeleted } from '../../analytics';
-import {
-  anthropicAccounts,
-  anthropicSettings,
-  chats,
-  claudeCodeCredentials,
-  getDatabase,
-  messages,
-  projects,
-  subChats
-} from '../../db';
+import { chats, getDatabase, messages, projects, subChats } from '../../db';
 import { readMessagesFromTable, readMessagesForSubChats, replaceMessagesInTable } from '../../db/messages-table';
 import { computeFileStatsFromMessages } from '../../file-stats';
 import { createWorktreeForChat, getWorktreeDiff, removeWorktree, sanitizeProjectName } from '../../git';
@@ -42,6 +33,7 @@ import { splitUnifiedDiffByFile } from '../../git/diff-parser';
 import { applyRollbackStash } from '../../git/stash';
 import { repairSubChatModeForHydration } from '../../sub-chat-mode';
 import { checkOllamaStatus } from '../../ollama';
+import { resolveClaudeRestAuth } from '../../claude-title-auth';
 import { getPrompt } from '../../prompts/prompt-service';
 import { terminalManager } from '../../terminal/manager';
 import {
@@ -220,32 +212,37 @@ Title:`;
   }
 }
 
-async function generateChatNameWithClaude(userMessage: string, signal: AbortSignal): Promise<string | null> {
+/**
+ * Explicit API-key config threaded in from the renderer (the in-app onboarding
+ * key, `customClaudeConfig`). Never carries the Claude subscription OAuth token.
+ */
+type CustomClaudeAuthConfig = { model: string; token: string; baseUrl: string };
+
+async function generateChatNameWithClaude(
+  userMessage: string,
+  signal: AbortSignal,
+  customConfig?: CustomClaudeAuthConfig
+): Promise<string | null> {
   if (signal.aborted) return null;
   const start = Date.now();
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    const oauthToken = apiKey ? null : getActiveOAuthToken();
-    if (!apiKey && !oauthToken) return null;
-
-    const authHeaders: Record<string, string> = apiKey
-      ? { 'x-api-key': apiKey }
-      : { Authorization: `Bearer ${oauthToken}` };
+    const auth = resolveClaudeRestAuth(customConfig);
+    if (!auth) return null;
 
     const userPrompt = await getPrompt({
       key: 'chat-title/prompt',
       vars: { userMessage: stripTitleMentionTokens(userMessage).slice(0, 4000) }
     });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch(auth.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'anthropic-version': '2023-06-01',
-        ...authHeaders
+        ...auth.headers
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: auth.model,
         max_tokens: 40,
         messages: [{ role: 'user', content: userPrompt }]
       }),
@@ -328,33 +325,6 @@ async function generateChatNameWithOpenAI(userMessage: string, signal: AbortSign
   }
 }
 
-function decryptStoredToken(encrypted: string): string {
-  if (!safeStorage.isEncryptionAvailable()) {
-    return Buffer.from(encrypted, 'base64').toString('utf-8');
-  }
-  return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
-}
-
-function getActiveOAuthToken(): string | null {
-  try {
-    const db = getDatabase();
-    const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, 'singleton')).get();
-    if (settings?.activeAccountId) {
-      const account = db
-        .select()
-        .from(anthropicAccounts)
-        .where(eq(anthropicAccounts.id, settings.activeAccountId))
-        .get();
-      if (account?.oauthToken) return decryptStoredToken(account.oauthToken);
-    }
-    const legacy = db.select().from(claudeCodeCredentials).where(eq(claudeCodeCredentials.id, 'default')).get();
-    if (legacy?.oauthToken) return decryptStoredToken(legacy.oauthToken);
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function buildChatContextFromMessages(db: ReturnType<typeof getDatabase>, chatId: string): string | undefined {
   try {
     const userRows = db
@@ -394,16 +364,12 @@ async function generateCommitMessageWithClaude(
   additions: number,
   deletions: number,
   existingTitle?: string,
-  chatContext?: string
+  chatContext?: string,
+  customConfig?: CustomClaudeAuthConfig
 ): Promise<{ title: string; description: string } | null> {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    const oauthToken = apiKey ? null : getActiveOAuthToken();
-    if (!apiKey && !oauthToken) return null;
-
-    const authHeaders: Record<string, string> = apiKey
-      ? { 'x-api-key': apiKey }
-      : { Authorization: `Bearer ${oauthToken}` };
+    const auth = resolveClaudeRestAuth(customConfig);
+    if (!auth) return null;
 
     const contextBlock = chatContext ? `Task context (what the developer was working on):\n${chatContext}\n\n` : '';
     const vars = { contextBlock, fileCount, additions, deletions, diff: diff.slice(0, 6000) };
@@ -415,15 +381,15 @@ async function generateCommitMessageWithClaude(
       userPrompt = await getPrompt({ key: 'commit-message/claude-full', vars });
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch(auth.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'anthropic-version': '2023-06-01',
-        ...authHeaders
+        ...auth.headers
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: auth.model,
         max_tokens: 400,
         messages: [{ role: 'user', content: userPrompt }]
       }),
@@ -1651,7 +1617,11 @@ export const chatsRouter = router({
         filePaths: z.array(z.string()).optional(),
         ollamaModel: z.string().nullish(),
         existingTitle: z.string().optional(),
-        useOllamaFallback: z.boolean().optional()
+        useOllamaFallback: z.boolean().optional(),
+        // In-app Anthropic API key (customClaudeConfig). Never the subscription OAuth token.
+        customConfig: z
+          .object({ model: z.string().min(1), token: z.string().min(1), baseUrl: z.string().min(1) })
+          .optional()
       })
     )
     .mutation(async ({ input }) => {
@@ -1698,7 +1668,8 @@ export const chatsRouter = router({
         additions,
         deletions,
         input.existingTitle,
-        chatContext
+        chatContext,
+        input.customConfig
       );
       if (claudeResult) {
         console.log('[generateCommitMessage] Generated via Claude, provider: claude');
@@ -1736,7 +1707,11 @@ export const chatsRouter = router({
     .input(
       z.object({
         userMessage: z.string(),
-        ollamaModel: z.string().nullish()
+        ollamaModel: z.string().nullish(),
+        // In-app Anthropic API key (customClaudeConfig). Never the subscription OAuth token.
+        customConfig: z
+          .object({ model: z.string().min(1), token: z.string().min(1), baseUrl: z.string().min(1) })
+          .optional()
       })
     )
     .mutation(async ({ input }) => {
@@ -1751,7 +1726,11 @@ export const chatsRouter = router({
         const budgetTimer = setTimeout(() => budgetController.abort(), 5000);
 
         try {
-          const claudeName = await generateChatNameWithClaude(input.userMessage, budgetController.signal);
+          const claudeName = await generateChatNameWithClaude(
+            input.userMessage,
+            budgetController.signal,
+            input.customConfig
+          );
           if (claudeName) return { name: claudeName };
 
           const openaiName = await generateChatNameWithOpenAI(input.userMessage, budgetController.signal);

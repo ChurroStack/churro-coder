@@ -1,7 +1,12 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { api } from '../../../lib/mock-api';
-import { selectedOllamaModelAtom, selectedTeamIdAtom } from '../../../lib/atoms';
+import {
+  customClaudeConfigAtom,
+  normalizeCustomClaudeConfig,
+  selectedOllamaModelAtom,
+  selectedTeamIdAtom
+} from '../../../lib/atoms';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { autoRenameAgentChat } from '../utils/auto-rename';
 import { getFirstSubChatId } from '../utils/first-sub-chat';
@@ -27,6 +32,10 @@ export function useAgentAutoRenameDispatcher({ parentChatId }: AutoRenameDispatc
   const utils = api.useUtils();
   const [selectedTeamId] = useAtom(selectedTeamIdAtom);
   const selectedOllamaModel = useAtomValue(selectedOllamaModelAtom);
+  // Explicit in-app Anthropic API key, when configured. Title generation must
+  // use an API key only — never the Claude subscription OAuth token.
+  const customClaudeConfig = useAtomValue(customClaudeConfigAtom);
+  const normalizedCustomConfig = useMemo(() => normalizeCustomClaudeConfig(customClaudeConfig), [customClaudeConfig]);
 
   return useCallback(
     (userMessage: string, subChatId: string) => {
@@ -40,7 +49,11 @@ export function useAgentAutoRenameDispatcher({ parentChatId }: AutoRenameDispatc
         userMessage,
         isFirstSubChat: isFirst,
         generateName: async (msg) => {
-          return generateSubChatNameMutation.mutateAsync({ userMessage: msg, ollamaModel: selectedOllamaModel });
+          return generateSubChatNameMutation.mutateAsync({
+            userMessage: msg,
+            ollamaModel: selectedOllamaModel,
+            customConfig: normalizedCustomConfig
+          });
         },
         renameSubChat: async (input) => {
           await renameSubChatMutation.mutateAsync(input);
@@ -99,6 +112,7 @@ export function useAgentAutoRenameDispatcher({ parentChatId }: AutoRenameDispatc
       renameChatMutation,
       selectedTeamId,
       selectedOllamaModel,
+      normalizedCustomConfig,
       utils.agents.getAgentChats,
       utils.agents.getAgentChat
     ]
