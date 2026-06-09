@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Terminal } from '@/features/terminal/terminal';
 import { trpc } from '@/lib/trpc';
@@ -494,6 +494,39 @@ function CliSplitBody({
     const i = f.lastIndexOf('/');
     return i === -1 ? f : f.slice(i + 1);
   }, [statusQuery.data?.sessionFile]);
+
+  // Self-heal: if this CLI sub-chat has a claimed session but no ingester is
+  // watching (the post-spawn locator missed its single shot, so the transcript
+  // was never parsed into the messages table), kick the idempotent,
+  // deterministic-only server recovery once per mount. This is the automatic
+  // version of the status-widget Refresh button — the server no-ops when there's
+  // nothing to attach, and never mtime-scans (no cross-latch risk).
+  const utils = trpc.useUtils();
+  const ensureAttached = trpc.cliSession.ensureAttached.useMutation();
+  const selfHealedRef = useRef<string | null>(null);
+  const statusReady = statusQuery.isSuccess;
+  const statusHarness = statusQuery.data?.harness ?? null;
+  const statusWatching = statusQuery.data?.watching ?? false;
+  const statusSessionId = statusQuery.data?.sessionId ?? null;
+  useEffect(() => {
+    if (!statusReady || !statusHarness) return; // non-CLI rows return harness=null
+    if (statusWatching || !statusSessionId) return; // already attached, or nothing to recover
+    if (selfHealedRef.current === subChatId) return; // once per mounted sub-chat
+    selfHealedRef.current = subChatId;
+    ensureAttached.mutate(
+      { subChatId },
+      {
+        onSuccess: (res) => {
+          if (res.attached) {
+            void utils.cliSession.getStatus.invalidate({ subChatId });
+            void utils.messages.getLatest.invalidate({ subChatId });
+          }
+        },
+        // Best-effort; the manual Refresh button remains the escape hatch.
+        onError: () => {}
+      }
+    );
+  }, [statusReady, statusHarness, statusWatching, statusSessionId, subChatId, ensureAttached, utils]);
 
   if (layout === 'off') {
     return <>{terminalSlot}</>;

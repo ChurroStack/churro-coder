@@ -70,7 +70,8 @@ vi.mock('@/lib/trpc', () => {
       // CliSplitBody now mounts in every bootstrap state (the conversation pane
       // always renders), so getStatus is queried even while disconnected.
       cliSession: {
-        getStatus: { useQuery: vi.fn(emptyQuery) }
+        getStatus: { useQuery: vi.fn(emptyQuery) },
+        ensureAttached: { useMutation: vi.fn(emptyMutation) }
       }
     }
   };

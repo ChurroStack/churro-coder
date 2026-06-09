@@ -4,6 +4,15 @@
 
 const mockBuildCliBootstrap = vi.hoisted(() => vi.fn(async () => ({ command: 'claude', args: [] })));
 
+// Controllable CLI-session mocks for the mount self-heal tests. `status` is the
+// object returned by `cliSession.getStatus.useQuery`; mutate it per test. The
+// default mirrors the old `emptyQuery` so the pre-existing tests are unaffected
+// (no `isSuccess` ⇒ the self-heal effect bails).
+const cliSessionMocks = vi.hoisted(() => ({
+  status: { data: undefined as undefined | Record<string, unknown>, isLoading: false, isSuccess: false },
+  ensureAttachedMutate: vi.fn()
+}));
+
 vi.mock('../../../lib/trpc', () => {
   const emptyQuery = () => ({ data: undefined, isLoading: false });
   const emptyMutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false });
@@ -19,7 +28,9 @@ vi.mock('../../../lib/trpc', () => {
           getCurrentTasks: emptyInvalidate,
           get: emptyInvalidate
         },
-        changes: { getStatus: emptyInvalidate, getBranches: emptyInvalidate }
+        changes: { getStatus: emptyInvalidate, getBranches: emptyInvalidate },
+        cliSession: { getStatus: emptyInvalidate },
+        messages: { getLatest: emptyInvalidate }
       })),
       chats: {
         buildCliBootstrap: {
@@ -55,7 +66,14 @@ vi.mock('../../../lib/trpc', () => {
       // CliSplitBody now mounts in every bootstrap state (the conversation pane
       // always renders), so getStatus is queried even while disconnected/loading.
       cliSession: {
-        getStatus: { useQuery: vi.fn(emptyQuery) }
+        getStatus: { useQuery: vi.fn(() => cliSessionMocks.status) },
+        ensureAttached: {
+          useMutation: vi.fn(() => ({
+            mutate: cliSessionMocks.ensureAttachedMutate,
+            mutateAsync: vi.fn(),
+            isPending: false
+          }))
+        }
       }
     }
   };
@@ -88,6 +106,8 @@ afterEach(cleanup);
 
 beforeEach(() => {
   mockBuildCliBootstrap.mockClear();
+  cliSessionMocks.ensureAttachedMutate.mockClear();
+  cliSessionMocks.status = { data: undefined, isLoading: false, isSuccess: false };
 });
 
 describe('ChatCliSurface — lazy reattach (task 10.3)', () => {
@@ -150,5 +170,47 @@ describe('ChatCliSurface — lazy reattach (task 10.3)', () => {
       <ChatCliSurface subChatId="sc-b" harness="claude-cli" startDisconnected={true} />
     );
     expect(restored('chat-cli-surface')).toBeTruthy();
+  });
+});
+
+describe('ChatCliSurface — mount self-heal (auto-attach when ingester is not watching)', () => {
+  it('fires ensureAttached once when a CLI sub-chat has a claimed session but no watcher', () => {
+    cliSessionMocks.status = {
+      data: { harness: 'claude-cli', sessionFile: null, sessionId: 'sess-123', detectedAt: null, watching: false },
+      isLoading: false,
+      isSuccess: true
+    };
+    render(<ChatCliSurface subChatId="sc-orphaned" harness="claude-cli" startDisconnected={true} />);
+    expect(cliSessionMocks.ensureAttachedMutate).toHaveBeenCalledTimes(1);
+    expect(cliSessionMocks.ensureAttachedMutate).toHaveBeenCalledWith(
+      { subChatId: 'sc-orphaned' },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) })
+    );
+  });
+
+  it('does NOT fire ensureAttached when an ingester is already watching', () => {
+    cliSessionMocks.status = {
+      data: {
+        harness: 'claude-cli',
+        sessionFile: '/x/sess.jsonl',
+        sessionId: 'sess-123',
+        detectedAt: 1,
+        watching: true
+      },
+      isLoading: false,
+      isSuccess: true
+    };
+    render(<ChatCliSurface subChatId="sc-healthy" harness="claude-cli" startDisconnected={true} />);
+    expect(cliSessionMocks.ensureAttachedMutate).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire ensureAttached when no session id is claimed yet (nothing to recover)', () => {
+    cliSessionMocks.status = {
+      data: { harness: 'claude-cli', sessionFile: null, sessionId: null, detectedAt: null, watching: false },
+      isLoading: false,
+      isSuccess: true
+    };
+    render(<ChatCliSurface subChatId="sc-fresh" harness="claude-cli" startDisconnected={true} />);
+    expect(cliSessionMocks.ensureAttachedMutate).not.toHaveBeenCalled();
   });
 });

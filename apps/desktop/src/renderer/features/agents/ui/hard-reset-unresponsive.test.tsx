@@ -75,7 +75,8 @@ vi.mock('@/lib/trpc', () => {
       // stays visible while the terminal slot swaps), so its getStatus query runs
       // unconditionally — mirror the sibling chat-cli-surface.test.tsx mock.
       cliSession: {
-        getStatus: { useQuery: vi.fn(emptyQuery) }
+        getStatus: { useQuery: vi.fn(emptyQuery) },
+        ensureAttached: { useMutation: vi.fn(emptyMutation) }
       }
     }
   };
