@@ -6,6 +6,10 @@ import { renderHook, act } from '@testing-library/react';
 
 const mockMutateAsync = vi.fn().mockResolvedValue(undefined);
 const mockInvalidate = vi.fn().mockResolvedValue(undefined);
+// Dedicated spies for the previously-missing invalidations so the test can
+// assert each is now wired (these used to silently never fire).
+const mockInvalidateTasks = vi.fn().mockResolvedValue(undefined);
+const mockInvalidateFileChanges = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../../../lib/trpc', () => ({
   trpc: {
@@ -24,7 +28,9 @@ vi.mock('../../../lib/trpc', () => ({
         getPrStatus: { invalidate: mockInvalidate },
         getCurrentPlan: { invalidate: mockInvalidate },
         getCurrentReview: { invalidate: mockInvalidate },
-        getReviewContent: { invalidate: mockInvalidate }
+        getReviewContent: { invalidate: mockInvalidate },
+        getCurrentTasks: { invalidate: mockInvalidateTasks },
+        getMcpFileChanges: { invalidate: mockInvalidateFileChanges }
       },
       changes: {
         getStatus: { invalidate: mockInvalidate }
@@ -55,8 +61,21 @@ describe('useRefreshWorkflowState [cli-bootstrap/refresh-hook]', () => {
 
     expect(mockMutateAsync).toHaveBeenCalledTimes(1);
     expect(mockMutateAsync).toHaveBeenCalledWith({ chatId: 'chat-1' });
-    // 6 invalidation calls: get, getStatus, getPrStatus, getCurrentPlan, getCurrentReview, getReviewContent
+    // 6 shared invalidations: get, getStatus, getPrStatus, getCurrentPlan, getCurrentReview, getReviewContent
     expect(mockInvalidate).toHaveBeenCalledTimes(6);
+  });
+
+  test('refresh() also invalidates tasks and file-changes (previously omitted)', async () => {
+    const { result } = renderHook(() => useRefreshWorkflowState('chat-tasks'));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    // These were never invalidated before the fix, so the refresh button could
+    // not surface tasks / file-changes even when the data existed on disk.
+    expect(mockInvalidateTasks).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateFileChanges).toHaveBeenCalledTimes(1);
   });
 
   test('isRefreshing toggles true during refresh and false after', async () => {

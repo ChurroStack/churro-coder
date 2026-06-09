@@ -231,3 +231,79 @@ describe('sub-chat-store removeFromOpenSubChats clears CLI busy state', () => {
     expect(appStore.get(subChatBusyAtom).has(subChatId)).toBe(false);
   });
 });
+
+describe('sub-chat-store activeSubChatId sanitize + cross-workspace contamination', () => {
+  beforeEach(() => {
+    useAgentSubChatStore.getState().reset();
+    // These tests round-trip state through localStorage (switch away + back).
+    // reset() does NOT clear localStorage, so clear it explicitly to keep each
+    // test hermetic regardless of chatId reuse or ordering.
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  test('setChatId defaults activeSubChatId to the first open tab when none was persisted', () => {
+    const chatId = 'workspace-default-active';
+    useAgentSubChatStore.getState().setChatId(chatId);
+    useAgentSubChatStore.getState().addToOpenSubChats('sub-1', chatId);
+    useAgentSubChatStore.getState().addToOpenSubChats('sub-2', chatId);
+
+    // Switch away and back to force a fresh restore from localStorage.
+    useAgentSubChatStore.getState().setChatId('workspace-other');
+    useAgentSubChatStore.getState().setChatId(chatId);
+
+    expect(useAgentSubChatStore.getState().openSubChatIds).toEqual(['sub-1', 'sub-2']);
+    expect(useAgentSubChatStore.getState().activeSubChatId).toBe('sub-1');
+  });
+
+  test('setChatId heals a stale active id that is not in this workspace open set', () => {
+    // Reproduces the observed bug: the restored `active` is a stale id NOT in
+    // this workspace's open set — e.g. left over from cross-workspace
+    // contamination (an unguarded setActiveSubChat under the wrong store
+    // chatId) or a closed tab. The read-side resolver would return null
+    // (candidate-not-open); setChatId must reset it to a real open tab.
+    const chatId = 'workspace-contaminated';
+    useAgentSubChatStore.getState().setChatId(chatId);
+    useAgentSubChatStore.getState().addToOpenSubChats('sub-real', chatId);
+    // Persist a stale id (not part of this workspace's open list) as active.
+    useAgentSubChatStore.getState().setActiveSubChat('sub-stale-not-open');
+
+    useAgentSubChatStore.getState().setChatId('workspace-other');
+    useAgentSubChatStore.getState().setChatId(chatId);
+
+    expect(useAgentSubChatStore.getState().activeSubChatId).toBe('sub-real');
+  });
+
+  test('setChatId keeps a still-valid persisted active tab (no clobbering a real selection)', () => {
+    const chatId = 'workspace-keep-active';
+    useAgentSubChatStore.getState().setChatId(chatId);
+    useAgentSubChatStore.getState().addToOpenSubChats('sub-1', chatId);
+    useAgentSubChatStore.getState().addToOpenSubChats('sub-2', chatId);
+    useAgentSubChatStore.getState().setActiveSubChat('sub-2');
+
+    useAgentSubChatStore.getState().setChatId('workspace-other');
+    useAgentSubChatStore.getState().setChatId(chatId);
+
+    expect(useAgentSubChatStore.getState().activeSubChatId).toBe('sub-2');
+  });
+
+  test('setActiveSubChat with expectedChatId refuses a cross-workspace write (the contaminating path)', () => {
+    // Simulates a background panel of workspace A firing setActiveSubChat while
+    // the store has already switched to workspace B. With the expectedChatId
+    // guard (now passed by chat-panel), the write is refused — activeSubChatId
+    // stays B's tab instead of being clobbered with A's foreign sub-chat.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    useAgentSubChatStore.getState().setChatId('workspace-B');
+    useAgentSubChatStore.getState().addToOpenSubChats('sub-B', 'workspace-B');
+    useAgentSubChatStore.getState().setActiveSubChat('sub-B', 'workspace-B');
+
+    // Background panel from workspace A tries to claim with its own chatId.
+    useAgentSubChatStore.getState().setActiveSubChat('sub-A', 'workspace-A');
+
+    expect(useAgentSubChatStore.getState().activeSubChatId).toBe('sub-B');
+    expect(warn).toHaveBeenCalledWith(
+      '[SubChatStore] cross-workspace mutation refused',
+      expect.objectContaining({ action: 'setActiveSubChat', subChatId: 'sub-A' })
+    );
+  });
+});

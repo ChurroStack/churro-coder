@@ -60,6 +60,8 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
   const stopHandler = useAtomValue(stopHandlerAtom);
   const [builtinRemountKey, setBuiltinRemountKey] = useState(0);
   const setActiveSubChat = useAgentSubChatStore((s) => s.setActiveSubChat);
+  const addToOpenSubChats = useAgentSubChatStore((s) => s.addToOpenSubChats);
+  const storeChatId = useAgentSubChatStore((s) => s.chatId);
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   const openSubChatIds = useAgentSubChatStore((s) => s.openSubChatIds);
   const allSubChats = useAgentSubChatStore((s) => s.allSubChats);
@@ -148,8 +150,16 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
     if (!isWorkspaceActive || !isActive) return;
     const selectedWorkspaceId = appStore.get(selectedAgentChatIdAtom);
     if (params.chatId !== selectedWorkspaceId) return;
-    setActiveSubChat(params.subChatId);
-  }, [isWorkspaceActive, isActive, params.chatId, params.subChatId, setActiveSubChat]);
+    // Pass `params.chatId` as the cross-workspace guard. A background panel
+    // (renderer:always) of another workspace can fire this during the
+    // `selectedChatId`-vs-store-`chatId` desync window; without the guard it
+    // would set+persist `activeSubChatId` to THIS sub-chat under whatever
+    // workspace the store currently holds, leaving `activeSubChatId` pointing
+    // at a foreign sub-chat (the `candidate-not-open` branch that blanks the
+    // right rail). `storeChatId` in deps lets the claim retry once the store
+    // finishes syncing to this workspace.
+    setActiveSubChat(params.subChatId, params.chatId);
+  }, [isWorkspaceActive, isActive, storeChatId, params.chatId, params.subChatId, setActiveSubChat]);
 
   // Cold-mount fallback: when this is the first-opened sub-chat for the
   // selected workspace and `activeSubChatId` is still null, claim active
@@ -163,8 +173,35 @@ export function ChatPanel({ params, api, containerApi }: IDockviewPanelProps<Cha
     if (openSubChatIds.length === 0 || openSubChatIds[0] !== params.subChatId) return;
     const selectedWorkspaceId = appStore.get(selectedAgentChatIdAtom);
     if (params.chatId !== selectedWorkspaceId) return;
-    setActiveSubChat(params.subChatId);
-  }, [isWorkspaceActive, activeSubChatId, openSubChatIds, params.chatId, params.subChatId, setActiveSubChat]);
+    // expectedChatId guard — see the effect above. Prevents this fallback from
+    // claiming `activeSubChatId` under a foreign workspace mid-switch.
+    setActiveSubChat(params.subChatId, params.chatId);
+  }, [
+    isWorkspaceActive,
+    activeSubChatId,
+    openSubChatIds,
+    storeChatId,
+    params.chatId,
+    params.subChatId,
+    setActiveSubChat
+  ]);
+
+  // Register this panel's sub-chat into the store's `openSubChatIds`. The sidebar
+  // resolver (`resolveValidatedSubChatId`) only surfaces a sub-chat whose id is in
+  // `openSubChatIds`; the builtin surface adds it via active-chat.tsx
+  // (`addToOpenSubChats`), but CLI panels render ChatCliSurface and never run that
+  // init, and dockview restores the panel from its own layout snapshot independent
+  // of the store — so a restored CLI panel is otherwise absent from
+  // `openSubChatIds` and the whole right rail resolves to null (the
+  // `candidate-not-open` branch). Idempotent (addToOpenSubChats early-returns when
+  // present); `params.chatId` is the cross-workspace guard, and gating on
+  // `storeChatId === params.chatId` both blocks writing to a background
+  // workspace's list and re-fires once the store finishes syncing to this one.
+  useEffect(() => {
+    if (!isWorkspaceActive) return;
+    if (storeChatId !== params.chatId) return;
+    addToOpenSubChats(params.subChatId, params.chatId);
+  }, [isWorkspaceActive, storeChatId, params.chatId, params.subChatId, addToOpenSubChats]);
 
   // Keep the dockview tab title in sync with the sub-chat's display name.
   // Wait for store hydration before pushing a title so we don't overwrite

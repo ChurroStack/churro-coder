@@ -38,6 +38,10 @@ export function useRefreshWorkflowState(chatId: string, activeSubChatId?: string
         utils.chats.getCurrentPlan.invalidate(),
         utils.chats.getCurrentReview.invalidate(),
         utils.chats.getReviewContent.invalidate(),
+        // Tasks + file-changes were previously omitted, so the refresh button
+        // never re-read them even when the data existed on disk.
+        utils.chats.getCurrentTasks.invalidate(),
+        utils.chats.getMcpFileChanges.invalidate(),
         ...(activeSubChatId
           ? [
               utils.cliSession.getStatus.invalidate({ subChatId: activeSubChatId }),
