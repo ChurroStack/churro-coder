@@ -387,6 +387,26 @@ type RunCodexCliOptions = {
   cwd?: string;
 };
 
+/**
+ * Environment for one-shot `codex` CLI invocations (login, login status, logout,
+ * mcp list/add/remove). Starts from process.env (so OPENAI_API_KEY etc. survive)
+ * and overlays the login-shell environment so PATH includes Homebrew / node /
+ * version-manager dirs. Without this, a Finder-launched macOS app spawns the
+ * node-shebang `codex` wrapper under a minimal PATH where `/usr/bin/env node`
+ * fails — surfacing as "Codex login exited with code 127". Mirrors the merge
+ * order used by buildCodexProviderEnv for agent-session spawns.
+ */
+function buildCodexCliEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') env[key] = value;
+  }
+  for (const [key, value] of Object.entries(getClaudeShellEnvironment())) {
+    if (typeof value === 'string') env[key] = value;
+  }
+  return env;
+}
+
 async function runCodexCli(
   args: string[],
   options?: RunCodexCliOptions
@@ -402,7 +422,7 @@ async function runCodexCli(
     const child = spawn(codexCliPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: cwd && cwd.length > 0 ? cwd : undefined,
-      env: process.env,
+      env: buildCodexCliEnv(),
       windowsHide: true
     });
 
@@ -2841,7 +2861,7 @@ export const codexRouter = router({
 
     const child = spawn(codexCliPath, ['login'], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+      env: buildCodexCliEnv(),
       windowsHide: true
     });
 

@@ -7,7 +7,7 @@
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { cleanup, screen } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../../test-utils';
-import { CliInstallInstructions } from './cli-install-instructions';
+import { CliInstallInstructions, commandToCopy } from './cli-install-instructions';
 
 afterEach(cleanup);
 
@@ -41,6 +41,25 @@ function render(provider: 'claude' | 'codex' | 'openspec', showWhenAvailable = f
   const store = createTestStore();
   renderWithProviders(<CliInstallInstructions provider={provider} showWhenAvailable={showWhenAvailable} />, { store });
 }
+
+describe('commandToCopy — strips display-only markers', () => {
+  it('drops the leading "# or: " fallback marker so only the command is copied', () => {
+    expect(commandToCopy('# or: npm install -g @anthropic-ai/claude-code')).toBe(
+      'npm install -g @anthropic-ai/claude-code'
+    );
+  });
+
+  it('drops a trailing "  # platform" annotation', () => {
+    expect(commandToCopy('sudo apt install gh  # Debian/Ubuntu')).toBe('sudo apt install gh');
+    expect(commandToCopy('# or: sudo dnf install gh  # Fedora')).toBe('sudo dnf install gh');
+  });
+
+  it('leaves a plain command untouched', () => {
+    expect(commandToCopy('curl -fsSL https://claude.ai/install.sh | bash')).toBe(
+      'curl -fsSL https://claude.ai/install.sh | bash'
+    );
+  });
+});
 
 describe('CliInstallInstructions — agent CLI missing', () => {
   it('shows the macOS install command for claude when not installed', () => {

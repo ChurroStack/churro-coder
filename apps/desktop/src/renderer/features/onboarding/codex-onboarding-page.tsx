@@ -71,6 +71,16 @@ export function CodexOnboardingPage() {
     setBillingMethod(null);
   };
 
+  // Skip subscription: enter the app without resolving a token. The native
+  // codex CLI handles its own auth for codex-cli harness chats, so a token
+  // is not required here.
+  const handleSkip = async () => {
+    if (isRunning) {
+      await cancel();
+    }
+    setCodexOnboardingCompleted(true);
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col items-center justify-center bg-background select-none">
       <div className="fixed top-0 left-0 right-0 h-10" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
@@ -101,6 +111,15 @@ export function CodexOnboardingPage() {
             void saveApiKey();
           }}
         />
+
+        {/* Skip subscription — use the native Codex CLI instead */}
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={() => void handleSkip()}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline">
+            Skip for now — I'll use the Codex CLI
+          </button>
+        </div>
       </div>
     </div>
   );
