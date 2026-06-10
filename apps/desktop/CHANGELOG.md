@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.6](https://github.com/ChurroStack/churro-coder/compare/v0.1.5...v0.1.6) (2026-06-10)
+
+
+### Features
+
+* **desktop:** enrich CLI subagent/tool rendering + keep conversation pane mounted ([#199](https://github.com/ChurroStack/churro-coder/issues/199)) ([094f4ad](https://github.com/ChurroStack/churro-coder/commit/094f4ad270ded6f5f016e39bf4145b08f007200d))
+* **desktop:** open agent-written files in a dockview tab ([#194](https://github.com/ChurroStack/churro-coder/issues/194)) ([54de5be](https://github.com/ChurroStack/churro-coder/commit/54de5befcd998c1bd2c4496ab402bc7b8be828da))
+* **desktop:** workspace-scoped Project Settings + Local workspace ([#204](https://github.com/ChurroStack/churro-coder/issues/204)) ([3a0da37](https://github.com/ChurroStack/churro-coder/commit/3a0da375633bef7285dc73ff48bb899229fad219))
+
+
+### Bug Fixes
+
+* **desktop:** auto-recover CLI chats whose ingester never attached ([#203](https://github.com/ChurroStack/churro-coder/issues/203)) ([75e8a78](https://github.com/ChurroStack/churro-coder/commit/75e8a786c5e17798f8792b53f4ff71387fa52247))
+* **desktop:** CLI-session plan + tool-result recovery hardening ([#197](https://github.com/ChurroStack/churro-coder/issues/197)) ([0bb048c](https://github.com/ChurroStack/churro-coder/commit/0bb048c85105e551d961d8eca9a2405259626738))
+* **desktop:** don't render running CLI subagents as "interrupted" ([#198](https://github.com/ChurroStack/churro-coder/issues/198)) ([2b53f7f](https://github.com/ChurroStack/churro-coder/commit/2b53f7fabefb4b58918450949383f144e33d8363))
+* **desktop:** fix worktree-setup script + stop PathValidationError on stale worktrees ([#195](https://github.com/ChurroStack/churro-coder/issues/195)) ([9a92ac2](https://github.com/ChurroStack/churro-coder/commit/9a92ac2f1ec2e9e905e9f872ab22076ecb9b8a6a))
+* **desktop:** project header status mirrors workspace-row precedence ([#202](https://github.com/ChurroStack/churro-coder/issues/202)) ([918edc6](https://github.com/ChurroStack/churro-coder/commit/918edc6f5d5750c800461a4d47387924e67b846d))
+* **desktop:** reliable CLI agent spinner — deterministic turn-start + status pill ([#196](https://github.com/ChurroStack/churro-coder/issues/196)) ([8280efc](https://github.com/ChurroStack/churro-coder/commit/8280efce4d81b19c402b68f2a7d83c579312a691))
+* **desktop:** status-pipeline + Claude native-CLI fixes (pending-plan, asar resolver, CLI busy parent) ([#192](https://github.com/ChurroStack/churro-coder/issues/192)) ([4eea2be](https://github.com/ChurroStack/churro-coder/commit/4eea2be16b59334d9a0b5cd74fb7643f90bdc06d))
+* **desktop:** surface CLI right-sidebar widgets (openSubChatIds + activeSubChatId) ([#200](https://github.com/ChurroStack/churro-coder/issues/200)) ([5414f23](https://github.com/ChurroStack/churro-coder/commit/5414f23c2a057792af8c2796cf77bbd413f82f33))
+* **desktop:** title/commit gen use API key only, never Claude subscription ([#201](https://github.com/ChurroStack/churro-coder/issues/201)) ([6578b58](https://github.com/ChurroStack/churro-coder/commit/6578b5883794e9a3be565d938a0b0ad17230f3b1))
+
 ## [0.1.5](https://github.com/ChurroStack/churro-coder/compare/v0.1.4...v0.1.5) (2026-06-06)
 
 
