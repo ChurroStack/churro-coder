@@ -11,6 +11,7 @@ import {
 import { trpc } from '../../lib/trpc';
 import { StatCard } from './components/stat-card';
 import { SegmentedToggle } from './components/segmented-toggle';
+import { UsageTimeTabs } from './components/usage-time-tabs';
 import { ActivityHeatmap } from './components/activity-heatmap';
 import { DailyCostChart } from './components/daily-cost-chart';
 import { ModelBreakdown } from './components/model-breakdown';
@@ -90,6 +91,8 @@ export function UsageContent() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-6 py-6 flex flex-col gap-6">
+          <UsageTimeTabs />
+
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
               <h1 className="text-xl font-semibold">Usage</h1>

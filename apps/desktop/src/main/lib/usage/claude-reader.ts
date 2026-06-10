@@ -1,8 +1,10 @@
-import type { Dirent } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { UsageEntry } from './types';
+import { walkJsonlFiles } from './jsonl-walk';
+
+const acceptClaude = (name: string) => name.endsWith('.jsonl');
 
 /**
  * Root directory Claude Code writes session JSONLs to.
@@ -21,28 +23,11 @@ function claudeProjectRoots(): string[] {
   return [join(homedir(), '.claude', 'projects')];
 }
 
-async function walkJsonlFiles(dir: string, out: string[]): Promise<void> {
-  let entries: Dirent[];
-  try {
-    entries = (await readdir(dir, { withFileTypes: true, encoding: 'utf8' })) as Dirent[];
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const name = entry.name as string;
-    const full = join(dir, name);
-    if (entry.isDirectory()) {
-      await walkJsonlFiles(full, out);
-    } else if (entry.isFile() && name.endsWith('.jsonl')) {
-      out.push(full);
-    }
-  }
-}
-
 type ClaudeRecord = {
   type?: string;
   timestamp?: string;
   requestId?: string;
+  cwd?: string;
   message?: {
     id?: string;
     model?: string;
@@ -65,7 +50,7 @@ function parseLine(line: string): ClaudeRecord | null {
   }
 }
 
-function toEntry(rec: ClaudeRecord): UsageEntry | null {
+function toEntry(rec: ClaudeRecord, sessionId: string | null, cwd: string | null): UsageEntry | null {
   if (rec.type !== 'assistant') return null;
   const u = rec.message?.usage;
   if (!u) return null;
@@ -85,7 +70,9 @@ function toEntry(rec: ClaudeRecord): UsageEntry | null {
     cacheCreationTokens: u.cache_creation_input_tokens ?? 0,
     cacheReadTokens: u.cache_read_input_tokens ?? 0,
     dedupKey,
-    costUSD: typeof rec.costUSD === 'number' ? rec.costUSD : null
+    costUSD: typeof rec.costUSD === 'number' ? rec.costUSD : null,
+    sessionId,
+    cwd
   };
 }
 
@@ -94,11 +81,17 @@ function toEntry(rec: ClaudeRecord): UsageEntry | null {
  * Files newer than `sinceMs` are fully scanned; older ones are skipped by
  * mtime to keep the scan cheap even across many months of transcripts.
  */
-export async function readClaudeUsage(sinceMs: number | null = null): Promise<UsageEntry[]> {
-  const roots = claudeProjectRoots();
-  const files: string[] = [];
-  for (const root of roots) {
-    await walkJsonlFiles(root, files);
+export async function readClaudeUsage(sinceMs: number | null = null, prelistedFiles?: string[]): Promise<UsageEntry[]> {
+  // Callers that already walked the tree (e.g. the rollup's freshness scan) pass
+  // the file list to avoid a second recursive traversal.
+  let files: string[];
+  if (prelistedFiles) {
+    files = prelistedFiles;
+  } else {
+    files = [];
+    for (const root of claudeProjectRoots()) {
+      await walkJsonlFiles(root, files, acceptClaude);
+    }
   }
 
   const entries: UsageEntry[] = [];
@@ -118,10 +111,18 @@ export async function readClaudeUsage(sinceMs: number | null = null): Promise<Us
       } catch {
         return;
       }
+      // Claude writes one JSONL per session named `<session-id>.jsonl`; the
+      // stem is the session id we match against subChats.cliSessionId/sessionId.
+      const base = file.slice(file.lastIndexOf('/') + 1);
+      const sessionId = base.endsWith('.jsonl') ? base.slice(0, -'.jsonl'.length) : null;
+      // cwd is stamped on the session's records (constant per session); carry the
+      // last-seen value forward so every entry is attributed to its project.
+      let cwd: string | null = null;
       for (const line of raw.split('\n')) {
         const rec = parseLine(line);
         if (!rec) continue;
-        const entry = toEntry(rec);
+        if (rec.cwd) cwd = rec.cwd;
+        const entry = toEntry(rec, sessionId, cwd);
         if (!entry) continue;
         if (sinceMs !== null && entry.ts < sinceMs) continue;
         entries.push(entry);
@@ -129,4 +130,13 @@ export async function readClaudeUsage(sinceMs: number | null = null): Promise<Us
     })
   );
   return entries;
+}
+
+/** List the Claude session JSONL paths without parsing them (cheap fingerprint). */
+export async function listClaudeUsageFiles(): Promise<string[]> {
+  const files: string[] = [];
+  for (const root of claudeProjectRoots()) {
+    await walkJsonlFiles(root, files, acceptClaude);
+  }
+  return files;
 }

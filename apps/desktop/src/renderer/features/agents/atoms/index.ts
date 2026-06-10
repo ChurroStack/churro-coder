@@ -1395,6 +1395,7 @@ export type DesktopView =
   | 'settings'
   | 'usage'
   | 'project-stats'
+  | 'time'
   | null;
 export const desktopViewAtom = atom<DesktopView>(null);
 
@@ -1403,6 +1404,12 @@ export type UsagePeriod = '7d' | '30d' | '90d' | 'all';
 export type UsageSourceFilter = 'claude' | 'codex' | 'all';
 export const usagePeriodAtom = atomWithStorage<UsagePeriod>('usage-period', '30d');
 export const usageSourceAtom = atomWithStorage<UsageSourceFilter>('usage-source', 'all');
+
+// Time / billing page — persisted user preferences
+export type TimePeriod = 'today' | 'week' | '7d' | '30d' | 'thisMonth' | 'lastMonth' | 'all';
+export type TimeSpendAxis = 'harness' | 'provider';
+export const timePeriodAtom = atomWithStorage<TimePeriod>('time-period', 'thisMonth');
+export const timeSpendAxisAtom = atomWithStorage<TimeSpendAxis>('time-spend-axis', 'harness');
 
 // Project statistics page
 export type ProjectStatsPeriod = '7d' | '30d' | '90d' | '1y' | 'all';

@@ -3097,7 +3097,7 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
                 {/* Archive Section - browse and restore archived workspaces */}
                 <ArchiveSection />
 
-                {/* Usage Button - opens the Usage statistics page */}
+                {/* Usage Button - opens the Usage + Time statistics page (tabs) */}
                 <UsageButton />
               </div>
 

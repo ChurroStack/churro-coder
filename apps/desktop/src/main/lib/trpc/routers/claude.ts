@@ -58,6 +58,7 @@ import {
 import { fetchOAuthMetadata, getMcpBaseUrl } from '../../oauth';
 import { discoverPluginMcpServers } from '../../plugins';
 import { publicProcedure, router } from '../index';
+import { openBuiltinTurn, closeBuiltinTurn } from '../../time/interval-tracker';
 import { buildAgentsOption } from './agent-utils';
 import { shouldForceFreshSessionOnModeChange } from './claude-mode-change';
 import {
@@ -822,6 +823,9 @@ export const claudeRouter = router({
             const abortController = new AbortController();
             const streamId = crypto.randomUUID();
             activeSessions.set(input.subChatId, abortController);
+            // Time tracking: builtin runtime is captured live (its message
+            // timestamps are write-time, not turn-time). Closed in the finally.
+            openBuiltinTurn(input.subChatId);
 
             // Stream debug logging
             const subId = input.subChatId.slice(-8); // Short ID for logs
@@ -2934,6 +2938,7 @@ ${prompt}
                 finishStreamSpan('unexpected_error');
               } finally {
                 activeSessions.delete(input.subChatId);
+                closeBuiltinTurn(input.subChatId);
                 if (sandboxSettingsFilePath) {
                   cleanupSandboxSettingsFile(sandboxSettingsFilePath).catch(() => {});
                 }
@@ -2973,6 +2978,7 @@ ${prompt}
                 finishStreamSpan('abort', { session_id: currentSessionId ?? input.sessionId ?? 'new' });
               }
               activeSessions.delete(input.subChatId);
+              closeBuiltinTurn(input.subChatId);
               clearPendingApprovals('Session ended.', input.subChatId);
 
               // Clear streamId since we're no longer streaming.

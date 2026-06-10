@@ -25,6 +25,20 @@ export type UsageEntry = {
    * when present so totals line up with Anthropic's own billing numbers.
    */
   costUSD: number | null;
+  /**
+   * CLI session id this entry belongs to — Claude: the JSONL filename stem;
+   * Codex: `session_meta.payload.id`. Used by the time/billing rollup to
+   * attribute spend to a sub-chat (via subChats.cliSessionId / sessionId).
+   * Optional: the Usage dashboard ignores it.
+   */
+  sessionId?: string | null;
+  /**
+   * Working directory the session ran in — Claude: the `cwd` field on its
+   * records; Codex: `session_meta.payload.cwd`. The time/billing rollup maps
+   * this to a project (see time/project-resolver.ts) so terminal usage attributes
+   * to the right project, not an "unattributed" bucket. Optional.
+   */
+  cwd?: string | null;
 };
 
 export type UsagePeriod = '7d' | '30d' | '90d' | 'all';

@@ -7,6 +7,7 @@ import { AuthManager, initAuthManager, getAuthManager as getAuthManagerFromModul
 import { initAnalytics, shutdown as shutdownAnalytics, trackAppOpened, captureError } from './lib/analytics';
 import { checkForUpdates, downloadUpdate, initAutoUpdater, setupFocusUpdateCheck } from './lib/auto-updater';
 import { closeDatabase, initDatabase } from './lib/db';
+import { startTimeTracking } from './lib/time/rollup';
 import { sweepOrphanTmpFiles } from './lib/sub-chat-artifacts/orphan-sweep';
 import { getLaunchDirectory, isCliInstalled, installCli, uninstallCli, parseLaunchDirectory } from './lib/cli';
 import { cleanupGitWatchers } from './lib/git/watcher';
@@ -664,6 +665,9 @@ if (gotTheLock) {
     try {
       initDatabase();
       console.log('[App] Database initialized');
+      // Time/billing tracking: recover crash-orphaned intervals + roll up
+      // runtime/token ledgers, then keep them fresh on an interval.
+      startTimeTracking();
     } catch (error) {
       console.error('[App] Failed to initialize database:', error);
     }
