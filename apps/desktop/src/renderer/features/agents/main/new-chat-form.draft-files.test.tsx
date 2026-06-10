@@ -62,7 +62,7 @@ vi.mock('../../../lib/trpc', () => {
   const q = (data: unknown = undefined) => vi.fn(() => ({ data, isLoading: false, isError: false, refetch: vi.fn() }));
   const m = () => vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(async () => undefined), isPending: false }));
   const utils = {
-    chats: { list: { invalidate: vi.fn() } },
+    chats: { list: { invalidate: vi.fn(), fetch: vi.fn(async () => []) } },
     projects: { list: { setData: vi.fn() } },
     commands: {
       list: { fetch: vi.fn(async () => []) },
@@ -74,6 +74,7 @@ vi.mock('../../../lib/trpc', () => {
     trpc: {
       projects: {
         list: { useQuery: mocks.projectsListQuery },
+        supportsWorktree: { useQuery: q({ supported: true }) },
         openFolder: { useMutation: m() },
         cloneFromGitHub: { useMutation: m() }
       },

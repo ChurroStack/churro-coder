@@ -23,6 +23,7 @@ export interface PanelActions {
   canOpenDiff: boolean;
   canOpenSearch: boolean;
   canOpenFilesTree: boolean;
+  canOpenProjectSettings: boolean;
   // Action triggers
   newSubChat: () => void;
   newSubChatWithHarness: (harness: 'claude-cli' | 'codex-cli') => void;
@@ -31,6 +32,7 @@ export interface PanelActions {
   openDiff: () => void;
   openSearch: () => void;
   openFilesTree: () => void;
+  openProjectSettings: () => void;
   resetLayout: () => void;
 }
 
@@ -260,14 +262,47 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
     );
   }, [dockApi, projectId, sourceGroup, placement]);
 
+  const openProjectSettings = useCallback(() => {
+    if (!dockApi || !chatId || !projectId) return;
+    // Scope to the workspace's own working tree (worktree dir, or the base repo
+    // for a Local workspace). One PS panel per workspace (keyed by chatId).
+    addOrFocus(
+      dockApi,
+      {
+        kind: 'project-settings',
+        data: {
+          chatId,
+          projectId,
+          path: worktreePath ?? projectPath ?? '',
+          projectName: chat?.project?.name
+        }
+      },
+      resolvePlacementOpts(dockApi, placement, false, sourceGroup)
+    );
+  }, [dockApi, chatId, projectId, worktreePath, projectPath, chat?.project?.name, sourceGroup, placement]);
+
   const resetLayout = useCallback(() => {
     try {
+      // A chat-less workspace (a Local workspace anchored only by its Project
+      // Settings panel) would reset to an empty `main`. Stash the PS descriptor
+      // in sessionStorage (survives the reload) so ChatPanelSync re-seeds it.
+      const openCount = useAgentSubChatStore.getState().openSubChatIds.length;
+      if (openCount === 0 && chatId && projectId) {
+        sessionStorage.setItem(
+          `cs:reseedPS:${chatId}`,
+          JSON.stringify({
+            projectId,
+            path: worktreePath ?? projectPath ?? '',
+            projectName: chat?.project?.name
+          })
+        );
+      }
       localStorage.removeItem(layoutStorageKey());
       window.location.reload();
     } catch (err) {
       console.warn('[layout] Failed to reset layout:', err);
     }
-  }, []);
+  }, [chatId, projectId, worktreePath, projectPath, chat?.project?.name]);
 
   return {
     available: !!dockApi,
@@ -277,6 +312,7 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
     canOpenDiff: !!chatId && !!dockApi,
     canOpenSearch: !!projectId && !!dockApi,
     canOpenFilesTree: !!projectId && !!dockApi,
+    canOpenProjectSettings: !!chatId && !!projectId && !!dockApi,
     newSubChat,
     newSubChatWithHarness,
     openTerminal,
@@ -284,6 +320,7 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
     openDiff,
     openSearch,
     openFilesTree,
+    openProjectSettings,
     resetLayout
   };
 }

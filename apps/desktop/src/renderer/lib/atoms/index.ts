@@ -179,7 +179,6 @@ export type SettingsTab =
   | 'mcp'
   | 'plugins'
   | 'worktrees'
-  | 'projects'
   | 'debug'
   | 'beta'
   | 'keyboard'

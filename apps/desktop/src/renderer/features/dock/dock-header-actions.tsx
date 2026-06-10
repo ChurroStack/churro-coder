@@ -1,4 +1,4 @@
-import { Plus, FileText, FileDiff, RotateCcw, MessageSquare, Terminal } from 'lucide-react';
+import { Plus, FileText, FileDiff, RotateCcw, MessageSquare, Terminal, SlidersHorizontal } from 'lucide-react';
 import { useAtom, useAtomValue } from 'jotai';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import { Button } from '../../components/ui/button';
@@ -132,6 +132,11 @@ export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
               Show Changes
             </DropdownMenuItem>
           )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={!actions.canOpenProjectSettings} onClick={actions.openProjectSettings}>
+            <SlidersHorizontal className="h-4 w-4 mr-2" />
+            Project Settings
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={actions.resetLayout}>
             <RotateCcw className="h-4 w-4 mr-2" />

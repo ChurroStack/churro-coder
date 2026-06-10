@@ -4,11 +4,8 @@ import { useAtomValue } from 'jotai';
 import { Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  lastSelectedAgentIdAtom,
-  selectedProjectAtom,
-  settingsMcpSidebarWidthAtom
-} from '../../../features/agents/atoms';
+import { lastSelectedAgentIdAtom, settingsMcpSidebarWidthAtom } from '../../../features/agents/atoms';
+import { GLOBAL_SCOPE_MODE, type SettingsScopeMode } from './settings-scope-mode';
 import { trpc } from '../../../lib/trpc';
 import { cn } from '../../../lib/utils';
 import { Button } from '../../ui/button';
@@ -254,29 +251,35 @@ function McpServerDetail({
 function CreateMcpServerForm({
   onCreated,
   onCancel,
-  hasProject,
-  defaultProvider,
-  projectPath,
-  projectName
+  mode,
+  defaultProvider
 }: {
   onCreated: () => void;
   onCancel: () => void;
-  hasProject: boolean;
+  mode: SettingsScopeMode;
   defaultProvider: McpProvider;
-  projectPath?: string;
-  projectName?: string;
 }) {
+  const isProject = mode.kind === 'project';
+  const projectPath = mode.kind === 'project' ? mode.path : undefined;
+  const projectName = mode.kind === 'project' ? mode.projectName : undefined;
   const addClaudeServerMutation = trpc.claude.addMcpServer.useMutation();
   const addCodexServerMutation = trpc.codex.addMcpServer.useMutation();
-  const [provider, setProvider] = useState<McpProvider>(defaultProvider);
+  // Project scope is Claude-Code-only (Codex has no per-project MCP); force it.
+  const [provider, setProvider] = useState<McpProvider>(isProject ? 'claude-code' : defaultProvider);
   const isSaving = provider === 'codex' ? addCodexServerMutation.isPending : addClaudeServerMutation.isPending;
   const [name, setName] = useState('');
   const [type, setType] = useState<'stdio' | 'http'>('stdio');
   const [command, setCommand] = useState('');
   const [args, setArgs] = useState('');
   const [url, setUrl] = useState('');
-  const [scope, setScope] = useState<'global' | 'project'>('global');
-  const effectiveScope = provider === 'codex' ? 'global' : scope;
+  // Scope is fixed by surface: global Settings adds global servers; the
+  // workspace Project Settings panel adds project servers at `projectPath`.
+  const effectiveScope: 'global' | 'project' = isProject && provider === 'claude-code' ? 'project' : 'global';
+  const scopeLabel = isProject
+    ? `${projectName ? `Project: ${projectName}` : 'Project'} (~/.claude.json, per-project)`
+    : provider === 'codex'
+      ? 'Global (~/.codex/config.toml)'
+      : 'Global (~/.claude.json)';
 
   const canSave =
     name.trim().length > 0 &&
@@ -329,26 +332,20 @@ function CreateMcpServerForm({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <Label>Provider</Label>
-          <Select
-            value={provider}
-            onValueChange={(v) => {
-              const nextProvider = v as McpProvider;
-              setProvider(nextProvider);
-              if (nextProvider === 'codex') {
-                setScope('global');
-              }
-            }}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="codex">OpenAI Codex</SelectItem>
-              <SelectItem value="claude-code">Claude Code</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {!isProject && (
+          <div className="space-y-1.5">
+            <Label>Provider</Label>
+            <Select value={provider} onValueChange={(v) => setProvider(v as McpProvider)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="codex">OpenAI Codex</SelectItem>
+                <SelectItem value="claude-code">Claude Code</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <Label>Name</Label>
@@ -402,43 +399,26 @@ function CreateMcpServerForm({
           </div>
         )}
 
-        {provider === 'codex' ? (
-          <div className="space-y-1.5">
-            <Label>Scope</Label>
-            <Select value="global" disabled>
-              <SelectTrigger disabled>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="global">Global (~/.codex/config.toml)</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="space-y-1.5">
+          <Label>Location</Label>
+          <div className="px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg">
+            <code className="text-xs text-foreground">{scopeLabel}</code>
           </div>
-        ) : (
-          hasProject && (
-            <div className="space-y-1.5">
-              <Label>Scope</Label>
-              <Select value={scope} onValueChange={(v) => setScope(v as 'global' | 'project')}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="global">Global (~/.claude.json)</SelectItem>
-                  <SelectItem value="project">{projectName ? `Project: ${projectName}` : 'Project'}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )
-        )}
+        </div>
       </div>
     </div>
   );
 }
 
 // --- Main Component ---
-export function AgentsMcpTab() {
+export function AgentsMcpTab({ mode = GLOBAL_SCOPE_MODE }: { mode?: SettingsScopeMode } = {}) {
   const lastSelectedAgentId = useAtomValue(lastSelectedAgentIdAtom);
-  const defaultAddProvider: McpProvider = lastSelectedAgentId === 'codex' ? 'codex' : 'claude-code';
+  // Project scope is Claude-Code-only; otherwise honour the last-used agent.
+  const defaultAddProvider: McpProvider =
+    mode.kind === 'project' ? 'claude-code' : lastSelectedAgentId === 'codex' ? 'codex' : 'claude-code';
+  // Project mode shows only this project's servers (keyed by the base-repo path
+  // in ~/.claude.json); global mode shows only non-project (global/plugin) servers.
+  const scopeProjectPath = mode.kind === 'project' ? mode.path : null;
   const [selectedServerKey, setSelectedServerKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -449,7 +429,6 @@ export function AgentsMcpTab() {
     projectPath?: string | null;
   } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const selectedProject = useAtomValue(selectedProjectAtom);
   const providerSections = useMemo<ProviderSection[]>(
     () => [
       { provider: 'claude-code', title: 'CLAUDE CODE' },
@@ -519,17 +498,26 @@ export function AgentsMcpTab() {
     return providerSections.flatMap((section) => {
       const groups = section.provider === 'codex' ? sortedGroupsByProvider.codex : sortedGroupsByProvider.claudeCode;
 
-      return groups.flatMap((group) =>
-        group.mcpServers.map((server) => ({
-          key: `${section.provider}:${group.groupName}:${server.name}`,
-          provider: section.provider,
-          groupName: group.groupName,
-          projectPath: group.projectPath,
-          server
-        }))
+      return (
+        groups
+          // Scope by surface: project mode keeps only this project's servers
+          // (keyed by the base-repo path); global mode keeps only non-project
+          // (global/plugin) servers.
+          .filter((group) =>
+            scopeProjectPath === null ? group.projectPath === null : group.projectPath === scopeProjectPath
+          )
+          .flatMap((group) =>
+            group.mcpServers.map((server) => ({
+              key: `${section.provider}:${group.groupName}:${server.name}`,
+              provider: section.provider,
+              groupName: group.groupName,
+              projectPath: group.projectPath,
+              server
+            }))
+          )
       );
     });
-  }, [providerSections, sortedGroupsByProvider]);
+  }, [providerSections, sortedGroupsByProvider, scopeProjectPath]);
 
   const filteredListedServers = useMemo(() => {
     if (!searchQuery.trim()) return allListedServers;
@@ -861,10 +849,8 @@ export function AgentsMcpTab() {
               handleRefresh(true);
             }}
             onCancel={() => setShowAddForm(false)}
-            hasProject={!!selectedProject?.path}
+            mode={mode}
             defaultProvider={defaultAddProvider}
-            projectPath={selectedProject?.path}
-            projectName={selectedProject?.name}
           />
         ) : selectedServer ? (
           <McpServerDetail

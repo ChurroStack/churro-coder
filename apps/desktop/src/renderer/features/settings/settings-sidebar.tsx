@@ -14,7 +14,6 @@ import {
   BugFilledIcon,
   CustomAgentIconFilled,
   FlaskFilledIcon,
-  FolderFilledIcon,
   KeyboardFilledIcon,
   OriginalMCPIcon,
   PluginFilledIcon,
@@ -60,11 +59,6 @@ const MAIN_TABS = [
 
 // Advanced tabs (base - without Debug)
 const ADVANCED_TABS_BASE = [
-  {
-    id: 'projects' as SettingsTab,
-    label: 'Projects',
-    icon: FolderFilledIcon
-  },
   {
     id: 'models' as SettingsTab,
     label: 'Models',

@@ -3,7 +3,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { useSetAtom } from 'jotai';
 import { useTheme } from 'next-themes';
 import { dockviewComponents } from './panel-registry';
-import { dockReadyAtom, widgetPanelMapAtom } from './atoms';
+import { dockReadyAtom, widgetPanelMapAtom, workspaceProjectSettingsOpenAtomFamily } from './atoms';
+import { appStore } from '../../lib/jotai-store';
 import { DockHeaderActions } from './dock-header-actions';
 import { DockHeaderLeftActions } from './dock-header-left-actions';
 import { RenamableTab } from './renamable-tab';
@@ -137,6 +138,19 @@ export function DockShell({ onApiReady, className }: DockShellProps) {
             queueMicrotask(() => {
               if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
               useAgentSubChatStore.getState().removeFromOpenSubChats(scId);
+            });
+          }
+        }
+
+        // Project Settings cleanup — clear the per-workspace psOpen flag the
+        // panel self-registered on mount, so ChatPanelSync re-adds `main` once
+        // the workspace has no anchors. Drag-guarded like the others.
+        if (removedPanelId.startsWith('project-settings:')) {
+          const workspaceId = removedPanelId.slice('project-settings:'.length);
+          if (workspaceId) {
+            queueMicrotask(() => {
+              if (dockApi.getPanel(removedPanelId)) return; // dragged, not closed
+              appStore.set(workspaceProjectSettingsOpenAtomFamily(workspaceId), false);
             });
           }
         }

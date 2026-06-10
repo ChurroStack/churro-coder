@@ -1,10 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useAtom } from 'jotai';
 import type { DockviewApi } from 'dockview-react';
 import { useAgentSubChatStore, type SubChatMeta } from '../agents/stores/sub-chat-store';
 import { pendingOpenSpecPanelAtom } from '../openspec/atoms';
 import { addOrFocus } from './add-or-focus';
-import type { PanelEntity } from './atoms';
+import { pendingProjectSettingsPanelAtom, workspaceProjectSettingsOpenAtomFamily, type PanelEntity } from './atoms';
 
 /**
  * ChatPanelSync — keeps a workspace's dockview chat panels (`chat:*`) in
@@ -73,6 +73,19 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
   const activeSubChatId = useAgentSubChatStore((s) => s.activeSubChatId);
   const allSubChats = useAgentSubChatStore((s) => s.allSubChats);
   const storeChatId = useAgentSubChatStore((s) => s.chatId);
+
+  // Whether this workspace's Project Settings panel is open (self-registered by
+  // the panel on mount). Counts as an anchor alongside `openSubChatIds`, so the
+  // `main` placeholder exists iff the workspace has neither.
+  const psOpenAtom = useMemo(() => workspaceProjectSettingsOpenAtomFamily(workspaceId ?? ''), [workspaceId]);
+  const [psOpen, setPsOpen] = useAtom(psOpenAtom);
+  // A PS panel that is merely *pending* (seeded by useOpenLocalWorkspace, about
+  // to open) also counts as an anchor. Without this, `main` flashes in before the
+  // panel mounts, and `MainPanel`'s AgentsContent auto-opens the workspace's
+  // first sub-chat (active-chat.tsx) — leaving a stray "New Chat" tab next to
+  // Project Settings when opening a Local workspace.
+  const [pendingPS, setPendingPS] = useAtom(pendingProjectSettingsPanelAtom);
+  const pendingPSHere = pendingPS?.chatId === workspaceId;
 
   // Workspace-level hydration of `allSubChats` from DB.
   // The populate normally happens inside `ChatViewInner`
@@ -189,9 +202,16 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
     // stale placeholder state.
     if (openSubChatIds.length > 0 && allSubChats.length === 0) return;
 
-    if (openSubChatIds.length > 0) {
+    // `main` (the empty-workspace placeholder) exists iff the workspace has no
+    // anchor: no open chats AND no Project Settings panel (open OR pending). A
+    // Local workspace can sit at 0 chats with PS as its sole anchor — main must
+    // stay closed there, including in the brief window before the PS panel mounts.
+    const hasAnchor = openSubChatIds.length > 0 || psOpen || pendingPSHere;
+    if (hasAnchor) {
       const main = dockApi.getPanel('main');
       if (main) main.api.close();
+    } else if (!dockApi.getPanel('main')) {
+      dockApi.addPanel({ id: 'main', component: 'main', title: 'Workspace' });
     }
 
     const expectedPanelIds = new Set<string>();
@@ -224,7 +244,7 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
         panel.api.close();
       }
     }
-  }, [active, dockApi, workspaceId, storeChatId, openSubChatIds, allSubChats]);
+  }, [active, dockApi, workspaceId, storeChatId, openSubChatIds, allSubChats, psOpen, pendingPSHere]);
 
   // Effect (3) — active sub-chat → setActive on the matching panel.
   useEffect(() => {
@@ -290,6 +310,52 @@ export function ChatPanelSync({ workspaceId, active, dockApi }: ChatPanelSyncPro
     });
     setPendingPanel(null);
   }, [active, dockApi, pendingPanel, workspaceId, storeChatId, setPendingPanel]);
+
+  // Effect (5) — pending Project Settings panel → open the PS panel once this
+  // workspace's dockview is ready. Mirrors Effect (4): seeded by
+  // `useOpenLocalWorkspace` (and the layout-reset reseed below) so the open
+  // happens with the target workspace's live dockApi, not a stale captured one.
+  // (`pendingPS`/`setPendingPS` are declared up top so Effect 2 can read them.)
+  useEffect(() => {
+    if (!active || !dockApi || !pendingPS) return;
+    if (pendingPS.chatId !== workspaceId) return;
+    if (storeChatId !== workspaceId) return;
+    addOrFocus(dockApi, {
+      kind: 'project-settings',
+      data: {
+        chatId: pendingPS.chatId,
+        projectId: pendingPS.projectId,
+        path: pendingPS.path,
+        projectName: pendingPS.projectName
+      }
+    });
+    // Flip the open flag optimistically (the panel's own mount effect does this
+    // too, idempotently) so the anchor is continuous: clearing `pendingPS` below
+    // never leaves a window where neither pending nor open is true — which would
+    // let `main` slip in and auto-open a sub-chat.
+    setPsOpen(true);
+    setPendingPS(null);
+  }, [active, dockApi, pendingPS, workspaceId, storeChatId, setPendingPS, setPsOpen]);
+
+  // Effect (6) — layout-reset reseed. `resetLayout` reloads the window (wiping
+  // in-memory atoms), so for a chat-less Local workspace it stashes the PS panel
+  // descriptor in sessionStorage (which survives reload). On the next mount we
+  // turn it back into a pending-PS request so the workspace doesn't reset to an
+  // empty `main`.
+  useEffect(() => {
+    if (!active || !workspaceId) return;
+    if (storeChatId !== workspaceId) return;
+    const key = `cs:reseedPS:${workspaceId}`;
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return;
+    sessionStorage.removeItem(key);
+    try {
+      const data = JSON.parse(raw) as { projectId: string; path: string; projectName?: string };
+      setPendingPS({ chatId: workspaceId, projectId: data.projectId, path: data.path, projectName: data.projectName });
+    } catch {
+      /* malformed — ignore */
+    }
+  }, [active, workspaceId, storeChatId, setPendingPS]);
 
   return null;
 }

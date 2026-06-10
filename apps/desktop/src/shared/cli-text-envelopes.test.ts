@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { stripClaudeCliEnvelopes } from './cli-text-envelopes';
+import { stripClaudeCliEnvelopes, stripCodexUserEnvelopes } from './cli-text-envelopes';
 
 describe('stripClaudeCliEnvelopes', () => {
   it('removes <local-command-caveat> block', () => {
@@ -40,5 +40,28 @@ describe('stripClaudeCliEnvelopes', () => {
       '<local-command-stdout>hi</local-command-stdout>\n\n\n\nreal text\n\n\n<command-args></command-args>'
     );
     expect(out).toBe('real text');
+  });
+});
+
+describe('stripCodexUserEnvelopes', () => {
+  it('removes the environment_context wrapper, leaving the prompt', () => {
+    const text =
+      '<environment_context>\n  <cwd>/repo</cwd>\n  <shell>zsh</shell>\n</environment_context>\nde que trata';
+    expect(stripCodexUserEnvelopes(text)).toBe('de que trata');
+  });
+
+  it('removes the turn_aborted notice', () => {
+    const text = '<turn_aborted>\nThe user interrupted the previous turn on purpose.\n</turn_aborted>';
+    expect(stripCodexUserEnvelopes(text)).toBe('');
+  });
+
+  it('also strips the shared MCP reminder line', () => {
+    const text =
+      'IMPORTANT: Pass subChatId: "abc" to every churro-coder MCP tool call. Call write_plan before ExitPlanMode.\nde que trata';
+    expect(stripCodexUserEnvelopes(text)).toBe('de que trata');
+  });
+
+  it('returns a plain prompt unchanged', () => {
+    expect(stripCodexUserEnvelopes('describe el proyecto')).toBe('describe el proyecto');
   });
 });

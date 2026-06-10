@@ -125,7 +125,7 @@ describe('DockNewMenuToolbar', () => {
   });
 
   test('when all entries pinned, no overflow trigger is rendered', () => {
-    renderToolbar(['chat', 'chat-claude-cli', 'chat-codex-cli', 'terminal', 'openspec-change']);
+    renderToolbar(['chat', 'chat-claude-cli', 'chat-codex-cli', 'terminal', 'openspec-change', 'project-settings']);
     expect(screen.queryByTestId('dock-new-menu-overflow-trigger')).toBeNull();
   });
 });

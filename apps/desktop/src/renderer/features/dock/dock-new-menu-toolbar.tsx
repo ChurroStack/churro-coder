@@ -1,4 +1,4 @@
-import { ChevronDown, MessageSquare, Terminal } from 'lucide-react';
+import { ChevronDown, MessageSquare, Terminal, SlidersHorizontal } from 'lucide-react';
 import { useAtomValue } from 'jotai';
 import { Button } from '../../components/ui/button';
 import {
@@ -26,6 +26,8 @@ function EntryIcon({ kind }: { kind: NewMenuEntryKind }) {
       return <Terminal className="h-4 w-4" />;
     case 'openspec-change':
       return <MessageSquare className="h-4 w-4" />;
+    case 'project-settings':
+      return <SlidersHorizontal className="h-4 w-4" />;
   }
 }
 
@@ -60,6 +62,9 @@ export function DockNewMenuToolbar() {
         // registered in the registry so it can be pinned/unpinned but its
         // onClick is a no-op here — the sidebar's "New change" CTA is the entry
         // point until a dedicated toolbar action is wired in a follow-up.
+        break;
+      case 'project-settings':
+        actions.openProjectSettings();
         break;
     }
   }

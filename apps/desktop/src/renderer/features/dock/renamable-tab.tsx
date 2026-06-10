@@ -10,6 +10,7 @@ import {
   Loader2,
   Hand,
   AlertCircle,
+  SlidersHorizontal,
   type LucideIcon
 } from 'lucide-react';
 import type { IDockviewPanelHeaderProps } from 'dockview-react';
@@ -25,6 +26,7 @@ import { useStreamingStatusStore } from '../agents/stores/streaming-status-store
 import { useSubChatNeedsInput } from '../kanban/lib/use-sub-chat-status';
 import { HarnessIcon } from '../agents/lib/harness-icons';
 import { deriveSubChatIconKind } from '../agents/lib/sub-chat-icon-status';
+import { countAnchorPanels, computeCloseDisableState } from './anchor-panels';
 
 /**
  * Default dockview tab component used by every panel kind. The body renders
@@ -50,9 +52,7 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
   const [isActive, setIsActive] = useState(api.isActive);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
-  const [conversationPanelCount, setConversationPanelCount] = useState(() =>
-    countConversationPanels(containerApi.panels)
-  );
+  const [anchorPanelCount, setAnchorPanelCount] = useState(() => countAnchorPanels(containerApi.panels));
   const [totalPanelCount, setTotalPanelCount] = useState(() => containerApi.panels.length);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -84,13 +84,13 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
     return () => sub.dispose();
   }, [api]);
 
-  // Track the conversation-panel count so the close X on the *last* chat or
-  // OpenSpec editor can be disabled. Also track the total panel count so the
-  // close X on the *only* tab (any kind) is disabled — closing the last
-  // panel would leave dockview empty.
+  // Track the anchor-panel count so the close X on the *last* chat / OpenSpec
+  // editor / Project Settings panel can be disabled. Also track the total panel
+  // count so the close X on the *only* tab (any kind) is disabled — closing the
+  // last panel would leave dockview empty.
   useEffect(() => {
     const recount = () => {
-      setConversationPanelCount(countConversationPanels(containerApi.panels));
+      setAnchorPanelCount(countAnchorPanels(containerApi.panels));
       setTotalPanelCount(containerApi.panels.length);
     };
     recount();
@@ -116,14 +116,15 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
 
   const kind = panelKind(api.id);
   // Disable the close X in two cases:
-  // 1. The last chat/OpenSpec tab — there must always be at least one
-  //    conversation surface open per workspace.
+  // 1. The last anchor tab (chat / OpenSpec editor / Project Settings) — there
+  //    must always be at least one such surface open per workspace.
   // 2. The only tab in dockview, of any kind. Closing it would leave the
   //    center cell empty.
-  const isConversationPanel = api.id.startsWith('chat:') || api.id.startsWith('openspec-change:');
-  const isLastConversation = isConversationPanel && conversationPanelCount <= 1;
-  const isOnlyPanel = totalPanelCount <= 1;
-  const closeDisabled = isLastConversation || isOnlyPanel;
+  const { isLastAnchor, isOnlyPanel, closeDisabled } = computeCloseDisableState(
+    api.id,
+    anchorPanelCount,
+    totalPanelCount
+  );
 
   const startEdit = () => {
     if (!kind) return;
@@ -167,14 +168,14 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
         type="button"
         aria-label={
           closeDisabled
-            ? isLastConversation
-              ? 'Cannot close last chat or OpenSpec editor'
+            ? isLastAnchor
+              ? 'Cannot close last chat, OpenSpec editor, or Project Settings'
               : 'Cannot close last tab'
             : 'Close tab'
         }
         title={
-          isLastConversation
-            ? 'At least one chat or OpenSpec editor must stay open'
+          isLastAnchor
+            ? 'At least one chat, OpenSpec editor, or Project Settings must stay open'
             : isOnlyPanel
               ? 'At least one tab must stay open'
               : undefined
@@ -204,14 +205,6 @@ export function RenamableTab(props: IDockviewPanelHeaderProps) {
       </button>
     </div>
   );
-}
-
-function countConversationPanels(panels: { id: string }[]): number {
-  let n = 0;
-  for (const p of panels) {
-    if (p.id.startsWith('chat:') || p.id.startsWith('openspec-change:')) n++;
-  }
-  return n;
 }
 
 function resolveChatTabTitle(storeTitle: string | null, currentTitle: string): string | null {
@@ -359,6 +352,9 @@ function TabIcon({ panelId, title, harnessOverride }: { panelId: string; title: 
   }
   if (panelId.startsWith('files-tree:')) {
     return <FolderTree className="h-3 w-3 flex-shrink-0 opacity-70" />;
+  }
+  if (panelId.startsWith('project-settings:')) {
+    return <SlidersHorizontal className="h-3 w-3 flex-shrink-0 opacity-70" />;
   }
   if (panelId.startsWith('file:')) {
     // The id encodes the absolute path; the title is the basename. Either

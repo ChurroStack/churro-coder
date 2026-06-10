@@ -4,4 +4,3 @@ export { AgentsDebugTab } from './agents-debug-tab';
 export { AgentsSkillsTab } from './agents-skills-tab';
 export { AgentsCustomAgentsTab } from './agents-custom-agents-tab';
 export { AgentsModelsTab } from './agents-models-tab';
-export { AgentsProjectWorktreeTab } from './agents-project-worktree-tab';

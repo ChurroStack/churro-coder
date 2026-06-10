@@ -1,6 +1,12 @@
 import type { Harness } from '../agents/lib/harness-icons';
 
-export type NewMenuEntryKind = 'chat' | 'chat-claude-cli' | 'chat-codex-cli' | 'terminal' | 'openspec-change';
+export type NewMenuEntryKind =
+  | 'chat'
+  | 'chat-claude-cli'
+  | 'chat-codex-cli'
+  | 'terminal'
+  | 'openspec-change'
+  | 'project-settings';
 
 export interface NewMenuEntry {
   kind: NewMenuEntryKind;
@@ -37,6 +43,11 @@ export const NEW_MENU_REGISTRY: NewMenuEntry[] = [
   {
     kind: 'openspec-change',
     label: 'New OpenSpec Change',
+    defaultPinned: false
+  },
+  {
+    kind: 'project-settings',
+    label: 'Project Settings',
     defaultPinned: false
   }
 ];

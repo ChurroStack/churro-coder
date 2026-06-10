@@ -10,6 +10,7 @@ import { FilePanel } from './panels/file-panel';
 import { SearchPanel } from './panels/search-panel';
 import { FilesTreePanel } from './panels/files-tree-panel';
 import { OpenSpecChangePanel } from './panels/openspec-change-panel';
+import { ProjectSettingsPanel } from './panels/project-settings-panel';
 import type { PanelKind } from './atoms';
 
 export type PanelComponent = React.FunctionComponent<IDockviewPanelProps>;
@@ -24,7 +25,8 @@ export const PANEL_COMPONENTS: Record<PanelKind, PanelComponent> = {
   diff: DiffPanel,
   search: SearchPanel,
   'files-tree': FilesTreePanel,
-  'openspec-change': OpenSpecChangePanel
+  'openspec-change': OpenSpecChangePanel,
+  'project-settings': ProjectSettingsPanel
 };
 
 // Dockview consumes a Record<string, FunctionComponent>. We add the "main"

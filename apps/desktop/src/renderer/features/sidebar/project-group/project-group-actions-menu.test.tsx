@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'jotai';
 import type { PropsWithChildren } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { createTestStore } from '../../../../../test-utils/create-test-store';
 import {
@@ -36,10 +36,13 @@ vi.mock('../../../components/ui/dropdown-menu', () => ({
   DropdownMenuSubTrigger: ({ children }: PropsWithChildren) => <div>{children}</div>
 }));
 
+const createChatMutateAsync = vi.fn().mockResolvedValue({ id: 'new-local-chat' });
+const listFetch = vi.fn().mockResolvedValue([]);
+
 vi.mock('../../../lib/trpc', () => ({
   trpc: {
     useUtils: () => ({
-      chats: { list: { invalidate: vi.fn() } },
+      chats: { list: { invalidate: vi.fn(), fetch: listFetch } },
       projects: { list: { invalidate: vi.fn() } }
     }),
     external: {
@@ -47,7 +50,8 @@ vi.mock('../../../lib/trpc', () => ({
       openInFinder: { useMutation: () => ({ mutate: vi.fn() }) }
     },
     chats: {
-      archiveBatch: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) }
+      archiveBatch: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
+      create: { useMutation: () => ({ mutateAsync: createChatMutateAsync, isPending: false }) }
     },
     projects: {
       delete: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) }
@@ -79,6 +83,33 @@ const project = {
 };
 
 describe('ProjectGroupActionsMenu', () => {
+  beforeEach(() => {
+    createChatMutateAsync.mockClear();
+    listFetch.mockClear();
+    listFetch.mockResolvedValue([]);
+  });
+
+  it('Open local workspace creates one Local chat even on rapid double-click', async () => {
+    const store = createTestStore();
+    render(
+      <Provider store={store}>
+        <ProjectGroupActionsMenu project={project as any} chatIds={[]} />
+      </Provider>
+    );
+
+    const item = screen.getByText(/open local workspace/i);
+    fireEvent.click(item);
+    fireEvent.click(item);
+
+    await waitFor(() => expect(createChatMutateAsync).toHaveBeenCalled());
+    // Single-flight ref collapses the second click — exactly one Local chat.
+    expect(createChatMutateAsync).toHaveBeenCalledTimes(1);
+    expect(createChatMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj-42', useWorktree: false })
+    );
+    expect(store.get(selectedProjectAtom)?.id).toBe('proj-42');
+  });
+
   it('clicking Project statistics sets projectStatsTargetIdAtom and desktopViewAtom', () => {
     const store = createTestStore();
     render(

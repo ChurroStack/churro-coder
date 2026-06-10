@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, copyFile, unlink } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { getGitRemoteInfo } from '../../git';
+import { canCreateWorktree } from '../../git/worktree';
 import { cloneIntoRepos, parseGitHubRef, parseAzureDevOpsRef } from '../../git/clone-into-repos';
 import { terminalManager } from '../../terminal/manager';
 import { trackProjectOpened } from '../../analytics';
@@ -41,6 +42,15 @@ export const projectsRouter = router({
   get: publicProcedure.input(z.object({ id: z.string() })).query(({ input }) => {
     const db = getDatabase();
     return db.select().from(projects).where(eq(projects.id, input.id)).get();
+  }),
+
+  /**
+   * Whether a worktree workspace can be created at `path` (a git repo with at
+   * least one commit). Drives the New Workspace form's Send gate. `reason`
+   * distinguishes a non-repo folder from a repo with no commits yet.
+   */
+  supportsWorktree: publicProcedure.input(z.object({ path: z.string() })).query(async ({ input }) => {
+    return canCreateWorktree(input.path);
   }),
 
   /**

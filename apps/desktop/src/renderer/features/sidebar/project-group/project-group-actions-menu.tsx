@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
-import { BarChart3, Plus, Settings } from 'lucide-react';
+import { BarChart3, Plus } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../../../components/confirm-delete-dialog';
 import { OpenInMenuItems, getAppOption } from '../../../components/open-in-menu-items';
 import { ProjectGroupMenuButton } from './project-group-header';
@@ -17,14 +17,19 @@ import {
 import {
   selectedProjectAtom,
   selectedAgentChatIdAtom,
-  agentsSettingsDialogActiveTabAtom,
   agentsSidebarOpenAtom,
   preferredEditorAtom,
   desktopViewAtom,
   projectStatsTargetIdAtom
 } from '../../../lib/atoms';
 import { getFileManagerUiMeta } from '../../../lib/utils/file-manager';
-import { newWorkspaceFormKeyAtom, selectedDraftIdAtom, showNewChatFormAtom } from '../../agents/atoms';
+import {
+  newWorkspaceFormKeyAtom,
+  selectedDraftIdAtom,
+  showNewChatFormAtom,
+  type SelectedProject
+} from '../../agents/atoms';
+import { useOpenLocalWorkspace } from '../../agents/hooks/use-open-local-workspace';
 import { trpc } from '../../../lib/trpc';
 import type { ProjectRecord } from '../grouping/group-chats-by-project';
 
@@ -39,7 +44,7 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
   const setSelectedDraftId = useSetAtom(selectedDraftIdAtom);
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom);
   const bumpNewWorkspaceFormKey = useSetAtom(newWorkspaceFormKeyAtom);
-  const setSettingsTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
+  const openLocalWorkspace = useOpenLocalWorkspace();
   const setDesktopView = useSetAtom(desktopViewAtom);
   const setSidebarOpen = useSetAtom(agentsSidebarOpenAtom);
   const setProjectStatsTargetId = useSetAtom(projectStatsTargetIdAtom);
@@ -62,8 +67,8 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
   const removeDisabled = chatIds.length > 0;
   const archiveDisabled = chatIds.length === 0;
 
-  function selectThisProject() {
-    setSelectedProject({
+  function projectInfo(): NonNullable<SelectedProject> {
+    return {
       id: project.id,
       name: project.name ?? project.gitRepo ?? 'Untitled project',
       path: project.path,
@@ -71,14 +76,15 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
       gitProvider: (project.gitProvider as 'github' | 'gitlab' | 'bitbucket' | null | undefined) ?? null,
       gitOwner: project.gitOwner ?? null,
       gitRepo: project.gitRepo ?? null
-    });
+    };
   }
 
-  function openProjectSettings() {
-    selectThisProject();
-    setSettingsTab('projects');
-    setDesktopView('settings');
-    setSidebarOpen(true);
+  function selectThisProject() {
+    setSelectedProject(projectInfo());
+  }
+
+  function openLocal() {
+    void openLocalWorkspace(projectInfo());
   }
 
   function openProjectStats() {
@@ -113,6 +119,7 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
               <OpenInMenuItems path={project.path} />
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+          <DropdownMenuItem onClick={openLocal}>Open local workspace</DropdownMenuItem>
           <DropdownMenuItem onClick={() => openInFinderMutation.mutate(project.path)}>
             {fileManager.revealLabel}
           </DropdownMenuItem>
@@ -125,11 +132,6 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
           <DropdownMenuItem onClick={openProjectStats} className="flex items-center gap-2">
             <BarChart3 className="size-4" />
             <span>Project statistics</span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={openProjectSettings} className="flex items-center gap-2">
-            <Settings className="size-4" />
-            <span>Settings</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={archiveDisabled} onClick={() => setArchiveDialogOpen(true)}>

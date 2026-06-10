@@ -52,20 +52,27 @@ export function ChatTabArchiveHost() {
     archivesWorkspace: boolean;
   } | null>(null);
 
-  const dispatch = useCallback((panelId: string) => {
-    if (!panelId.startsWith('chat:')) return;
-    const subChatId = panelId.slice('chat:'.length);
-    const store = useAgentSubChatStore.getState();
-    const openCount = store.openSubChatIds.length;
-    const parentChatId = store.chatId;
-    const sc = store.allSubChats.find((s) => s.id === subChatId);
-    setPendingArchive({
-      subChatId,
-      parentChatId,
-      name: sc?.name || 'this chat',
-      archivesWorkspace: openCount <= 1
-    });
-  }, []);
+  const dispatch = useCallback(
+    (panelId: string) => {
+      if (!panelId.startsWith('chat:')) return;
+      const subChatId = panelId.slice('chat:'.length);
+      const store = useAgentSubChatStore.getState();
+      const openCount = store.openSubChatIds.length;
+      const parentChatId = store.chatId;
+      const sc = store.allSubChats.find((s) => s.id === subChatId);
+      // Closing the last chat archives the workspace only when no Project
+      // Settings panel is open — a Local workspace can sit at 0 chats with PS
+      // as its sole anchor, so dropping its last chat must not archive it.
+      const hasProjectSettings = dockApi?.panels.some((p) => p.id.startsWith('project-settings:')) ?? false;
+      setPendingArchive({
+        subChatId,
+        parentChatId,
+        name: sc?.name || 'this chat',
+        archivesWorkspace: openCount <= 1 && !hasProjectSettings
+      });
+    },
+    [dockApi]
+  );
 
   useEffect(() => {
     dispatchArchiveImpl = dispatch;

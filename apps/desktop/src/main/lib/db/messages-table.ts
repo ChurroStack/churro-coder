@@ -395,6 +395,21 @@ export function refreshSubChatCountersAfterIngest(db: DB, subChatId: string): vo
 }
 
 /**
+ * Delete every message row for a sub_chat, leaving the sub_chat itself intact.
+ * Used by the CLI-session rebuild path (codex heal): the caller re-ingests from
+ * the JSONL afterwards, so this wipes the stale render-cache rows first. Does
+ * NOT touch the sub_chats counters — the re-ingest's
+ * `refreshSubChatCountersAfterIngest` recomputes them.
+ */
+export function deleteMessagesForSubChat(db: DB, subChatId: string): void {
+  try {
+    db.delete(messages).where(eq(messages.subChatId, subChatId)).run();
+  } catch (err) {
+    console.warn(`[messages-table] deleteMessagesForSubChat failed sub=${subChatId}`, err);
+  }
+}
+
+/**
  * Delete all messages for a sub_chat then re-insert from the given array.
  * Use for full replaces: rollback, fork, updateSubChatMessages.
  * Also updates the file-stats columns on sub_chats.

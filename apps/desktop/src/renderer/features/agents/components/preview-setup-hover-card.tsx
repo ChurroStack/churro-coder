@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { useTheme } from 'next-themes';
 // import Image from "next/image" // Desktop doesn't use next/image
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../../../components/ui/hover-card';
-import { useSetAtom } from 'jotai';
-import { agentsSettingsDialogOpenAtom, agentsSettingsDialogActiveTabAtom } from '../../../lib/atoms';
+import { useAtomValue } from 'jotai';
+import { selectedProjectAtom } from '../../../lib/atoms';
+import { useOpenLocalWorkspace } from '../hooks/use-open-local-workspace';
 import { GitHubIcon } from '../../../icons';
 
 interface PreviewSetupHoverCardProps {
@@ -14,15 +15,14 @@ interface PreviewSetupHoverCardProps {
 
 export function PreviewSetupHoverCard({ children }: PreviewSetupHoverCardProps) {
   const { resolvedTheme } = useTheme();
-  const setSettingsDialogOpen = useSetAtom(agentsSettingsDialogOpenAtom);
-  const setSettingsActiveTab = useSetAtom(agentsSettingsDialogActiveTabAtom);
+  const selectedProject = useAtomValue(selectedProjectAtom);
+  const openLocalWorkspace = useOpenLocalWorkspace();
   const [open, setOpen] = useState(false);
 
   const handleOpenSettings = () => {
-    // Repository setup lives in the Projects settings tab. Opening the dialog
-    // routes via desktopView='settings' (agentsSettingsDialogOpenAtom's setter).
-    setSettingsActiveTab('projects');
-    setSettingsDialogOpen(true);
+    // Repository setup (worktree config) now lives in the workspace's Project
+    // Settings panel. Open the project's Local workspace, which lands on it.
+    if (selectedProject) void openLocalWorkspace(selectedProject);
     setOpen(false);
   };
 
