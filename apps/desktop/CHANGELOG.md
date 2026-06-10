@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/ChurroStack/churro-coder/compare/v0.1.6...v0.1.7) (2026-06-10)
+
+
+### Bug Fixes
+
+* **desktop:** CLI onboarding PATH detection, login spawn, and skip ([#205](https://github.com/ChurroStack/churro-coder/issues/205)) ([3f83183](https://github.com/ChurroStack/churro-coder/commit/3f8318384be117b2e70fcb3027261da992b8cdc9))
+
 ## [0.1.6](https://github.com/ChurroStack/churro-coder/compare/v0.1.5...v0.1.6) (2026-06-10)
 
 
