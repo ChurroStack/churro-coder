@@ -5,7 +5,13 @@ import { Check } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { ClaudeCodeIcon, CodexIcon, KeyFilledIcon, SettingsFilledIcon } from '../../components/ui/icons';
-import { billingMethodAtom, codexOnboardingCompletedAtom, type BillingMethod } from '../../lib/atoms';
+import {
+  anthropicOnboardingCompletedAtom,
+  apiKeyOnboardingCompletedAtom,
+  billingMethodAtom,
+  codexOnboardingCompletedAtom,
+  type BillingMethod
+} from '../../lib/atoms';
 import { cn } from '../../lib/utils';
 import { CliInstallInstructions } from '../new-project/cli-install-instructions';
 
@@ -69,6 +75,8 @@ const billingOptions: BillingOption[] = [
 export function BillingMethodPage() {
   const setBillingMethod = useSetAtom(billingMethodAtom);
   const setCodexOnboardingCompleted = useSetAtom(codexOnboardingCompletedAtom);
+  const setAnthropicOnboardingCompleted = useSetAtom(anthropicOnboardingCompletedAtom);
+  const setApiKeyOnboardingCompleted = useSetAtom(apiKeyOnboardingCompletedAtom);
   const [selectedGroup, setSelectedGroup] = useState<BillingOptionGroup>('claude-code');
   const [selectedOptionId, setSelectedOptionId] = useState<string>('claude-subscription');
 
@@ -89,6 +97,22 @@ export function BillingMethodPage() {
     }
 
     setBillingMethod(selectedOption.method);
+  };
+
+  // Skip subscription: enter the app without resolving any token. The native
+  // claude / codex CLIs handle their own auth for CLI-harness chats, so a
+  // subscription is not required. Mark the gate for the selected method as
+  // complete so App routing lets us through.
+  const handleSkip = () => {
+    const method = selectedOption.method;
+    if (method === 'codex-subscription' || method === 'codex-api-key') {
+      setCodexOnboardingCompleted(true);
+    } else if (method === 'api-key' || method === 'custom-model') {
+      setApiKeyOnboardingCompleted(true);
+    } else {
+      setAnthropicOnboardingCompleted(true);
+    }
+    setBillingMethod(method);
   };
 
   return (
@@ -192,6 +216,15 @@ export function BillingMethodPage() {
           className="w-full h-8 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.97] shadow-[0_0_0_0.5px_rgb(23,23,23),inset_0_0_0_1px_rgba(255,255,255,0.14)] dark:shadow-[0_0_0_0.5px_rgb(23,23,23),inset_0_0_0_1px_rgba(255,255,255,0.14)] flex items-center justify-center">
           Continue
         </button>
+
+        {/* Skip subscription — use the native CLIs instead (always available) */}
+        <div className="flex justify-center">
+          <button
+            onClick={handleSkip}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline">
+            Skip for now — I'll use the CLIs
+          </button>
+        </div>
       </div>
     </div>
   );

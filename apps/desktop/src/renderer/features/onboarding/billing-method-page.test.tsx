@@ -6,6 +6,7 @@
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { cleanup, screen, fireEvent } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../../test-utils';
+import { anthropicOnboardingCompletedAtom, billingMethodAtom, codexOnboardingCompletedAtom } from '../../lib/atoms';
 import { BillingMethodPage } from './billing-method-page';
 
 afterEach(cleanup);
@@ -38,5 +39,28 @@ describe('BillingMethodPage — CLI detection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Codex' }));
     expect(screen.getByText('brew install codex')).toBeTruthy();
+  });
+});
+
+describe('BillingMethodPage — Skip for now', () => {
+  it('skips into the app for the default Claude selection', () => {
+    const store = createTestStore();
+    renderWithProviders(<BillingMethodPage />, { store });
+
+    fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
+
+    expect(store.get(billingMethodAtom)).toBe('claude-subscription');
+    expect(store.get(anthropicOnboardingCompletedAtom)).toBe(true);
+  });
+
+  it('skips into the app for the Codex tab', () => {
+    const store = createTestStore();
+    renderWithProviders(<BillingMethodPage />, { store });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Codex' }));
+    fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
+
+    expect(store.get(billingMethodAtom)).toBe('codex-subscription');
+    expect(store.get(codexOnboardingCompletedAtom)).toBe(true);
   });
 });

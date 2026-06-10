@@ -2,6 +2,7 @@ import { execSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getClaudeShellEnvironment } from './claude/env';
 import { buildExtendedPath, isWindows } from './platform';
 
 interface ClaudeCredentials {
@@ -264,7 +265,11 @@ function getExtendedPath(): string {
  */
 function resolveClaudeCliPath(): string | null {
   try {
-    const fullPath = getExtendedPath();
+    // Prefer the login-shell PATH (Homebrew / npm-global / nvm / fnm / volta /
+    // asdf / custom .zshrc dirs) so a Finder-launched app finds the same `claude`
+    // the user's terminal does. Fall back to the static extended PATH if the
+    // shell-env probe yields nothing.
+    const fullPath = getClaudeShellEnvironment().PATH || getExtendedPath();
     const result = execSync(isWindows() ? 'where claude' : 'which claude', {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],

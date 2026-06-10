@@ -27,6 +27,16 @@ export function AnthropicOnboardingPage() {
     setBillingMethod(null);
   };
 
+  // Skip subscription: enter the app without resolving a token. The native
+  // claude CLI handles its own auth for claude-cli harness chats, so a token
+  // is not required here.
+  const handleSkip = () => {
+    if (flowState.step === 'connecting') {
+      cancelAuthMutation.mutate({ sessionId: flowState.sessionId });
+    }
+    setAnthropicOnboardingCompleted(true);
+  };
+
   const formatTokenPreview = (token: string) => {
     const trimmed = token.trim();
     if (trimmed.length <= 16) return trimmed;
@@ -274,6 +284,15 @@ export function AnthropicOnboardingPage() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* Skip subscription — use the native Claude CLI instead */}
+        <div className="flex justify-center">
+          <button
+            onClick={handleSkip}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline">
+            Skip for now — I'll use the Claude CLI
+          </button>
         </div>
       </div>
     </div>

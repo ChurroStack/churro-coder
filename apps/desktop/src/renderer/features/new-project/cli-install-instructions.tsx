@@ -21,6 +21,19 @@ interface Props {
   showWhenAvailable?: boolean;
 }
 
+/**
+ * Extract the runnable command from a display line for the clipboard. Install
+ * lists prefix fallback alternatives with a `# or: ` marker and suffix some
+ * lines with a `  # platform` annotation (e.g. `# Fedora`) — both are for the
+ * reader, not the shell, so copy just the command itself.
+ */
+export function commandToCopy(displayCommand: string): string {
+  return displayCommand
+    .replace(/^#\s*or:\s*/, '')
+    .replace(/\s+#.*$/, '')
+    .trim();
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -99,7 +112,7 @@ export function CliInstallInstructions({ provider, showWhenAvailable = false }: 
         {steps.commands.map((cmd, i) => (
           <li key={i} className="flex items-center gap-1 font-mono text-xs text-foreground">
             <code className="flex-1 rounded bg-background px-2 py-1">{cmd}</code>
-            <CopyButton text={cmd} />
+            <CopyButton text={commandToCopy(cmd)} />
           </li>
         ))}
       </ol>
