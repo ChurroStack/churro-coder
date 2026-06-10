@@ -47,6 +47,7 @@ import { DetailsRail } from './details-rail';
 import { SettingsSidebar } from '../settings/settings-sidebar';
 import { SettingsContent } from '../settings/settings-content';
 import { UsageContent } from '../usage/usage-content';
+import { TimeContent } from '../time/time-content';
 import { ProjectStatsContent } from '../project-stats/project-stats-content';
 import { KanbanView } from '../kanban';
 import { AutomationsView, AutomationsDetailView, InboxView } from '../automations';
@@ -170,6 +171,7 @@ function useEffectiveSystemView():
   | 'kanban'
   | 'new-workspace'
   | 'project-stats'
+  | 'time'
   | null {
   const desktopView = useAtomValue(desktopViewAtom);
   const betaKanbanEnabled = useAtomValue(betaKanbanEnabledAtom);
@@ -236,6 +238,7 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
           <div className="absolute inset-0 z-10 bg-background overflow-hidden">
             {systemView === 'settings' && <SettingsContent />}
             {systemView === 'usage' && <UsageContent />}
+            {systemView === 'time' && <TimeContent />}
             {systemView === 'project-stats' && <ProjectStatsContent />}
             {systemView === 'kanban' && <KanbanView />}
             {systemView === 'new-workspace' && (

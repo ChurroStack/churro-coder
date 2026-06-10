@@ -198,6 +198,80 @@ export const sandboxSettings = sqliteTable('sandbox_settings', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
 });
 
+// ============ TIME / BILLING LEDGERS ============
+// FK-FREE on purpose: rows MUST survive project / chat / sub-chat deletion so
+// invoicing ("this month, by project") still shows entities that were later
+// archived or hard-deleted. All project/chat/sub-chat fields are denormalized
+// SNAPSHOTS captured at write time and are never rewritten retroactively.
+
+// Raw agent work intervals (one row per turn / backfilled session span).
+// Runtime is SUM(ended_at - started_at). started_at/ended_at are ms-epoch
+// integers (not timestamp mode) so interval math stays simple in SQL.
+export const workIntervals = sqliteTable(
+  'work_intervals',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    subChatId: text('sub_chat_id').notNull(),
+    projectId: text('project_id'),
+    projectName: text('project_name'),
+    chatId: text('chat_id'),
+    chatName: text('chat_name'),
+    subChatName: text('sub_chat_name'),
+    harness: text('harness').notNull().default('builtin'), // 'builtin' | 'claude-cli' | 'codex-cli'
+    source: text('source'), // 'builtin' | 'claude' | 'codex'
+    startedAt: integer('started_at').notNull(), // ms since epoch
+    endedAt: integer('ended_at'), // ms since epoch; NULL = open (in-progress or left open by a crash)
+    origin: text('origin').notNull().default('live'), // 'live' (builtin turns) | 'derived' (CLI, from message timestamps)
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
+  },
+  (table) => [
+    index('work_intervals_sub_chat_id_idx').on(table.subChatId),
+    index('work_intervals_started_at_idx').on(table.startedAt)
+  ]
+);
+
+// Per-(local day, session, provider, model) token + cost rollup.
+// cost stored as INTEGER micro-USD to avoid float cent drift across many rows.
+// subChatId may be the '__unattributed__' sentinel for usage that matched no
+// session (still counted in grand totals, just not per-project).
+export const tokenDaily = sqliteTable(
+  'token_daily',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    dateKey: text('date_key').notNull(), // 'YYYY-MM-DD' in local tz
+    projectId: text('project_id'),
+    projectName: text('project_name'),
+    chatId: text('chat_id'),
+    chatName: text('chat_name'),
+    subChatId: text('sub_chat_id').notNull(),
+    subChatName: text('sub_chat_name'),
+    harness: text('harness'), // 'builtin' | 'claude-cli' | 'codex-cli' | null (unattributed) — for the harness spend axis
+    source: text('source').notNull(), // 'claude' | 'codex' — provider axis
+    model: text('model').notNull(), // raw model id
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    costMicroUsd: integer('cost_micro_usd').notNull().default(0), // integer micro-USD (1e-6)
+    unpriced: integer('unpriced', { mode: 'boolean' }).notNull().default(false), // model missing from pricing table
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
+  },
+  (table) => [
+    uniqueIndex('token_daily_day_subchat_source_model_uq').on(
+      table.dateKey,
+      table.subChatId,
+      table.source,
+      table.model
+    ),
+    index('token_daily_date_key_idx').on(table.dateKey)
+  ]
+);
+
 // ============ TYPE EXPORTS ============
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
@@ -213,3 +287,7 @@ export type AnthropicAccount = typeof anthropicAccounts.$inferSelect;
 export type NewAnthropicAccount = typeof anthropicAccounts.$inferInsert;
 export type AnthropicSettings = typeof anthropicSettings.$inferSelect;
 export type SandboxSettings = typeof sandboxSettings.$inferSelect;
+export type WorkInterval = typeof workIntervals.$inferSelect;
+export type NewWorkInterval = typeof workIntervals.$inferInsert;
+export type TokenDaily = typeof tokenDaily.$inferSelect;
+export type NewTokenDaily = typeof tokenDaily.$inferInsert;

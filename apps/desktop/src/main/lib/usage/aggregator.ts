@@ -1,4 +1,5 @@
 import { costForTokens, displayNameFor, priceFor } from './pricing';
+import { localDateKey, mondayDayOfWeek } from '../date-keys';
 import type { ModelRates } from './pricing';
 import type { UsageEntry, UsagePeriod, UsageSourceFilter } from './types';
 
@@ -67,7 +68,11 @@ function filterBySource(entries: UsageEntry[], source: UsageSourceFilter): Usage
   return entries.filter((e) => e.source === source);
 }
 
-function dedup(entries: UsageEntry[]): UsageEntry[] {
+/**
+ * Drop entries with a duplicate `dedupKey` (entries without a key pass through).
+ * Exported so the billing rollup shares one dedup contract with the dashboard.
+ */
+export function dedup(entries: UsageEntry[]): UsageEntry[] {
   const seen = new Set<string>();
   const out: UsageEntry[] = [];
   for (const e of entries) {
@@ -82,22 +87,12 @@ function dedup(entries: UsageEntry[]): UsageEntry[] {
   return out;
 }
 
-/** YYYY-MM-DD in the local timezone. */
-function localDateKey(ts: number): string {
-  const d = new Date(ts);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** Monday-indexed day of week (0=Mon ... 6=Sun) to match the screenshots. */
-function mondayDayOfWeek(ts: number): number {
-  const d = new Date(ts).getDay(); // 0=Sun..6=Sat
-  return (d + 6) % 7;
-}
-
-function costForEntry(entry: UsageEntry): { cost: number | null } {
+/**
+ * Cost for one entry: prefer the provider-supplied `costUSD` (when > 0), else
+ * compute from token counts via the pricing table; null when the model is
+ * unpriced. Shared so the ledger and the dashboard price identically.
+ */
+export function costForEntry(entry: UsageEntry): { cost: number | null } {
   if (typeof entry.costUSD === 'number' && entry.costUSD > 0) {
     return { cost: entry.costUSD };
   }

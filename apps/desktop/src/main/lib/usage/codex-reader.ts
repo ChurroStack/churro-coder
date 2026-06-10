@@ -1,31 +1,16 @@
-import type { Dirent } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { UsageEntry } from './types';
+import { walkJsonlFiles } from './jsonl-walk';
+
+// Codex rollout transcripts are named `rollout-*.jsonl`.
+const acceptCodex = (name: string) => name.startsWith('rollout-') && name.endsWith('.jsonl');
 
 function codexSessionsRoot(): string {
   // Codex CLI does not advertise a CODEX_CONFIG_DIR override today; hardcode
   // the default but keep it centralized so a future override is a one-liner.
   return join(homedir(), '.codex', 'sessions');
-}
-
-async function walkJsonlFiles(dir: string, out: string[]): Promise<void> {
-  let entries: Dirent[];
-  try {
-    entries = (await readdir(dir, { withFileTypes: true, encoding: 'utf8' })) as Dirent[];
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const name = entry.name as string;
-    const full = join(dir, name);
-    if (entry.isDirectory()) {
-      await walkJsonlFiles(full, out);
-    } else if (entry.isFile() && name.startsWith('rollout-') && name.endsWith('.jsonl')) {
-      out.push(full);
-    }
-  }
 }
 
 type CodexRecord = {
@@ -34,6 +19,8 @@ type CodexRecord = {
   payload?: {
     type?: string;
     model?: string;
+    id?: string; // session_meta: the session id
+    cwd?: string; // session_meta: the working directory
     info?: {
       last_token_usage?: {
         input_tokens?: number;
@@ -75,6 +62,8 @@ async function readSession(file: string, sinceMs: number | null): Promise<UsageE
     return [];
   }
   let currentModel: string | null = null;
+  let sessionId: string | null = null;
+  let cwd: string | null = null;
   const out: UsageEntry[] = [];
   let tokenEventIndex = 0;
 
@@ -82,6 +71,12 @@ async function readSession(file: string, sinceMs: number | null): Promise<UsageE
     const rec = parseLine(line);
     if (!rec) continue;
 
+    if (rec.type === 'session_meta' && rec.payload?.id && !sessionId) {
+      sessionId = rec.payload.id;
+    }
+    if (rec.type === 'session_meta' && rec.payload?.cwd && !cwd) {
+      cwd = rec.payload.cwd;
+    }
     if (rec.type === 'turn_context' && rec.payload?.model) {
       currentModel = rec.payload.model;
       continue;
@@ -114,16 +109,31 @@ async function readSession(file: string, sinceMs: number | null): Promise<UsageE
       cacheCreationTokens: 0,
       cacheReadTokens: cached,
       dedupKey: `${file}:${tokenEventIndex}`,
-      costUSD: null
+      costUSD: null,
+      sessionId,
+      cwd
     });
     tokenEventIndex += 1;
   }
   return out;
 }
 
-export async function readCodexUsage(sinceMs: number | null = null): Promise<UsageEntry[]> {
+/** List the Codex rollout JSONL paths without parsing them (cheap fingerprint). */
+export async function listCodexUsageFiles(): Promise<string[]> {
   const files: string[] = [];
-  await walkJsonlFiles(codexSessionsRoot(), files);
+  await walkJsonlFiles(codexSessionsRoot(), files, acceptCodex);
+  return files;
+}
+
+export async function readCodexUsage(sinceMs: number | null = null, prelistedFiles?: string[]): Promise<UsageEntry[]> {
+  // Reuse an already-walked file list when the caller provides one.
+  let files: string[];
+  if (prelistedFiles) {
+    files = prelistedFiles;
+  } else {
+    files = [];
+    await walkJsonlFiles(codexSessionsRoot(), files, acceptCodex);
+  }
 
   const results = await Promise.all(
     files.map(async (file) => {

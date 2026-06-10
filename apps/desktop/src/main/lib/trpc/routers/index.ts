@@ -19,6 +19,7 @@ import { voiceRouter } from './voice';
 import { pluginsRouter } from './plugins';
 import { usageRouter } from './usage';
 import { projectStatsRouter } from './project-stats';
+import { timeRouter } from './time';
 import { sandboxRouter } from './sandbox';
 import { sandboxImportRouter } from './sandbox-import';
 import { analyticsRouter } from './analytics';
@@ -56,6 +57,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     plugins: pluginsRouter,
     usage: usageRouter,
     projectStats: projectStatsRouter,
+    time: timeRouter,
     analytics: analyticsRouter,
     sandbox: sandboxRouter,
     sandboxImport: sandboxImportRouter,
