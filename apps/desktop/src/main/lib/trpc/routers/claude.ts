@@ -77,6 +77,7 @@ import { evaluateClaudeModeToolPolicy, resolveClaudePermissionMode } from './cla
 import { createMcpServer } from '../../mcp/server';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
+import { ASK_USER_QUESTION_TIMEOUT_MS } from '../../../../shared/ask-user-question';
 import {
   classifyClaudeFailure,
   delayWithAbort,
@@ -2023,7 +2024,8 @@ ${prompt}
                           questions: (toolInput as any).questions
                         } as UIMessageChunk);
 
-                        // Wait for response (60s timeout)
+                        // Wait for the user's answer, or expire cleanly after the
+                        // shared host-owned window (humans need time to think).
                         const response = await new Promise<{
                           approved: boolean;
                           message?: string;
@@ -2038,7 +2040,7 @@ ${prompt}
                               toolUseId: toolUseID
                             } as UIMessageChunk);
                             resolve({ approved: false, message: 'Timed out' });
-                          }, 60000);
+                          }, ASK_USER_QUESTION_TIMEOUT_MS);
 
                           pendingToolApprovals.set(toolUseID, {
                             subChatId: input.subChatId,

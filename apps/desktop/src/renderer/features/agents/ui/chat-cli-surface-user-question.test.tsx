@@ -12,7 +12,8 @@ import React from 'react';
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const mockBuildCliBootstrapMutate = vi.fn();
-const mockResolveCliUserQuestionMutate = vi.fn();
+// Resolves ok:true so the surface's await path clears the widget.
+const mockResolveCliUserQuestionMutate = vi.fn().mockResolvedValue({ ok: true });
 
 // Capture the cliUserQuestion subscription onData callback so tests can fire events
 let capturedCliQuestionOnData: ((event: unknown) => void) | null = null;
@@ -47,9 +48,14 @@ vi.mock('@/lib/trpc', () => {
             if (opts?.onData) capturedCliQuestionOnData = opts.onData;
           })
         },
+        cliUserQuestionExpired: { useSubscription: vi.fn() },
+        cliUserQuestionCleared: { useSubscription: vi.fn() },
+        getPendingCliQuestion: { useQuery: vi.fn(emptyQuery) },
         resolveCliUserQuestion: {
           useMutation: vi.fn(() => ({
+            // The surface now awaits mutateAsync and only clears on ok:true.
             mutate: mockResolveCliUserQuestionMutate,
+            mutateAsync: mockResolveCliUserQuestionMutate,
             isPending: false
           }))
         },

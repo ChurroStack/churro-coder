@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpServer } from './server';
+import { getToolName, isInteractiveToolCall } from './interactive-tools';
 
 interface McpHttpState {
   url: string;
@@ -167,6 +168,17 @@ async function startMcpHttpServer(
     const shouldTraceRequest = isToolCallBody(body);
     if (shouldTraceRequest) {
       console.log(`[churro-coder] MCP HTTP request id=${requestId} method=${req.method} ${summarizeJsonRpcBody(body)}`);
+    }
+
+    // Interactive tools (request_user_input) block on a human and may hold the
+    // response open for minutes. Disable the generic socket watchdog for them so
+    // it can never reap the call; the tool's own backstop timer + the CLI's
+    // per-server `timeout` govern the lifetime instead.
+    if (isInteractiveToolCall(body)) {
+      req.setTimeout(0);
+      console.log(
+        `[churro-coder] MCP HTTP request id=${requestId} watchdog disabled for interactive tool=${getToolName(body)}`
+      );
     }
 
     const mcpServer = createMcpServer();
