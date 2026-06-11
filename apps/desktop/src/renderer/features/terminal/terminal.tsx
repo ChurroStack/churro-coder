@@ -42,6 +42,7 @@ export function Terminal({
   initialCommands,
   initialCwd,
   bootstrap,
+  onExitedKeyPress,
   clearScrollbackOnColChange = false
 }: TerminalProps) {
   const scopeRef = useRef<HTMLDivElement>(null);
@@ -72,6 +73,11 @@ export function Terminal({
   // Ref for paneId to use in callbacks
   const paneIdRef = useRef(paneId);
   paneIdRef.current = paneId;
+
+  // Ref for the external restart owner (CLI surfaces) so the mount effect's
+  // input handler reads the latest callback without re-running.
+  const onExitedKeyPressRef = useRef(onExitedKeyPress);
+  onExitedKeyPressRef.current = onExitedKeyPress;
 
   // Mutations
   const createOrAttachMutation = trpc.terminal.createOrAttach.useMutation();
@@ -231,6 +237,14 @@ export function Terminal({
     // Input handler
     const handleTerminalInput = (data: string) => {
       if (isExitedRef.current) {
+        // CLI surfaces register an external restart owner so the keypress runs
+        // the same kill + rebootstrap path as the Restart button (relaunching
+        // the correct binary with its args). Without an owner (plain terminals)
+        // fall back to the in-place shell respawn.
+        if (onExitedKeyPressRef.current) {
+          onExitedKeyPressRef.current();
+          return;
+        }
         restartTerminal();
         return;
       }
