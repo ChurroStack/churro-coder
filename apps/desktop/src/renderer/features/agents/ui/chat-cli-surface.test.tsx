@@ -41,6 +41,9 @@ vi.mock('../../../lib/trpc', () => {
           }))
         },
         cliUserQuestion: { useSubscription: vi.fn() },
+        cliUserQuestionExpired: { useSubscription: vi.fn() },
+        cliUserQuestionCleared: { useSubscription: vi.fn() },
+        getPendingCliQuestion: { useQuery: vi.fn(emptyQuery) },
         resolveCliUserQuestion: { useMutation: vi.fn(emptyMutation) },
         getMcpFileChanges: { useQuery: vi.fn(emptyQuery) },
         // Workflow notch chain — useWorkflowState / useWorkflowSnapshot:

@@ -20,7 +20,11 @@ import { registerNotifyFilesChangedTool } from './handlers/notify-files-changed'
 import { registerRequestUserInputTool } from './handlers/request-user-input';
 
 export function createMcpServer(): McpServer {
-  const server = new McpServer({ name: 'churro-coder', version: '0.1.0' });
+  // `logging` capability is declared so request_user_input's keepalive can emit
+  // `notifications/message` on the held SSE stream (the SDK rejects logging
+  // notifications unless the capability is advertised). Keepalive bytes prevent
+  // the CLI's transport body-idle timeout from aborting a long human-answer wait.
+  const server = new McpServer({ name: 'churro-coder', version: '0.1.0' }, { capabilities: { logging: {} } });
   registerReadPlanTool(server);
   registerWritePlanTool(server);
   registerWriteReviewTool(server);
