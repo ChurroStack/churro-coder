@@ -46,7 +46,14 @@ import {
 import { publicProcedure, router } from '../index';
 import { abortClaudeSessionsForSubChats } from './claude';
 import { cleanupCodexAppServerSubChat } from './codex';
-import { onCliUserQuestion, pendingCliQuestions, rejectAllForSubChat } from '../../mcp/pending-cli-questions';
+import {
+  onCliUserQuestion,
+  onCliUserQuestionExpired,
+  onCliUserQuestionCleared,
+  getPendingForSubChat,
+  pendingCliQuestions,
+  rejectAllForSubChat
+} from '../../mcp/pending-cli-questions';
 import type { CliUserQuestionEntry } from '../../mcp/pending-cli-questions';
 import {
   parseClaudeCommitResponse,
@@ -2874,10 +2881,16 @@ export const chatsRouter = router({
                 // Encode body: bracketed-paste when multi-line, plain text otherwise.
                 const normalized = body.replace(/\r\n/g, '\n');
                 const bodyChunk = normalized.includes('\n') ? `\x1b[200~${normalized}\x1b[201~` : normalized;
+                // Plan mode re-enters /plan first so a restarted plan-mode subChat
+                // resumes in plan mode (a fresh CLI spawn starts in execute mode).
                 const chunks: string[] = isPlanMode ? ['/plan\r', bodyChunk, '\r'] : [bodyChunk, '\r'];
                 result.initialInputChunks = chunks;
                 result.mcpReminderInjected = isPlanMode;
                 if (isRestart) {
+                  // Restart re-injects every time (no bootstrappedAt guard, no stamp):
+                  // the user explicitly asked to relaunch and re-send the first prompt.
+                  // The main-side write fires after the banner goes quiet (idleDetection
+                  // silenceMs gate) and triggers onTurnStart, so it lands at the prompt.
                   console.log(
                     `[buildCliBootstrap] force-inject reason=user-restart sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode}`
                   );
@@ -3086,6 +3099,47 @@ export const chatsRouter = router({
       });
       return unsub;
     });
+  }),
+
+  /**
+   * Subscription: fires when a pending CLI question expires (host backstop fired,
+   * or claude-code abandoned the call). The renderer flips the widget to a
+   * disabled "Expired" state. Carries requestId so the renderer can ignore a
+   * stale expiry for a question that was already superseded.
+   */
+  cliUserQuestionExpired: publicProcedure.input(z.string().min(1)).subscription(({ input: subChatId }) => {
+    return observable<{ requestId: string; subChatId: string }>((emit) => {
+      const unsub = onCliUserQuestionExpired((event) => {
+        if (event.subChatId === subChatId) {
+          emit.next(event);
+        }
+      });
+      return unsub;
+    });
+  }),
+
+  /**
+   * Subscription: fires when a pending CLI question is cleared (teardown /
+   * supersede). The renderer removes the widget outright.
+   */
+  cliUserQuestionCleared: publicProcedure.input(z.string().min(1)).subscription(({ input: subChatId }) => {
+    return observable<{ requestId: string; subChatId: string }>((emit) => {
+      const unsub = onCliUserQuestionCleared((event) => {
+        if (event.subChatId === subChatId) {
+          emit.next(event);
+        }
+      });
+      return unsub;
+    });
+  }),
+
+  /**
+   * Query: the current outstanding CLI question for a sub-chat, or null. Used to
+   * rehydrate the widget when a panel remounts after the one-shot cliUserQuestion
+   * event already fired (close→reopen, renderer cold start).
+   */
+  getPendingCliQuestion: publicProcedure.input(z.string().min(1)).query(({ input: subChatId }) => {
+    return getPendingForSubChat(subChatId);
   }),
 
   /**

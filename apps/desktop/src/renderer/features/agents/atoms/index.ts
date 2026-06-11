@@ -1090,9 +1090,9 @@ export const compactingSubChatsAtom = atom<Set<string>>(new Set<string>());
 export const justCreatedIdsAtom = atom<Set<string>>(new Set<string>());
 
 // Pending user questions from AskUserQuestion tool
-// Set when Claude requests user input, cleared when answered or skipped
-export const QUESTIONS_SKIPPED_MESSAGE = 'User skipped questions - proceed with defaults';
-export const QUESTIONS_TIMED_OUT_MESSAGE = 'Timed out';
+// Set when Claude requests user input, cleared when answered or skipped.
+// Messages live in the shared module so all three harnesses agree on the text.
+export { QUESTIONS_SKIPPED_MESSAGE, QUESTIONS_TIMED_OUT_MESSAGE } from '@/../shared/ask-user-question';
 
 export type PendingUserQuestion = {
   subChatId: string;

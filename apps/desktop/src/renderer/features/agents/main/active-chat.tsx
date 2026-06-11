@@ -1590,15 +1590,6 @@ export const ChatViewInner = memo(function ChatViewInner({
     });
   }, [subChatId, setPendingQuestionsMap, setExpiredQuestionsMap]);
 
-  // Shared helpers for question answer handlers
-  const formatAnswersAsText = useCallback(
-    (answers: Record<string, string>): string =>
-      Object.entries(answers)
-        .map(([question, answer]) => `${question}: ${answer}`)
-        .join('\n'),
-    []
-  );
-
   const clearInputAndDraft = useCallback(() => {
     editorRef.current?.clear();
     if (parentChatId) {
@@ -1620,20 +1611,28 @@ export const ChatViewInner = memo(function ChatViewInner({
       if (!displayQuestions) return;
 
       if (isQuestionExpired) {
-        // Question timed out - send answers as a normal user message
+        // Expired questions are no longer answerable (expire-cleanly model): the
+        // widget is disabled, so this just dismisses it. The agent may ask again.
         clearPendingQuestionCallback();
-        await sendUserMessage(formatAnswersAsText(answers));
       } else {
         // Question is still live - use tool approval path
-        await trpcClient.claude.respondToolApproval.mutate({
+        const res = await trpcClient.claude.respondToolApproval.mutate({
           toolUseId: displayQuestions.toolUseId,
           approved: true,
           updatedInput: { questions: displayQuestions.questions, answers }
         });
+        if (res?.ok === false) {
+          // The tool was already torn down (it timed out during this await).
+          // Don't clear — the SDK timeout chunk has moved it to the expired
+          // state, so leave the disabled "Expired" widget visible instead of
+          // making it vanish as if the answer landed.
+          console.warn('[active-chat] respondToolApproval not-ok (expired during submit)');
+          return;
+        }
         clearPendingQuestionCallback();
       }
     },
-    [displayQuestions, isQuestionExpired, clearPendingQuestionCallback, sendUserMessage, formatAnswersAsText]
+    [displayQuestions, isQuestionExpired, clearPendingQuestionCallback]
   );
 
   // Handle skipping questions
@@ -1698,14 +1697,14 @@ export const ChatViewInner = memo(function ChatViewInner({
       }
 
       if (isQuestionExpired) {
-        // Expired: send user's custom text as-is (don't format)
+        // Expired: the question is no longer answerable. Dismiss it and send the
+        // user's freely-typed text as a normal message (not as a tool answer).
         clearPendingQuestionCallback();
         clearInputAndDraft();
-        // await sendUserMessage(formatAnswersAsText(formattedAnswers))
         await sendUserMessage(customText);
       } else {
         // Live: use existing tool approval flow
-        await trpcClient.claude.respondToolApproval.mutate({
+        const res = await trpcClient.claude.respondToolApproval.mutate({
           toolUseId: displayQuestions.toolUseId,
           approved: true,
           updatedInput: {
@@ -1715,8 +1714,12 @@ export const ChatViewInner = memo(function ChatViewInner({
         });
         clearPendingQuestionCallback();
 
-        // Stop stream if currently streaming
-        if (isStreamingRef.current) {
+        // The answer only reached the agent when ok:true. If it timed out during
+        // this await (ok:false), skip the stream-stop — there's no live turn to
+        // interrupt — but still send the user's typed text as a normal message.
+        if (res?.ok === false) {
+          console.warn('[active-chat] respondToolApproval not-ok (expired during custom-text submit)');
+        } else if (isStreamingRef.current) {
           agentChatStore.setManuallyAborted(subChatId, true);
           await stopRef.current();
           await new Promise((resolve) => setTimeout(resolve, 100));
@@ -1734,7 +1737,6 @@ export const ChatViewInner = memo(function ChatViewInner({
     clearPendingQuestionCallback,
     clearInputAndDraft,
     sendUserMessage,
-    formatAnswersAsText,
     subChatId
   ]);
 
@@ -3391,6 +3393,7 @@ export const ChatViewInner = memo(function ChatViewInner({
                 onAnswer={handleQuestionsAnswer}
                 onSkip={handleQuestionsSkip}
                 hasCustomText={inputHasContent}
+                expired={isQuestionExpired}
               />
             </div>
           </div>

@@ -11,6 +11,11 @@ interface AgentUserQuestionProps {
   onAnswer: (answers: Record<string, string>) => void;
   onSkip: () => void;
   hasCustomText?: boolean;
+  /**
+   * The question timed out and is no longer answerable. The widget stays visible
+   * but disabled ("the agent may ask again"); onSkip becomes a dismiss.
+   */
+  expired?: boolean;
 }
 
 export interface AgentUserQuestionHandle {
@@ -19,7 +24,7 @@ export interface AgentUserQuestionHandle {
 
 export const AgentUserQuestion = memo(
   forwardRef<AgentUserQuestionHandle, AgentUserQuestionProps>(function AgentUserQuestion(
-    { pendingQuestions, onAnswer, onSkip, hasCustomText = false }: AgentUserQuestionProps,
+    { pendingQuestions, onAnswer, onSkip, hasCustomText = false, expired = false }: AgentUserQuestionProps,
     ref
   ) {
     const { questions, toolUseId } = pendingQuestions;
@@ -30,6 +35,8 @@ export const AgentUserQuestion = memo(
     const [isSubmitting, setIsSubmitting] = useState(false);
     const prevIndexRef = useRef(currentQuestionIndex);
     const prevToolUseIdRef = useRef(toolUseId);
+    // No answering once expired (or mid-submit). onSkip still works (dismiss).
+    const interactionDisabled = isSubmitting || expired;
 
     // Expose getAnswers method to parent via ref
     useImperativeHandle(
@@ -150,7 +157,7 @@ export const AgentUserQuestion = memo(
     };
 
     const handleContinue = useCallback(() => {
-      if (isSubmitting) return;
+      if (isSubmitting || expired) return;
 
       const currentAnswer = answers[currentQuestion?.question] || [];
       if (currentAnswer.length === 0) return;
@@ -179,14 +186,17 @@ export const AgentUserQuestion = memo(
       questions,
       currentQuestion?.question,
       isSubmitting,
+      expired,
       pendingQuestions.toolUseId
     ]);
 
     const handleSkipWithGuard = useCallback(() => {
       if (isSubmitting) return;
-      setIsSubmitting(true);
+      // When expired, Skip All is a dismiss — don't lock the widget into a
+      // "submitting" state, just hand off to the parent's dismiss handler.
+      if (!expired) setIsSubmitting(true);
       onSkip();
-    }, [isSubmitting, onSkip]);
+    }, [isSubmitting, expired, onSkip]);
 
     const getOptionNumber = (index: number) => {
       return String(index + 1);
@@ -199,7 +209,7 @@ export const AgentUserQuestion = memo(
     // Keyboard navigation
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
-        if (isSubmitting) return;
+        if (interactionDisabled) return;
 
         const activeEl = document.activeElement;
         if (
@@ -255,7 +265,7 @@ export const AgentUserQuestion = memo(
       currentQuestionHasAnswer,
       handleContinue,
       questions,
-      isSubmitting
+      interactionDisabled
     ]);
 
     return (
@@ -292,9 +302,20 @@ export const AgentUserQuestion = memo(
           )}
         </div>
 
+        {/* Expired banner */}
+        {expired && (
+          <div className="px-3 py-1.5 text-[12px] text-amber-600 dark:text-amber-500 border-b border-border bg-amber-500/5">
+            Expired — the agent may ask again.
+          </div>
+        )}
+
         {/* Current Question */}
         <div
-          className={cn('px-1 pb-2 transition-opacity duration-150 ease-out', isVisible ? 'opacity-100' : 'opacity-0')}>
+          className={cn(
+            'px-1 pb-2 transition-opacity duration-150 ease-out',
+            isVisible ? 'opacity-100' : 'opacity-0',
+            expired && 'opacity-60'
+          )}>
           <div className="text-[14px] font-[450] text-foreground mb-3 pt-1 px-2">
             <span className="text-muted-foreground">{currentQuestionIndex + 1}.</span> {currentQuestion?.question}
           </div>
@@ -310,15 +331,15 @@ export const AgentUserQuestion = memo(
                 <button
                   key={option.label}
                   onClick={() => {
-                    if (isSubmitting) return;
+                    if (interactionDisabled) return;
                     handleOptionClick(currentQuestion.question, option.label, currentQuestionIndex);
                     setFocusedOptionIndex(optIndex);
                   }}
-                  disabled={isSubmitting}
+                  disabled={interactionDisabled}
                   className={cn(
                     'w-full flex items-start gap-3 p-2 text-[13px] text-foreground rounded-md text-left transition-colors outline-none',
                     isFocused ? 'bg-muted/70' : 'hover:bg-muted/50',
-                    isSubmitting && 'opacity-50 cursor-not-allowed'
+                    interactionDisabled && 'opacity-50 cursor-not-allowed'
                   )}>
                   <div
                     className={cn(
@@ -351,26 +372,33 @@ export const AgentUserQuestion = memo(
             variant="ghost"
             size="sm"
             onClick={handleSkipWithGuard}
-            disabled={isSubmitting}
+            // When expired, Dismiss must stay clickable even if a submit was
+            // mid-flight (the component instance is reused, so isSubmitting can
+            // still be true from the answer that raced the expiry).
+            disabled={isSubmitting && !expired}
             className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground">
-            Skip All
+            {expired ? 'Dismiss' : 'Skip All'}
           </Button>
-          <Button
-            size="sm"
-            onClick={handleContinue}
-            disabled={
-              isSubmitting || hasCustomText || (isLastQuestion ? !allQuestionsAnswered : !currentQuestionHasAnswer)
-            }
-            className="h-6 text-xs px-3 rounded-md">
-            {isSubmitting ? (
-              'Sending...'
-            ) : (
-              <>
-                {isLastQuestion ? 'Submit' : 'Continue'}
-                <CornerDownLeft className="w-3 h-3 ml-1 opacity-60" />
-              </>
-            )}
-          </Button>
+          {!expired && (
+            <Button
+              size="sm"
+              onClick={handleContinue}
+              disabled={
+                interactionDisabled ||
+                hasCustomText ||
+                (isLastQuestion ? !allQuestionsAnswered : !currentQuestionHasAnswer)
+              }
+              className="h-6 text-xs px-3 rounded-md">
+              {isSubmitting ? (
+                'Sending...'
+              ) : (
+                <>
+                  {isLastQuestion ? 'Submit' : 'Continue'}
+                  <CornerDownLeft className="w-3 h-3 ml-1 opacity-60" />
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
     );

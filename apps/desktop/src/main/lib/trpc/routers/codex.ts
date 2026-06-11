@@ -42,6 +42,11 @@ import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { resolveSandboxPolicy } from '../../sandbox/policy';
 import { writeCurrentPlan, hasPlan } from '../../plans/plan-store';
 import { formatStructuredPlanAsMarkdown } from '../../../../shared/plans/format-codex-plan';
+import {
+  ASK_USER_QUESTION_TIMEOUT_MS,
+  QUESTIONS_SKIPPED_MESSAGE,
+  QUESTIONS_TIMED_OUT_MESSAGE
+} from '../../../../shared/ask-user-question';
 import { ensureMcpHttpServerAlive, getMcpHttpEndpoint } from '../../mcp/http-transport';
 import { recordChatEvent } from '../../chat-event-buffer';
 import { persistSubChatRunMode } from '../../sub-chat-mode';
@@ -70,10 +75,6 @@ const imageAttachmentSchema = z.object({
   mediaType: z.string(),
   filename: z.string().optional()
 });
-
-const ASK_USER_QUESTION_TIMEOUT_MS = 60_000;
-const QUESTIONS_SKIPPED_MESSAGE = 'User skipped questions - proceed with defaults';
-const QUESTIONS_TIMED_OUT_MESSAGE = 'Timed out';
 
 const codexQuestionSchema = z.object({
   question: z.string().min(1),
