@@ -33,6 +33,38 @@ export async function getProcessTree(pid: number): Promise<number[]> {
 }
 
 /**
+ * Get the distinct process-group ids (pgids) for a set of PIDs (POSIX only).
+ *
+ * An interactive shell runs with job control, so each job it launches
+ * (e.g. `bun run dev`) lives in its OWN process group, distinct from the
+ * shell's group. Killing only the shell's pgid therefore misses the job and
+ * any of its children that have reparented to PID 1 but stayed in the job's
+ * group. Enumerating every distinct pgid across the process tree and signalling
+ * each group (`kill(-pgid)`) reaps those reparented members too.
+ *
+ * Returns an empty array on Windows (negative-pid signalling and `ps` are
+ * POSIX-only; conpty's `pty.kill()` already reaps the job-object tree there)
+ * or if the lookup fails (e.g. all pids already exited).
+ */
+export async function getProcessGroups(pids: number[]): Promise<number[]> {
+  if (pids.length === 0 || os.platform() === 'win32') return [];
+  try {
+    const pidArg = pids.join(',');
+    const { stdout } = await execFileAsync('sh', ['-c', `ps -o pgid= -p ${pidArg} 2>/dev/null || true`], {
+      timeout: 2000
+    });
+    const pgids = new Set<number>();
+    for (const line of stdout.trim().split('\n')) {
+      const pgid = Number.parseInt(line.trim(), 10);
+      if (Number.isInteger(pgid) && pgid > 1) pgids.add(pgid);
+    }
+    return Array.from(pgids);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Get listening TCP ports for a set of PIDs (async, cached)
  * Cross-platform implementation using lsof (macOS/Linux) or netstat (Windows)
  */

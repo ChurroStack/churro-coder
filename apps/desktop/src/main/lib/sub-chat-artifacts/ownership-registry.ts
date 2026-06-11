@@ -86,6 +86,12 @@ export function releaseAllForWindow(windowId: number): void {
   }
 }
 
+export function releaseAllForSubChat(subChatId: string): void {
+  if (!registry.delete(subChatId)) return;
+  console.log(`[ownership] released-on-workspace-teardown subChat=${subChatId}`);
+  notify(subChatId);
+}
+
 export function addOwnershipListener(fn: OwnershipListener): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);

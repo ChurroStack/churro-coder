@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { FALLBACK_SHELL, SHELL_CRASH_THRESHOLD_MS } from './env';
 import { portManager } from './port-manager';
-import { getProcessTree } from './port-scanner';
+import { getProcessTree, getProcessGroups } from './port-scanner';
 import { createSession, setupInitialCommands } from './session';
 import type { CliStateEvent, CreateSessionParams, SessionResult, TerminalOutputState, TerminalSession } from './types';
 
@@ -58,25 +58,35 @@ type KillSignal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP';
  *
  * `pty.kill()` only signals the shell; long-lived children spawned inside the
  * shell (e.g. `bun run dev` -> `vite` -> `node`) often survive because they
- * either disowned themselves or live in a child process group. Walk the tree
- * with pidtree, signal each descendant, then signal the shell via the pty.
+ * either disowned themselves or live in a child process group. Defense in depth:
+ *   1. Walk the tree with pidtree and signal each descendant pid directly.
+ *   2. (POSIX) Enumerate the DISTINCT process groups across the tree and signal
+ *      each group with `kill(-pgid)`. The shell runs interactively with job
+ *      control, so each job (`bun run dev`) lives in its own process group; a
+ *      child that reparents to PID 1 but stays in its job's group survives the
+ *      per-pid pass but is reaped by the group signal.
+ *   3. Signal the shell via the pty as a final fallback.
+ *
+ * Residual: a child that called `setsid` to start its OWN session AND has
+ * already left the pidtree snapshot is unreachable here — it is reclaimed by the
+ * startup orphan-process reaper (orphan-process-cleanup.ts) on next launch.
  *
  * Errors are swallowed: pids may have already exited (ESRCH), and we never
  * want kill failures to block the larger shutdown / kill flow.
  */
 async function killProcessTree(session: TerminalSession, signal: KillSignal = 'SIGTERM'): Promise<void> {
   const rootPid = session.pty.pid;
-  let descendants: number[] = [];
+  let tree: number[] = [];
   if (rootPid) {
     try {
-      const tree = await getProcessTree(rootPid);
-      descendants = tree.filter((pid) => pid !== rootPid);
+      tree = await getProcessTree(rootPid);
     } catch {
       // pidtree may fail if the root already exited; fall back to pty-only kill.
     }
   }
+  const descendants = tree.filter((pid) => pid !== rootPid);
 
-  // Signal leaves first so parents don't respawn children.
+  // 1. Signal leaves first so parents don't respawn children.
   for (const pid of descendants.reverse()) {
     try {
       process.kill(pid, signal);
@@ -88,6 +98,28 @@ async function killProcessTree(session: TerminalSession, signal: KillSignal = 'S
     }
   }
 
+  // 2. Signal every distinct process group in the tree (POSIX only). This reaps
+  //    job-control groups and reparented members the per-pid pass missed.
+  //    Only derive pgids from pids pidtree actually returned (which include the
+  //    live root); never fall back to a bare [rootPid] when the tree is empty —
+  //    an empty tree means the root already exited, and `ps`-resolving a pgid
+  //    from a possibly-recycled pid risks SIGKILLing an unrelated process group.
+  //    The pty.kill() in step 3 covers the already-exited root.
+  if (process.platform !== 'win32' && tree.length > 0) {
+    const pgids = await getProcessGroups(tree);
+    for (const pgid of pgids) {
+      try {
+        process.kill(-pgid, signal);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException | undefined)?.code;
+        if (code && code !== 'ESRCH') {
+          console.warn(`[TerminalManager] Failed to ${signal} process group ${pgid}:`, err);
+        }
+      }
+    }
+  }
+
+  // 3. Final fallback: signal the shell via the pty.
   try {
     session.pty.kill(signal);
   } catch (err) {

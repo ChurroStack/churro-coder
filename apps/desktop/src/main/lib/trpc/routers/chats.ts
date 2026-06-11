@@ -39,6 +39,7 @@ import { terminalManager } from '../../terminal/manager';
 import {
   claimOwnership,
   releaseOwnership,
+  releaseAllForSubChat,
   takeOverOwnership,
   getOwner,
   addOwnershipListener
@@ -504,6 +505,53 @@ function attachSubChatModes<T extends { id: string }>(
   return chatList.map((c) => ({ ...c, subChats: byChat.get(c.id) ?? [] }));
 }
 
+/**
+ * Tear down all live machinery owned by a workspace (chat) before it is
+ * archived or deleted: builtin Claude SDK sessions, Codex app-server streams,
+ * pending CLI approval prompts, ownership claims, and every terminal/PTY (and
+ * its process tree — e.g. a play-button dev server). Always kills terminals
+ * regardless of worktree/local mode.
+ *
+ * Idempotent: each underlying helper no-ops when there is no matching entry, so
+ * it is safe to call from both archive and a later permanent delete.
+ *
+ * Callers that also remove the worktree MUST await this first, so no process
+ * still holds the worktree directory when `removeWorktree` runs. (Note: the
+ * builtin-Claude abort is a synchronous signal and does not await the SDK's own
+ * Bash-tool children — `removeWorktree`'s force+retry covers that residual.)
+ */
+async function teardownWorkspaceSessions(chatId: string, knownSubChatIds?: string[]): Promise<void> {
+  // Pass `knownSubChatIds` when the chat's sub-chat rows have already been
+  // (or are about to be) cascade-deleted — otherwise the lookup returns none
+  // and session teardown is skipped.
+  const subChatIds =
+    knownSubChatIds ??
+    getDatabase()
+      .select({ id: subChats.id })
+      .from(subChats)
+      .where(eq(subChats.chatId, chatId))
+      .all()
+      .map((row) => row.id);
+
+  if (subChatIds.length > 0) {
+    abortClaudeSessionsForSubChats(subChatIds);
+    for (const subChatId of subChatIds) {
+      cleanupCodexAppServerSubChat(subChatId);
+      rejectAllForSubChat(subChatId, 'workspace torn down');
+      releaseAllForSubChat(subChatId);
+    }
+  }
+
+  try {
+    const { killed } = await terminalManager.killByWorkspaceId(chatId);
+    if (killed > 0) {
+      console.log(`[chats.teardown] Killed ${killed} terminal session(s) for workspace ${chatId}`);
+    }
+  } catch (error) {
+    console.error(`[chats.teardown] Error killing terminals for workspace ${chatId}:`, error);
+  }
+}
+
 export const chatsRouter = router({
   /**
    * List all non-archived chats (optionally filter by project)
@@ -853,21 +901,17 @@ export const chatsRouter = router({
       // Track workspace archived
       trackWorkspaceArchived(input.id);
 
-      // Kill terminal processes only for worktree-mode workspaces.
-      // Local-mode terminals are shared across workspaces on the same project path,
-      // so they should not be killed when a single workspace is archived.
-      const isLocalMode = !chat?.branch;
-      if (!isLocalMode) {
-        terminalManager
-          .killByWorkspaceId(input.id)
-          .then((killResult) => {
-            if (killResult.killed > 0) {
-              console.log(`[chats.archive] Killed ${killResult.killed} terminal session(s) for workspace ${input.id}`);
-            }
-          })
-          .catch((error) => {
-            console.error(`[chats.archive] Error killing processes:`, error);
-          });
+      // Tear down all live machinery (Claude/Codex sessions, CLI prompts,
+      // ownership, and every terminal + its process tree). Await teardown ONLY
+      // when we're about to remove the worktree, so no process still holds the
+      // dir when removeWorktree runs; otherwise run it in the background to keep
+      // archive snappy (a stuck process must not block the response).
+      const willRemoveWorktree = !!(input.deleteWorktree && chat?.worktreePath && chat?.branch);
+      const teardownDone = teardownWorkspaceSessions(input.id).catch((error) => {
+        console.error(`[chats.archive] Error tearing down workspace ${input.id}:`, error);
+      });
+      if (willRemoveWorktree) {
+        await teardownDone;
       }
 
       // Optionally delete worktree in background (don't await)
@@ -917,14 +961,6 @@ export const chatsRouter = router({
     const db = getDatabase();
     if (input.chatIds.length === 0) return [];
 
-    // Identify worktree-mode workspaces before archiving (for terminal cleanup)
-    const worktreeChats = db
-      .select({ id: chats.id, branch: chats.branch })
-      .from(chats)
-      .where(inArray(chats.id, input.chatIds))
-      .all()
-      .filter((c) => c.branch != null);
-
     // Archive immediately (optimistic)
     const result = db
       .update(chats)
@@ -933,23 +969,11 @@ export const chatsRouter = router({
       .returning()
       .all();
 
-    // Kill terminal processes only for worktree-mode workspaces.
-    // Local-mode terminals are shared and should not be killed.
-
-    if (worktreeChats.length > 0) {
-      Promise.all(worktreeChats.map((c) => terminalManager.killByWorkspaceId(c.id)))
-        .then((killResults) => {
-          const totalKilled = killResults.reduce((sum, r) => sum + r.killed, 0);
-          if (totalKilled > 0) {
-            console.log(
-              `[chats.archiveBatch] Killed ${totalKilled} terminal session(s) for ${worktreeChats.length} worktree workspace(s)`
-            );
-          }
-        })
-        .catch((error) => {
-          console.error(`[chats.archiveBatch] Error killing processes:`, error);
-        });
-    }
+    // Tear down each workspace's sessions + terminals in the background
+    // (always, regardless of worktree/local mode).
+    void Promise.all(input.chatIds.map((id) => teardownWorkspaceSessions(id))).catch((error) => {
+      console.error(`[chats.archiveBatch] Error tearing down workspaces:`, error);
+    });
 
     return result;
   }),
@@ -972,16 +996,10 @@ export const chatsRouter = router({
       // Get chat before deletion
       const chat = db.select().from(chats).where(eq(chats.id, input.id)).get();
 
-      // Abort any active Claude sessions for this chat's sub-chats before cascade delete
-      const subChatIds = db
-        .select({ id: subChats.id })
-        .from(subChats)
-        .where(eq(subChats.chatId, input.id))
-        .all()
-        .map((row) => row.id);
-      if (subChatIds.length > 0) {
-        abortClaudeSessionsForSubChats(subChatIds);
-      }
+      // Tear down all sessions + terminals (and their process trees) BEFORE
+      // removing the worktree, so no process still holds the directory when
+      // `removeWorktree` runs. Awaited for the same reason.
+      await teardownWorkspaceSessions(input.id);
 
       // Only delete worktree if the caller explicitly opted in.
       if (input.deleteWorktree && chat?.worktreePath && chat?.branch) {
@@ -992,14 +1010,6 @@ export const chatsRouter = router({
             console.warn(`[Worktree] Cleanup failed: ${result.error}`);
           }
         }
-      }
-
-      // Kill terminal processes for worktree-mode workspaces.
-      // Local-mode terminals are shared and should not be killed on delete.
-      if (chat?.branch) {
-        terminalManager.killByWorkspaceId(input.id).catch((error) => {
-          console.error(`[chats.delete] Error killing processes:`, error);
-        });
       }
 
       // Track workspace deleted
@@ -1023,34 +1033,42 @@ export const chatsRouter = router({
       .all();
     if (archived.length === 0) return { deleted: 0 };
 
-    // Delete DB rows first (cascade removes sub-chats)
-    db.delete(chats)
-      .where(
-        inArray(
-          chats.id,
-          archived.map((c) => c.id)
-        )
-      )
-      .run();
-
-    // Clean up worktree directories in background (only worktree-mode chats with a path)
-    const worktreeChats = archived.filter((c) => c.branch && c.worktreePath);
-    if (worktreeChats.length > 0) {
-      Promise.all(
-        worktreeChats.map(async (c) => {
-          const project = db.select().from(projects).where(eq(projects.id, c.projectId)).get();
-          if (!project) return;
-          const result = await removeWorktree(project.path, c.worktreePath!);
-          if (!result.success) {
-            console.warn(`[chats.deleteAllArchived] Worktree cleanup failed for ${c.id}: ${result.error}`);
-          }
-          gitCache.invalidateStatus(c.worktreePath!);
-          gitCache.invalidateParsedDiff(c.worktreePath!);
-        })
-      ).catch((error) => {
-        console.error('[chats.deleteAllArchived] Error cleaning up worktrees:', error);
-      });
+    // Capture each chat's sub-chat ids BEFORE the cascade delete wipes the rows,
+    // so background teardown can still abort their Claude/Codex/CLI sessions.
+    const subChatIdsByChat = new Map<string, string[]>();
+    const archivedIds = archived.map((c) => c.id);
+    for (const row of db
+      .select({ id: subChats.id, chatId: subChats.chatId })
+      .from(subChats)
+      .where(inArray(subChats.chatId, archivedIds))
+      .all()) {
+      const list = subChatIdsByChat.get(row.chatId) ?? [];
+      list.push(row.id);
+      subChatIdsByChat.set(row.chatId, list);
     }
+
+    // Delete DB rows first (cascade removes sub-chats)
+    db.delete(chats).where(inArray(chats.id, archivedIds)).run();
+
+    // In the background: tear down each workspace's sessions + terminals, THEN
+    // remove its worktree (only worktree-mode chats with a path), so no process
+    // still holds the directory when `removeWorktree` runs.
+    void Promise.all(
+      archived.map(async (c) => {
+        await teardownWorkspaceSessions(c.id, subChatIdsByChat.get(c.id) ?? []);
+        if (!c.branch || !c.worktreePath) return;
+        const project = db.select().from(projects).where(eq(projects.id, c.projectId)).get();
+        if (!project) return;
+        const result = await removeWorktree(project.path, c.worktreePath);
+        if (!result.success) {
+          console.warn(`[chats.deleteAllArchived] Worktree cleanup failed for ${c.id}: ${result.error}`);
+        }
+        gitCache.invalidateStatus(c.worktreePath);
+        gitCache.invalidateParsedDiff(c.worktreePath);
+      })
+    ).catch((error) => {
+      console.error('[chats.deleteAllArchived] Error tearing down archived workspaces:', error);
+    });
 
     return { deleted: archived.length };
   }),
