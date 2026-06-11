@@ -395,7 +395,14 @@ function computeReview(s: WorkflowSnapshot, codeStatus: MilestoneStatus): Milest
     return { id: 'review', status: 'done', label: 'Review', hint: 'Reviewed' };
   }
 
-  if (codeStatus !== 'done') {
+  // Code amber + at least one task for the current plan means execution stopped
+  // with partial / skipped tasks. The user should still be able to review what
+  // was done — don't force every task to be completed first. 'attention' is never
+  // the running state (running → 'in_progress'), so this only fires when idle.
+  // Empty task lists (total === 0) and "waiting on plan" (code 'idle') stay gated.
+  const reviewableAfterPartialTasks = codeStatus === 'attention' && tasksForCurrentPlan(s) && (s.tasks?.total ?? 0) > 0;
+
+  if (codeStatus !== 'done' && !reviewableAfterPartialTasks) {
     return { id: 'review', status: 'idle', label: 'Review', hint: 'Waiting on code' };
   }
 

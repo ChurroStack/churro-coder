@@ -382,6 +382,46 @@ describe('computeWorkflowState — review milestone', () => {
   });
 });
 
+describe('computeWorkflowState — review with partial tasks (idle)', () => {
+  // Agent skipped/deferred some tasks and went idle. Code legitimately stays
+  // amber ("1/3 tasks complete"), but the user must still be able to review what
+  // was done — and both the right-bar pill and the notch need an actionable
+  // Review (review.actionKind) for that.
+  test('partial tasks + idle → review attention/reviewLocal, next = review', () => {
+    const s = computeWorkflowState({
+      ...base,
+      tasks: { exists: true, total: 3, completed: 1, updatedAt: '2026-02-01T00:00:00.000Z' }
+    });
+    expect(s.code.status).toBe('attention');
+    expect(s.code.actionKind).toBeUndefined(); // "1/3 tasks complete" has no action
+    expect(s.review.status).toBe('attention');
+    expect(s.review.actionKind).toBe('reviewLocal');
+    expect(s.next?.milestone).toBe('review');
+  });
+
+  test('partial tasks + actively running → review stays idle', () => {
+    const s = computeWorkflowState({
+      ...base,
+      activity: 'streaming',
+      tasks: { exists: true, total: 3, completed: 1, updatedAt: '2026-02-01T00:00:00.000Z' }
+    });
+    expect(s.code.status).toBe('in_progress'); // executing → not reviewable yet
+    expect(s.review.status).toBe('idle');
+    expect(s.review.hint).toBe('Waiting on code');
+  });
+
+  test('empty task list + idle → review stays idle (needs at least one task)', () => {
+    const s = computeWorkflowState({
+      ...base,
+      tasks: { exists: true, total: 0, completed: 0, updatedAt: '2026-02-01T00:00:00.000Z' }
+    });
+    expect(s.code.status).toBe('attention');
+    expect(s.code.hint).toBe('Task list is empty');
+    expect(s.review.status).toBe('idle');
+    expect(s.review.hint).toBe('Waiting on code');
+  });
+});
+
 describe('computeWorkflowState — pr milestone', () => {
   test('pr.creating: true + no pr → pr in_progress', () => {
     const s = computeWorkflowState({
