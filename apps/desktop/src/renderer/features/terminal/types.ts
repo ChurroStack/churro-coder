@@ -39,6 +39,15 @@ export interface TerminalProps {
   /** Optional bootstrap config for CLI-harness sessions. */
   bootstrap?: TerminalBootstrapConfig;
   /**
+   * When set, a keystroke on an exited PTY delegates restart to this callback
+   * instead of the Terminal's built-in `restartTerminal()` (which re-attaches
+   * without a bootstrap and would respawn a CLI pane as a bare shell). CLI
+   * surfaces pass this so the keypress affordance runs the same kill+rebootstrap
+   * path as the Restart button. Plain terminals omit it and keep the shell
+   * respawn behavior.
+   */
+  onExitedKeyPress?: () => void;
+  /**
    * Erase scrollback when the column count changes. Pass true for Ink-based CLIs
    * (claude-cli) that hard-wrap output to COLUMNS; omit for codex-cli and plain
    * terminals that use terminal-native soft-wrapping xterm can reflow.

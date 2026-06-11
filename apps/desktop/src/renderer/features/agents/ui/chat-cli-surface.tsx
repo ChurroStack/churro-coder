@@ -247,21 +247,28 @@ export function ChatCliSurface({
 
   const setCliRestartHandler = useSetAtom(useMemo(() => subChatCliRestartHandlerAtomFamily(subChatId), [subChatId]));
 
-  // Register a restart handler so CliPromptBar can trigger kill + re-inject.
+  // Single restart definition for a CLI pane — kill the PTY, drop the
+  // MCP-injection tracking, then rebootstrap with trigger='restart' (which
+  // re-spawns the correct binary and re-sends the first user message). Used by
+  // BOTH the Restart button (via the registered atom handler) and the
+  // in-terminal "[Press any key to restart]" affordance (via onExitedKeyPress),
+  // so the two never diverge.
+  const runCliRestart = useCallback(async () => {
+    console.log(`[resilience] subChat=${subChatId} event=cli-restart`);
+    try {
+      await killMutation.mutateAsync({ paneId });
+    } catch {
+      // PTY may already be dead; proceed with respawn regardless
+    }
+    forgetMcpInjected(subChatId);
+    doBootstrap('restart');
+  }, [subChatId, paneId, killMutation, doBootstrap]);
+
+  // Register the restart handler so CliPromptBar's button can trigger it.
   useEffect(() => {
-    const handler = async () => {
-      console.log(`[resilience] subChat=${subChatId} event=cli-restart`);
-      try {
-        await killMutation.mutateAsync({ paneId });
-      } catch {
-        // PTY may already be dead; proceed with respawn regardless
-      }
-      forgetMcpInjected(subChatId);
-      doBootstrap('restart');
-    };
-    setCliRestartHandler(() => handler);
+    setCliRestartHandler(() => runCliRestart);
     return () => setCliRestartHandler(null);
-  }, [subChatId, paneId, killMutation, doBootstrap, setCliRestartHandler]);
+  }, [runCliRestart, setCliRestartHandler]);
 
   useStuckDetection({ subChatId, harness, paneId, ptyActive });
 
@@ -338,6 +345,7 @@ export function ChatCliSurface({
             cwd={cwd}
             workspaceId={chatId}
             bootstrap={bootstrapState.bootstrap}
+            onExitedKeyPress={() => void runCliRestart()}
             clearScrollbackOnColChange={harness === 'claude-cli'}
           />
         );

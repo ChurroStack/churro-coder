@@ -2874,10 +2874,16 @@ export const chatsRouter = router({
                 // Encode body: bracketed-paste when multi-line, plain text otherwise.
                 const normalized = body.replace(/\r\n/g, '\n');
                 const bodyChunk = normalized.includes('\n') ? `\x1b[200~${normalized}\x1b[201~` : normalized;
+                // Plan mode re-enters /plan first so a restarted plan-mode subChat
+                // resumes in plan mode (a fresh CLI spawn starts in execute mode).
                 const chunks: string[] = isPlanMode ? ['/plan\r', bodyChunk, '\r'] : [bodyChunk, '\r'];
                 result.initialInputChunks = chunks;
                 result.mcpReminderInjected = isPlanMode;
                 if (isRestart) {
+                  // Restart re-injects every time (no bootstrappedAt guard, no stamp):
+                  // the user explicitly asked to relaunch and re-send the first prompt.
+                  // The main-side write fires after the banner goes quiet (idleDetection
+                  // silenceMs gate) and triggers onTurnStart, so it lands at the prompt.
                   console.log(
                     `[buildCliBootstrap] force-inject reason=user-restart sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode}`
                   );
