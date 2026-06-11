@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.8](https://github.com/ChurroStack/churro-coder/compare/v0.1.7...v0.1.8) (2026-06-11)
+
+
+### Features
+
+* **desktop:** time & billing tracking page (runtime + spend per project) ([#207](https://github.com/ChurroStack/churro-coder/issues/207)) ([b9f4d38](https://github.com/ChurroStack/churro-coder/commit/b9f4d382fb93894f55e2b46c0f6fbd9da99a5ac9))
+
+
+### Bug Fixes
+
+* **desktop:** enable Review when plan tasks partially done (idle) ([#211](https://github.com/ChurroStack/churro-coder/issues/211)) ([93e620c](https://github.com/ChurroStack/churro-coder/commit/93e620c89982a4bde1205725c277c130cfe9c1bd))
+* **desktop:** harden ask-user-question elicitation across harnesses ([#209](https://github.com/ChurroStack/churro-coder/issues/209)) ([9d5b2b3](https://github.com/ChurroStack/churro-coder/commit/9d5b2b34c757ca01cb387c35e2c823753a364474))
+* **desktop:** keypress restart relaunches CLI via shared runCliRestart ([#210](https://github.com/ChurroStack/churro-coder/issues/210)) ([908c9e4](https://github.com/ChurroStack/churro-coder/commit/908c9e4290984f7a261cc6aa7d6d40336f156a45))
+* **desktop:** kill sessions, terminals & process trees on archive/delete ([#212](https://github.com/ChurroStack/churro-coder/issues/212)) ([a020ab8](https://github.com/ChurroStack/churro-coder/commit/a020ab84b46a06e10c01ef10365a7d3d347008d0))
+
 ## [0.1.7](https://github.com/ChurroStack/churro-coder/compare/v0.1.6...v0.1.7) (2026-06-10)
 
 
