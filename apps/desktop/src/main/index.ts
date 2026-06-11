@@ -302,6 +302,19 @@ if (gotTheLock) {
     // Runs before any CLI session bootstraps so the slate is clean before new entries are written.
     clearOrphanedChurroMcpEntries().catch((e) => console.warn('[claude-config] startup MCP cleanup failed:', e));
 
+    // Reclaim disk + processes left behind by deleted workspaces: remove orphan
+    // worktree directories, then kill orphan processes whose cwd is in a deleted
+    // worktree (the documented `killProcessTree` setsid residual). Background;
+    // never blocks startup.
+    import('./lib/git/worktree-cleanup')
+      .then((m) => m.scanWorktreeOrphans())
+      .catch((e) => console.warn('[WorktreeCleanup] startup scan failed:', e))
+      .finally(() => {
+        import('./lib/terminal/orphan-process-cleanup')
+          .then((m) => m.reapOrphanProcesses())
+          .catch((e) => console.warn('[OrphanProcess] startup reap failed:', e));
+      });
+
     // Start churro-coder MCP HTTP server + register with Codex CLI (self-heals each launch).
     // Claude uses a per-turn SDK instance and doesn't depend on this completing.
     bootstrapChurroCoderMcp().catch((e) => console.error('[churro-coder] bootstrap failed:', e));

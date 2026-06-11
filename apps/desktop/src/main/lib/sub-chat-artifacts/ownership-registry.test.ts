@@ -6,6 +6,7 @@ import { describe, test, expect, beforeEach } from 'vitest';
 import {
   claimOwnership,
   releaseOwnership,
+  releaseAllForSubChat,
   takeOverOwnership,
   getOwner,
   releaseAllForWindow,
@@ -87,6 +88,32 @@ describe('takeOverOwnership', () => {
     takeOverOwnership({ subChatId: 'sc-1', windowId: 2, paneId: 'p-2' });
     releaseOwnership('sc-1', 1, 'p-1'); // old owner tries to release — no-op
     expect(getOwner('sc-1')).toMatchObject({ windowId: 2, paneId: 'p-2' });
+  });
+});
+
+describe('releaseAllForSubChat', () => {
+  test('releases the subChat regardless of which window/pane owns it', () => {
+    claimOwnership({ subChatId: 'sc-x', windowId: 9, paneId: 'p-x' });
+    releaseAllForSubChat('sc-x');
+    expect(getOwner('sc-x')).toBeNull();
+  });
+
+  test('notifies listeners with owner:null on release', () => {
+    claimOwnership({ subChatId: 'sc-y', windowId: 1, paneId: 'p-y' });
+    const events: unknown[] = [];
+    const unsub = addOwnershipListener((e) => events.push(e));
+    releaseAllForSubChat('sc-y');
+    unsub();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ subChatId: 'sc-y', owner: null });
+  });
+
+  test('no-ops (no notify) when the subChat is not owned', () => {
+    const events: unknown[] = [];
+    const unsub = addOwnershipListener((e) => events.push(e));
+    releaseAllForSubChat('sc-absent');
+    unsub();
+    expect(events).toHaveLength(0);
   });
 });
 
