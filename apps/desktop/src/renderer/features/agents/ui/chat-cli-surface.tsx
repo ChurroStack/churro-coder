@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom, useStore } from 'jotai';
 import { Terminal } from '@/features/terminal/terminal';
 import { trpc } from '@/lib/trpc';
 import { HARNESS_LABELS, type Harness } from '../lib/harness-icons';
@@ -23,6 +23,7 @@ import {
   subChatHardResetDialogOpenAtomFamily,
   subChatCliRestartHandlerAtomFamily,
   pendingUserQuestionsAtom,
+  expiredUserQuestionsAtom,
   subChatFilesAtom,
   cliBusyAtomFamily,
   cliSplitLayoutAtomFamily,
@@ -114,59 +115,186 @@ export function ChatCliSurface({
 
   const [showHardResetDialog, setShowHardResetDialog] = useAtom(subChatHardResetDialogOpenAtomFamily(subChatId));
   const [hardResetClearScrollback, setHardResetClearScrollback] = useState(false);
+  const store = useStore();
   const [pendingQuestions, setPendingQuestions] = useAtom(pendingUserQuestionsAtom);
   const pendingQuestion = pendingQuestions.get(subChatId);
+  const [expiredQuestions, setExpiredQuestions] = useAtom(expiredUserQuestionsAtom);
+  const expiredQuestion = expiredQuestions.get(subChatId);
+  // Prefer the live question; fall back to an expired one (disabled, "the agent
+  // may ask again"). Mirrors the builtin/Codex surface.
+  const displayQuestion = pendingQuestion ?? expiredQuestion;
+  const isQuestionExpired = !pendingQuestion && !!expiredQuestion;
 
   const resolveCliUserQuestion = trpc.chats.resolveCliUserQuestion.useMutation();
 
-  // Note: this `cliUserQuestion` subscription is mounted per-panel. CLI chat
-  // panels opt into dockview's `renderer='always'` (see add-or-focus.ts and
-  // chat-panel.tsx's setRenderer effect), so the panel — and this subscription
-  // — stay mounted across tab switches and the missed-event class is covered.
-  // Cross-window broadcast (same subChat open in two windows) is still
-  // out-of-scope; if that becomes a requirement, move this to a global mirror
-  // similar to <CliStateSubscriber/>.
-  trpc.chats.cliUserQuestion.useSubscription(subChatId, {
-    onData: (event) => {
-      const entry = event as { requestId: string; subChatId: string; questions: PendingUserQuestion['questions'] };
-      console.log(`[chat-cli-surface] cliUserQuestion sub=${subChatId} requestId=${entry.requestId}`);
+  const seedPendingQuestion = useCallback(
+    (requestId: string, questions: PendingUserQuestion['questions']) => {
       setPendingQuestions((prev) => {
+        if (prev.get(subChatId)?.requestId === requestId) return prev;
         const next = new Map(prev);
         next.set(subChatId, {
           subChatId,
           parentChatId: chatId ?? '',
-          toolUseId: entry.requestId,
-          questions: entry.questions,
+          toolUseId: requestId,
+          questions,
           source: 'cli',
-          requestId: entry.requestId
+          requestId
         });
         return next;
       });
-    }
-  });
-
-  const handleCliAnswer = useCallback(
-    (answers: Record<string, string>) => {
-      if (!pendingQuestion?.requestId) return;
-      resolveCliUserQuestion.mutate({ requestId: pendingQuestion.requestId, answers });
-      setPendingQuestions((prev) => {
+      // A fresh question supersedes any expired one still on screen.
+      setExpiredQuestions((prev) => {
+        if (!prev.has(subChatId)) return prev;
         const next = new Map(prev);
         next.delete(subChatId);
         return next;
       });
     },
-    [pendingQuestion, resolveCliUserQuestion, setPendingQuestions, subChatId]
+    [chatId, setPendingQuestions, setExpiredQuestions, subChatId]
+  );
+
+  // Move the currently-displayed question to the disabled "Expired" state, but
+  // ONLY if it is still the one on screen (guard by requestId read from the
+  // store, not a captured snapshot) — a late expiry for a superseded question
+  // must not expire the fresh one that replaced it. Two independent setters, no
+  // side effect nested inside a state updater.
+  const moveToExpired = useCallback(
+    (requestId: string) => {
+      const current = store.get(pendingUserQuestionsAtom).get(subChatId);
+      if (!current || current.requestId !== requestId) return;
+      setPendingQuestions((prev) => {
+        if (prev.get(subChatId)?.requestId !== requestId) return prev;
+        const next = new Map(prev);
+        next.delete(subChatId);
+        return next;
+      });
+      setExpiredQuestions((prev) => {
+        const next = new Map(prev);
+        next.set(subChatId, current);
+        return next;
+      });
+    },
+    [store, subChatId, setPendingQuestions, setExpiredQuestions]
+  );
+
+  // Rehydrate an outstanding question when the panel mounts after the one-shot
+  // cliUserQuestion event already fired (close→reopen, renderer cold start).
+  // Keyed on subChatId (not a per-mount boolean) so a reused panel instance
+  // whose subChatId changes still rehydrates the new sub-chat's question.
+  const rehydratedSubChatRef = useRef<string | null>(null);
+  const pendingQuestionQuery = trpc.chats.getPendingCliQuestion.useQuery(subChatId, { staleTime: 0 });
+  useEffect(() => {
+    if (rehydratedSubChatRef.current === subChatId) return;
+    const data = pendingQuestionQuery.data;
+    if (data === undefined) return; // still loading
+    rehydratedSubChatRef.current = subChatId;
+    if (!data) return; // no outstanding question
+    console.log(`[chat-cli-surface] rehydrate sub=${subChatId} requestId=${data.requestId}`);
+    seedPendingQuestion(data.requestId, data.questions);
+  }, [pendingQuestionQuery.data, subChatId, seedPendingQuestion]);
+
+  // Note: these subscriptions are mounted per-panel. CLI chat panels opt into
+  // dockview's `renderer='always'` (see add-or-focus.ts and chat-panel.tsx's
+  // setRenderer effect), so the panel — and these subscriptions — stay mounted
+  // across tab switches and the missed-event class is covered. Cross-window
+  // broadcast (same subChat open in two windows) is still out-of-scope; if that
+  // becomes a requirement, move this to a global mirror like <CliStateSubscriber/>.
+  trpc.chats.cliUserQuestion.useSubscription(subChatId, {
+    onData: (event) => {
+      const entry = event as { requestId: string; subChatId: string; questions: PendingUserQuestion['questions'] };
+      console.log(`[chat-cli-surface] cliUserQuestion sub=${subChatId} requestId=${entry.requestId}`);
+      seedPendingQuestion(entry.requestId, entry.questions);
+    }
+  });
+
+  // The question expired (host backstop or claude-code abandoned the call):
+  // move it to the disabled "Expired" state. Guard on requestId so a late
+  // expiry for a superseded question can't expire the fresh one.
+  trpc.chats.cliUserQuestionExpired.useSubscription(subChatId, {
+    onData: (event) => {
+      const ev = event as { requestId: string; subChatId: string };
+      console.log(`[chat-cli-surface] cliUserQuestionExpired sub=${subChatId} requestId=${ev.requestId}`);
+      moveToExpired(ev.requestId);
+    }
+  });
+
+  // The question was cleared (teardown / supersede): remove the widget outright.
+  trpc.chats.cliUserQuestionCleared.useSubscription(subChatId, {
+    onData: (event) => {
+      const ev = event as { requestId: string; subChatId: string };
+      console.log(`[chat-cli-surface] cliUserQuestionCleared sub=${subChatId} requestId=${ev.requestId}`);
+      setPendingQuestions((prev) => {
+        const current = prev.get(subChatId);
+        if (!current || current.requestId !== ev.requestId) return prev;
+        const next = new Map(prev);
+        next.delete(subChatId);
+        return next;
+      });
+      setExpiredQuestions((prev) => {
+        const current = prev.get(subChatId);
+        if (!current || current.requestId !== ev.requestId) return prev;
+        const next = new Map(prev);
+        next.delete(subChatId);
+        return next;
+      });
+    }
+  });
+
+  const clearPending = useCallback(
+    (requestId: string) => {
+      setPendingQuestions((prev) => {
+        if (prev.get(subChatId)?.requestId !== requestId) return prev;
+        const next = new Map(prev);
+        next.delete(subChatId);
+        return next;
+      });
+    },
+    [setPendingQuestions, subChatId]
+  );
+
+  const submitCliResolution = useCallback(
+    async (payload: { answers?: Record<string, string>; skip?: boolean }) => {
+      const question = pendingQuestion;
+      if (!question?.requestId) return;
+      try {
+        const res = await resolveCliUserQuestion.mutateAsync({ requestId: question.requestId, ...payload });
+        if (res.ok) {
+          clearPending(question.requestId);
+        } else {
+          // Already resolved/expired on the host — the answer did NOT reach the
+          // agent. Surface it as expired instead of silently clearing (no-op if
+          // a newer question already superseded this one).
+          console.warn(`[chat-cli-surface] resolve not-ok sub=${subChatId} reason=${res.reason}`);
+          moveToExpired(question.requestId);
+        }
+      } catch (err) {
+        console.error(`[chat-cli-surface] resolve failed sub=${subChatId}`, err);
+        moveToExpired(question.requestId);
+      }
+    },
+    [pendingQuestion, resolveCliUserQuestion, clearPending, moveToExpired, subChatId]
+  );
+
+  const handleCliAnswer = useCallback(
+    (answers: Record<string, string>) => {
+      void submitCliResolution({ answers });
+    },
+    [submitCliResolution]
   );
 
   const handleCliSkip = useCallback(() => {
-    if (!pendingQuestion?.requestId) return;
-    resolveCliUserQuestion.mutate({ requestId: pendingQuestion.requestId, skip: true });
-    setPendingQuestions((prev) => {
+    void submitCliResolution({ skip: true });
+  }, [submitCliResolution]);
+
+  // Dismiss an expired question (it's no longer answerable; the agent may re-ask).
+  const handleExpiredDismiss = useCallback(() => {
+    setExpiredQuestions((prev) => {
+      if (!prev.has(subChatId)) return prev;
       const next = new Map(prev);
       next.delete(subChatId);
       return next;
     });
-  }, [pendingQuestion, resolveCliUserQuestion, setPendingQuestions, subChatId]);
+  }, [setExpiredQuestions, subChatId]);
 
   const killMutation = trpc.terminal.kill.useMutation();
   const clearScrollbackMutation = trpc.terminal.clearScrollback.useMutation();
@@ -451,10 +579,16 @@ export function ChatCliSurface({
       {/* Push dialog hosted by useWorkflowActions (mounts on REMOTE_AHEAD). */}
       {workflowPushDialog}
 
-      {/* User question widget — appears above CliPromptBar when request_user_input is active */}
-      {pendingQuestion && pendingQuestion.source === 'cli' && (
+      {/* User question widget — appears above CliPromptBar when request_user_input is active.
+          When expired it stays visible but disabled ("the agent may ask again"). */}
+      {displayQuestion && displayQuestion.source === 'cli' && (
         <div className="px-4">
-          <AgentUserQuestion pendingQuestions={pendingQuestion} onAnswer={handleCliAnswer} onSkip={handleCliSkip} />
+          <AgentUserQuestion
+            pendingQuestions={displayQuestion}
+            onAnswer={handleCliAnswer}
+            onSkip={isQuestionExpired ? handleExpiredDismiss : handleCliSkip}
+            expired={isQuestionExpired}
+          />
         </div>
       )}
     </div>

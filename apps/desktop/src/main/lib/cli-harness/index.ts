@@ -4,6 +4,7 @@ import { ensureMcpHttpServerAlive } from '../mcp/http-transport';
 import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
 import { detectCliTool, evictCliDetect } from './detect';
 import { getCliInstallCommands } from '../../../shared/cli-install-commands';
+import { ASK_USER_QUESTION_TIMEOUT_MS } from '../../../shared/ask-user-question';
 import type { TerminalBootstrap } from '../terminal/types';
 
 export type CliHarness = 'claude-cli' | 'codex-cli';
@@ -83,7 +84,12 @@ async function writeClaudeMcpConfigFile(mcpUrl: string, bearer: string): Promise
       [MCP_SERVER_NAME]: {
         type: 'http',
         url: mcpUrl,
-        headers: { Authorization: `Bearer ${bearer}` }
+        headers: { Authorization: `Bearer ${bearer}` },
+        // request_user_input blocks on a human; give claude-code's logical tool
+        // timeout the same generous window the host backstop uses, so it doesn't
+        // hard-abort the call while the user is thinking (e.g. in another
+        // workspace). See src/shared/ask-user-question.ts.
+        timeout: ASK_USER_QUESTION_TIMEOUT_MS
       }
     }
   };

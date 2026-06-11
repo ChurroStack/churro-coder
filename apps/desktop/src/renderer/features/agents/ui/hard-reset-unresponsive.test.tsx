@@ -46,6 +46,9 @@ vi.mock('@/lib/trpc', () => {
           }))
         },
         cliUserQuestion: { useSubscription: vi.fn() },
+        cliUserQuestionExpired: { useSubscription: vi.fn() },
+        cliUserQuestionCleared: { useSubscription: vi.fn() },
+        getPendingCliQuestion: { useQuery: vi.fn(emptyQuery) },
         resolveCliUserQuestion: { useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })) },
         getMcpFileChanges: { useQuery: vi.fn(emptyQuery) },
         get: { useQuery: vi.fn(emptyQuery) },
