@@ -95,7 +95,7 @@ export function WorkspaceProjectSettings({
 
       {/* Section content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {section === 'worktree' && <WorktreeConfigSection projectId={projectId} path={path} />}
+        {section === 'worktree' && <WorktreeConfigSection projectId={projectId} path={path} chatId={workspaceId} />}
         {section === 'env' && <EnvironmentVariablesSection projectId={projectId} />}
         {section === 'skills' && <AgentsSkillsTab mode={worktreeMode} />}
         {section === 'agents' && <AgentsCustomAgentsTab mode={worktreeMode} />}

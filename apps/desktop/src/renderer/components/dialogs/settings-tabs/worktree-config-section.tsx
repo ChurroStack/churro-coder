@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSetAtom } from 'jotai';
-import { trpc } from '../../../lib/trpc';
+import { trpc, trpcClient } from '../../../lib/trpc';
+import { api } from '../../../lib/mock-api';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Plus, Trash2 } from 'lucide-react';
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '../../ui/selec
 import { toast } from 'sonner';
 import type { WorktreeScript } from '../../../../main/lib/git/worktree-config';
 import { COMMAND_PROMPTS } from '../../../features/agents/commands';
-import { selectedAgentChatIdAtom, selectedProjectAtom } from '../../../lib/atoms';
+import { selectWorkspace, useAgentSubChatStore } from '../../../features/agents/stores/sub-chat-store';
 
 /**
  * Worktree config (setup commands + scripts + config-file target + "Fill with
@@ -22,7 +22,15 @@ import { selectedAgentChatIdAtom, selectedProjectAtom } from '../../../lib/atoms
  * minus the project-level General / Danger Zone sections (name/icon/remove live
  * in the project kebab menu).
  */
-export function WorktreeConfigSection({ projectId, path }: { projectId: string; path: string }) {
+export function WorktreeConfigSection({
+  projectId,
+  path,
+  chatId
+}: {
+  projectId: string;
+  path: string;
+  chatId: string;
+}) {
   const { data: configData } = trpc.worktreeConfig.get.useQuery(
     { projectId, worktreePath: path },
     { enabled: !!projectId && !!path }
@@ -34,16 +42,12 @@ export function WorktreeConfigSection({ projectId, path }: { projectId: string; 
     }
   });
 
-  // "Fill with AI" creates a Local setup chat and navigates to it.
-  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom);
-  const setSelectedProject = useSetAtom(selectedProjectAtom);
-  const { data: project } = trpc.projects.get.useQuery({ id: projectId }, { enabled: !!projectId });
-  const createChatMutation = trpc.chats.create.useMutation({
-    onSuccess: (data) => {
-      if (project) setSelectedProject(project);
-      setSelectedChatId(data.id);
-    }
-  });
+  // "Fill with AI" opens a new sub-chat *inside this workspace* (chatId) so the
+  // agent runs in the workspace's own worktree — which the chat row already owns
+  // via worktreePath — and its generated config lands in the same tree this panel
+  // reads/writes. Creating a new top-level chat would instead run in the project
+  // root (Local workspace). See the per-workspace settings plan.
+  const utils = api.useUtils();
 
   const [saveTarget, setSaveTarget] = useState<'cursor' | 'cscode'>('cscode');
   const [commands, setCommands] = useState<string[]>(['']);
@@ -186,16 +190,44 @@ export function WorktreeConfigSection({ projectId, path }: { projectId: string; 
 
   const cursorExists = configData?.available?.cursor?.exists ?? false;
 
-  const fillWithAi = (commandKey: 'worktree-setup' | 'scripts-fill', name: string) => {
+  const [isFilling, setIsFilling] = useState(false);
+
+  const fillWithAi = async (commandKey: 'worktree-setup' | 'scripts-fill', name: string) => {
     const prompt = COMMAND_PROMPTS[commandKey];
-    if (prompt && projectId) {
-      createChatMutation.mutate({
-        projectId,
+    if (!prompt || !chatId || isFilling) return;
+
+    setIsFilling(true);
+    const newSubChatId = crypto.randomUUID();
+    try {
+      // Seed + persist the prompt as the new sub-chat's first user message. The
+      // sub-chat inherits this workspace's worktreePath, so the agent runs in the
+      // displayed tree. On open, the chat surface hydrates the seeded message and
+      // auto-sends it (same path as `chats.create`).
+      await trpcClient.chats.createSubChat.mutate({
+        id: newSubChatId,
+        chatId,
         name,
-        initialMessageParts: [{ type: 'text', text: prompt }],
-        useWorktree: false,
-        mode: 'execute'
+        mode: 'execute',
+        initialMessageParts: [{ type: 'text', text: prompt }]
       });
+
+      // Navigate this window to the workspace + new sub-chat. selectWorkspace is
+      // the single entry point that keeps the store's chatId and the selected-chat
+      // atom in sync; switching first makes store.chatId === chatId so the
+      // cross-workspace guards on the store mutations below pass.
+      const store = useAgentSubChatStore.getState();
+      if (store.chatId !== chatId) selectWorkspace(chatId);
+      useAgentSubChatStore.getState().addToOpenSubChats(newSubChatId, chatId);
+      useAgentSubChatStore.getState().setActiveSubChat(newSubChatId, chatId);
+
+      // Refetch so the chat surface sees the new sub-chat (tab validity) and its
+      // seeded message (which drives the auto-send on open).
+      void utils.agents.getAgentChat.invalidate({ chatId });
+    } catch (err) {
+      console.error('[worktree-config] Fill with AI failed', err);
+      toast.error('Failed to start Fill with AI');
+    } finally {
+      setIsFilling(false);
     }
   };
 
@@ -276,7 +308,7 @@ export function WorktreeConfigSection({ projectId, path }: { projectId: string; 
               size="sm"
               className="gap-1.5 shrink-0"
               onClick={() => fillWithAi('worktree-setup', 'Worktree Setup')}
-              disabled={!projectId || createChatMutation.isPending}>
+              disabled={!chatId || isFilling}>
               <AIPenIcon className="h-3.5 w-3.5" />
               Fill with AI
             </Button>
@@ -354,7 +386,7 @@ export function WorktreeConfigSection({ projectId, path }: { projectId: string; 
               size="sm"
               className="gap-1.5 shrink-0"
               onClick={() => fillWithAi('scripts-fill', 'Scripts')}
-              disabled={!projectId || createChatMutation.isPending}>
+              disabled={!chatId || isFilling}>
               <AIPenIcon className="h-3.5 w-3.5" />
               Fill with AI
             </Button>

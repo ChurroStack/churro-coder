@@ -1115,12 +1115,38 @@ export const chatsRouter = router({
         chatId: z.string(),
         name: z.string().optional(),
         mode: z.enum(['plan', 'execute', 'explore']).default('execute'),
-        harness: z.enum(['builtin', 'claude-cli', 'codex-cli']).default('builtin')
+        harness: z.enum(['builtin', 'claude-cli', 'codex-cli']).default('builtin'),
+        // Optional initial user message to seed + auto-send when the sub-chat
+        // opens (same shape as `create`). Lets callers like the project-settings
+        // "Fill with AI" buttons start a conversation inside the current workspace
+        // (which already owns the correct worktreePath) instead of spawning a new
+        // top-level chat in the project root.
+        initialMessageParts: z
+          .array(
+            z.union([
+              z.object({ type: z.literal('text'), text: z.string() }),
+              z.object({
+                type: z.literal('data-image'),
+                data: z.object({
+                  url: z.string(),
+                  mediaType: z.string().optional(),
+                  filename: z.string().optional(),
+                  base64Data: z.string().optional()
+                })
+              }),
+              z.object({
+                type: z.literal('file-content'),
+                filePath: z.string(),
+                content: z.string()
+              })
+            ])
+          )
+          .optional()
       })
     )
     .mutation(({ input }) => {
       const db = getDatabase();
-      return db
+      const subChat = db
         .insert(subChats)
         .values({
           ...(input.id ? { id: input.id } : {}),
@@ -1131,6 +1157,18 @@ export const chatsRouter = router({
         })
         .returning()
         .get();
+
+      if (input.initialMessageParts && input.initialMessageParts.length > 0) {
+        replaceMessagesInTable(db, subChat.id, [
+          {
+            id: `msg-${Date.now()}`,
+            role: 'user',
+            parts: input.initialMessageParts
+          }
+        ]);
+      }
+
+      return subChat;
     }),
 
   /**
