@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.9](https://github.com/ChurroStack/churro-coder/compare/v0.1.8...v0.1.9) (2026-06-17)
+
+
+### Features
+
+* **desktop:** project-level environment variables + worktree-reaper crash fix ([#215](https://github.com/ChurroStack/churro-coder/issues/215)) ([7f20c2a](https://github.com/ChurroStack/churro-coder/commit/7f20c2ab3adfe65df6838509f1a1f8a7dd50e6db))
+* **desktop:** render task-notification blocks as Task cards ([#213](https://github.com/ChurroStack/churro-coder/issues/213)) ([2bbf766](https://github.com/ChurroStack/churro-coder/commit/2bbf76629177c4f2791239cc202834fdbc27c91f))
+
 ## [0.1.8](https://github.com/ChurroStack/churro-coder/compare/v0.1.7...v0.1.8) (2026-06-11)
 
 
