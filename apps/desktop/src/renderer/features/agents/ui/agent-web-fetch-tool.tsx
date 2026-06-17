@@ -1,11 +1,12 @@
 'use client';
 
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import { GlobeIcon, IconSpinner, ExpandIcon, CollapseIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { getToolStatus } from './agent-tool-registry';
 import { AgentToolInterrupted } from './agent-tool-interrupted';
 import { areToolPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 import { cn } from '../../../lib/utils';
 
 interface AgentWebFetchToolProps {
@@ -14,7 +15,7 @@ interface AgentWebFetchToolProps {
 }
 
 export const AgentWebFetchTool = memo(function AgentWebFetchTool({ part, chatStatus }: AgentWebFetchToolProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggle } = useDensityCollapse();
   const { isPending, isError, isInterrupted } = getToolStatus(part, chatStatus);
 
   const url = part.input?.url || '';
@@ -49,7 +50,7 @@ export const AgentWebFetchTool = memo(function AgentWebFetchTool({ part, chatSta
     <div className="rounded-lg border border-border bg-muted/30 overflow-hidden mx-2">
       {/* Header - clickable to toggle expand */}
       <div
-        onClick={() => hasContent && !isPending && setIsExpanded(!isExpanded)}
+        onClick={() => hasContent && !isPending && toggle()}
         className={cn(
           'flex items-center justify-between px-2.5 h-7',
           hasContent && !isPending && 'cursor-pointer hover:bg-muted/50 transition-colors duration-150'

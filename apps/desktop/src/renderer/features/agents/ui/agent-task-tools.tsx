@@ -2,12 +2,13 @@
 
 import { ChevronsUpDown } from 'lucide-react';
 import { useSetAtom } from 'jotai';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import { CheckIcon, PlanIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { cn } from '../../../lib/utils';
 import { currentTaskToolsAtomFamily } from '../atoms';
 import { getToolStatus } from './agent-tool-registry';
+import { useDensityCollapse } from './use-density-collapse';
 
 /**
  * Format a task subject with its ID prefix.
@@ -888,9 +889,12 @@ export const AgentTaskToolsGroup = memo(function AgentTaskToolsGroup({
   const hasTaskGet = taskGet !== null;
   const hasAnything = hasChanges || hasTaskList || hasTaskGet;
 
-  // Read-only data (TaskList/TaskGet) should be collapsed by default
+  // Read-only data (TaskList/TaskGet) is collapsed by default; the changes view is normally
+  // always shown. Density overrides: 'collapsed' collapses both behind the header, 'expanded'
+  // opens both. A manual toggle still wins.
   const isReadOnly = !hasChanges && (hasTaskList || hasTaskGet);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { density, isExpanded, toggle } = useDensityCollapse({ normalResting: !isReadOnly });
+  const collapsible = isReadOnly || density === 'collapsed';
 
   // If no data, return null or loading state
   if (!hasAnything) {
@@ -969,10 +973,10 @@ export const AgentTaskToolsGroup = memo(function AgentTaskToolsGroup({
       <div
         className={cn(
           'border border-border bg-muted/30 px-2.5 py-1.5',
-          isReadOnly && !isExpanded ? 'rounded-lg' : 'rounded-t-lg border-b-0',
-          isReadOnly && 'cursor-pointer hover:bg-muted/50 transition-colors'
+          collapsible && !isExpanded ? 'rounded-lg' : 'rounded-t-lg border-b-0',
+          collapsible && 'cursor-pointer hover:bg-muted/50 transition-colors'
         )}
-        onClick={isReadOnly ? () => setIsExpanded(!isExpanded) : undefined}>
+        onClick={collapsible ? toggle : undefined}>
         <div className="flex items-center gap-1.5">
           <PlanIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
           {headerText.startsWith('__TASK_GET__') ? (
@@ -990,12 +994,12 @@ export const AgentTaskToolsGroup = memo(function AgentTaskToolsGroup({
           ) : (
             <span className="text-xs font-medium text-foreground flex-1">{headerText}</span>
           )}
-          {isReadOnly && <ChevronsUpDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+          {collapsible && <ChevronsUpDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
         </div>
       </div>
 
       {/* Items list */}
-      {(!isReadOnly || isExpanded) && (
+      {(!collapsible || isExpanded) && (
         <div className="rounded-b-lg border border-border bg-muted/20 shadow-xl shadow-background max-h-[400px] overflow-y-auto">
           {itemsToRender.map((item, idx) => {
             const isLast = idx === itemsToRender.length - 1;

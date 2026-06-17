@@ -12,6 +12,7 @@ import { AgentToolInterrupted } from './agent-tool-interrupted';
 import { areToolPropsEqual } from './agent-tool-utils';
 import { getFileIconByExtension } from '../mentions/agents-file-mention';
 import { useFileOpen } from '../mentions';
+import { useDensityCollapse } from './use-density-collapse';
 import { agentsDiffSidebarOpenAtom, agentsFocusedDiffFileAtom, selectedProjectAtom } from '../atoms';
 import { cn } from '../../../lib/utils';
 
@@ -200,7 +201,9 @@ export const AgentEditTool = memo(function AgentEditTool({
   partIndex,
   chatStatus
 }: AgentEditToolProps) {
-  const [isOutputExpanded, setIsOutputExpanded] = useState(false);
+  // In 'default' density the diff shows a fixed-height preview (expand for full).
+  // 'collapsed' shows only the header line until expanded; 'expanded' shows the full diff.
+  const { isExpanded: isOutputExpanded, toggle: toggleOutput, showContent: densityShowContent } = useDensityCollapse();
   const { isPending, isInterrupted } = getToolStatus(part, chatStatus);
   const codeTheme = useCodeTheme();
 
@@ -248,9 +251,9 @@ export const AgentEditTool = memo(function AgentEditTool({
   // Memoized click handlers to prevent inline function re-creation
   const handleHeaderClick = useCallback(() => {
     if (!isPending && !isInputStreaming) {
-      setIsOutputExpanded((prev) => !prev);
+      toggleOutput();
     }
-  }, [isPending, isInputStreaming]);
+  }, [isPending, isInputStreaming, toggleOutput]);
 
   const handleFilenameClick = useCallback(
     (e: React.MouseEvent) => {
@@ -262,16 +265,19 @@ export const AgentEditTool = memo(function AgentEditTool({
     [filePath, onOpenFile]
   );
 
-  const handleExpandButtonClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOutputExpanded((prev) => !prev);
-  }, []);
+  const handleExpandButtonClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      toggleOutput();
+    },
+    [toggleOutput]
+  );
 
   const handleContentClick = useCallback(() => {
     if (!isOutputExpanded && !isPending && !isInputStreaming) {
-      setIsOutputExpanded(true);
+      toggleOutput();
     }
-  }, [isOutputExpanded, isPending, isInputStreaming]);
+  }, [isOutputExpanded, isPending, isInputStreaming, toggleOutput]);
 
   // Get file icon component and language
   // Pass true to not show default icon for unknown file types
@@ -416,6 +422,10 @@ export const AgentEditTool = memo(function AgentEditTool({
   const hasVisibleContent =
     displayLines.length > 0 || (isInputStreaming && (throttledStreamingContent || newString || writeContent));
 
+  // In 'collapsed' density the diff body is hidden until the user expands it, but live
+  // streaming content stays visible so edits are still observable as they arrive.
+  const showContentBlock = hasVisibleContent && (densityShowContent || isInputStreaming);
+
   // Header title based on mode and state (used only in minimal view)
   const headerAction = useMemo(() => {
     if (isWriteMode) {
@@ -546,7 +556,7 @@ export const AgentEditTool = memo(function AgentEditTool({
       </div>
 
       {/* Content - git-style diff with syntax highlighting */}
-      {hasVisibleContent && (
+      {showContentBlock && (
         <div
           onClick={handleContentClick}
           className={cn(

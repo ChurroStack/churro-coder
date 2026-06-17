@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { useAtomValue } from 'jotai';
 import { ChevronRight, FolderSearch } from 'lucide-react';
 import { useFileOpen } from '../mentions';
@@ -8,6 +8,7 @@ import { selectedProjectAtom } from '../atoms';
 import { AgentToolRegistry, getToolStatus } from './agent-tool-registry';
 import { AgentToolCall } from './agent-tool-call';
 import { areExploringGroupPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 import { cn } from '../../../lib/utils';
 
 interface AgentExploringGroupProps {
@@ -28,18 +29,9 @@ export const AgentExploringGroup = memo(function AgentExploringGroup({
   const onOpenFile = useFileOpen();
   const selectedProject = useAtomValue(selectedProjectAtom);
   const projectPath = selectedProject?.path;
-  // Default: expanded while streaming, collapsed when done
-  const [isExpanded, setIsExpanded] = useState(isStreaming);
+  // Expanded while streaming, then settles to the density resting state. Manual toggle wins.
+  const { isExpanded, toggle, showPreview } = useDensityCollapse({ forceExpanded: isStreaming });
   const scrollRef = useRef<HTMLDivElement>(null);
-  const wasStreamingRef = useRef(isStreaming);
-
-  // Auto-collapse when streaming ends (transition from true -> false)
-  useEffect(() => {
-    if (wasStreamingRef.current && !isStreaming) {
-      setIsExpanded(false);
-    }
-    wasStreamingRef.current = isStreaming;
-  }, [isStreaming]);
 
   // Auto-scroll to bottom when streaming and new parts added
   useEffect(() => {
@@ -65,9 +57,7 @@ export const AgentExploringGroup = memo(function AgentExploringGroup({
   return (
     <div>
       {/* Header - clickable to toggle */}
-      <div
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="group flex items-start gap-1.5 py-0.5 px-2 cursor-pointer">
+      <div onClick={toggle} className="group flex items-start gap-1.5 py-0.5 px-2 cursor-pointer">
         <div className="flex-shrink-0 flex items-start pt-[1px]">
           <FolderSearch className="w-3.5 h-3.5 text-muted-foreground/70" />
         </div>
@@ -76,7 +66,9 @@ export const AgentExploringGroup = memo(function AgentExploringGroup({
             <span className="font-medium whitespace-nowrap flex-shrink-0 text-muted-foreground">
               {isStreaming ? 'Exploring' : 'Explored'}
             </span>
-            <span className="text-muted-foreground/60 whitespace-nowrap flex-shrink-0">{subtitle}</span>
+            {showPreview && (
+              <span className="text-muted-foreground/60 whitespace-nowrap flex-shrink-0">{subtitle}</span>
+            )}
             {/* Chevron right after text - rotates when expanded */}
             <ChevronRight
               className={cn(
