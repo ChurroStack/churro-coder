@@ -310,7 +310,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
   // null (mid-switch) collapses useWorkflowState to IDLE_WORKFLOW_STATE so the
   // status pill never reflects the previous workspace's run.
   const workflow = useWorkflowState(chatId, subChatId);
-  const { dispatch: dispatchWorkflowAction, pushDialog } = useWorkflowActions(chatId, subChatId);
+  const { dispatch: dispatchWorkflowAction, pushDialog, reopenDialog } = useWorkflowActions(chatId, subChatId);
   const handleWorkflowAction = useCallback(
     (kind: WorkflowActionKind) => {
       void dispatchWorkflowAction(kind);
@@ -373,6 +373,7 @@ export function DetailsRail(_props: IGridviewPanelProps) {
           onPrReview={handlePrReview}
         />
         {pushDialog}
+        {reopenDialog}
       </div>
     </div>
   );

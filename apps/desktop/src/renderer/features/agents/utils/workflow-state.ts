@@ -9,7 +9,9 @@ export type WorkflowActionKind =
   | 'reviewLocal'
   | 'reviewPr'
   | 'createPr'
-  | 'openPr';
+  | 'openPr'
+  | 'archiveWorkspace'
+  | 'reopenBranch';
 
 export interface MilestoneState {
   id: MilestoneId;
@@ -29,6 +31,12 @@ export interface WorkflowState {
     label: string;
     actionKind: WorkflowActionKind;
   } | null;
+  /**
+   * Terminal state: the branch's upstream is `[gone]` (PR merged + remote
+   * branch deleted). When true, all milestones are forced green and the notch
+   * shows the Archive/Re-open cluster instead of the single next-step button.
+   */
+  mergedBranchGone: boolean;
 }
 
 // ── Snapshot sub-types ──────────────────────────────────────────────────────
@@ -88,6 +96,14 @@ export interface WorkflowSnapshot {
   pushCount: number;
   hasUpstream: boolean;
   baseBranchBehind: number;
+  /**
+   * True when the branch's upstream tracking is `[gone]` (remote branch deleted
+   * after a PR merge). Resolved to a plain boolean by `useWorkflowSnapshot`
+   * (the main-process query returns a `boolean | 'unknown'` tri-state, which the
+   * snapshot collapses sticky-on-unknown to avoid flicker). Optional —
+   * `computeWorkflowState` defaults it to `false` in its normalize step.
+   */
+  remoteBranchGone?: boolean;
   pr: {
     state: 'none' | 'draft' | 'open' | 'merged' | 'closed';
     reviewDecision: 'none' | 'pending' | 'approved' | 'changes_requested';
@@ -164,8 +180,31 @@ export function computeWorkflowState(raw: WorkflowSnapshot): WorkflowState {
     harness: 'builtin',
     cliBusy: false,
     tasks: null,
+    remoteBranchGone: false,
     ...raw
   };
+
+  // Terminal "workspace is done" state — shows all-green pills + the Archive /
+  // Re-open notch cluster. Triggered by EITHER signal (one or both):
+  //   • the branch's upstream is `[gone]` (remote branch deleted after a merge), OR
+  //   • the PR is merged AND there's no pending local work to push.
+  // Gated on idle/!cliBusy/hasRemote so an in-flight run still surfaces its
+  // normal in_progress state instead of a misleading "all done".
+  const idleWithRemote = s.git.hasRemote && s.activity === 'idle' && !s.cliBusy;
+
+  // Gone case forces green: baseBranchBehind (origin/<base> moved ahead with the
+  // squash commit) would otherwise leave Code amber. The PR pill keeps `openPr`
+  // so the merged PR is still viewable (no-op when there's no PR URL).
+  if (s.remoteBranchGone && idleWithRemote) {
+    return {
+      plan: { id: 'plan', status: 'done', label: 'Plan', hint: 'Done' },
+      code: { id: 'code', status: 'done', label: 'Code', hint: 'Merged' },
+      review: { id: 'review', status: 'done', label: 'Review', hint: 'Merged' },
+      pr: { id: 'pr', status: 'done', label: 'PR', hint: 'PR merged', actionKind: 'openPr' },
+      next: null,
+      mergedBranchGone: true
+    };
+  }
 
   const plan = computePlan(s);
   const code = computeCode(s, plan.status);
@@ -199,7 +238,15 @@ export function computeWorkflowState(raw: WorkflowSnapshot): WorkflowState {
         }
       : null;
 
-  return { plan, code, review, pr, next };
+  // Merged-clean case: the milestones already compute to all-green here, so we
+  // don't override them — we only flag the terminal state so the notch shows the
+  // Archive / Re-open cluster. Requires no pending local work, which preserves
+  // the deliberate "push new commits / open a follow-up PR after merge" flow
+  // (that path keeps PR amber and must NOT be hidden behind "all done").
+  const mergedClean =
+    idleWithRemote && s.pr.state === 'merged' && s.git.changedFiles === 0 && !(s.hasUpstream && s.pushCount > 0);
+
+  return { plan, code, review, pr, next: mergedClean ? null : next, mergedBranchGone: mergedClean };
 }
 
 // ── Plan ─────────────────────────────────────────────────────────────────────

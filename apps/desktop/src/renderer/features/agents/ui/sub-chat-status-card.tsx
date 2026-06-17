@@ -47,6 +47,8 @@ interface SubChatStatusCardProps {
   workflow?: WorkflowState | null;
   /** Whether the current workflow primary action is running */
   isNextActionPending?: boolean;
+  /** Per-action pending flags — used by the terminal Archive/Re-open buttons. */
+  actionPending?: Partial<Record<WorkflowActionKind, boolean>>;
   /** Dispatcher for the primary action button */
   onWorkflowAction?: (kind: WorkflowActionKind) => void;
 }
@@ -58,7 +60,9 @@ const ACTION_BUTTON_LABELS: Record<WorkflowActionKind, string> = {
   reviewLocal: 'Review',
   reviewPr: 'Review',
   createPr: 'Create PR',
-  openPr: 'View PR'
+  openPr: 'View PR',
+  archiveWorkspace: 'Archive workspace',
+  reopenBranch: 'Re-open branch'
 };
 
 export const SubChatStatusCard = memo(function SubChatStatusCard({
@@ -72,6 +76,7 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
   hasQueueCardAbove = false,
   workflow,
   isNextActionPending = false,
+  actionPending,
   onWorkflowAction
 }: SubChatStatusCardProps) {
   const isBusy = isStreaming || isCompacting;
@@ -147,9 +152,11 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
   const hasExpandableContent = uncommittedFiles.length > 0;
 
   const nextStep = workflow?.next ?? null;
+  const mergedBranchGone = !!workflow?.mergedBranchGone;
 
-  // Don't show if there's nothing to do — no streaming, no changed files, no actionable next step.
-  if (!isBusy && uncommittedFiles.length === 0 && !nextStep) {
+  // Don't show if there's nothing to do — no streaming, no changed files, no
+  // actionable next step, and not in the terminal merged-branch-gone state.
+  if (!isBusy && uncommittedFiles.length === 0 && !nextStep && !mergedBranchGone) {
     return null;
   }
 
@@ -219,8 +226,13 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
             </span>
           )}
 
+          {/* Terminal merged-branch label takes precedence over next-step */}
+          {!isBusy && mergedBranchGone && <span className="text-xs text-foreground truncate">Branch merged</span>}
+
           {/* Workflow chip — primary user-facing label when not busy */}
-          {!isBusy && nextStep && <span className="text-xs text-foreground truncate">{nextStep.label}</span>}
+          {!isBusy && !mergedBranchGone && nextStep && (
+            <span className="text-xs text-foreground truncate">{nextStep.label}</span>
+          )}
 
           {/* File stats — secondary detail when there are uncommitted files */}
           {showFileStats && (
@@ -254,9 +266,38 @@ export const SubChatStatusCard = memo(function SubChatStatusCard({
             </Button>
           )}
 
+          {/* Terminal merged-branch-gone cluster: Re-open (secondary) + Archive
+              (primary, highlighted). Both actions are harness-agnostic. */}
+          {!isBusy && mergedBranchGone && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={actionPending?.reopenBranch}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onWorkflowAction?.('reopenBranch');
+                }}
+                className="h-6 px-3 text-xs font-normal rounded-md transition-transform duration-150 active:scale-[0.97] disabled:opacity-70">
+                Re-open branch
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                disabled={actionPending?.archiveWorkspace}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onWorkflowAction?.('archiveWorkspace');
+                }}
+                className="h-6 px-3 text-xs font-medium rounded-md transition-transform duration-150 active:scale-[0.97] disabled:opacity-70">
+                Archive workspace
+              </Button>
+            </>
+          )}
+
           {/* Primary action — driven by workflow state when available, else
               falls back to the legacy Review-files behaviour. */}
-          {!isBusy && (actionLabel || uncommittedFiles.length > 0) && (
+          {!isBusy && !mergedBranchGone && (actionLabel || uncommittedFiles.length > 0) && (
             <Button
               variant="secondary"
               size="sm"

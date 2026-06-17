@@ -3,6 +3,8 @@ import { resolveHasUpstream } from '../../../../shared/changes-types';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { trpc } from '@/lib/trpc';
 import { usePushAction } from '@/features/changes/hooks/use-push-action';
+import { useReopenBranchAction } from '@/features/changes/hooks/use-reopen-branch-action';
+import { useArchiveWorkspace } from '@/features/dock/use-archive-workspace';
 import {
   compactingSubChatsAtom,
   diffSidebarOpenAtomFamily,
@@ -33,7 +35,8 @@ const IDLE_WORKFLOW_STATE: WorkflowState = {
   code: { id: 'code', status: 'idle', label: 'Code', hint: 'No changes' },
   review: { id: 'review', status: 'idle', label: 'Review', hint: 'Waiting on code' },
   pr: { id: 'pr', status: 'idle', label: 'PR', hint: 'Waiting on code/review' },
-  next: null
+  next: null,
+  mergedBranchGone: false
 };
 
 /**
@@ -197,6 +200,15 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
 
   const { isCliHarness, dispatch: dispatchCliText, dispatchReview, harness } = useHarnessSendDispatcher(safeSubChatId);
 
+  const invalidateGitQueries = useCallback(() => {
+    if (chatId) {
+      trpcUtils.chats.getPrStatus.invalidate({ chatId });
+    }
+    if (worktreePath) {
+      trpcUtils.changes.getStatus.invalidate({ worktreePath });
+    }
+  }, [chatId, worktreePath, trpcUtils]);
+
   const {
     push: pushBranch,
     isPending: isPushPending,
@@ -204,15 +216,19 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
   } = usePushAction({
     worktreePath,
     hasUpstream,
-    onSuccess: () => {
-      if (chatId) {
-        trpcUtils.chats.getPrStatus.invalidate({ chatId });
-      }
-      if (worktreePath) {
-        trpcUtils.changes.getStatus.invalidate({ worktreePath });
-      }
-    }
+    onSuccess: invalidateGitQueries
   });
+
+  const {
+    reopen: reopenBranch,
+    isPending: isReopenPending,
+    dialog: reopenDialog
+  } = useReopenBranchAction({
+    worktreePath,
+    onSuccess: invalidateGitQueries
+  });
+
+  const { archive: archiveWorkspace, isPending: isArchivePending } = useArchiveWorkspace();
 
   const dispatch = useCallback(
     async (kind: WorkflowActionKind) => {
@@ -305,6 +321,17 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
             window.desktopApi.openExternal(prUrl);
           }
           break;
+
+        // Terminal "remote branch [gone]" actions. Both are pure git/DB ops via
+        // tRPC (no agent prompt), so they behave identically across built-in,
+        // Claude CLI, and Codex CLI harnesses.
+        case 'reopenBranch':
+          reopenBranch(); // opens the confirm dialog; the work runs on confirm
+          break;
+
+        case 'archiveWorkspace':
+          archiveWorkspace(chatId);
+          break;
       }
     },
     [
@@ -326,15 +353,20 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
       isCliHarness,
       dispatchCliText,
       dispatchReview,
-      harness
+      harness,
+      reopenBranch,
+      archiveWorkspace
     ]
   );
 
   return {
     dispatch,
     pushDialog,
+    reopenDialog,
     isActionPending: {
-      pushBranch: isPushPending
+      pushBranch: isPushPending,
+      reopenBranch: isReopenPending,
+      archiveWorkspace: isArchivePending
     } as Partial<Record<WorkflowActionKind, boolean>>
   };
 }

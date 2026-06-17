@@ -1273,6 +1273,7 @@ export const ChatViewInner = memo(function ChatViewInner({
   const {
     dispatch: dispatchWorkflowAction,
     pushDialog: workflowPushDialog,
+    reopenDialog: workflowReopenDialog,
     isActionPending
   } = useWorkflowActions(parentChatId, subChatId);
   const isNextActionPending = workflow?.next ? !!isActionPending[workflow.next.actionKind] : false;
@@ -3204,7 +3205,12 @@ export const ChatViewInner = memo(function ChatViewInner({
 
   // Calculate top offset for search bar based on sub-chat selector
   const searchBarTopOffset = isSubChatsSidebarOpen ? '52px' : undefined;
-  const shouldShowStatusCard = isStreaming || isCompacting || changedFilesForSubChat.length > 0 || !!workflow?.next;
+  const shouldShowStatusCard =
+    isStreaming ||
+    isCompacting ||
+    changedFilesForSubChat.length > 0 ||
+    !!workflow?.next ||
+    !!workflow?.mergedBranchGone;
   const shouldShowStackedCards = !displayQuestions && (queue.length > 0 || shouldShowStatusCard);
   const handleInputProviderChange = useCallback(
     (nextProvider: 'claude-code' | 'codex') => {
@@ -3427,6 +3433,7 @@ export const ChatViewInner = memo(function ChatViewInner({
                   hasQueueCardAbove={queue.length > 0}
                   workflow={workflow}
                   isNextActionPending={isNextActionPending}
+                  actionPending={isActionPending}
                   onWorkflowAction={handleNotchWorkflowAction}
                 />
               )}
@@ -3436,6 +3443,8 @@ export const ChatViewInner = memo(function ChatViewInner({
 
         {/* Push dialog (mounts when a workflow push action hits REMOTE_AHEAD) */}
         {workflowPushDialog}
+        {/* Re-open-branch confirm dialog (merged-branch-gone terminal state) */}
+        {workflowReopenDialog}
 
         {/* Input - isolated component to prevent re-renders */}
         <ChatInputArea

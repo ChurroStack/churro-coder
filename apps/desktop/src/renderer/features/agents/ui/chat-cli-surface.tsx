@@ -433,6 +433,7 @@ export function ChatCliSurface({
   const {
     dispatch: dispatchWorkflowAction,
     pushDialog: workflowPushDialog,
+    reopenDialog: workflowReopenDialog,
     isActionPending
   } = useWorkflowActions(chatId ?? null, subChatId);
   const isNextActionPending = workflow?.next ? !!isActionPending[workflow.next.actionKind] : false;
@@ -570,6 +571,7 @@ export function ChatCliSurface({
               worktreePath={worktreePath}
               workflow={workflow}
               isNextActionPending={isNextActionPending}
+              actionPending={isActionPending}
               onWorkflowAction={handleNotchAction}
             />
           </div>
@@ -578,6 +580,8 @@ export function ChatCliSurface({
 
       {/* Push dialog hosted by useWorkflowActions (mounts on REMOTE_AHEAD). */}
       {workflowPushDialog}
+      {/* Re-open-branch confirm dialog (merged-branch-gone terminal state). */}
+      {workflowReopenDialog}
 
       {/* User question widget — appears above CliPromptBar when request_user_input is active.
           When expired it stays visible but disabled ("the agent may ask again"). */}
