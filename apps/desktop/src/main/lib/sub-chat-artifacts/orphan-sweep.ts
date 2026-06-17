@@ -31,6 +31,24 @@ async function sweepDir(dir: string): Promise<number> {
   return removed;
 }
 
+/**
+ * Permanently remove a sub-chat's entire on-disk artifact directory
+ * (`<userData>/sub-chats/<subChatId>/` — plans, reviews, tasks, file-changes,
+ * cli-ingest.json). Called from the workspace hard-delete path so permanently
+ * deleting a workspace doesn't leak these directories forever.
+ *
+ * Best-effort and non-throwing: a failure here must never abort the row delete.
+ */
+export async function removeSubChatArtifacts(subChatId: string): Promise<void> {
+  const dir = join(app.getPath('userData'), 'sub-chats', subChatId);
+  try {
+    await rm(dir, { recursive: true, force: true });
+    console.log(`[artifact-sweep] removed sub-chat artifacts ${dir}`);
+  } catch (err) {
+    console.warn(`[artifact-sweep] failed to remove sub-chat artifacts ${dir}:`, err);
+  }
+}
+
 export async function sweepOrphanTmpFiles(): Promise<void> {
   const subChatsRoot = join(app.getPath('userData'), 'sub-chats');
   let subChatIds: string[];
