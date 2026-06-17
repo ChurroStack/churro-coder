@@ -54,7 +54,7 @@ export const AgentTaskTool = memo(function AgentTaskTool({
   const onOpenFile = useFileOpen();
 
   // Resting collapsed in 'default'/'collapsed' density, expanded in 'expanded'. Manual toggle wins.
-  const { isExpanded, toggle } = useDensityCollapse({ normalResting: false });
+  const { isExpanded, toggle, showPreview } = useDensityCollapse({ normalResting: false });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Track elapsed time for running tasks
@@ -192,7 +192,7 @@ export const AgentTaskTool = memo(function AgentTaskTool({
             ) : (
               <span className="font-medium whitespace-nowrap flex-shrink-0 text-muted-foreground">{getTitle()}</span>
             )}
-            {subtitle && <span className="text-muted-foreground/60 truncate">{subtitle}</span>}
+            {subtitle && showPreview && <span className="text-muted-foreground/60 truncate">{subtitle}</span>}
             {/* Tool-use + token counts from the subagent result (completed only) */}
             {countsLabel && (
               <span className="text-muted-foreground/50 tabular-nums flex-shrink-0">· {countsLabel}</span>

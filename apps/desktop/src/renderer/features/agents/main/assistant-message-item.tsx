@@ -2,7 +2,7 @@
 
 import { useAtomValue } from 'jotai';
 import { ListTree, MoreHorizontal } from 'lucide-react';
-import { memo, useCallback, useContext, useMemo, useState } from 'react';
+import { memo, useCallback, useContext, useMemo } from 'react';
 import { normalizeCodexToolPart } from '../../../../shared/codex-tool-normalizer';
 
 import {

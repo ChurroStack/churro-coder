@@ -30,7 +30,7 @@ export const AgentExploringGroup = memo(function AgentExploringGroup({
   const selectedProject = useAtomValue(selectedProjectAtom);
   const projectPath = selectedProject?.path;
   // Expanded while streaming, then settles to the density resting state. Manual toggle wins.
-  const { isExpanded, toggle } = useDensityCollapse({ forceExpanded: isStreaming });
+  const { isExpanded, toggle, showPreview } = useDensityCollapse({ forceExpanded: isStreaming });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when streaming and new parts added
@@ -66,7 +66,9 @@ export const AgentExploringGroup = memo(function AgentExploringGroup({
             <span className="font-medium whitespace-nowrap flex-shrink-0 text-muted-foreground">
               {isStreaming ? 'Exploring' : 'Explored'}
             </span>
-            <span className="text-muted-foreground/60 whitespace-nowrap flex-shrink-0">{subtitle}</span>
+            {showPreview && (
+              <span className="text-muted-foreground/60 whitespace-nowrap flex-shrink-0">{subtitle}</span>
+            )}
             {/* Chevron right after text - rotates when expanded */}
             <ChevronRight
               className={cn(

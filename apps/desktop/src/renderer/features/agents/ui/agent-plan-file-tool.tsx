@@ -43,7 +43,7 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
   subChatId,
   isEdit = false
 }: AgentPlanFileToolProps) {
-  const { density, isExpanded, toggle: handleToggleExpand } = useDensityCollapse();
+  const { isExpanded, toggle: handleToggleExpand, showContent } = useDensityCollapse();
   const [copied, setCopied] = useState(false);
   const { isPending } = getToolStatus(part, chatStatus);
   const isWrite = part.type === 'tool-Write';
@@ -78,9 +78,7 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
 
   // Check if we have content to show
   const hasVisibleContent = planContent.length > 0;
-
-  // In 'collapsed' density hide the markdown preview until expanded (header + footer remain).
-  const showContent = density !== 'collapsed' || isExpanded;
+  // showContent (from the hook) hides the markdown preview in 'collapsed' density until expanded.
 
   // Update scroll gradients via DOM (no state, no re-renders)
   const updateScrollGradients = useCallback(() => {

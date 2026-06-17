@@ -203,7 +203,7 @@ export const AgentEditTool = memo(function AgentEditTool({
 }: AgentEditToolProps) {
   // In 'default' density the diff shows a fixed-height preview (expand for full).
   // 'collapsed' shows only the header line until expanded; 'expanded' shows the full diff.
-  const { density, isExpanded: isOutputExpanded, toggle: toggleOutput } = useDensityCollapse();
+  const { isExpanded: isOutputExpanded, toggle: toggleOutput, showContent: densityShowContent } = useDensityCollapse();
   const { isPending, isInterrupted } = getToolStatus(part, chatStatus);
   const codeTheme = useCodeTheme();
 
@@ -424,7 +424,7 @@ export const AgentEditTool = memo(function AgentEditTool({
 
   // In 'collapsed' density the diff body is hidden until the user expands it, but live
   // streaming content stays visible so edits are still observable as they arrive.
-  const showContentBlock = hasVisibleContent && (density !== 'collapsed' || isOutputExpanded || isInputStreaming);
+  const showContentBlock = hasVisibleContent && (densityShowContent || isInputStreaming);
 
   // Header title based on mode and state (used only in minimal view)
   const headerAction = useMemo(() => {

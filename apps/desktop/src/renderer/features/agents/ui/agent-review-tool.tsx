@@ -37,7 +37,7 @@ interface AgentReviewToolProps {
  * action footer with "View review" and "Fix issues" buttons.
  */
 export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus, subChatId }: AgentReviewToolProps) {
-  const { density, isExpanded, toggle: handleToggleExpand } = useDensityCollapse();
+  const { isExpanded, toggle: handleToggleExpand, showContent } = useDensityCollapse();
   const [copied, setCopied] = useState(false);
   const { isPending } = getToolStatus(part, chatStatus);
   const dockApi = useDockApi();
@@ -60,9 +60,7 @@ export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus,
   );
   const reviewContent = reviewContentFromPart || (storedReview?.exists ? (storedReview.content ?? '') : '');
   const hasVisibleContent = reviewContent.length > 0;
-
-  // In 'collapsed' density hide the markdown preview until expanded (header + footer remain).
-  const showContent = density !== 'collapsed' || isExpanded;
+  // showContent (from the hook) hides the markdown preview in 'collapsed' density until expanded.
 
   const updateScrollGradients = useCallback(() => {
     const content = contentRef.current;

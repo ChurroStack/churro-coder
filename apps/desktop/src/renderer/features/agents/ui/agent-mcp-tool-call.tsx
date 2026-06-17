@@ -243,7 +243,7 @@ function HighlightedJson({ code }: { code: string }) {
 }
 
 export const AgentMcpToolCall = memo(function AgentMcpToolCall({ part, mcpInfo, chatStatus }: AgentMcpToolCallProps) {
-  const { density, isExpanded, toggle } = useDensityCollapse();
+  const { isExpanded, toggle, showPreview } = useDensityCollapse();
   const { isPending, isInterrupted } = getToolStatus(part, chatStatus);
 
   const unwrappedOutput = useMemo(() => unwrapMcpOutput(part.output), [part.output]);
@@ -294,7 +294,7 @@ export const AgentMcpToolCall = memo(function AgentMcpToolCall({ part, mcpInfo, 
             </span>
 
             {/* Subtitle: key arg value — suppressed in 'collapsed' density (title only) */}
-            {subtitle && density !== 'collapsed' && (
+            {subtitle && showPreview && (
               <span className="text-muted-foreground/60 font-normal truncate min-w-0">{subtitle}</span>
             )}
 

@@ -53,7 +53,7 @@ export const AgentThinkingTool = memo(function AgentThinkingTool({
 
   // Expanded while streaming (forceExpanded), then settles to the density resting state
   // ('collapsed'/'default' → collapsed, 'expanded' → expanded). A manual toggle still wins.
-  const { density, isExpanded, toggle } = useDensityCollapse({ forceExpanded: isStreaming });
+  const { isExpanded, toggle, showPreview } = useDensityCollapse({ forceExpanded: isStreaming });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Elapsed time — ticks every second while streaming
@@ -117,7 +117,7 @@ export const AgentThinkingTool = memo(function AgentThinkingTool({
               )}
             </span>
             {/* Preview when collapsed — suppressed in 'collapsed' density (title only) */}
-            {!isExpanded && previewText && density !== 'collapsed' && (
+            {!isExpanded && previewText && showPreview && (
               <span className="text-muted-foreground/60 truncate">{previewText}</span>
             )}
             {/* Elapsed time */}

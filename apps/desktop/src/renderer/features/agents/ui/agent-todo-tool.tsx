@@ -1,7 +1,7 @@
 'use client';
 
-import { memo, useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useAtom, useAtomValue } from 'jotai';
+import { memo, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useAtom } from 'jotai';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import {
   IconSpinner,
@@ -18,8 +18,7 @@ import { cn } from '../../../lib/utils';
 import { Circle } from 'lucide-react';
 import { AgentToolCall } from './agent-tool-call';
 import { currentTodosAtomFamily } from '../atoms';
-import { chatMessageDensityAtom } from '../../../lib/atoms';
-import { resolveDensityResting } from './use-density-collapse';
+import { resolveDensityResting, useDensityCollapse } from './use-density-collapse';
 
 export interface TodoItem {
   content: string;
@@ -279,8 +278,9 @@ const TodoListItem = memo(function TodoListItem({
 });
 
 export const AgentTodoTool = memo(function AgentTodoTool({ part, chatStatus, subChatId }: AgentTodoToolProps) {
-  // Chat message density: 'expanded' shows the full to-do list, 'collapsed'/'default' use compact view.
-  const density = useAtomValue(chatMessageDensityAtom);
+  // Chat message density drives the compact-mode gating (densityExpanded) and the
+  // expand/collapse state (isExpanded/handleToggleExpand) — same hook as the other cards.
+  const { density, isExpanded, toggle: handleToggleExpand } = useDensityCollapse({ normalResting: false });
   const densityExpanded = resolveDensityResting(density, false);
 
   // Synced todos state - scoped strictly per subChatId. No `|| 'default'`
@@ -352,35 +352,22 @@ export const AgentTodoTool = memo(function AgentTodoTool({ part, chatStatus, sub
   // Detect what changed - memoize to avoid recalculation
   const changes = useMemo(() => detectChanges(oldTodos, newTodos), [oldTodos, newTodos]);
 
-  // State for expanded/collapsed - initialize based on density setting
-  const [isExpanded, setIsExpanded] = useState(densityExpanded);
   const { isPending } = getToolStatus(part, chatStatus);
 
-  // Reflow live: snap to the density resting state whenever the density setting changes.
-  // densityExpanded is otherwise stable, so this never fights the user's manual toggle.
-  useEffect(() => {
-    setIsExpanded(densityExpanded);
-  }, [densityExpanded]);
+  // handleExpand renders only while collapsed and handleCollapse only while expanded,
+  // so both map cleanly onto the hook's toggle.
+  const handleExpand = handleToggleExpand;
+  const handleCollapse = handleToggleExpand;
 
-  // Memoized click handlers to prevent inline function re-creation
-  const handleToggleExpand = useCallback(() => {
-    setIsExpanded((prev) => !prev);
-  }, []);
-
-  const handleExpand = useCallback(() => {
-    setIsExpanded(true);
-  }, []);
-
-  const handleCollapse = useCallback(() => {
-    setIsExpanded(false);
-  }, []);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      setIsExpanded((prev) => !prev);
-    }
-  }, []);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleToggleExpand();
+      }
+    },
+    [handleToggleExpand]
+  );
 
   // Update synced todos whenever newTodos change
   // This keeps the creation tool in sync with all updates

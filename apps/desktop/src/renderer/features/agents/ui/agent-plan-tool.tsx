@@ -152,7 +152,7 @@ export function formatPlanAsMarkdown(plan: Plan): string {
 }
 
 export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, subChatId }: AgentPlanToolProps) {
-  const { density, isExpanded, toggle } = useDensityCollapse();
+  const { isExpanded, toggle, showContent } = useDensityCollapse();
   const [copied, setCopied] = useState(false);
   const { isPending } = getToolStatus(part, chatStatus);
 
@@ -240,8 +240,7 @@ export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, sub
   }
 
   const shouldShowShimmer = isPending;
-  // In 'collapsed' density hide the markdown preview until expanded (header + footer remain).
-  const showContent = density !== 'collapsed' || isExpanded;
+  // showContent (from the hook) hides the markdown preview in 'collapsed' density until expanded.
 
   return (
     <div className="rounded-lg border border-border bg-muted/30 overflow-hidden mx-2">

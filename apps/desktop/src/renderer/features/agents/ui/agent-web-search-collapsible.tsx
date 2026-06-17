@@ -22,7 +22,7 @@ export const AgentWebSearchCollapsible = memo(function AgentWebSearchCollapsible
   part,
   chatStatus
 }: AgentWebSearchCollapsibleProps) {
-  const { density, isExpanded, toggle } = useDensityCollapse();
+  const { isExpanded, toggle, showPreview } = useDensityCollapse();
 
   const isPending = part.state !== 'output-available' && part.state !== 'output-error';
   // Include "submitted" status - this is when request was sent but streaming hasn't started yet
@@ -74,7 +74,7 @@ export const AgentWebSearchCollapsible = memo(function AgentWebSearchCollapsible
               )}
             </span>
             {/* Query preview when collapsed — suppressed in 'collapsed' density (title only) */}
-            {density !== 'collapsed' && (
+            {showPreview && (
               <span className="text-muted-foreground/60 truncate">
                 {query.length > 40 ? query.slice(0, 37) + '...' : query}
               </span>

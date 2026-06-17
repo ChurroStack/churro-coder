@@ -59,7 +59,12 @@ export const AgentBashTool = memo(function AgentBashTool({
 }: AgentBashToolProps) {
   // In 'default' density Bash output renders inline (3-line preview, expand for full).
   // 'collapsed' shows only the header line until expanded; 'expanded' shows full output.
-  const { density, isExpanded: isOutputExpanded, toggle: toggleOutput } = useDensityCollapse();
+  const {
+    density,
+    isExpanded: isOutputExpanded,
+    toggle: toggleOutput,
+    showContent: showContentBlock
+  } = useDensityCollapse();
   const { isPending } = getToolStatus(part, chatStatus);
   const selectedProject = useAtomValue(selectedProjectAtom);
   const projectPath = selectedProject?.path;
@@ -81,10 +86,9 @@ export const AgentBashTool = memo(function AgentBashTool({
   const stderrLimited = useMemo(() => limitLines(stderr, MAX_OUTPUT_LINES), [stderr]);
   const hasMoreOutput = stdoutLimited.truncated || stderrLimited.truncated;
 
-  // Density-derived layout:
+  // Density-derived layout (showContentBlock from the hook):
   // - collapsed: hide the command/output block until expanded; the header is always toggleable.
   // - default/expanded: block is always visible (preview vs full controlled by isOutputExpanded).
-  const showContentBlock = density !== 'collapsed' || isOutputExpanded;
   const canToggle = !isPending && (density === 'collapsed' || hasMoreOutput);
 
   // Shorten paths in the displayed command
