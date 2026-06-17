@@ -296,10 +296,18 @@ export const createGitOperationsRouter = () => {
 
         return withGitLock(input.worktreePath, async () => {
           const git = createGitForNetwork(input.worktreePath);
-          const hasUpstream = await hasUpstreamBranch(git);
 
           try {
-            if (input.setUpstream && !hasUpstream) {
+            // `setUpstream` forces an explicit `--set-upstream origin <branch>`
+            // push regardless of existing tracking config. This is what makes
+            // "Re-open branch" work for a `[gone]` upstream: the branch config is
+            // intact (so a `hasUpstreamBranch` check returns true) but the remote
+            // ref was deleted — a plain `git push` can fail under non-default
+            // push.default, whereas the explicit refspec recreates and rebinds
+            // the branch. Callers that don't need this (usePushAction) pass
+            // `setUpstream: !hasUpstream`, so the explicit path only runs when
+            // there is genuinely no upstream or a re-open is intended.
+            if (input.setUpstream) {
               const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
               await withLockRetry(input.worktreePath, () => git.push(['--set-upstream', 'origin', branch.trim()]));
             } else {

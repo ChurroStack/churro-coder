@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { resolveHasUpstream } from '../../../../shared/changes-types';
 import { useAtomValue } from 'jotai';
 import { trpc } from '@/lib/trpc';
@@ -78,6 +78,29 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
     { enabled: !!chatId, refetchInterval: 30000 }
   );
 
+  // Resolve the `remoteBranchGone` tri-state (`boolean | 'unknown'`) to a plain
+  // boolean, sticky-on-unknown: a failed network poll returns 'unknown', which
+  // must keep the last *resolved* value rather than flipping the pills green↔amber
+  // every 30s on a flaky connection. `undefined` (query loading) is treated the
+  // same as 'unknown'.
+  const lastResolvedGoneRef = useRef(false);
+  // The hook is parameterized by chatId/subChatId (e.g. the persistent
+  // details-rail panel re-runs it with a new workspace), so the sticky value
+  // MUST be reset when the workspace identity changes — otherwise a `[gone]`
+  // workspace's `true` bleeds onto a freshly-selected, non-merged workspace
+  // while its getPrStatus query loads (rawGone === undefined).
+  const goneIdentityRef = useRef('');
+  const goneIdentity = `${safeChatId}|${safeSubChatId}`;
+  if (goneIdentityRef.current !== goneIdentity) {
+    goneIdentityRef.current = goneIdentity;
+    lastResolvedGoneRef.current = false;
+  }
+  const rawGone = prStatusData?.remoteBranchGone;
+  if (rawGone === true || rawGone === false) {
+    lastResolvedGoneRef.current = rawGone;
+  }
+  const remoteBranchGone = lastResolvedGoneRef.current;
+
   return useMemo<WorkflowSnapshot | null>(() => {
     if (!chatId || !subChatId) return null;
 
@@ -126,6 +149,7 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
       pushCount: gitStatus?.pushCount ?? 0,
       hasUpstream: resolveHasUpstream(gitStatus, !!prStatusData?.pr || !!chat?.prNumber),
       baseBranchBehind: prStatusData?.baseBranchBehind ?? 0,
+      remoteBranchGone,
       pr: { state: prState, reviewDecision, creating: prCreating },
       hasHistory: aiEverResponded
     };
@@ -141,6 +165,7 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
     tasksData,
     gitStatus,
     prStatusData,
+    remoteBranchGone,
     prCreating,
     aiEverResponded,
     chat
