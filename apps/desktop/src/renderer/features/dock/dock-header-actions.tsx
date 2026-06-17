@@ -34,11 +34,13 @@ export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
   const showPlanIcon = visibleButtons.includes('openPlan');
   const showChangesIcon = visibleButtons.includes('openChanges');
   const showTerminalIcon = visibleButtons.includes('newTerminal');
+  const showProjectSettingsIcon = visibleButtons.includes('projectSettings');
 
   // Buttons hidden from the icon row that overflow into the Plus menu
   const menuPlan = !showPlanIcon;
   const menuChanges = !showChangesIcon;
   const menuTerminal = !showTerminalIcon;
+  const menuProjectSettings = !showProjectSettingsIcon;
 
   return (
     <div className="flex items-center h-full px-1 gap-0.5" style={{ WebkitAppRegion: 'no-drag' }}>
@@ -79,6 +81,16 @@ export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
           icon={<Terminal className="h-4 w-4" />}
           disabled={!actions.canOpenTerminal}
           onClick={actions.openTerminal}
+        />
+      )}
+
+      {showProjectSettingsIcon && (
+        <HeaderIconButton
+          tooltip="Project settings"
+          ariaLabel="Project settings"
+          icon={<SlidersHorizontal className="h-4 w-4" />}
+          disabled={!actions.canOpenProjectSettings}
+          onClick={actions.openProjectSettings}
         />
       )}
 
@@ -132,11 +144,15 @@ export function DockHeaderActions(props: IDockviewHeaderActionsProps) {
               Show Changes
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem disabled={!actions.canOpenProjectSettings} onClick={actions.openProjectSettings}>
-            <SlidersHorizontal className="h-4 w-4 mr-2" />
-            Project Settings
-          </DropdownMenuItem>
+          {menuProjectSettings && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={!actions.canOpenProjectSettings} onClick={actions.openProjectSettings}>
+                <SlidersHorizontal className="h-4 w-4 mr-2" />
+                Project Settings
+              </DropdownMenuItem>
+            </>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={actions.resetLayout}>
             <RotateCcw className="h-4 w-4 mr-2" />

@@ -15,7 +15,6 @@ import {
   visibleSidebarToggleButtonsAtom,
   SIDEBAR_TOGGLE_REGISTRY,
   newPanelPlacementAtom,
-  dockNewMenuPinnedAtom,
   type AgentMode,
   type AutoAdvanceTarget,
   type CtrlTabTarget,
@@ -23,7 +22,6 @@ import {
   type SidebarToggleButtonId,
   type NewPanelPlacement
 } from '../../../lib/atoms';
-import { NEW_MENU_REGISTRY, type NewMenuEntryKind } from '../../../features/dock/new-menu-registry';
 import { defaultWidgetVisibilityAtom, WIDGET_REGISTRY, type WidgetId } from '../../../features/details-sidebar/atoms';
 import {
   defaultExecuteModeModelAtom,
@@ -200,7 +198,6 @@ export function AgentsPreferencesTab() {
   const [autoAdvanceTarget, setAutoAdvanceTarget] = useAtom(autoAdvanceTargetAtom);
   const [defaultAgentMode, setDefaultAgentMode] = useAtom(defaultAgentModeAtom);
   const [panelPlacement, setPanelPlacement] = useAtom(newPanelPlacementAtom);
-  const [dockNewMenuPinned, setDockNewMenuPinned] = useAtom(dockNewMenuPinnedAtom);
   const [visibleDockButtons, setVisibleDockButtons] = useAtom(visibleDockLaunchButtonsAtom);
   const [visibleSidebarToggles, setVisibleSidebarToggles] = useAtom(visibleSidebarToggleButtonsAtom);
   const [defaultWidgets, setDefaultWidgets] = useAtom(defaultWidgetVisibilityAtom);
@@ -695,36 +692,6 @@ export function AgentsPreferencesTab() {
                   }}
                 />
                 <span className="text-xs text-foreground">{btn.label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Dock New Menu */}
-      <div className="bg-background rounded-lg border border-border overflow-hidden">
-        <div className="p-4 border-b border-border">
-          <span className="text-sm font-medium text-foreground">Dock New Menu</span>
-          <p className="text-xs text-muted-foreground mt-1">
-            Checked entries appear as toolbar icons. Unchecked entries are in the overflow dropdown.
-          </p>
-        </div>
-        <div className="p-4">
-          <div className="space-y-2.5">
-            {NEW_MENU_REGISTRY.map((entry) => (
-              <label key={entry.kind} className="flex items-center gap-2.5 cursor-pointer">
-                <Checkbox
-                  checked={dockNewMenuPinned.includes(entry.kind as NewMenuEntryKind)}
-                  onCheckedChange={() => {
-                    const kind = entry.kind as NewMenuEntryKind;
-                    setDockNewMenuPinned(
-                      dockNewMenuPinned.includes(kind)
-                        ? dockNewMenuPinned.filter((k) => k !== kind)
-                        : [...dockNewMenuPinned, kind]
-                    );
-                  }}
-                />
-                <span className="text-xs text-foreground">{entry.label}</span>
               </label>
             ))}
           </div>
