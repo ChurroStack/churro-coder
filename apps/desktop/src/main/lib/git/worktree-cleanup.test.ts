@@ -18,7 +18,7 @@ const root = join(homedir(), '.churrostack', 'worktrees');
 const liveWt = join(root, 'proj', 'livewt');
 const orphanWt = join(root, 'proj', 'orphanwt');
 
-const rm = vi.fn(async () => {});
+const rm = vi.fn(async (..._args: unknown[]) => {});
 vi.mock('node:fs/promises', () => ({
   // withFileTypes form (listSubdirs) vs plain form (empty-slug check).
   readdir: vi.fn(async (dir: string, opts?: { withFileTypes?: boolean }) => {
