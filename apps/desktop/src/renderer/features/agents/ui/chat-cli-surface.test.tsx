@@ -53,12 +53,17 @@ vi.mock('../../../lib/trpc', () => {
         getCurrentPlan: { useQuery: vi.fn(emptyQuery) },
         getCurrentReview: { useQuery: vi.fn(emptyQuery) },
         getCurrentTasks: { useQuery: vi.fn(emptyQuery) },
-        getPrStatus: { useQuery: vi.fn(emptyQuery) }
+        getPrStatus: { useQuery: vi.fn(emptyQuery) },
+        // useArchiveWorkspace (terminal merged-branch-gone action)
+        archive: { useMutation: vi.fn(emptyMutation) },
+        list: { useQuery: vi.fn(emptyQuery) }
       },
       changes: {
         getStatus: { useQuery: vi.fn(emptyQuery) },
         push: { useMutation: vi.fn(emptyMutation) },
-        pull: { useMutation: vi.fn(emptyMutation) }
+        pull: { useMutation: vi.fn(emptyMutation) },
+        // useReopenBranchAction (terminal merged-branch-gone action)
+        mergeFromDefault: { useMutation: vi.fn(emptyMutation) }
       },
       terminal: {
         write: { useMutation: vi.fn(emptyMutation) },

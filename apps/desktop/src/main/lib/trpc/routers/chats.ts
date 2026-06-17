@@ -2023,9 +2023,12 @@ export const chatsRouter = router({
     // (offline, no remote, auth failure, timeout) — we fall back to whatever
     // origin/<baseBranch> we already have, which matches the previous
     // behaviour.
+    // One git handle reused by both the base-branch-behind count and the
+    // remote-branch-gone detection below.
+    const git = simpleGit(chat.worktreePath);
+
     let baseBranchBehind = 0;
     try {
-      const git = simpleGit(chat.worktreePath);
       const baseBranch = chat.baseBranch || 'main';
       try {
         await Promise.race([
@@ -2039,6 +2042,66 @@ export const chatsRouter = router({
       baseBranchBehind = Number.parseInt(out.trim(), 10) || 0;
     } catch {
       baseBranchBehind = 0;
+    }
+
+    // Detect "remote branch [gone]": the workspace's branch had an upstream
+    // that has since been deleted on the remote (the classic PR-squash-merge +
+    // auto-delete-head-branch flow). Tri-state so the renderer can distinguish
+    // a confirmed answer from a network failure and avoid flicker:
+    //   false     — no upstream configured, or branch still exists on remote
+    //   true       — upstream tracking is `[gone]`
+    //   'unknown'  — couldn't determine (prune failed/timed out)
+    //
+    // We reuse the `branchExistsOnRemote` signal `fetchPRStatus` already computed
+    // (cached, no extra network) as a GATE: only when an upstream is configured
+    // locally AND the provider reports the branch is no longer on the remote do
+    // we spend a bounded `git remote prune origin` to make the local tracking
+    // ref authoritative, then confirm `[gone]`. This means the common
+    // pushed-but-not-merged case pays zero extra network, and a transient gh
+    // "error" (also surfaced as branchExistsOnRemote=false) cannot produce a
+    // false positive — prune never drops a ref whose branch still exists.
+    let remoteBranchGone: boolean | 'unknown' = false;
+    try {
+      const branch = (await git.raw(['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+      const readTrack = async () =>
+        (await git.raw(['for-each-ref', '--format=%(upstream:track)', `refs/heads/${branch}`])).trim();
+      let track = await readTrack();
+      if (track.length === 0) {
+        // No upstream configured (never pushed / pushed without -u) — not gone.
+        remoteBranchGone = false;
+      } else if (track.includes('gone')) {
+        // A prior fetch/prune already pruned the deleted ref — no new network.
+        remoteBranchGone = true;
+      } else if (status?.branchExistsOnRemote === false) {
+        // Provider says the branch is no longer on the remote: prune stale
+        // remote-tracking refs (bounded), then re-read. Mirrors
+        // cleanBranchesWithoutRemote.
+        try {
+          await Promise.race([
+            git.raw(['remote', 'prune', 'origin']),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('prune timeout')), 8000))
+          ]);
+          track = await readTrack();
+          remoteBranchGone = track.includes('gone');
+        } catch (err) {
+          // Network failure/timeout — keep prior renderer state, don't force a flip.
+          remoteBranchGone = 'unknown';
+          console.warn(
+            `[getPrStatus] remote prune failed; remoteBranchGone=unknown chatId=${input.chatId} worktree=${chat.worktreePath}:`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      } else {
+        // Upstream configured and branch still on remote (or provider status
+        // unavailable) — not gone.
+        remoteBranchGone = false;
+      }
+    } catch (err) {
+      remoteBranchGone = 'unknown';
+      console.warn(
+        `[getPrStatus] remoteBranchGone detection failed chatId=${input.chatId} worktree=${chat.worktreePath}:`,
+        err instanceof Error ? err.message : err
+      );
     }
 
     // Back-fill DB so the sidebar badge can render from cached fields
@@ -2056,7 +2119,7 @@ export const chatsRouter = router({
     if (status === null) {
       return null;
     }
-    return { ...status, baseBranchBehind };
+    return { ...status, baseBranchBehind, remoteBranchGone };
   }),
 
   refreshWorkflowCaches: publicProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input }) => {

@@ -983,3 +983,142 @@ describe('computeWorkflowState — timestamp-based review rules', () => {
     expect(s.review.status).toBe('done');
   });
 });
+
+describe('computeWorkflowState — merged branch gone (terminal state)', () => {
+  // Simulates the post-squash-merge state: origin/main moved ahead
+  // (baseBranchBehind > 0) which would normally turn Code amber, but the remote
+  // branch is deleted (remoteBranchGone) so the workspace is actually done.
+  const goneBase: WorkflowSnapshot = {
+    ...base,
+    activity: 'idle',
+    cliBusy: false,
+    baseBranchBehind: 3,
+    remoteBranchGone: true,
+    git: { ...base.git, hasRemote: true }
+  };
+
+  test('idle + remoteBranchGone → all milestones green, next null, mergedBranchGone true', () => {
+    const s = computeWorkflowState(goneBase);
+    expect(s.plan.status).toBe('done');
+    expect(s.code.status).toBe('done');
+    expect(s.review.status).toBe('done');
+    expect(s.pr.status).toBe('done');
+    expect(s.next).toBeNull();
+    expect(s.mergedBranchGone).toBe(true);
+    // The amber "Update from base" must be suppressed despite baseBranchBehind > 0.
+    expect(s.code.actionKind).toBeUndefined();
+  });
+
+  test('remoteBranchGone but no remote → normal computation (terminal state requires a remote)', () => {
+    const s = computeWorkflowState({ ...goneBase, git: { ...goneBase.git, hasRemote: false } });
+    expect(s.mergedBranchGone).toBe(false);
+  });
+
+  test('remoteBranchGone but streaming → normal in-progress, not terminal', () => {
+    const s = computeWorkflowState({ ...goneBase, activity: 'streaming' });
+    expect(s.mergedBranchGone).toBe(false);
+    // baseBranchBehind drift still surfaces as the Code action while busy/after.
+    expect(s.code.status).not.toBe('done');
+  });
+
+  test('remoteBranchGone but CLI busy → normal computation, not terminal', () => {
+    const s = computeWorkflowState({ ...goneBase, harness: 'cli', cliBusy: true });
+    expect(s.mergedBranchGone).toBe(false);
+  });
+
+  test('remoteBranchGone false → unchanged behavior (baseBranchBehind still amber)', () => {
+    const s = computeWorkflowState({ ...goneBase, remoteBranchGone: false });
+    expect(s.mergedBranchGone).toBe(false);
+    expect(s.code.status).toBe('attention');
+    expect(s.code.actionKind).toBe('mergeBase');
+  });
+
+  test('remoteBranchGone omitted → defaults to false (mergedBranchGone false)', () => {
+    const { remoteBranchGone: _omit, ...withoutGone } = goneBase;
+    const s = computeWorkflowState(withoutGone);
+    expect(s.mergedBranchGone).toBe(false);
+  });
+
+  // Second trigger: PR merged (branch may still exist on remote). Terminal only
+  // when there's no pending local work, so the "push follow-up after merge" flow
+  // is preserved.
+  test('PR merged + clean tree (not gone) → terminal, mergedBranchGone true, pills green', () => {
+    const s = computeWorkflowState({
+      ...base,
+      remoteBranchGone: false,
+      pr: { ...base.pr, state: 'merged' },
+      git: { ...base.git, changedFiles: 0 },
+      pushCount: 0,
+      baseBranchBehind: 0
+    });
+    expect(s.mergedBranchGone).toBe(true);
+    expect(s.code.status).toBe('done');
+    expect(s.review.status).toBe('done');
+    expect(s.pr.status).toBe('done');
+    expect(s.next).toBeNull();
+  });
+
+  test('PR merged + uncommitted changes → NOT terminal (push-follow-up flow preserved)', () => {
+    const s = computeWorkflowState({
+      ...base,
+      remoteBranchGone: false,
+      pr: { ...base.pr, state: 'merged' },
+      git: { ...base.git, changedFiles: 1 },
+      pushCount: 0
+    });
+    expect(s.mergedBranchGone).toBe(false);
+    expect(s.pr.status).toBe('attention');
+    expect(s.pr.actionKind).toBe('createPr');
+  });
+
+  test('PR merged + unpushed commits → NOT terminal', () => {
+    const s = computeWorkflowState({
+      ...base,
+      remoteBranchGone: false,
+      pr: { ...base.pr, state: 'merged' },
+      git: { ...base.git, changedFiles: 0 },
+      hasUpstream: true,
+      pushCount: 2
+    });
+    expect(s.mergedBranchGone).toBe(false);
+  });
+
+  test('PR merged + clean but streaming → NOT terminal', () => {
+    const s = computeWorkflowState({
+      ...base,
+      remoteBranchGone: false,
+      activity: 'streaming',
+      pr: { ...base.pr, state: 'merged' },
+      git: { ...base.git, changedFiles: 0 },
+      pushCount: 0
+    });
+    expect(s.mergedBranchGone).toBe(false);
+  });
+
+  test('both signals: gone AND merged → terminal', () => {
+    const s = computeWorkflowState({
+      ...goneBase,
+      pr: { ...goneBase.pr, state: 'merged' }
+    });
+    expect(s.mergedBranchGone).toBe(true);
+  });
+
+  // Regression: merged + clean but origin/<base> moved ahead (baseBranchBehind>0)
+  // must force the Code pill GREEN, not amber. Previously the merged-clean path
+  // didn't override pills, so Code stayed 'attention'/'mergeBase' next to the
+  // terminal Archive/Re-open cluster.
+  test('PR merged + clean + baseBranchBehind>0 → Code forced green (not amber mergeBase)', () => {
+    const s = computeWorkflowState({
+      ...base,
+      remoteBranchGone: false,
+      pr: { ...base.pr, state: 'merged' },
+      git: { ...base.git, changedFiles: 0 },
+      pushCount: 0,
+      baseBranchBehind: 5
+    });
+    expect(s.mergedBranchGone).toBe(true);
+    expect(s.code.status).toBe('done');
+    expect(s.code.actionKind).toBeUndefined();
+    expect(s.next).toBeNull();
+  });
+});
