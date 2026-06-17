@@ -19,6 +19,9 @@ vi.mock('../../components/dialogs/settings-tabs/agents-custom-agents-tab', () =>
 vi.mock('../../components/dialogs/settings-tabs/agents-mcp-tab', () => ({
   AgentsMcpTab: () => <div>MCP-SECTION</div>
 }));
+vi.mock('../../components/dialogs/settings-tabs/environment-variables-section', () => ({
+  EnvironmentVariablesSection: () => <div>ENV-SECTION</div>
+}));
 
 vi.mock('../../lib/trpc', () => ({
   trpc: {
@@ -49,6 +52,13 @@ describe('WorkspaceProjectSettings — section routing', () => {
     renderPanel();
     fireEvent.click(screen.getByRole('tab', { name: 'MCP' }));
     expect(screen.getByText('MCP-SECTION')).toBeTruthy();
+    expect(screen.queryByText('WORKTREE-SECTION')).toBeNull();
+  });
+
+  it('clicking the Environment tab shows the env section', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Environment' }));
+    expect(screen.getByText('ENV-SECTION')).toBeTruthy();
     expect(screen.queryByText('WORKTREE-SECTION')).toBeNull();
   });
 

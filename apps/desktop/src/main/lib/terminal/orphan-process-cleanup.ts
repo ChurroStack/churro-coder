@@ -26,6 +26,17 @@ import { chats, getDatabase } from '../db';
 const execFileAsync = promisify(execFile);
 const SCAN_TIMEOUT_MS = 15_000;
 
+/**
+ * The app's working directory, captured at module init. The main process never
+ * `chdir`s, so this is the directory the app launched from; the dev app launches
+ * inside its own worktree, so we use it to spare that worktree's processes.
+ * Derived live from `process.cwd()` — never a hardcoded path — so it follows
+ * whatever worktree the build runs from. (The dir scanner in
+ * `git/worktree-cleanup.ts` reads `process.cwd()` directly for the same purpose;
+ * both rely on cwd being stable across startup.)
+ */
+const STARTUP_CWD = resolve(process.cwd());
+
 function worktreeRoots(): string[] {
   return [join(homedir(), '.churrostack', 'worktrees'), join(homedir(), '.21st', 'worktrees')].map(
     (r) => resolve(r) + sep
@@ -42,6 +53,28 @@ function isUnderWorktreeRoot(cwd: string, roots: string[]): boolean {
 function isReferenced(cwd: string, referenced: string[]): boolean {
   const r = resolve(cwd);
   return referenced.some((ref) => r === ref || r.startsWith(ref + sep));
+}
+
+/**
+ * Given the app's own cwd, return the worktree directory that contains it
+ * (`<root>/<slug>/<folder>`), or null if cwd isn't under a worktree root.
+ *
+ * When churro-coder is developed inside its own worktree system, the dev app
+ * launches with cwd in a SUBDIR of the worktree (e.g. `.../emotional-dale/apps/
+ * desktop`), while its sibling dev processes (nx/bun/node) sit at the worktree
+ * ROOT (`.../emotional-dale`). Protecting only cwd's subtree leaves those parent
+ * processes exposed — so we resolve the whole worktree subtree and protect it.
+ */
+export function ownWorktreeRoot(cwd: string, roots: string[]): string | null {
+  const r = resolve(cwd) + sep;
+  for (const root of roots) {
+    // `roots` entries already end with `sep`.
+    if (!r.startsWith(root)) continue;
+    const segs = r.slice(root.length).split(sep).filter(Boolean);
+    if (segs.length < 2) return null;
+    return root + segs[0] + sep + segs[1];
+  }
+  return null;
 }
 
 /**
@@ -78,6 +111,16 @@ async function reapOnce(): Promise<{ scanned: number; killed: number }> {
     .where(isNotNull(chats.worktreePath))
     .all()
     .map((r) => resolve(r.worktreePath as string));
+
+  // Protect the worktree the app itself is running from. When churro-coder is
+  // developed inside its own worktree system (dev launches with cwd under
+  // ~/.churrostack/worktrees/...), that worktree has no chats.worktreePath row,
+  // so without this guard the reaper would SIGKILL its own sibling dev processes
+  // (nx/bun/node at the worktree root) and crash the app. We protect the whole
+  // worktree subtree, since cwd is typically a subdir (apps/desktop) while those
+  // siblings sit at the root. Inert in production (cwd not under a worktree root).
+  const ownRoot = ownWorktreeRoot(STARTUP_CWD, roots);
+  if (ownRoot) referenced.push(ownRoot);
 
   const procs = await listProcessCwds();
   let scanned = 0;

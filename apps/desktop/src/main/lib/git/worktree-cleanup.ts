@@ -45,6 +45,13 @@ async function scanOnce(): Promise<{ scanned: number; removed: number }> {
   let scanned = 0;
   let removed = 0;
 
+  // Never remove the worktree the app itself is running from. When churro-coder
+  // is developed inside its own worktree system, dev launches with cwd under
+  // ~/.churrostack/worktrees/...; that dir has no chats.worktreePath row, so
+  // without this guard the scanner would `rm -rf` the live working tree out from
+  // under the running app. Inert in production (packaged cwd isn't a worktree).
+  const selfCwd = resolve(process.cwd());
+
   for (const root of roots) {
     const projectSlugs = await listSubdirs(root);
     if (projectSlugs.length === 0) continue;
@@ -61,6 +68,9 @@ async function scanOnce(): Promise<{ scanned: number; removed: number }> {
         const allowedRoot = resolve(root) + sep;
         if (!resolved.startsWith(allowedRoot)) continue;
         if (!isPathInsideWorktreeRoot(fullPath)) continue;
+
+        // Skip the worktree the app is running from (and any parent of our cwd).
+        if (selfCwd === resolved || selfCwd.startsWith(resolved + sep)) continue;
 
         const matchingChat = db.select({ id: chats.id }).from(chats).where(eq(chats.worktreePath, fullPath)).get();
 
