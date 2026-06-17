@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.10](https://github.com/ChurroStack/churro-coder/compare/v0.1.9...v0.1.10) (2026-06-17)
+
+
+### Features
+
+* **desktop:** chat message density setting (Collapsed/Default/Expanded) ([#219](https://github.com/ChurroStack/churro-coder/issues/219)) ([88eee47](https://github.com/ChurroStack/churro-coder/commit/88eee4773ed7263098dad05e7c8f806ee349dbbb))
+* **desktop:** clean orphaned branches + sub-chat artifacts on hard delete ([#218](https://github.com/ChurroStack/churro-coder/issues/218)) ([5882bcd](https://github.com/ChurroStack/churro-coder/commit/5882bcdc74005a7c643adc8e5ff1129d2b0c4973))
+
+
+### Bug Fixes
+
+* **desktop:** "Fill with AI" runs in the current worktree + dock launch-button refactor ([#216](https://github.com/ChurroStack/churro-coder/issues/216)) ([441138d](https://github.com/ChurroStack/churro-coder/commit/441138d3beab6e3eb330bfd57186dfc97e44824e))
+
 ## [0.1.9](https://github.com/ChurroStack/churro-coder/compare/v0.1.8...v0.1.9) (2026-06-17)
 
 
