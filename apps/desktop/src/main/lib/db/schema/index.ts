@@ -24,7 +24,39 @@ export const projects = sqliteTable('projects', {
 });
 
 export const projectsRelations = relations(projects, ({ many }) => ({
-  chats: many(chats)
+  chats: many(chats),
+  environmentVariables: many(projectEnvironmentVariables)
+}));
+
+// ============ PROJECT ENVIRONMENT VARIABLES ============
+// Project-wide KEY=VALUE pairs applied to every spawned process (terminals,
+// scripts, Claude/Codex CLIs). Shared across all of a project's worktrees.
+// Protected values are encrypted at rest with Electron safeStorage (see
+// lib/db/env-secret.ts); unprotected values are stored as plaintext.
+export const projectEnvironmentVariables = sqliteTable(
+  'project_environment_variables',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    // Plaintext when isProtected=false; safeStorage(base64) ciphertext when true.
+    value: text('value').notNull(),
+    isProtected: integer('is_protected', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
+  },
+  (table) => [uniqueIndex('project_env_vars_project_key_uq').on(table.projectId, table.key)]
+);
+
+export const projectEnvironmentVariablesRelations = relations(projectEnvironmentVariables, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectEnvironmentVariables.projectId],
+    references: [projects.id]
+  })
 }));
 
 // ============ CHATS ============

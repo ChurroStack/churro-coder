@@ -4,6 +4,7 @@ import path from 'node:path';
 import * as pty from 'node-pty';
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { buildTerminalEnv, FALLBACK_SHELL, getDefaultShell } from './env';
+import { resolveProjectEnv } from './project-env';
 import type { InternalCreateSessionParams, TerminalSession } from './types';
 
 const DEFAULT_COLS = 80;
@@ -124,6 +125,9 @@ export async function createSession(
   const terminalCols = cols || DEFAULT_COLS;
   const terminalRows = rows || DEFAULT_ROWS;
 
+  // Project-wide user env vars (decrypted). Resolved per spawn so every new
+  // session picks up the latest values; failures resolve to {} (never blocks).
+  const projectEnv = await resolveProjectEnv(workspaceId, workingDir);
   const baseEnv = buildTerminalEnv({
     shell: defaultShell,
     paneId,
@@ -131,7 +135,8 @@ export async function createSession(
     workspaceId,
     workspaceName,
     workspacePath,
-    rootPath
+    rootPath,
+    projectEnv
   });
   const env = bootstrap?.env ? { ...baseEnv, ...bootstrap.env } : baseEnv;
 

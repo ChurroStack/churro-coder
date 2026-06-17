@@ -235,7 +235,7 @@ export interface PendingProjectSettingsPanel {
 }
 export const pendingProjectSettingsPanelAtom = atom<PendingProjectSettingsPanel | null>(null);
 
-export type ProjectSettingsSection = 'worktree' | 'skills' | 'agents' | 'mcp';
+export type ProjectSettingsSection = 'worktree' | 'env' | 'skills' | 'agents' | 'mcp';
 
 /**
  * The active section of a workspace's Project Settings panel. An atomFamily

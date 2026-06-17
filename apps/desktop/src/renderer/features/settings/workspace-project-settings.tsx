@@ -7,11 +7,13 @@ import { AgentsSkillsTab } from '../../components/dialogs/settings-tabs/agents-s
 import { AgentsCustomAgentsTab } from '../../components/dialogs/settings-tabs/agents-custom-agents-tab';
 import { AgentsMcpTab } from '../../components/dialogs/settings-tabs/agents-mcp-tab';
 import { WorktreeConfigSection } from '../../components/dialogs/settings-tabs/worktree-config-section';
+import { EnvironmentVariablesSection } from '../../components/dialogs/settings-tabs/environment-variables-section';
 import type { SettingsScopeMode } from '../../components/dialogs/settings-tabs/settings-scope-mode';
 import { workspaceProjectSettingsSectionAtomFamily, type ProjectSettingsSection } from '../dock/atoms';
 
 const SECTIONS: { id: ProjectSettingsSection; label: string }[] = [
   { id: 'worktree', label: 'Worktree' },
+  { id: 'env', label: 'Environment' },
   { id: 'skills', label: 'Skills' },
   { id: 'agents', label: 'Agents' },
   { id: 'mcp', label: 'MCP' }
@@ -94,6 +96,7 @@ export function WorkspaceProjectSettings({
       {/* Section content */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {section === 'worktree' && <WorktreeConfigSection projectId={projectId} path={path} />}
+        {section === 'env' && <EnvironmentVariablesSection projectId={projectId} />}
         {section === 'skills' && <AgentsSkillsTab mode={worktreeMode} />}
         {section === 'agents' && <AgentsCustomAgentsTab mode={worktreeMode} />}
         {section === 'mcp' && (

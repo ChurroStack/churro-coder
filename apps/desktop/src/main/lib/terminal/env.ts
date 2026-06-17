@@ -335,8 +335,14 @@ export function buildTerminalEnv(params: {
   workspaceName?: string;
   workspacePath?: string;
   rootPath?: string;
+  /**
+   * Project-wide user-defined env vars (already decrypted). Applied on top of
+   * the inherited safe env but BELOW the fixed system vars below, so a user may
+   * override e.g. PATH/NODE_ENV but can never clobber SHELL/TERM/AGENTS_*.
+   */
+  projectEnv?: Record<string, string>;
 }): Record<string, string> {
-  const { shell, paneId, tabId, workspaceId, workspaceName, workspacePath, rootPath } = params;
+  const { shell, paneId, tabId, workspaceId, workspaceName, workspacePath, rootPath, projectEnv } = params;
 
   // Get Electron's process.env and filter to only allowlisted safe vars
   const rawBaseEnv = sanitizeEnv(process.env) || {};
@@ -345,6 +351,7 @@ export function buildTerminalEnv(params: {
 
   const env: Record<string, string> = {
     ...baseEnv,
+    ...(projectEnv ?? {}),
     SHELL: shell,
     TERM: 'xterm-256color',
     TERM_PROGRAM: 'Churro Coder',
