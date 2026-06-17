@@ -1,7 +1,6 @@
 import { atom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import { desktopViewAtom as _desktopViewAtom } from '../../features/agents/atoms';
-import { type NewMenuEntryKind, DEFAULT_PINNED } from '../../features/dock/new-menu-registry';
 
 // ============================================
 // RE-EXPORT FROM FEATURES/AGENTS/ATOMS (source of truth)
@@ -784,7 +783,13 @@ export const pendingMcpApprovalsAtom = atom<PendingMcpApproval[]>([]);
 // Unchecked buttons move to the [+] dropdown instead of disappearing.
 // ============================================
 
-export type DockLaunchButtonId = 'newChat' | 'toggleDetails' | 'openPlan' | 'openChanges' | 'newTerminal';
+export type DockLaunchButtonId =
+  | 'newChat'
+  | 'toggleDetails'
+  | 'openPlan'
+  | 'openChanges'
+  | 'newTerminal'
+  | 'projectSettings';
 
 export interface DockLaunchButtonDef {
   id: DockLaunchButtonId;
@@ -797,7 +802,8 @@ export const DOCK_LAUNCH_REGISTRY: DockLaunchButtonDef[] = [
   { id: 'toggleDetails', label: 'Toggle Details', defaultVisible: true },
   { id: 'openPlan', label: 'Show Plan', defaultVisible: false },
   { id: 'openChanges', label: 'Show Changes', defaultVisible: false },
-  { id: 'newTerminal', label: 'New Terminal', defaultVisible: false }
+  { id: 'newTerminal', label: 'New Terminal', defaultVisible: false },
+  { id: 'projectSettings', label: 'Project Settings', defaultVisible: true }
 ];
 
 const DEFAULT_DOCK_LAUNCH_BUTTONS: DockLaunchButtonId[] = DOCK_LAUNCH_REGISTRY.filter((b) => b.defaultVisible).map(
@@ -851,13 +857,6 @@ export type NewPanelPlacement = 'smart' | 'tab' | 'split-right' | 'split-down' |
 export const newPanelPlacementAtom = atomWithStorage<NewPanelPlacement>(
   'preferences:new-panel-placement',
   'smart',
-  undefined,
-  { getOnInit: true }
-);
-
-export const dockNewMenuPinnedAtom = atomWithStorage<NewMenuEntryKind[]>(
-  'dock.newMenu.pinned',
-  DEFAULT_PINNED,
   undefined,
   { getOnInit: true }
 );

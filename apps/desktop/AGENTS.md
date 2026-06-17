@@ -212,9 +212,9 @@ The renderer's `QueryClient` (`src/renderer/contexts/TRPCProvider.tsx`) is const
 
 **Config overwrite on respawn:** Every spawn (initial, reattach, or hard-reset) fully overwrites the MCP config file at `<userData>/cli-bootstrap/<subChatId>.<harness>.<ext>` with the current port + bearer read fresh from `<userData>/churro-mcp.json`. This ensures the CLI always talks to the live MCP server, not a stale one from a prior session.
 
-## Dock new-menu registry
+## Dock header launch buttons
 
-`src/renderer/features/dock/new-menu-registry.ts` — 5 entries: `chat`, `chat-claude-cli`, `chat-codex-cli`, `terminal`, `openspec-change`. Each entry has `defaultPinned`. The `dockNewMenuPinnedAtom` persists the user's pinned selection under `dock.newMenu.pinned`. The toolbar component (`dock-new-menu-toolbar.tsx`) renders pinned entries as icon buttons and non-pinned entries in an overflow dropdown.
+`DockHeaderActions` (`src/renderer/features/dock/dock-header-actions.tsx`, mounted as dockview's `rightHeaderActionsComponent` in `dock-shell.tsx`) renders the group-header launch icons. Which icons are pinned vs. tucked into the `[+]` overflow menu is driven by `visibleDockLaunchButtonsAtom` (persisted under `preferences:visible-dock-launch-buttons`); the available buttons and their defaults live in `DOCK_LAUNCH_REGISTRY` in `src/renderer/lib/atoms/index.ts`. The **Dock Header Buttons** section of the Preferences settings tab maps that registry to checkboxes. Pinned icons render in the fixed JSX order in `DockHeaderActions` (newChat → plan → changes → terminal → projectSettings → `[+]` → toggle-details); a button hidden from the row falls back into the `[+]` menu.
 
 ## Gotchas
 

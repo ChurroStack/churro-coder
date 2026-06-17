@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
-import { BarChart3, Plus } from 'lucide-react';
+import { BarChart3, Plus, SlidersHorizontal } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../../../components/confirm-delete-dialog';
 import { OpenInMenuItems, getAppOption } from '../../../components/open-in-menu-items';
 import { ProjectGroupMenuButton } from './project-group-header';
@@ -132,6 +132,10 @@ export function ProjectGroupActionsMenu({ project, chatIds }: { project: Project
           <DropdownMenuItem onClick={openProjectStats} className="flex items-center gap-2">
             <BarChart3 className="size-4" />
             <span>Project statistics</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={openLocal} className="flex items-center gap-2">
+            <SlidersHorizontal className="size-4" />
+            <span>Project settings</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={archiveDisabled} onClick={() => setArchiveDialogOpen(true)}>
