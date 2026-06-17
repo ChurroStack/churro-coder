@@ -18,6 +18,7 @@ import { useDockApi } from '../../dock/dock-context';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { getToolStatus } from './agent-tool-registry';
 import { areToolPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 
 interface PlanStep {
   id: string;
@@ -151,7 +152,7 @@ export function formatPlanAsMarkdown(plan: Plan): string {
 }
 
 export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, subChatId }: AgentPlanToolProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggle, showContent } = useDensityCollapse();
   const [copied, setCopied] = useState(false);
   const { isPending } = getToolStatus(part, chatStatus);
 
@@ -239,11 +240,12 @@ export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, sub
   }
 
   const shouldShowShimmer = isPending;
+  // showContent (from the hook) hides the markdown preview in 'collapsed' density until expanded.
 
   return (
     <div className="rounded-lg border border-border bg-muted/30 overflow-hidden mx-2">
       <div
-        onClick={() => setIsExpanded((prev) => !prev)}
+        onClick={toggle}
         className="flex items-center justify-between pl-2.5 pr-0.5 h-7 cursor-pointer hover:bg-muted/50 transition-colors duration-150">
         <div className="flex items-center gap-1.5 text-xs truncate flex-1 min-w-0">
           <PlanIcon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
@@ -288,7 +290,7 @@ export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, sub
           <button
             onClick={(event) => {
               event.stopPropagation();
-              setIsExpanded((prev) => !prev);
+              toggle();
             }}
             className="group p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95">
             <div className="relative w-4 h-4">
@@ -309,16 +311,18 @@ export const AgentPlanTool = memo(function AgentPlanTool({ part, chatStatus, sub
         </div>
       </div>
 
-      <div
-        onClick={() => !isExpanded && setIsExpanded(true)}
-        className={cn(
-          'text-xs overflow-hidden transition-all duration-200 border-t border-border/50',
-          isExpanded ? 'max-h-[300px] overflow-y-auto' : 'h-[72px] cursor-pointer hover:bg-muted/50'
-        )}>
-        <div className="px-3 py-2">
-          <ChatMarkdownRenderer content={planContent} size="sm" />
+      {showContent && (
+        <div
+          onClick={() => !isExpanded && toggle()}
+          className={cn(
+            'text-xs overflow-hidden transition-all duration-200 border-t border-border/50',
+            isExpanded ? 'max-h-[300px] overflow-y-auto' : 'h-[72px] cursor-pointer hover:bg-muted/50'
+          )}>
+          <div className="px-3 py-2">
+            <ChatMarkdownRenderer content={planContent} size="sm" />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex items-center justify-between p-1.5">
         <div className="flex items-center">

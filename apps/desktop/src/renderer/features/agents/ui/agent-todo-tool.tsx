@@ -1,7 +1,7 @@
 'use client';
 
-import { memo, useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useAtom, useAtomValue } from 'jotai';
+import { memo, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useAtom } from 'jotai';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import {
   IconSpinner,
@@ -18,7 +18,7 @@ import { cn } from '../../../lib/utils';
 import { Circle } from 'lucide-react';
 import { AgentToolCall } from './agent-tool-call';
 import { currentTodosAtomFamily } from '../atoms';
-import { alwaysExpandTodoListAtom } from '../../../lib/atoms';
+import { resolveDensityResting, useDensityCollapse } from './use-density-collapse';
 
 export interface TodoItem {
   content: string;
@@ -278,8 +278,10 @@ const TodoListItem = memo(function TodoListItem({
 });
 
 export const AgentTodoTool = memo(function AgentTodoTool({ part, chatStatus, subChatId }: AgentTodoToolProps) {
-  // User preference for always expanded to-do list
-  const alwaysExpandTodoList = useAtomValue(alwaysExpandTodoListAtom);
+  // Chat message density drives the compact-mode gating (densityExpanded) and the
+  // expand/collapse state (isExpanded/handleToggleExpand) — same hook as the other cards.
+  const { density, isExpanded, toggle: handleToggleExpand } = useDensityCollapse({ normalResting: false });
+  const densityExpanded = resolveDensityResting(density, false);
 
   // Synced todos state - scoped strictly per subChatId. No `|| 'default'`
   // bucket: that key must match the sidebar consumer's, which keys by the bare
@@ -350,37 +352,22 @@ export const AgentTodoTool = memo(function AgentTodoTool({ part, chatStatus, sub
   // Detect what changed - memoize to avoid recalculation
   const changes = useMemo(() => detectChanges(oldTodos, newTodos), [oldTodos, newTodos]);
 
-  // State for expanded/collapsed - initialize based on user preference
-  const [isExpanded, setIsExpanded] = useState(alwaysExpandTodoList);
   const { isPending } = getToolStatus(part, chatStatus);
 
-  // Sync isExpanded with alwaysExpandTodoList preference when it changes
-  // Only auto-expand, don't auto-collapse (respect user's manual collapse)
-  useEffect(() => {
-    if (alwaysExpandTodoList && !isExpanded) {
-      setIsExpanded(true);
-    }
-  }, [alwaysExpandTodoList]); // eslint-disable-line react-hooks/exhaustive-deps
+  // handleExpand renders only while collapsed and handleCollapse only while expanded,
+  // so both map cleanly onto the hook's toggle.
+  const handleExpand = handleToggleExpand;
+  const handleCollapse = handleToggleExpand;
 
-  // Memoized click handlers to prevent inline function re-creation
-  const handleToggleExpand = useCallback(() => {
-    setIsExpanded((prev) => !prev);
-  }, []);
-
-  const handleExpand = useCallback(() => {
-    setIsExpanded(true);
-  }, []);
-
-  const handleCollapse = useCallback(() => {
-    setIsExpanded(false);
-  }, []);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      setIsExpanded((prev) => !prev);
-    }
-  }, []);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleToggleExpand();
+      }
+    },
+    [handleToggleExpand]
+  );
 
   // Update synced todos whenever newTodos change
   // This keeps the creation tool in sync with all updates
@@ -486,7 +473,7 @@ export const AgentTodoTool = memo(function AgentTodoTool({ part, chatStatus, sub
 
   // COMPACT MODE: Single update - render as simple tool call
   // Skip compact mode if user prefers always expanded and this is the creation tool call
-  if (changes.type === 'single' && !(alwaysExpandTodoList && isCreationToolCall)) {
+  if (changes.type === 'single' && !(densityExpanded && isCreationToolCall)) {
     const change = changes.items[0];
     // Use stable icon reference from TOOL_CALL_ICONS map
     const IconComponent = TOOL_CALL_ICONS[change.newStatus] || TOOL_CALL_ICONS.pending;
@@ -508,7 +495,7 @@ export const AgentTodoTool = memo(function AgentTodoTool({ part, chatStatus, sub
 
   // COMPACT MODE: Multiple updates - render as custom component with icons
   // Skip compact mode if user prefers always expanded and this is the creation tool call
-  if (changes.type === 'multiple' && !(alwaysExpandTodoList && isCreationToolCall)) {
+  if (changes.type === 'multiple' && !(densityExpanded && isCreationToolCall)) {
     const completedChanges = changes.items.filter((c) => c.newStatus === 'completed').length;
     const startedChanges = changes.items.filter((c) => c.newStatus === 'in_progress').length;
 

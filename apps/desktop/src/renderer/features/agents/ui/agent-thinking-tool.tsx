@@ -7,6 +7,7 @@ import { ChatMarkdownRenderer } from '../../../components/chat-markdown-renderer
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { AgentToolInterrupted } from './agent-tool-interrupted';
 import { areToolPropsEqual, resolvePartStartedAt } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 
 interface ThinkingToolPart {
   type: string;
@@ -50,18 +51,10 @@ export const AgentThinkingTool = memo(function AgentThinkingTool({
   const isStreaming = isPending && isActivelyStreaming;
   const isInterrupted = isPending && !isActivelyStreaming && chatStatus !== undefined;
 
-  // Default: expanded while streaming, collapsed when done
-  const [isExpanded, setIsExpanded] = useState(isStreaming);
+  // Expanded while streaming (forceExpanded), then settles to the density resting state
+  // ('collapsed'/'default' → collapsed, 'expanded' → expanded). A manual toggle still wins.
+  const { isExpanded, toggle, showPreview } = useDensityCollapse({ forceExpanded: isStreaming });
   const scrollRef = useRef<HTMLDivElement>(null);
-  const wasStreamingRef = useRef(isStreaming);
-
-  // Auto-collapse when streaming ends (transition from true -> false)
-  useEffect(() => {
-    if (wasStreamingRef.current && !isStreaming) {
-      setIsExpanded(false);
-    }
-    wasStreamingRef.current = isStreaming;
-  }, [isStreaming]);
 
   // Elapsed time — ticks every second while streaming
   const startedAt = useMemo(
@@ -108,9 +101,7 @@ export const AgentThinkingTool = memo(function AgentThinkingTool({
   return (
     <div>
       {/* Header - always visible, clickable to toggle */}
-      <div
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="group flex items-start gap-1.5 py-0.5 px-2 cursor-pointer">
+      <div onClick={toggle} className="group flex items-start gap-1.5 py-0.5 px-2 cursor-pointer">
         <div className="flex-shrink-0 flex items-start pt-[1px]">
           <Brain className="w-3.5 h-3.5 text-muted-foreground/70" />
         </div>
@@ -125,8 +116,10 @@ export const AgentThinkingTool = memo(function AgentThinkingTool({
                 <span className="text-muted-foreground">Thought</span>
               )}
             </span>
-            {/* Preview when collapsed */}
-            {!isExpanded && previewText && <span className="text-muted-foreground/60 truncate">{previewText}</span>}
+            {/* Preview when collapsed — suppressed in 'collapsed' density (title only) */}
+            {!isExpanded && previewText && showPreview && (
+              <span className="text-muted-foreground/60 truncate">{previewText}</span>
+            )}
             {/* Elapsed time */}
             {elapsedDisplay && (
               <span className="text-muted-foreground/50 tabular-nums flex-shrink-0">{elapsedDisplay}</span>

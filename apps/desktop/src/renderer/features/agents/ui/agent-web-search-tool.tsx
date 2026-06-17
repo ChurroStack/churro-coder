@@ -1,11 +1,12 @@
 'use client';
 
-import { memo, useState, useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { SearchIcon, IconSpinner, ExpandIcon, CollapseIcon } from '../../../components/ui/icons';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { getToolStatus } from './agent-tool-registry';
 import { AgentToolInterrupted } from './agent-tool-interrupted';
 import { areToolPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 import { cn } from '../../../lib/utils';
 
 interface AgentWebSearchToolProps {
@@ -19,7 +20,7 @@ interface SearchResult {
 }
 
 export const AgentWebSearchTool = memo(function AgentWebSearchTool({ part, chatStatus }: AgentWebSearchToolProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggle } = useDensityCollapse();
   const { isPending, isError, isInterrupted } = getToolStatus(part, chatStatus);
 
   const query = part.input?.query || '';
@@ -60,7 +61,7 @@ export const AgentWebSearchTool = memo(function AgentWebSearchTool({ part, chatS
     <div className="rounded-lg border border-border bg-muted/30 overflow-hidden mx-2">
       {/* Header - clickable to toggle expand */}
       <div
-        onClick={() => hasResults && !isPending && setIsExpanded(!isExpanded)}
+        onClick={() => hasResults && !isPending && toggle()}
         className={cn(
           'flex items-center justify-between px-2.5 h-7',
           hasResults && !isPending && 'cursor-pointer hover:bg-muted/50 transition-colors duration-150'

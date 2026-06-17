@@ -1,9 +1,10 @@
 'use client';
 
-import { memo, useState, useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { ChevronRight } from 'lucide-react';
 
 import { areToolPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { cn } from '../../../lib/utils';
 
@@ -21,7 +22,7 @@ export const AgentWebSearchCollapsible = memo(function AgentWebSearchCollapsible
   part,
   chatStatus
 }: AgentWebSearchCollapsibleProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { isExpanded, toggle, showPreview } = useDensityCollapse();
 
   const isPending = part.state !== 'output-available' && part.state !== 'output-error';
   // Include "submitted" status - this is when request was sent but streaming hasn't started yet
@@ -59,7 +60,7 @@ export const AgentWebSearchCollapsible = memo(function AgentWebSearchCollapsible
     <div>
       {/* Header - clickable to toggle */}
       <div
-        onClick={() => hasResults && !isPending && setIsExpanded(!isExpanded)}
+        onClick={() => hasResults && !isPending && toggle()}
         className={cn('group flex items-start gap-1.5 py-0.5 px-2', hasResults && !isPending && 'cursor-pointer')}>
         <div className="flex-1 min-w-0 flex items-center gap-1">
           <div className="text-xs flex items-center gap-1.5 min-w-0">
@@ -72,10 +73,12 @@ export const AgentWebSearchCollapsible = memo(function AgentWebSearchCollapsible
                 'Searched web'
               )}
             </span>
-            {/* Query preview when collapsed */}
-            <span className="text-muted-foreground/60 truncate">
-              {query.length > 40 ? query.slice(0, 37) + '...' : query}
-            </span>
+            {/* Query preview when collapsed — suppressed in 'collapsed' density (title only) */}
+            {showPreview && (
+              <span className="text-muted-foreground/60 truncate">
+                {query.length > 40 ? query.slice(0, 37) + '...' : query}
+              </span>
+            )}
             {/* Result count */}
             {!isStreaming && hasResults && (
               <span className="text-muted-foreground/60 whitespace-nowrap flex-shrink-0">
