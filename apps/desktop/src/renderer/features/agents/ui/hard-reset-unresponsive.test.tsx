@@ -58,7 +58,8 @@ vi.mock('@/lib/trpc', () => {
         getCurrentReview: { useQuery: vi.fn(emptyQuery) },
         getCurrentTasks: { useQuery: vi.fn(emptyQuery) },
         getPrStatus: { useQuery: vi.fn(emptyQuery) },
-        archive: { useMutation: vi.fn(emptyMutation) }
+        archive: { useMutation: vi.fn(emptyMutation) },
+        list: { useQuery: vi.fn(emptyQuery) }
       },
       changes: {
         getStatus: { useQuery: vi.fn(emptyQuery) },

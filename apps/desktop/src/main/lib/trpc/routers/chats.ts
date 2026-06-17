@@ -2023,9 +2023,12 @@ export const chatsRouter = router({
     // (offline, no remote, auth failure, timeout) — we fall back to whatever
     // origin/<baseBranch> we already have, which matches the previous
     // behaviour.
+    // One git handle reused by both the base-branch-behind count and the
+    // remote-branch-gone detection below.
+    const git = simpleGit(chat.worktreePath);
+
     let baseBranchBehind = 0;
     try {
-      const git = simpleGit(chat.worktreePath);
       const baseBranch = chat.baseBranch || 'main';
       try {
         await Promise.race([
@@ -2059,7 +2062,6 @@ export const chatsRouter = router({
     // false positive — prune never drops a ref whose branch still exists.
     let remoteBranchGone: boolean | 'unknown' = false;
     try {
-      const git = simpleGit(chat.worktreePath);
       const branch = (await git.raw(['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
       const readTrack = async () =>
         (await git.raw(['for-each-ref', '--format=%(upstream:track)', `refs/heads/${branch}`])).trim();
@@ -2081,17 +2083,25 @@ export const chatsRouter = router({
           ]);
           track = await readTrack();
           remoteBranchGone = track.includes('gone');
-        } catch {
+        } catch (err) {
           // Network failure/timeout — keep prior renderer state, don't force a flip.
           remoteBranchGone = 'unknown';
+          console.warn(
+            `[getPrStatus] remote prune failed; remoteBranchGone=unknown chatId=${input.chatId} worktree=${chat.worktreePath}:`,
+            err instanceof Error ? err.message : err
+          );
         }
       } else {
         // Upstream configured and branch still on remote (or provider status
         // unavailable) — not gone.
         remoteBranchGone = false;
       }
-    } catch {
+    } catch (err) {
       remoteBranchGone = 'unknown';
+      console.warn(
+        `[getPrStatus] remoteBranchGone detection failed chatId=${input.chatId} worktree=${chat.worktreePath}:`,
+        err instanceof Error ? err.message : err
+      );
     }
 
     // Back-fill DB so the sidebar badge can render from cached fields

@@ -1102,4 +1102,23 @@ describe('computeWorkflowState — merged branch gone (terminal state)', () => {
     });
     expect(s.mergedBranchGone).toBe(true);
   });
+
+  // Regression: merged + clean but origin/<base> moved ahead (baseBranchBehind>0)
+  // must force the Code pill GREEN, not amber. Previously the merged-clean path
+  // didn't override pills, so Code stayed 'attention'/'mergeBase' next to the
+  // terminal Archive/Re-open cluster.
+  test('PR merged + clean + baseBranchBehind>0 → Code forced green (not amber mergeBase)', () => {
+    const s = computeWorkflowState({
+      ...base,
+      remoteBranchGone: false,
+      pr: { ...base.pr, state: 'merged' },
+      git: { ...base.git, changedFiles: 0 },
+      pushCount: 0,
+      baseBranchBehind: 5
+    });
+    expect(s.mergedBranchGone).toBe(true);
+    expect(s.code.status).toBe('done');
+    expect(s.code.actionKind).toBeUndefined();
+    expect(s.next).toBeNull();
+  });
 });

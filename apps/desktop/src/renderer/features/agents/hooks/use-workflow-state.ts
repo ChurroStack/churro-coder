@@ -228,7 +228,7 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
     onSuccess: invalidateGitQueries
   });
 
-  const { archive: archiveWorkspace, isPending: isArchivePending } = useArchiveWorkspace();
+  const { archive: archiveWorkspace, isPending: isArchivePending, dialog: archiveDialog } = useArchiveWorkspace();
 
   const dispatch = useCallback(
     async (kind: WorkflowActionKind) => {
@@ -363,6 +363,7 @@ export function useWorkflowActions(chatId: string | null, subChatId: string | nu
     dispatch,
     pushDialog,
     reopenDialog,
+    archiveDialog,
     isActionPending: {
       pushBranch: isPushPending,
       reopenBranch: isReopenPending,

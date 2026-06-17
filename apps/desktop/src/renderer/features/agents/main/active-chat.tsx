@@ -1274,6 +1274,7 @@ export const ChatViewInner = memo(function ChatViewInner({
     dispatch: dispatchWorkflowAction,
     pushDialog: workflowPushDialog,
     reopenDialog: workflowReopenDialog,
+    archiveDialog: workflowArchiveDialog,
     isActionPending
   } = useWorkflowActions(parentChatId, subChatId);
   const isNextActionPending = workflow?.next ? !!isActionPending[workflow.next.actionKind] : false;
@@ -3443,8 +3444,9 @@ export const ChatViewInner = memo(function ChatViewInner({
 
         {/* Push dialog (mounts when a workflow push action hits REMOTE_AHEAD) */}
         {workflowPushDialog}
-        {/* Re-open-branch confirm dialog (merged-branch-gone terminal state) */}
+        {/* Re-open-branch + Archive confirm dialogs (merged-branch terminal state) */}
         {workflowReopenDialog}
+        {workflowArchiveDialog}
 
         {/* Input - isolated component to prevent re-renders */}
         <ChatInputArea

@@ -84,6 +84,17 @@ export function useWorkflowSnapshot(chatId: string | null, subChatId: string | n
   // every 30s on a flaky connection. `undefined` (query loading) is treated the
   // same as 'unknown'.
   const lastResolvedGoneRef = useRef(false);
+  // The hook is parameterized by chatId/subChatId (e.g. the persistent
+  // details-rail panel re-runs it with a new workspace), so the sticky value
+  // MUST be reset when the workspace identity changes — otherwise a `[gone]`
+  // workspace's `true` bleeds onto a freshly-selected, non-merged workspace
+  // while its getPrStatus query loads (rawGone === undefined).
+  const goneIdentityRef = useRef('');
+  const goneIdentity = `${safeChatId}|${safeSubChatId}`;
+  if (goneIdentityRef.current !== goneIdentity) {
+    goneIdentityRef.current = goneIdentity;
+    lastResolvedGoneRef.current = false;
+  }
   const rawGone = prStatusData?.remoteBranchGone;
   if (rawGone === true || rawGone === false) {
     lastResolvedGoneRef.current = rawGone;

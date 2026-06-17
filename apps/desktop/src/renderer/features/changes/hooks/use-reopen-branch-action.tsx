@@ -43,18 +43,21 @@ export function useReopenBranchAction({ worktreePath, onSuccess }: UseReopenBran
       return;
     }
     try {
-      // Recreate the deleted remote branch. setUpstream covers the case where
-      // the local upstream config was also cleared.
+      // Recreate the deleted remote branch (force --set-upstream so a `[gone]`
+      // upstream is rebound, not just plain-pushed).
       await pushMutation.mutateAsync({ worktreePath, setUpstream: true });
       // Update from base — merge origin/<base> back into the re-opened branch.
       await mergeMutation.mutateAsync({ worktreePath });
+      console.log(`[reopen-branch] re-opened + updated from base worktree=${worktreePath}`);
       toast.success('Branch re-opened and updated from base');
       onSuccess?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // The push may have already recreated the remote branch even if the merge
       // failed (e.g. conflicts / dirty tree) — the normal "Update from base"
-      // flow can finish it. Surface the failure either way.
+      // flow can finish it. Log the partial state (push may have succeeded) so
+      // it's reconstructable, and surface the failure.
+      console.error(`[reopen-branch] failed worktree=${worktreePath}:`, message);
       toast.error(`Re-open failed: ${message}`);
     } finally {
       setOpen(false);

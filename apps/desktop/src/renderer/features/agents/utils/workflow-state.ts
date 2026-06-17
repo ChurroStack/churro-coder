@@ -192,14 +192,25 @@ export function computeWorkflowState(raw: WorkflowSnapshot): WorkflowState {
   // normal in_progress state instead of a misleading "all done".
   const idleWithRemote = s.git.hasRemote && s.activity === 'idle' && !s.cliBusy;
 
-  // Gone case forces green: baseBranchBehind (origin/<base> moved ahead with the
-  // squash commit) would otherwise leave Code amber. The PR pill keeps `openPr`
-  // so the merged PR is still viewable (no-op when there's no PR URL).
-  if (s.remoteBranchGone && idleWithRemote) {
+  // Merged-clean: PR merged with no pending local work. The `!(hasUpstream &&
+  // pushCount>0)` + `changedFiles===0` guard preserves the deliberate "push a
+  // follow-up commit / open a new PR after merge" flow (that path keeps PR amber
+  // and must NOT be hidden behind "all done"). baseBranchBehind is intentionally
+  // NOT part of this guard: once the work is merged, origin/<base> moving ahead
+  // is irrelevant to "done" — forcing green here is correct (matches the [gone]
+  // case, which also ignores baseBranchBehind).
+  const mergedClean = s.pr.state === 'merged' && s.git.changedFiles === 0 && !(s.hasUpstream && s.pushCount > 0);
+
+  // Terminal "workspace is done" state — force ALL pills green and let the notch
+  // render the Archive / Re-open cluster. Both triggers funnel through one block
+  // so the pills (esp. Code, which baseBranchBehind would otherwise leave amber)
+  // are consistently green. The PR pill keeps `openPr` so the merged PR stays
+  // viewable (no-op when there's no PR URL).
+  if (idleWithRemote && (s.remoteBranchGone || mergedClean)) {
     return {
       plan: { id: 'plan', status: 'done', label: 'Plan', hint: 'Done' },
       code: { id: 'code', status: 'done', label: 'Code', hint: 'Merged' },
-      review: { id: 'review', status: 'done', label: 'Review', hint: 'Merged' },
+      review: { id: 'review', status: 'done', label: 'Review', hint: 'PR merged' },
       pr: { id: 'pr', status: 'done', label: 'PR', hint: 'PR merged', actionKind: 'openPr' },
       next: null,
       mergedBranchGone: true
@@ -238,15 +249,7 @@ export function computeWorkflowState(raw: WorkflowSnapshot): WorkflowState {
         }
       : null;
 
-  // Merged-clean case: the milestones already compute to all-green here, so we
-  // don't override them — we only flag the terminal state so the notch shows the
-  // Archive / Re-open cluster. Requires no pending local work, which preserves
-  // the deliberate "push new commits / open a follow-up PR after merge" flow
-  // (that path keeps PR amber and must NOT be hidden behind "all done").
-  const mergedClean =
-    idleWithRemote && s.pr.state === 'merged' && s.git.changedFiles === 0 && !(s.hasUpstream && s.pushCount > 0);
-
-  return { plan, code, review, pr, next: mergedClean ? null : next, mergedBranchGone: mergedClean };
+  return { plan, code, review, pr, next, mergedBranchGone: false };
 }
 
 // ── Plan ─────────────────────────────────────────────────────────────────────
