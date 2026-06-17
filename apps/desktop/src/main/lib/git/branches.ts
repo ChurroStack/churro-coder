@@ -6,6 +6,7 @@ import { publicProcedure, router } from '../trpc';
 import { assertRegisteredWorktree, getRegisteredChat, gitSwitchBranch, isUnregisteredWorktreeError } from './security';
 import { createGit, createGitForNetwork, withGitLock, withLockRetry } from './git-factory';
 import { hasOriginRemote } from './worktree';
+import { selectRemotelyDeletedBranches, type BranchTrack } from './orphan-branch-filter';
 
 /** Regex for valid branch names */
 const BRANCH_NAME_REGEX = /^[a-zA-Z0-9._/-]+$/;
@@ -247,6 +248,96 @@ export const createBranchesRouter = () => {
         }
 
         return { orphanedBranches, deleted };
+      }),
+
+    // Delete every local branch whose remote branch has been deleted (upstream is
+    // [gone] after a prune) — the post-PR-merge "orphaned branch" cleanup.
+    // Never-pushed local branches are kept. Only meaningful when the repo has an
+    // origin remote. Always protects the current/default branch and every
+    // workspace branch (including archived ones). dryRun returns the candidate
+    // list for a confirmation step without deleting.
+    cleanBranchesWithoutRemote: publicProcedure
+      .input(
+        z.object({
+          worktreePath: z.string(),
+          dryRun: z.boolean().optional().default(true)
+        })
+      )
+      .mutation(async ({ input }): Promise<{ hasRemote: boolean; candidates: string[]; deleted: string[] }> => {
+        assertRegisteredWorktree(input.worktreePath);
+
+        return withGitLock(input.worktreePath, async () => {
+          const hasRemote = await hasOriginRemote(input.worktreePath);
+          if (!hasRemote) {
+            return { hasRemote: false, candidates: [], deleted: [] };
+          }
+
+          const git = createGit(input.worktreePath);
+
+          // Prune stale remote-tracking refs so a branch whose remote was deleted
+          // (e.g. after a merged PR) surfaces as [gone]. Best-effort + bounded:
+          // a hung/failed fetch falls back to existing refs, which can only ever
+          // cause us to SKIP a branch — never to wrongly delete one.
+          try {
+            const networkGit = createGitForNetwork(input.worktreePath);
+            await Promise.race([
+              networkGit.fetch(['--prune']),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('fetch --prune timed out')), 20_000))
+            ]);
+          } catch (error) {
+            console.warn(
+              `[cleanBranchesWithoutRemote] fetch --prune failed (continuing with local refs): ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          }
+
+          // Local branches + their upstream tracking state. "[gone]" means the
+          // branch has a configured upstream whose remote ref no longer exists.
+          const raw = await git.raw(['for-each-ref', '--format=%(refname:short)%09%(upstream:track)', 'refs/heads/']);
+          const branches: BranchTrack[] = [];
+          for (const line of raw.split('\n')) {
+            if (!line.trim()) continue;
+            const [branch, track = ''] = line.split('\t');
+            branches.push({ branch, track });
+          }
+
+          // Remote branch names (for default-branch detection fallback).
+          const branchSummary = await git.branch(['-a']);
+          const remoteBranches: string[] = [];
+          for (const name of Object.keys(branchSummary.branches)) {
+            if (name.startsWith('remotes/origin/')) {
+              if (name === 'remotes/origin/HEAD') continue;
+              remoteBranches.push(name.replace('remotes/origin/', ''));
+            }
+          }
+
+          // Protected: current + default + every chat branch (including archived,
+          // which are restorable). Never delete these.
+          const db = getDatabase();
+          const protectedBranches = new Set<string>();
+          for (const c of db.select({ branch: chats.branch }).from(chats).all()) {
+            if (c.branch) protectedBranches.add(c.branch);
+          }
+          protectedBranches.add(branchSummary.current);
+          protectedBranches.add(await getDefaultBranch(git, remoteBranches));
+
+          const candidates = selectRemotelyDeletedBranches({ branches, protectedBranches });
+
+          const deleted: string[] = [];
+          if (!input.dryRun) {
+            for (const branch of candidates) {
+              try {
+                await withLockRetry(input.worktreePath, () => git.branch(['-D', branch]));
+                deleted.push(branch);
+              } catch {
+                // Skip branches that can't be deleted (e.g. checked out elsewhere).
+              }
+            }
+          }
+
+          return { hasRemote: true, candidates, deleted };
+        });
       }),
 
     fetchRemote: publicProcedure

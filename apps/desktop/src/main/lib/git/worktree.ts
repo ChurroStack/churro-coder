@@ -258,6 +258,68 @@ export async function removeWorktree(
   return { success: true };
 }
 
+/** Branch names that must never be deleted by automated cleanup. */
+const PROTECTED_BRANCH_NAMES = new Set(['main', 'master', 'develop', 'trunk']);
+
+/**
+ * Delete a local branch from the main repo after its worktree has been removed.
+ *
+ * Used by the workspace hard-delete path so permanently deleting an archived
+ * workspace doesn't leave its branch orphaned in the local repo (e.g. after a PR
+ * is merged and the remote branch is gone).
+ *
+ * Best-effort and **non-throwing**: a failure here must never abort the row
+ * delete. Runs `git worktree prune` BEFORE `git branch -D` (ordering is
+ * load-bearing) so a partially-removed worktree — the `removeWorktree` rm-only
+ * fallback path, which still returns success — no longer "holds" the branch and
+ * makes the delete fail with "checked out at <path>".
+ *
+ * Uses `-D` (force) intentionally: hard delete is destructive and the worktree
+ * is already force-removed, so an unmerged branch should not block cleanup.
+ */
+export async function deleteLocalBranch(
+  mainRepoPath: string,
+  branch: string | null | undefined,
+  baseBranch?: string | null
+): Promise<{ success: boolean; skipped?: boolean; error?: string }> {
+  if (!branch) return { success: true, skipped: true };
+  if (baseBranch && branch === baseBranch) {
+    console.log(`[Worktree] branch cleanup skipped (is base branch): ${branch}`);
+    return { success: true, skipped: true };
+  }
+  if (PROTECTED_BRANCH_NAMES.has(branch)) {
+    console.log(`[Worktree] branch cleanup skipped (protected name): ${branch}`);
+    return { success: true, skipped: true };
+  }
+
+  const env = await getGitEnv();
+
+  // Clear stale worktree metadata first so git no longer thinks the branch is
+  // checked out in a now-deleted worktree.
+  try {
+    await execFileAsync('git', ['-C', mainRepoPath, 'worktree', 'prune'], { env, timeout: 30_000 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[Worktree] worktree prune failed (continuing): ${message}`);
+  }
+
+  try {
+    await execFileAsync('git', ['-C', mainRepoPath, 'branch', '-D', branch], { env, timeout: 30_000 });
+    console.log(`[Worktree] deleted local branch: ${branch}`);
+    return { success: true };
+  } catch (error) {
+    const stderr = isExecFileException(error) ? (error.stderr ?? '') : '';
+    const message = error instanceof Error ? error.message : String(error);
+    const combined = `${message} ${stderr}`;
+    // Idempotent: a branch that's already gone is treated as success.
+    if (/not found|not a valid branch|Couldn't look up/i.test(combined)) {
+      return { success: true, skipped: true };
+    }
+    console.warn(`[Worktree] branch cleanup failed for ${branch}: ${stderr || message}`);
+    return { success: false, error: stderr || message };
+  }
+}
+
 export async function getGitRoot(path: string): Promise<string> {
   try {
     const git = simpleGit(path);
