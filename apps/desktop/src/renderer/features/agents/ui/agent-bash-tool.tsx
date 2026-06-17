@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { Check, X } from 'lucide-react';
 import { useAtomValue } from 'jotai';
 import { IconSpinner, ExpandIcon, CollapseIcon, CustomTerminalIcon } from '../../../components/ui/icons';
@@ -8,6 +8,7 @@ import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { getToolStatus } from './agent-tool-registry';
 import { AgentToolInterrupted } from './agent-tool-interrupted';
 import { areToolPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 import { cn } from '../../../lib/utils';
 import { selectedProjectAtom } from '../atoms';
 
@@ -56,7 +57,9 @@ export const AgentBashTool = memo(function AgentBashTool({
   partIndex,
   chatStatus
 }: AgentBashToolProps) {
-  const [isOutputExpanded, setIsOutputExpanded] = useState(false);
+  // In 'default' density Bash output renders inline (3-line preview, expand for full).
+  // 'collapsed' shows only the header line until expanded; 'expanded' shows full output.
+  const { density, isExpanded: isOutputExpanded, toggle: toggleOutput } = useDensityCollapse();
   const { isPending } = getToolStatus(part, chatStatus);
   const selectedProject = useAtomValue(selectedProjectAtom);
   const projectPath = selectedProject?.path;
@@ -72,14 +75,17 @@ export const AgentBashTool = memo(function AgentBashTool({
   const isSuccess = exitCode === 0;
   const isError = exitCode !== undefined && exitCode !== 0;
 
-  // Determine if we have any output
-  const hasOutput = stdout || stderr;
-
   // Limit output to 3 lines when collapsed
   const MAX_OUTPUT_LINES = 3;
   const stdoutLimited = useMemo(() => limitLines(stdout, MAX_OUTPUT_LINES), [stdout]);
   const stderrLimited = useMemo(() => limitLines(stderr, MAX_OUTPUT_LINES), [stderr]);
   const hasMoreOutput = stdoutLimited.truncated || stderrLimited.truncated;
+
+  // Density-derived layout:
+  // - collapsed: hide the command/output block until expanded; the header is always toggleable.
+  // - default/expanded: block is always visible (preview vs full controlled by isOutputExpanded).
+  const showContentBlock = density !== 'collapsed' || isOutputExpanded;
+  const canToggle = !isPending && (density === 'collapsed' || hasMoreOutput);
 
   // Shorten paths in the displayed command
   const displayCommand = useMemo(() => shortenPaths(command, projectPath), [command, projectPath]);
@@ -126,10 +132,10 @@ export const AgentBashTool = memo(function AgentBashTool({
       className="rounded-lg border border-border bg-muted/30 overflow-hidden mx-2">
       {/* Header - clickable to expand, fixed height to prevent layout shift */}
       <div
-        onClick={() => hasMoreOutput && !isPending && setIsOutputExpanded(!isOutputExpanded)}
+        onClick={() => canToggle && toggleOutput()}
         className={cn(
           'flex items-center justify-between pl-2.5 pr-0.5 h-7',
-          hasMoreOutput && !isPending && 'cursor-pointer hover:bg-muted/50 transition-colors duration-150'
+          canToggle && 'cursor-pointer hover:bg-muted/50 transition-colors duration-150'
         )}>
         <CustomTerminalIcon className="w-3.5 h-3.5 text-muted-foreground/70 flex-shrink-0 mr-1.5" />
         <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
@@ -160,11 +166,11 @@ export const AgentBashTool = memo(function AgentBashTool({
           <div className="w-6 h-6 flex items-center justify-center">
             {isPending ? (
               <IconSpinner className="w-3 h-3" />
-            ) : hasOutput && hasMoreOutput ? (
+            ) : canToggle ? (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setIsOutputExpanded(!isOutputExpanded);
+                  toggleOutput();
                 }}
                 className="p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95">
                 {isOutputExpanded ? (
@@ -178,41 +184,43 @@ export const AgentBashTool = memo(function AgentBashTool({
         </div>
       </div>
 
-      {/* Content - always visible, clickable to expand (only when collapsed and has more output) */}
-      <div
-        onClick={() => hasMoreOutput && !isOutputExpanded && setIsOutputExpanded(true)}
-        className={cn(
-          'border-t border-border px-2.5 py-1.5 transition-colors duration-150',
-          hasMoreOutput && !isOutputExpanded && 'cursor-pointer hover:bg-muted/50'
-        )}>
-        {/* Command - always show full command */}
-        <div className="font-mono text-xs">
-          <span className="text-amber-600 dark:text-amber-400">$ </span>
-          <span className="text-foreground whitespace-pre-wrap break-all">{displayCommand}</span>
+      {/* Content - hidden in 'collapsed' density until expanded; clickable to expand otherwise */}
+      {showContentBlock && (
+        <div
+          onClick={() => canToggle && !isOutputExpanded && toggleOutput()}
+          className={cn(
+            'border-t border-border px-2.5 py-1.5 transition-colors duration-150',
+            canToggle && !isOutputExpanded && 'cursor-pointer hover:bg-muted/50'
+          )}>
+          {/* Command - always show full command */}
+          <div className="font-mono text-xs">
+            <span className="text-amber-600 dark:text-amber-400">$ </span>
+            <span className="text-foreground whitespace-pre-wrap break-all">{displayCommand}</span>
+          </div>
+
+          {/* Stdout - show limited lines when collapsed, full when expanded */}
+          {stdout && (
+            <div className="mt-1.5 font-mono text-xs text-muted-foreground whitespace-pre-wrap break-all">
+              {isOutputExpanded ? stdout : stdoutLimited.text}
+            </div>
+          )}
+
+          {/* Stderr - warning/error color based on exit code */}
+          {stderr && (
+            <div
+              className={cn(
+                'mt-1.5 font-mono text-xs whitespace-pre-wrap break-all',
+                // If exitCode is 0, it's a warning (e.g. npm warnings)
+                // If exitCode is non-zero, it's an error
+                exitCode === 0 || exitCode === undefined
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-rose-500 dark:text-rose-400'
+              )}>
+              {isOutputExpanded ? stderr : stderrLimited.text}
+            </div>
+          )}
         </div>
-
-        {/* Stdout - show limited lines when collapsed, full when expanded */}
-        {stdout && (
-          <div className="mt-1.5 font-mono text-xs text-muted-foreground whitespace-pre-wrap break-all">
-            {isOutputExpanded ? stdout : stdoutLimited.text}
-          </div>
-        )}
-
-        {/* Stderr - warning/error color based on exit code */}
-        {stderr && (
-          <div
-            className={cn(
-              'mt-1.5 font-mono text-xs whitespace-pre-wrap break-all',
-              // If exitCode is 0, it's a warning (e.g. npm warnings)
-              // If exitCode is non-zero, it's an error
-              exitCode === 0 || exitCode === undefined
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-rose-500 dark:text-rose-400'
-            )}>
-            {isOutputExpanded ? stderr : stderrLimited.text}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }, areToolPropsEqual);

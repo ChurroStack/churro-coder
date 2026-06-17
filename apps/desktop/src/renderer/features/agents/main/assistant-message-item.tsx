@@ -21,6 +21,7 @@ import { AgentAskUserQuestionTool } from '../ui/agent-ask-user-question-tool';
 import { AgentBashTool } from '../ui/agent-bash-tool';
 import { AgentEditTool } from '../ui/agent-edit-tool';
 import { AgentExploringGroup } from '../ui/agent-exploring-group';
+import { useDensityCollapse } from '../ui/use-density-collapse';
 import { AgentTaskToolsGroup } from '../ui/agent-task-tools';
 import { AgentPlanFileTool } from '../ui/agent-plan-file-tool';
 import { AgentReviewTool } from '../ui/agent-review-tool';
@@ -281,7 +282,8 @@ interface CollapsibleStepsProps {
 }
 
 function CollapsibleSteps({ stepsCount, children, defaultExpanded = false }: CollapsibleStepsProps) {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  // Density drives the resting state: 'collapsed'/'default' use defaultExpanded, 'expanded' opens.
+  const { isExpanded, toggle } = useDensityCollapse({ normalResting: defaultExpanded });
 
   if (stepsCount === 0) return null;
 
@@ -289,7 +291,7 @@ function CollapsibleSteps({ stepsCount, children, defaultExpanded = false }: Col
     <div className="mb-2" data-collapsible-steps="true">
       <div
         className="flex items-center justify-between rounded-md py-0.5 px-2 cursor-pointer hover:bg-muted/50 transition-colors"
-        onClick={() => setIsExpanded(!isExpanded)}>
+        onClick={toggle}>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <ListTree className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="font-medium whitespace-nowrap">
@@ -300,7 +302,7 @@ function CollapsibleSteps({ stepsCount, children, defaultExpanded = false }: Col
           className="p-1 rounded-md hover:bg-accent transition-[background-color,transform] duration-150 ease-out active:scale-95"
           onClick={(e) => {
             e.stopPropagation();
-            setIsExpanded(!isExpanded);
+            toggle();
           }}>
           <div className="relative w-4 h-4">
             <ExpandIcon

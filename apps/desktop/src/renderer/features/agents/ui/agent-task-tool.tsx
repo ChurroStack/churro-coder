@@ -9,6 +9,7 @@ import { AgentToolRegistry, getToolStatus } from './agent-tool-registry';
 import { AgentToolCall } from './agent-tool-call';
 import { AgentToolInterrupted } from './agent-tool-interrupted';
 import { areTaskToolPropsEqual, resolvePartStartedAt } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { cn } from '../../../lib/utils';
@@ -52,18 +53,9 @@ export const AgentTaskTool = memo(function AgentTaskTool({
   const { isPending, isInterrupted } = getToolStatus(part, chatStatus);
   const onOpenFile = useFileOpen();
 
-  // Default: collapsed
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Resting collapsed in 'default'/'collapsed' density, expanded in 'expanded'. Manual toggle wins.
+  const { isExpanded, toggle } = useDensityCollapse({ normalResting: false });
   const scrollRef = useRef<HTMLDivElement>(null);
-  const wasPendingRef = useRef(isPending);
-
-  // Auto-collapse when task completes (transition from pending -> done)
-  useEffect(() => {
-    if (wasPendingRef.current && !isPending) {
-      setIsExpanded(false);
-    }
-    wasPendingRef.current = isPending;
-  }, [isPending]);
 
   // Track elapsed time for running tasks
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -170,9 +162,7 @@ export const AgentTaskTool = memo(function AgentTaskTool({
   return (
     <div>
       {/* Header - clickable to toggle, same style as AgentExploringGroup */}
-      <div
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="group flex items-start gap-1.5 py-0.5 px-2 cursor-pointer">
+      <div onClick={toggle} className="group flex items-start gap-1.5 py-0.5 px-2 cursor-pointer">
         <div className="flex-shrink-0 flex items-start pt-[1px]">
           {hasIconTooltip ? (
             <Tooltip>

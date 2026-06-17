@@ -14,6 +14,7 @@ import { addOrFocus } from '../../dock/add-or-focus';
 import { useDockApi } from '../../dock/dock-context';
 import { getToolStatus } from './agent-tool-registry';
 import { areToolPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 import { renderBuiltinPrompt } from '../../../../prompts/render';
 
 interface AgentReviewToolProps {
@@ -36,7 +37,7 @@ interface AgentReviewToolProps {
  * action footer with "View review" and "Fix issues" buttons.
  */
 export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus, subChatId }: AgentReviewToolProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { density, isExpanded, toggle: handleToggleExpand } = useDensityCollapse();
   const [copied, setCopied] = useState(false);
   const { isPending } = getToolStatus(part, chatStatus);
   const dockApi = useDockApi();
@@ -59,6 +60,9 @@ export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus,
   );
   const reviewContent = reviewContentFromPart || (storedReview?.exists ? (storedReview.content ?? '') : '');
   const hasVisibleContent = reviewContent.length > 0;
+
+  // In 'collapsed' density hide the markdown preview until expanded (header + footer remain).
+  const showContent = density !== 'collapsed' || isExpanded;
 
   const updateScrollGradients = useCallback(() => {
     const content = contentRef.current;
@@ -86,8 +90,6 @@ export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus,
   useEffect(() => {
     updateScrollGradients();
   }, [reviewContent, updateScrollGradients]);
-
-  const handleToggleExpand = useCallback(() => setIsExpanded((prev) => !prev), []);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(reviewContent);
@@ -211,40 +213,42 @@ export const AgentReviewTool = memo(function AgentReviewTool({ part, chatStatus,
         </div>
       </div>
 
-      {/* Content */}
-      <div className="relative">
-        <div
-          ref={topGradientRef}
-          className="absolute top-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
-          style={{
-            opacity: 0,
-            background:
-              'linear-gradient(to bottom, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
-          }}
-        />
+      {/* Content (hidden in 'collapsed' density until expanded) */}
+      {showContent && (
+        <div className="relative">
+          <div
+            ref={topGradientRef}
+            className="absolute top-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
+            style={{
+              opacity: 0,
+              background:
+                'linear-gradient(to bottom, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
+            }}
+          />
 
-        <div
-          ref={contentRef}
-          onClick={() => !isExpanded && setIsExpanded(true)}
-          className={cn(
-            'text-xs overflow-hidden transition-all duration-200',
-            isExpanded ? 'max-h-[300px] overflow-y-auto' : 'h-[72px] cursor-pointer hover:bg-muted/50'
-          )}>
-          <div className="px-3 py-2">
-            <ChatMarkdownRenderer content={reviewContent} size="sm" />
+          <div
+            ref={contentRef}
+            onClick={() => !isExpanded && handleToggleExpand()}
+            className={cn(
+              'text-xs overflow-hidden transition-all duration-200',
+              isExpanded ? 'max-h-[300px] overflow-y-auto' : 'h-[72px] cursor-pointer hover:bg-muted/50'
+            )}>
+            <div className="px-3 py-2">
+              <ChatMarkdownRenderer content={reviewContent} size="sm" />
+            </div>
           </div>
-        </div>
 
-        <div
-          ref={bottomGradientRef}
-          className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
-          style={{
-            opacity: 1,
-            background:
-              'linear-gradient(to top, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
-          }}
-        />
-      </div>
+          <div
+            ref={bottomGradientRef}
+            className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
+            style={{
+              opacity: 1,
+              background:
+                'linear-gradient(to top, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
+            }}
+          />
+        </div>
+      )}
 
       {/* Footer — action buttons (mirrors AgentPlanFileTool) */}
       <div className="flex items-center justify-between p-1.5">

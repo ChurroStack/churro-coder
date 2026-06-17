@@ -6,6 +6,7 @@ import { TextShimmer } from '../../../components/ui/text-shimmer';
 import { getToolStatus, type McpToolInfo } from './agent-tool-registry';
 import { AgentToolInterrupted } from './agent-tool-interrupted';
 import { areToolPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 import { cn } from '../../../lib/utils';
 import { highlightCode } from '../../../lib/themes/shiki-theme-loader';
 import { useCodeTheme } from '../../../lib/hooks/use-code-theme';
@@ -242,7 +243,7 @@ function HighlightedJson({ code }: { code: string }) {
 }
 
 export const AgentMcpToolCall = memo(function AgentMcpToolCall({ part, mcpInfo, chatStatus }: AgentMcpToolCallProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { density, isExpanded, toggle } = useDensityCollapse();
   const { isPending, isInterrupted } = getToolStatus(part, chatStatus);
 
   const unwrappedOutput = useMemo(() => unwrapMcpOutput(part.output), [part.output]);
@@ -278,7 +279,7 @@ export const AgentMcpToolCall = memo(function AgentMcpToolCall({ part, mcpInfo, 
     <div>
       {/* Header */}
       <div
-        onClick={() => hasExpandableContent && setIsExpanded(!isExpanded)}
+        onClick={() => hasExpandableContent && toggle()}
         className={cn('group flex items-start gap-1.5 py-0.5 px-2', hasExpandableContent && 'cursor-pointer')}>
         <div className="flex-1 min-w-0 flex items-center gap-1.5">
           <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
@@ -292,8 +293,10 @@ export const AgentMcpToolCall = memo(function AgentMcpToolCall({ part, mcpInfo, 
               )}
             </span>
 
-            {/* Subtitle: key arg value */}
-            {subtitle && <span className="text-muted-foreground/60 font-normal truncate min-w-0">{subtitle}</span>}
+            {/* Subtitle: key arg value — suppressed in 'collapsed' density (title only) */}
+            {subtitle && density !== 'collapsed' && (
+              <span className="text-muted-foreground/60 font-normal truncate min-w-0">{subtitle}</span>
+            )}
 
             {/* Result count — more muted than args */}
             {resultCount && (

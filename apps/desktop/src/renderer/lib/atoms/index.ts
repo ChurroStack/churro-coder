@@ -482,13 +482,19 @@ export const showWorkspaceIconAtom = atomWithStorage<boolean>(
 );
 
 /**
- * Always expand to-do list
- * When enabled, to-do lists are always shown expanded (full list view)
- * When disabled (default), to-do lists start collapsed and can be expanded manually
+ * Chat message density — controls the resting expansion of chat "component" parts
+ * (Bash output, file diffs, thinking, web search/fetch, subagent tasks, plan/review, to-do list).
+ *  - 'collapsed': every component shows a single header line; expand on demand.
+ *  - 'default'  : current behavior (Bash shows ~3 output lines, Thinking shows a preview, etc.).
+ *  - 'expanded' : every component is expanded by default.
+ * Changing this reflows the visible transcript live (manual per-card toggles reset).
+ * Replaces the former 'preferences:always-expand-todo-list' boolean.
  */
-export const alwaysExpandTodoListAtom = atomWithStorage<boolean>(
-  'preferences:always-expand-todo-list',
-  false, // Collapsed by default
+export type ChatMessageDensity = 'collapsed' | 'default' | 'expanded';
+
+export const chatMessageDensityAtom = atomWithStorage<ChatMessageDensity>(
+  'preferences:chat-message-density',
+  'default', // Current behavior by default
   undefined,
   { getOnInit: true }
 );

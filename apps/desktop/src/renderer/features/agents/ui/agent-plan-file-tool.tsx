@@ -15,6 +15,7 @@ import { addOrFocus } from '../../dock/add-or-focus';
 import { useDockApi } from '../../dock/dock-context';
 import { getToolStatus } from './agent-tool-registry';
 import { areToolPropsEqual } from './agent-tool-utils';
+import { useDensityCollapse } from './use-density-collapse';
 
 interface AgentPlanFileToolProps {
   part: {
@@ -42,7 +43,7 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
   subChatId,
   isEdit = false
 }: AgentPlanFileToolProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { density, isExpanded, toggle: handleToggleExpand } = useDensityCollapse();
   const [copied, setCopied] = useState(false);
   const { isPending } = getToolStatus(part, chatStatus);
   const isWrite = part.type === 'tool-Write';
@@ -77,6 +78,9 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
 
   // Check if we have content to show
   const hasVisibleContent = planContent.length > 0;
+
+  // In 'collapsed' density hide the markdown preview until expanded (header + footer remain).
+  const showContent = density !== 'collapsed' || isExpanded;
 
   // Update scroll gradients via DOM (no state, no re-renders)
   const updateScrollGradients = useCallback(() => {
@@ -119,11 +123,6 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
       setCurrentPlanPath(filePath);
     }
   }, [filePath, hasVisibleContent, setCurrentPlanPath]);
-
-  // Handle expand/collapse
-  const handleToggleExpand = useCallback(() => {
-    setIsExpanded((prev) => !prev);
-  }, []);
 
   const handleOpenInDock = useCallback(() => {
     if (!filePath || !dockApi) return;
@@ -239,42 +238,44 @@ export const AgentPlanFileTool = memo(function AgentPlanFileTool({
         </div>
       </div>
 
-      {/* Content - markdown preview with scroll gradients */}
-      <div className="relative">
-        {/* Top scroll gradient - matches card background (muted/30) */}
-        <div
-          ref={topGradientRef}
-          className="absolute top-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
-          style={{
-            opacity: 0,
-            background:
-              'linear-gradient(to bottom, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
-          }}
-        />
+      {/* Content - markdown preview with scroll gradients (hidden in 'collapsed' density) */}
+      {showContent && (
+        <div className="relative">
+          {/* Top scroll gradient - matches card background (muted/30) */}
+          <div
+            ref={topGradientRef}
+            className="absolute top-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
+            style={{
+              opacity: 0,
+              background:
+                'linear-gradient(to bottom, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
+            }}
+          />
 
-        <div
-          ref={contentRef}
-          onClick={() => !isExpanded && setIsExpanded(true)}
-          className={cn(
-            'text-xs overflow-hidden transition-all duration-200',
-            isExpanded ? 'max-h-[300px] overflow-y-auto' : 'h-[72px] cursor-pointer hover:bg-muted/50'
-          )}>
-          <div className="px-3 py-2">
-            <ChatMarkdownRenderer content={planContent} size="sm" />
+          <div
+            ref={contentRef}
+            onClick={() => !isExpanded && handleToggleExpand()}
+            className={cn(
+              'text-xs overflow-hidden transition-all duration-200',
+              isExpanded ? 'max-h-[300px] overflow-y-auto' : 'h-[72px] cursor-pointer hover:bg-muted/50'
+            )}>
+            <div className="px-3 py-2">
+              <ChatMarkdownRenderer content={planContent} size="sm" />
+            </div>
           </div>
-        </div>
 
-        {/* Bottom scroll gradient - matches card background (muted/30) */}
-        <div
-          ref={bottomGradientRef}
-          className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
-          style={{
-            opacity: 1,
-            background:
-              'linear-gradient(to top, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
-          }}
-        />
-      </div>
+          {/* Bottom scroll gradient - matches card background (muted/30) */}
+          <div
+            ref={bottomGradientRef}
+            className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-10 transition-opacity duration-150"
+            style={{
+              opacity: 1,
+              background:
+                'linear-gradient(to top, color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background))) 0%, transparent 100%)'
+            }}
+          />
+        </div>
+      )}
 
       {/* Footer - action buttons */}
       <div className="flex items-center justify-between p-1.5">

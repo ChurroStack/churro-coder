@@ -10,7 +10,8 @@ import {
   systemLightThemeIdAtom,
   systemDarkThemeIdAtom,
   showWorkspaceIconAtom,
-  alwaysExpandTodoListAtom,
+  chatMessageDensityAtom,
+  type ChatMessageDensity,
   importedThemesAtom,
   type VSCodeFullTheme
 } from '../../../lib/atoms';
@@ -127,8 +128,8 @@ export function AgentsAppearanceTab() {
   // Sidebar settings
   const [showWorkspaceIcon, setShowWorkspaceIcon] = useAtom(showWorkspaceIconAtom);
 
-  // To-do list preference
-  const [alwaysExpandTodoList, setAlwaysExpandTodoList] = useAtom(alwaysExpandTodoListAtom);
+  // Chat message density preference
+  const [chatMessageDensity, setChatMessageDensity] = useAtom(chatMessageDensityAtom);
 
   // VS Code themes state
   const [isScanning, setIsScanning] = useState(false);
@@ -504,10 +505,23 @@ export function AgentsAppearanceTab() {
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border">
           <div className="flex flex-col space-y-1">
-            <span className="text-sm font-medium text-foreground">Always expand to-do list</span>
-            <span className="text-xs text-muted-foreground">Show the full to-do list instead of compact view</span>
+            <span className="text-sm font-medium text-foreground">Message density</span>
+            <span className="text-xs text-muted-foreground">
+              How much detail chat components (commands, diffs, thinking, to-do list) show by default
+            </span>
           </div>
-          <Switch checked={alwaysExpandTodoList} onCheckedChange={setAlwaysExpandTodoList} />
+          <Select
+            value={chatMessageDensity}
+            onValueChange={(value: ChatMessageDensity) => setChatMessageDensity(value)}>
+            <SelectTrigger className="w-auto px-2">
+              <span className="text-xs capitalize">{chatMessageDensity}</span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="collapsed">Collapsed</SelectItem>
+              <SelectItem value="default">Default</SelectItem>
+              <SelectItem value="expanded">Expanded</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
     </div>
