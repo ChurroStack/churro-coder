@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../compo
 import { AgentImageItem } from './agent-image-item';
 import { RenderFileMentions, extractTextMentions, TextMentionBlocks } from '../mentions/render-file-mentions';
 import { useSearchHighlight, useSearchQuery } from '../search';
+import { hasTaskNotification, parseTaskNotifications } from './task-notification';
+import { TaskNotificationCard } from './task-notification-card';
 
 interface AgentUserMessageBubbleProps {
   messageId: string;
@@ -113,6 +115,17 @@ export const AgentUserMessageBubble = memo(function AgentUserMessageBubble({
   // Extract quote/diff mentions to display above the bubble
   const { textMentions, cleanedText } = useMemo(() => extractTextMentions(textContent), [textContent]);
 
+  // Detect injected `<task-notification>` blocks (a background subagent reporting
+  // back) and render them as Task-style cards instead of raw XML. Only take over
+  // rendering when a well-formed block actually parsed — `hasTaskNotification` is
+  // a cheap substring guard that can be true for text with the tokens but no
+  // ordered pair, which must still render through the normal bubble below.
+  const taskNotificationSegments = useMemo(() => {
+    if (!hasTaskNotification(textContent)) return null;
+    const { segments } = parseTaskNotifications(textContent);
+    return segments.some((s) => s.type === 'notification') ? segments : null;
+  }, [textContent]);
+
   // VS Code style overflow detection using ResizeObserver (no layout thrashing)
   const showGradient = useOverflowDetection(contentRef, [textContent]);
 
@@ -171,6 +184,32 @@ export const AgentUserMessageBubble = memo(function AgentUserMessageBubble({
       }
     };
   }, [searchQuery, currentHighlight?.offset, currentHighlight?.length, textContent]);
+
+  // When the message carries task-notification(s), render each as a Task card
+  // and any surrounding plain text as a normal bubble, preserving order.
+  if (taskNotificationSegments) {
+    return (
+      <div className="space-y-1">
+        {taskNotificationSegments.map((segment, idx) =>
+          segment.type === 'notification' ? (
+            <TaskNotificationCard key={idx} data={segment.data} idPrefix={`${messageId}-${idx}`} />
+          ) : segment.text.trim() ? (
+            <div
+              key={idx}
+              className="flex justify-start"
+              data-user-bubble
+              data-message-id={messageId}
+              data-part-index={0}
+              data-part-type="text">
+              <div className="bg-input-background border px-3 py-2 rounded-xl whitespace-pre-wrap text-sm w-full">
+                <RenderFileMentions text={segment.text.trim()} />
+              </div>
+            </div>
+          ) : null
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
