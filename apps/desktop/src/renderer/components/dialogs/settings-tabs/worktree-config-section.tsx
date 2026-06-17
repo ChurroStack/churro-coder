@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import type { WorktreeScript } from '../../../../main/lib/git/worktree-config';
 import { COMMAND_PROMPTS } from '../../../features/agents/commands';
 import { selectWorkspace, useAgentSubChatStore } from '../../../features/agents/stores/sub-chat-store';
+import { ConfirmDeleteDialog } from '../../confirm-delete-dialog';
 
 /**
  * Worktree config (setup commands + scripts + config-file target + "Fill with
@@ -191,6 +192,42 @@ export function WorktreeConfigSection({
   const cursorExists = configData?.available?.cursor?.exists ?? false;
 
   const [isFilling, setIsFilling] = useState(false);
+
+  // ── Branch cleanup ──
+  // Deletes local branches whose remote branch has been deleted (upstream is
+  // [gone] after a prune) — e.g. after a merged PR. Never-pushed local branches
+  // are kept. Repo-global: it operates on the whole repository even though this
+  // panel is workspace-scoped; active workspace branches are protected server-side.
+  const cleanBranchesMutation = trpc.changes.cleanBranchesWithoutRemote.useMutation();
+  const [orphanCandidates, setOrphanCandidates] = useState<string[] | null>(null);
+
+  const scanOrphanBranches = async () => {
+    try {
+      const res = await cleanBranchesMutation.mutateAsync({ worktreePath: path, dryRun: true });
+      if (!res.hasRemote) {
+        toast.info('This repository has no remote configured');
+        return;
+      }
+      if (res.candidates.length === 0) {
+        toast.info('No orphaned branches to clean');
+        return;
+      }
+      setOrphanCandidates(res.candidates);
+    } catch (err) {
+      toast.error(`Failed to scan branches: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const confirmCleanOrphanBranches = async () => {
+    try {
+      const res = await cleanBranchesMutation.mutateAsync({ worktreePath: path, dryRun: false });
+      toast.success(`Deleted ${res.deleted.length} branch${res.deleted.length === 1 ? '' : 'es'}`);
+    } catch (err) {
+      toast.error(`Failed to clean branches: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setOrphanCandidates(null);
+    }
+  };
 
   const fillWithAi = async (commandKey: 'worktree-setup' | 'scripts-fill', name: string) => {
     const prompt = COMMAND_PROMPTS[commandKey];
@@ -437,7 +474,55 @@ export function WorktreeConfigSection({
             </div>
           </div>
         </div>
+
+        {/* ── Branch cleanup ── */}
+        <div>
+          <h4 className="text-sm font-medium text-foreground mb-2">Branch cleanup</h4>
+          <div className="bg-background rounded-lg border border-border overflow-hidden">
+            <div className="flex items-center justify-between p-4">
+              <div className="flex-1 pr-4">
+                <span className="text-sm font-medium text-foreground">Clean orphaned branches</span>
+                <p className="text-sm text-muted-foreground">
+                  Delete local branches whose remote branch has been deleted (e.g. after a merged PR). Never-pushed
+                  local branches are kept. Applies to the whole repository; active workspace branches are kept.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={scanOrphanBranches}
+                disabled={cleanBranchesMutation.isPending}>
+                Clean orphaned branches
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <ConfirmDeleteDialog
+        open={orphanCandidates !== null}
+        onOpenChange={(open) => {
+          if (!open) setOrphanCandidates(null);
+        }}
+        title="Clean orphaned branches"
+        description={`The following ${orphanCandidates?.length ?? 0} local branch${
+          orphanCandidates?.length === 1 ? '' : 'es'
+        } no longer ${orphanCandidates?.length === 1 ? 'has' : 'have'} a remote branch and will be permanently deleted:`}
+        warning={
+          <>
+            <ul className="mt-2 max-h-48 overflow-y-auto list-disc pl-5 font-mono text-xs">
+              {orphanCandidates?.map((b) => (
+                <li key={b}>{b}</li>
+              ))}
+            </ul>
+            <p className="text-sm text-destructive mt-2">This action cannot be undone.</p>
+          </>
+        }
+        confirmLabel="Delete branches"
+        onConfirm={confirmCleanOrphanBranches}
+        isDeleting={cleanBranchesMutation.isPending}
+      />
     </div>
   );
 }

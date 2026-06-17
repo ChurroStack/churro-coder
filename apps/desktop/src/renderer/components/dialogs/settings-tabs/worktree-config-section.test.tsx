@@ -14,7 +14,11 @@ const {
   selectWorkspace,
   addToOpenSubChats,
   setActiveSubChat,
-  getState
+  getState,
+  cleanMutateAsync,
+  toastInfo,
+  toastSuccess,
+  toastError
 } = vi.hoisted(() => {
   const addToOpenSubChats = vi.fn();
   const setActiveSubChat = vi.fn();
@@ -29,7 +33,15 @@ const {
     addToOpenSubChats,
     setActiveSubChat,
     // store.chatId differs from the panel's chatId → navigation must switch workspace first.
-    getState: vi.fn(() => ({ chatId: 'other-ws', addToOpenSubChats, setActiveSubChat }))
+    getState: vi.fn(() => ({ chatId: 'other-ws', addToOpenSubChats, setActiveSubChat })),
+    cleanMutateAsync: vi.fn(async ({ dryRun }: { worktreePath: string; dryRun: boolean }) =>
+      dryRun
+        ? { hasRemote: true, candidates: ['merged-pr', 'old-feature'], deleted: [] }
+        : { hasRemote: true, candidates: [], deleted: ['merged-pr', 'old-feature'] }
+    ),
+    toastInfo: vi.fn(),
+    toastSuccess: vi.fn(),
+    toastError: vi.fn()
   };
 });
 
@@ -39,6 +51,9 @@ vi.mock('../../../lib/trpc', () => ({
       // No existing config; section renders empty command/script lists.
       get: { useQuery: () => CONFIG_QUERY },
       save: { useMutation: () => ({ mutate: saveMutate }) }
+    },
+    changes: {
+      cleanBranchesWithoutRemote: { useMutation: () => ({ mutateAsync: cleanMutateAsync, isPending: false }) }
     }
   },
   trpcClient: {
@@ -74,7 +89,7 @@ vi.mock('../../ui/select', () => ({
   SelectTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
-vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { error: toastError, success: toastSuccess, info: toastInfo } }));
 
 afterEach(() => {
   cleanup();
@@ -132,5 +147,29 @@ describe('WorktreeConfigSection — Fill with AI [worktree-config/fill-with-ai]'
         initialMessageParts: [{ type: 'text', text: 'SCRIPTS_PROMPT' }]
       })
     );
+  });
+});
+
+describe('WorktreeConfigSection — Clean orphaned branches', () => {
+  it('renders the cleanup button', () => {
+    renderSection();
+    expect(screen.getByRole('button', { name: 'Clean orphaned branches' })).toBeTruthy();
+  });
+
+  it('scans (dry-run) then confirms deletion of the listed orphan branches', async () => {
+    renderSection();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clean orphaned branches' }));
+
+    // Dry-run scan opens the confirm dialog listing the candidates.
+    expect(await screen.findByText('merged-pr')).toBeTruthy();
+    expect(screen.getByText('old-feature')).toBeTruthy();
+    expect(cleanMutateAsync).toHaveBeenCalledWith({ worktreePath: '/base/wt', dryRun: true });
+
+    // Confirming runs the real delete (dryRun: false).
+    fireEvent.click(screen.getByRole('button', { name: 'Delete branches' }));
+
+    await waitFor(() => expect(cleanMutateAsync).toHaveBeenCalledWith({ worktreePath: '/base/wt', dryRun: false }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
   });
 });

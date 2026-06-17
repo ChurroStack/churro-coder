@@ -25,7 +25,14 @@ import { trackPRCreated, trackWorkspaceArchived, trackWorkspaceCreated, trackWor
 import { chats, getDatabase, messages, projects, subChats } from '../../db';
 import { readMessagesFromTable, readMessagesForSubChats, replaceMessagesInTable } from '../../db/messages-table';
 import { computeFileStatsFromMessages } from '../../file-stats';
-import { createWorktreeForChat, getWorktreeDiff, removeWorktree, sanitizeProjectName } from '../../git';
+import {
+  createWorktreeForChat,
+  deleteLocalBranch,
+  getWorktreeDiff,
+  removeWorktree,
+  sanitizeProjectName
+} from '../../git';
+import { removeSubChatArtifacts } from '../../sub-chat-artifacts/orphan-sweep';
 import { fetchPRStatus, fetchPRComments, invalidatePRCache, mergePR, updatePRTitle } from '../../git/providers';
 import type { WorktreeSetupResult } from '../../git/worktree-config';
 import { computeContentHash, gitCache } from '../../git/cache';
@@ -996,10 +1003,19 @@ export const chatsRouter = router({
       // Get chat before deletion
       const chat = db.select().from(chats).where(eq(chats.id, input.id)).get();
 
+      // Capture sub-chat ids up front (before the cascade delete) so we can both
+      // tear down their sessions and remove their on-disk artifacts afterwards.
+      const subChatIds = db
+        .select({ id: subChats.id })
+        .from(subChats)
+        .where(eq(subChats.chatId, input.id))
+        .all()
+        .map((row) => row.id);
+
       // Tear down all sessions + terminals (and their process trees) BEFORE
       // removing the worktree, so no process still holds the directory when
       // `removeWorktree` runs. Awaited for the same reason.
-      await teardownWorkspaceSessions(input.id);
+      await teardownWorkspaceSessions(input.id, subChatIds);
 
       // Only delete worktree if the caller explicitly opted in.
       if (input.deleteWorktree && chat?.worktreePath && chat?.branch) {
@@ -1012,6 +1028,26 @@ export const chatsRouter = router({
         }
       }
 
+      // Delete the local branch unless a live worktree still holds it. The branch
+      // is orphaned when the worktree is being removed now OR was already removed
+      // during a prior archive-with-delete-worktree (which nulls worktreePath but
+      // keeps the branch). Skip when another non-archived chat still uses it.
+      const worktreeStillPresent = !input.deleteWorktree && !!chat?.worktreePath;
+      if (chat?.branch && !worktreeStillPresent) {
+        const branchStillUsed = db
+          .select({ id: chats.id })
+          .from(chats)
+          .where(and(eq(chats.branch, chat.branch), isNull(chats.archivedAt)))
+          .all()
+          .some((row) => row.id !== input.id);
+        if (branchStillUsed) {
+          console.log(`[chats.delete] branch cleanup skipped (in use by another workspace): ${chat.branch}`);
+        } else {
+          const project = db.select().from(projects).where(eq(projects.id, chat.projectId)).get();
+          if (project) await deleteLocalBranch(project.path, chat.branch, chat.baseBranch);
+        }
+      }
+
       // Track workspace deleted
       trackWorkspaceDeleted(input.id);
 
@@ -1021,13 +1057,26 @@ export const chatsRouter = router({
         gitCache.invalidateParsedDiff(chat.worktreePath);
       }
 
-      return db.delete(chats).where(eq(chats.id, input.id)).returning().get();
+      const deleted = db.delete(chats).where(eq(chats.id, input.id)).returning().get();
+
+      // Remove leftover per-sub-chat on-disk artifacts (best-effort, in background).
+      void Promise.all(subChatIds.map(removeSubChatArtifacts)).catch((error) => {
+        console.warn('[chats.delete] sub-chat artifact cleanup error:', error);
+      });
+
+      return deleted;
     }),
 
   deleteAllArchived: publicProcedure.mutation(async () => {
     const db = getDatabase();
     const archived = db
-      .select({ id: chats.id, worktreePath: chats.worktreePath, branch: chats.branch, projectId: chats.projectId })
+      .select({
+        id: chats.id,
+        worktreePath: chats.worktreePath,
+        branch: chats.branch,
+        baseBranch: chats.baseBranch,
+        projectId: chats.projectId
+      })
       .from(chats)
       .where(isNotNull(chats.archivedAt))
       .all();
@@ -1055,16 +1104,39 @@ export const chatsRouter = router({
     // still holds the directory when `removeWorktree` runs.
     void Promise.all(
       archived.map(async (c) => {
-        await teardownWorkspaceSessions(c.id, subChatIdsByChat.get(c.id) ?? []);
-        if (!c.branch || !c.worktreePath) return;
-        const project = db.select().from(projects).where(eq(projects.id, c.projectId)).get();
-        if (!project) return;
-        const result = await removeWorktree(project.path, c.worktreePath);
-        if (!result.success) {
-          console.warn(`[chats.deleteAllArchived] Worktree cleanup failed for ${c.id}: ${result.error}`);
+        const subIds = subChatIdsByChat.get(c.id) ?? [];
+        await teardownWorkspaceSessions(c.id, subIds);
+
+        const project =
+          c.branch || c.worktreePath ? db.select().from(projects).where(eq(projects.id, c.projectId)).get() : undefined;
+
+        if (c.worktreePath && project) {
+          const result = await removeWorktree(project.path, c.worktreePath);
+          if (!result.success) {
+            console.warn(`[chats.deleteAllArchived] Worktree cleanup failed for ${c.id}: ${result.error}`);
+          }
+          gitCache.invalidateStatus(c.worktreePath);
+          gitCache.invalidateParsedDiff(c.worktreePath);
         }
-        gitCache.invalidateStatus(c.worktreePath);
-        gitCache.invalidateParsedDiff(c.worktreePath);
+
+        // Delete the (now-orphaned) local branch unless a still-live, non-archived
+        // workspace references the same branch name.
+        if (c.branch && project) {
+          const branchStillUsed =
+            db
+              .select({ id: chats.id })
+              .from(chats)
+              .where(and(eq(chats.branch, c.branch), isNull(chats.archivedAt)))
+              .all().length > 0;
+          if (branchStillUsed) {
+            console.log(`[chats.deleteAllArchived] branch cleanup skipped (in use): ${c.branch}`);
+          } else {
+            await deleteLocalBranch(project.path, c.branch, c.baseBranch);
+          }
+        }
+
+        // Remove leftover per-sub-chat on-disk artifacts.
+        await Promise.all(subIds.map(removeSubChatArtifacts));
       })
     ).catch((error) => {
       console.error('[chats.deleteAllArchived] Error tearing down archived workspaces:', error);
