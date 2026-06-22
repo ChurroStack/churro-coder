@@ -1,4 +1,4 @@
-import type { Terminal as XTerm } from 'xterm';
+import type { Terminal as XTerm } from '@xterm/xterm';
 import { debounce, readCellDimensions } from './utils';
 
 /**
@@ -132,6 +132,13 @@ export interface TerminalSizerOptions {
    * terminals) where xterm can reflow the history naturally.
    */
   clearScrollbackOnColChange?: boolean;
+  /**
+   * Called after every committed geometry change (post xterm.resize). Wired to
+   * the renderer's full-repaint hook (clears the WebGL glyph atlas + refreshes
+   * the viewport) so any partial-redraw drift from a resize / DPR change /
+   * renderer swap self-corrects instead of leaving phantom glyphs on screen.
+   */
+  onAfterResize?: () => void;
 }
 
 export function createTerminalSizer(
@@ -199,6 +206,10 @@ export function createTerminalSizer(
         // Only enabled for Ink-based CLIs (claude-cli); Codex uses terminal-native
         // soft-wrapping that xterm can reflow, so wiping is wrong there.
         if (opts.clearScrollbackOnColChange && colsChanged(prev, next)) xterm.write('\x1b[3J');
+        // Force a clean full repaint after the geometry change so any stale
+        // glyphs (WebGL atlas) or partial-redraw drift cannot persist at the new
+        // size — the self-heal for the "phantom characters" class.
+        opts.onAfterResize?.();
         // onCommit is inside the try so a mid-dispose xterm.resize throw does not
         // cause the PTY to be told a geometry that xterm never applied.
         onCommit(next);

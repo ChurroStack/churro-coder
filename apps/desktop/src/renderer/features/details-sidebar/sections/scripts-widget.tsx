@@ -123,7 +123,10 @@ export const ScriptsWidget = memo(function ScriptsWidget({
           paneId,
           name: scriptName,
           createdAt: Date.now(),
-          initialCommands: [command]
+          initialCommands: [command],
+          // origin 'panel' — script terminals live in the dockview only, never
+          // in a sidebar surface.
+          origin: 'panel'
         };
         return { ...prev, [scopeKey]: [...list, next] };
       });

@@ -77,4 +77,20 @@ export interface TerminalInstance {
   createdAt: number;
   /** Optional commands to run on first attach. Persists so the right command runs after a renderer reload. */
   initialCommands?: string[];
+  /**
+   * Where this terminal lives / was created.
+   * - `'sidebar'` (default): owned by the right Terminal sidebar / bottom panel /
+   *   details-rail Terminal widget. Rendered by those surfaces; can be promoted
+   *   to a dockview panel (which then shows the "open as a panel" stub).
+   * - `'panel'`: created directly in the dockview (the [+] terminal action,
+   *   a hotkey, or a Scripts-widget "Run"). Lives ONLY as a dockview panel and
+   *   MUST NOT be rendered by any sidebar surface — otherwise the same paneId is
+   *   mounted twice (two xterm instances fighting over one PTY's resize), which
+   *   desyncs the column count and corrupts input/redraw.
+   *
+   * Optional for backward compatibility with persisted terminals created before
+   * this field existed; treat a missing value as `'sidebar'` (see
+   * `isSidebarTerminal`).
+   */
+  origin?: 'sidebar' | 'panel';
 }

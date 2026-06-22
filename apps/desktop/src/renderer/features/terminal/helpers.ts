@@ -1,13 +1,30 @@
-import { Terminal as XTerm } from 'xterm';
+import { Terminal as XTerm } from '@xterm/xterm';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { CanvasAddon } from '@xterm/addon-canvas';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 import { TERMINAL_OPTIONS, TERMINAL_THEME_DARK, TERMINAL_THEME_LIGHT, getTerminalTheme } from './config';
 import { FilePathLinkProvider } from './link-providers';
 import { isMac, isModifierPressed, showLinkPopup, removeLinkPopup } from './link-providers/link-popup';
 import { readCellDimensions } from './utils';
+
+/**
+ * Gated debug logger for the terminal feature. Off by default — flip on at
+ * runtime with `localStorage.setItem('churro:terminal-debug','1')` (or set
+ * `globalThis.__CHURRO_TERMINAL_DEBUG__ = true`) to surface the mount / renderer
+ * / focus / resize traces without spamming the console for every user.
+ */
+export function terminalDebug(...args: unknown[]): void {
+  try {
+    const on =
+      (globalThis as { __CHURRO_TERMINAL_DEBUG__?: boolean }).__CHURRO_TERMINAL_DEBUG__ === true ||
+      (typeof localStorage !== 'undefined' && localStorage.getItem('churro:terminal-debug') === '1');
+    if (on) console.log(...(args as []));
+  } catch {
+    // never let logging throw
+  }
+}
 
 /**
  * Get the default terminal background color based on theme.
@@ -17,49 +34,101 @@ export function getDefaultTerminalBg(isDark = true): string {
   return theme?.background ?? (isDark ? '#121212' : '#fafafa');
 }
 
+export type TerminalRendererKind = 'webgl' | 'canvas' | 'dom';
+
+export interface TerminalRenderer {
+  /** Dispose the active renderer addon (no-op for the built-in DOM renderer). */
+  dispose: () => void;
+  /**
+   * Force a clean full repaint. For WebGL this also clears the glyph texture
+   * atlas — the cache that, on partial in-place TUI redraws/resizes, leaves
+   * stale glyphs at wrong positions (the "phantom characters" bug). Cheap for
+   * Canvas/DOM (just a viewport refresh). Wired into the sizer's post-resize
+   * commit and the renderer-swap path so drift self-heals.
+   */
+  refresh: () => void;
+}
+
 /**
- * Load GPU-accelerated renderer with automatic fallback.
- * Tries WebGL first, falls back to Canvas renderer if WebGL fails.
+ * Load the cell renderer for an xterm instance.
+ *
+ * Default (webglEnabled=false): Canvas renderer, falling back to xterm's
+ * built-in DOM renderer if Canvas construction fails. Canvas repaints per cell
+ * every frame and is immune to the WebGL texture-atlas phantom-glyph class, so
+ * it is the safe default for redraw-heavy TUIs.
+ *
+ * Opt-in (webglEnabled=true): WebGL renderer with two safety nets — an
+ * `onContextLoss` handler that swaps to Canvas (a GPU process restart / context
+ * eviction would otherwise leave the pane blank), and a construct-time
+ * try/catch that falls back to Canvas, then DOM. Even when WebGL is active the
+ * returned `refresh()` clears the texture atlas to defend against atlas
+ * corruption on resize/DPR change.
  */
-function loadRenderer(xterm: XTerm): { dispose: () => void } {
+function loadRenderer(xterm: XTerm, webglEnabled: boolean): TerminalRenderer {
   let renderer: WebglAddon | CanvasAddon | null = null;
+  let kind: TerminalRendererKind = 'dom';
 
-  console.log('[Terminal:loadRenderer] Attempting to load WebGL addon...');
-
-  try {
-    const webglAddon = new WebglAddon();
-    console.log('[Terminal:loadRenderer] WebglAddon created');
-
-    webglAddon.onContextLoss(() => {
-      console.log('[Terminal:loadRenderer] WebGL context lost, switching to Canvas');
-      webglAddon.dispose();
-      try {
-        renderer = new CanvasAddon();
-        xterm.loadAddon(renderer);
-        console.log('[Terminal:loadRenderer] Canvas fallback loaded after context loss');
-      } catch {
-        console.log('[Terminal:loadRenderer] Canvas fallback failed');
-      }
-    });
-
-    xterm.loadAddon(webglAddon);
-    renderer = webglAddon;
-    console.log('[Terminal:loadRenderer] WebGL addon loaded successfully');
-  } catch (err) {
-    console.log('[Terminal:loadRenderer] WebGL failed:', err);
-    // WebGL not available, try Canvas
+  const loadCanvas = (): boolean => {
     try {
-      renderer = new CanvasAddon();
-      xterm.loadAddon(renderer);
-      console.log('[Terminal:loadRenderer] Canvas addon loaded as fallback');
-    } catch (canvasErr) {
-      console.log('[Terminal:loadRenderer] Canvas addon also failed:', canvasErr);
-      // Both failed, use xterm's default renderer
+      const canvas = new CanvasAddon();
+      xterm.loadAddon(canvas);
+      renderer = canvas;
+      kind = 'canvas';
+      return true;
+    } catch (err) {
+      terminalDebug('[Terminal:renderer] canvas failed, using DOM:', err);
+      renderer = null;
+      kind = 'dom';
+      return false;
     }
+  };
+
+  if (webglEnabled) {
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => {
+        terminalDebug('[Terminal:renderer] webgl context lost → canvas');
+        try {
+          webglAddon.dispose();
+        } catch {
+          // ignore
+        }
+        loadCanvas();
+      });
+      xterm.loadAddon(webglAddon);
+      renderer = webglAddon;
+      kind = 'webgl';
+    } catch (err) {
+      terminalDebug('[Terminal:renderer] webgl failed → canvas:', err);
+      loadCanvas();
+    }
+  } else {
+    loadCanvas();
   }
 
+  terminalDebug('[Terminal:renderer] active renderer =', kind);
+
   return {
-    dispose: () => renderer?.dispose()
+    dispose: () => {
+      try {
+        renderer?.dispose();
+      } catch {
+        // ignore
+      }
+    },
+    refresh: () => {
+      try {
+        // Clear the WebGL glyph atlas before repainting so stale cached glyphs
+        // cannot survive a resize/DPR change. clearTextureAtlas exists on the
+        // WebGL addon (0.19.0); guard for the Canvas/DOM case.
+        if (kind === 'webgl') {
+          (renderer as WebglAddon | null)?.clearTextureAtlas?.();
+        }
+        xterm.refresh(0, Math.max(0, xterm.rows - 1));
+      } catch {
+        // refresh can throw mid-dispose; ignore
+      }
+    }
   };
 }
 
@@ -67,6 +136,8 @@ export interface CreateTerminalOptions {
   cwd?: string;
   initialTheme?: ITheme | null;
   isDark?: boolean;
+  /** Use the WebGL renderer instead of Canvas (user setting; default false). */
+  webglEnabled?: boolean;
   onFileLinkClick?: (path: string, line?: number, column?: number) => void;
   onUrlClick?: (url: string) => void;
 }
@@ -74,6 +145,8 @@ export interface CreateTerminalOptions {
 export interface TerminalInstance {
   xterm: XTerm;
   serializeAddon: SerializeAddon;
+  /** Force a clean full repaint (clears the WebGL atlas when active). */
+  refresh: () => void;
   cleanup: () => void;
 }
 
@@ -87,48 +160,25 @@ export function createTerminalInstance(
   container: HTMLDivElement,
   options: CreateTerminalOptions = {}
 ): TerminalInstance {
-  const { initialTheme, isDark = true, onFileLinkClick, onUrlClick } = options;
-
-  // Debug: Check container dimensions
-  const rect = container.getBoundingClientRect();
-  console.log('[Terminal:create] Container dimensions:', {
-    width: rect.width,
-    height: rect.height,
-    isConnected: container.isConnected
-  });
+  const { initialTheme, isDark = true, webglEnabled = false, onFileLinkClick, onUrlClick } = options;
 
   // Use provided theme, or get theme based on isDark
   const theme = initialTheme ?? getTerminalTheme(isDark);
   const terminalOptions = { ...TERMINAL_OPTIONS, theme };
 
-  // 1. Create xterm instance
-  console.log('[Terminal:create] Step 1: Creating XTerm instance');
+  // 1. Create + open xterm in the DOM.
   const xterm = new XTerm(terminalOptions);
-
-  // 2. Open in DOM first
-  console.log('[Terminal:create] Step 2: Opening in DOM');
   xterm.open(container);
 
-  // Debug: Check _renderService after open
-  const core = (xterm as unknown as { _core?: { _renderService?: unknown } })._core;
-  console.log('[Terminal:create] After open - _renderService exists:', !!core?._renderService);
-
-  // 3. Load serialize addon for state persistence
-  console.log('[Terminal:create] Step 3: Loading SerializeAddon');
+  // 2. Load serialize addon for state persistence (scrollback survives detach).
   const serializeAddon = new SerializeAddon();
   xterm.loadAddon(serializeAddon);
 
-  // 4. Load GPU-accelerated renderer
-  console.log('[Terminal:create] Step 4: Loading renderer');
-  const renderer = loadRenderer(xterm);
+  // 3. Load the cell renderer (Canvas by default; WebGL only when opted in).
+  const renderer = loadRenderer(xterm, webglEnabled);
 
-  // Debug: Check dimensions after renderer
-  const coreAfter = (xterm as unknown as { _core?: { _renderService?: { dimensions?: unknown } } })._core;
-  console.log('[Terminal:create] After renderer - dimensions:', coreAfter?._renderService?.dimensions);
-
-  // 5. Set up URL link provider using official WebLinksAddon
+  // 4. Set up URL link provider using official WebLinksAddon
   if (onUrlClick) {
-    console.log('[Terminal:create] Step 5: Registering WebLinksAddon');
     const webLinksAddon = new WebLinksAddon(
       (event: MouseEvent, uri: string) => {
         // Require Cmd+Click (Mac) or Ctrl+Click (Windows/Linux)
@@ -148,21 +198,18 @@ export function createTerminalInstance(
     xterm.loadAddon(webLinksAddon);
   }
 
-  // 6. Set up file path link provider
+  // 5. Set up file path link provider
   if (onFileLinkClick) {
-    console.log('[Terminal:create] Step 6: Registering file path link provider');
     const filePathLinkProvider = new FilePathLinkProvider(xterm, (_event, path, line, column) => {
-      console.log('[Terminal:create] File path link clicked:', path, line, column);
       onFileLinkClick(path, line, column);
     });
     xterm.registerLinkProvider(filePathLinkProvider);
   }
 
-  console.log('[Terminal:create] Complete! (sizing deferred to TerminalSizer)');
-
   return {
     xterm,
     serializeAddon,
+    refresh: renderer.refresh,
     cleanup: () => {
       renderer.dispose();
     }
@@ -265,18 +312,49 @@ export function setupPasteHandler(xterm: XTerm, options: PasteHandlerOptions = {
 }
 
 /**
- * Setup focus listener for the terminal.
+ * Keep the terminal focusable and keyboard-ready across dockview visibility
+ * toggles. Dockview hides inactive panels with CSS (the Terminal component stays
+ * mounted), so xterm silently loses focus and typing goes nowhere until the user
+ * clicks — the "keyboard doesn't work" symptom. This wires two recoveries:
  *
- * Returns a cleanup function to remove the listener.
+ *  - **Pointer:** any mousedown inside the pane focuses xterm (single click is
+ *    always enough; text selection still works because xterm handles its own
+ *    selection on the same gesture).
+ *  - **Visibility:** when the pane becomes visible again, focus xterm — but only
+ *    if nothing else currently owns focus (activeElement is body/null) or focus
+ *    is already inside this pane. This restores the common "switched tab and
+ *    came back" case without stealing focus from the chat composer or another
+ *    input elsewhere in the window.
+ *
+ * Returns a cleanup function.
  */
-export function setupFocusListener(xterm: XTerm, onFocus: () => void): (() => void) | null {
-  const textarea = xterm.textarea;
-  if (!textarea) return null;
+export function setupAutoFocus(xterm: XTerm, scope: HTMLElement, onFocused?: () => void): () => void {
+  const focusNow = (reason: string): void => {
+    try {
+      xterm.focus();
+      terminalDebug('[Terminal:focus] focused on', reason);
+      onFocused?.();
+    } catch {
+      // ignore (mid-dispose)
+    }
+  };
 
-  textarea.addEventListener('focus', onFocus);
+  const onMouseDown = () => focusNow('pointer');
+  scope.addEventListener('mousedown', onMouseDown, { capture: true });
+
+  const intersectionObserver = new IntersectionObserver((entries) => {
+    if (!entries.some((e) => e.isIntersecting)) return;
+    const active = document.activeElement;
+    const ownsFocus = active === null || active === document.body || scope.contains(active);
+    // Only grab focus when it is unowned or already ours — never yank it from
+    // an input the user is typing in elsewhere.
+    if (ownsFocus) focusNow('visible');
+  });
+  intersectionObserver.observe(scope);
 
   return () => {
-    textarea.removeEventListener('focus', onFocus);
+    scope.removeEventListener('mousedown', onMouseDown, { capture: true });
+    intersectionObserver.disconnect();
   };
 }
 

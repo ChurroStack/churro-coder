@@ -204,7 +204,8 @@ export function usePanelActions(sourceGroup?: DockviewGroupPanel): PanelActions 
     const id = generateTerminalId();
     const paneId = buildTerminalPaneId(scopeKey, id);
     const name = getNextTerminalName(list);
-    const inst: TerminalInstance = { id, paneId, name, createdAt: Date.now() };
+    // origin 'panel' — created in the dockview, must never render in a sidebar.
+    const inst: TerminalInstance = { id, paneId, name, createdAt: Date.now(), origin: 'panel' };
     setTerminals((prev) => ({
       ...prev,
       [chatId]: [...(prev[chatId] ?? []), inst]
