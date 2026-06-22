@@ -97,6 +97,10 @@ contextBridge.exposeInMainWorld('desktopApi', {
   windowIsFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),
   setTrafficLightVisibility: (visible: boolean) => ipcRenderer.invoke('window:set-traffic-light-visibility', visible),
   resetTrafficLightPosition: () => ipcRenderer.invoke('window:reset-traffic-light-position'),
+  // macOS: tell main that a pointer pressed in the title-bar zone, so it can
+  // suppress the native double-click "zoom" that would otherwise resize/move the
+  // window. Fire-and-forget; main only acts on darwin.
+  notifyTitleBarPress: () => ipcRenderer.send('window:titlebar-press'),
 
   // Windows-specific: Frame preference (native vs frameless)
   setWindowFramePreference: (useNativeFrame: boolean) =>
@@ -340,6 +344,7 @@ export interface DesktopApi {
   windowIsFullscreen: () => Promise<boolean>;
   setTrafficLightVisibility: (visible: boolean) => Promise<void>;
   resetTrafficLightPosition: () => Promise<void>;
+  notifyTitleBarPress: () => void;
   // Windows-specific frame preference
   setWindowFramePreference: (useNativeFrame: boolean) => Promise<boolean>;
   getWindowFrameState: () => Promise<boolean>;

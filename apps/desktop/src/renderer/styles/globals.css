@@ -488,14 +488,16 @@
   padding: 0 4px;
 }
 
-/* The dockview tab strip lives where the original 32px drag region used to
- * be — make its empty space draggable so the user can move the window from
- * the gap between tabs and the right-side actions. The actions container
- * itself opts out via inline `WebkitAppRegion: no-drag` (see dock-header-
- * actions.tsx) so its buttons stay clickable. */
+/* The dockview tab strip is intentionally NOT a window-drag region: making it
+ * draggable meant a stray click on the empty gap moved the window and a
+ * double-click triggered the native title-bar zoom — both clashing with the
+ * tabs + action buttons that live here. Window dragging in the Workspace view
+ * comes from the sidebar header (agents-sidebar.tsx) and the 6px perimeter
+ * gutter (agents-layout.tsx). This is dockview-only (`.dv-*`), so the Settings
+ * / Usage / Time / Project-stats full top bars are unaffected. */
 .cs-theme-light .dv-tabs-and-actions-container,
 .cs-theme-dark .dv-tabs-and-actions-container {
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
 }
 .cs-theme-light .dv-tab,
 .cs-theme-dark .dv-tab,
