@@ -611,6 +611,53 @@ export function createWindow(options?: { chatId?: string; subChatId?: string; pr
     }
   });
 
+  // macOS: suppress the native title-bar double-click "zoom" (it resizes the
+  // window to fill the screen AND moves it to the corner). This is NOT a maximize
+  // and `-webkit-app-region`/`maximizable` don't touch it; it goes through the
+  // live-resize path reporting `details.edge: 'right'` — indistinguishable from a
+  // real edge-drag by the event alone. The ONLY unambiguous signal is the
+  // double-click itself, which only the renderer sees: it calls `notifyTitleBarPress`
+  // (preload) on every pointer-down in the title-bar zone, renewing a short guard.
+  // While the guard is hot we cancel `will-resize` (the zoom's size change) and the
+  // `will-move` the zoom pairs with it. A genuine edge-resize starts on a window
+  // edge (no title-bar press → no guard) and a window drag fires only `will-move`
+  // with no paired blocked resize, so both keep working.
+  if (process.platform === 'darwin') {
+    let zoomGuardUntil = 0;
+    let preZoomBounds = window.getBounds();
+    let movableTimer: ReturnType<typeof setTimeout> | null = null;
+    window.webContents.ipc.on('window:titlebar-press', () => {
+      zoomGuardUntil = Date.now() + 450;
+      preZoomBounds = window.getBounds();
+      // 1) Refuse user/AppKit reposition outright for the guard window. The native
+      //    zoom's move may be rejected here with no visible jump at all.
+      window.setMovable(false);
+      if (movableTimer) clearTimeout(movableTimer);
+      movableTimer = setTimeout(() => {
+        if (!window.isDestroyed()) window.setMovable(true);
+        movableTimer = null;
+      }, 450);
+    });
+    // 2) Cancel the zoom's size change (it reports details.edge:'right', same as a
+    //    real edge-drag — but a real edge-drag starts off the title bar so no guard
+    //    is armed).
+    window.on('will-resize', (event) => {
+      if (Date.now() < zoomGuardUntil) event.preventDefault();
+    });
+    // 3) Belt-and-suspenders: the zoom's reposition does NOT fire `will-move`, but
+    //    `move`/`moved` DO fire once it lands. If setMovable(false) didn't stop it,
+    //    snap straight back to pre-zoom bounds (size is already held by #2).
+    const restoreIfGuarded = () => {
+      if (Date.now() >= zoomGuardUntil || window.isDestroyed()) return;
+      const b = window.getBounds();
+      if (b.x !== preZoomBounds.x || b.y !== preZoomBounds.y) {
+        window.setBounds(preZoomBounds);
+      }
+    };
+    window.on('move', restoreIfGuarded);
+    window.on('moved', restoreIfGuarded);
+  }
+
   // Register window with manager and get stable ID for localStorage namespacing
   const stableWindowId = windowManager.register(window);
   console.log(

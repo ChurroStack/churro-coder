@@ -490,6 +490,33 @@ export function AgentsLayout() {
     };
   }, [dockviewThemeClass]);
 
+  // macOS: report pointer-presses in the title-bar zone so the main process can
+  // suppress the native title-bar double-click "zoom" (which would resize+move
+  // the window). The zoom is indistinguishable from a real resize at the main
+  // level — the double-click location is the only reliable signal, and it lives
+  // here in the renderer. We exclude the top ~5px (window resize edge) so
+  // edge-resizing still works; the guard in main only cancels resizes that
+  // follow a title-bar press. See `notifyTitleBarPress` + the will-resize guard
+  // in `src/main/windows/main.ts`.
+  useEffect(() => {
+    const api = window.desktopApi;
+    if (!api || api.platform !== 'darwin' || !api.notifyTitleBarPress) return;
+    // Workspace view only: when a system overlay (Settings/Usage/etc.) is up it
+    // owns the full title bar and SHOULD keep the native double-click zoom, so we
+    // don't attach the suppressor.
+    if (layoutSystemView !== null) return;
+    let lastDownAt = 0;
+    const onPointerDown = (e: MouseEvent) => {
+      if (e.clientY < 6 || e.clientY > 46) return; // outside the title-bar zone
+      const now = e.timeStamp;
+      const isDoubleClick = now - lastDownAt < 450;
+      lastDownAt = now;
+      if (isDoubleClick) api.notifyTitleBarPress!();
+    };
+    document.addEventListener('mousedown', onPointerDown, true);
+    return () => document.removeEventListener('mousedown', onPointerDown, true);
+  }, [layoutSystemView]);
+
   // macOS: re-apply the custom traffic-light position whenever a system
   // view is unmounted (e.g. user navigates back from Settings). Mounting
   // / unmounting the absolute overlay can prompt Electron to reset the
@@ -736,10 +763,15 @@ export function AgentsLayout() {
                 // (see CenterRail/LeftRail/DetailsRail) — gap/2 on each side
                 // of the absolutely-positioned sash sums to --shell-gap.
                 padding: 'var(--shell-gap)',
-                // Outer gutter is draggable so users can move the window from
-                // the strip around the rails. The inner div below opts back
-                // out so the gridview sash + cell contents stay interactive.
-                WebkitAppRegion: 'drag'
+                // The window is intentionally NOT blanket-draggable here. A
+                // window-wide `drag` region cannot be reliably carved back out
+                // (`no-drag`) over the dockview, whose tab strip renders in a
+                // composited/transformed layer — the carve-out is ignored there,
+                // so the tab strip stayed draggable and double-click zoomed the
+                // window. Window drag is provided instead by the left sidebar
+                // header (agents-sidebar.tsx), a plain non-composited element
+                // where drag regions work. Keep this base `no-drag`.
+                WebkitAppRegion: 'no-drag'
               }}>
               <div
                 className="h-full w-full"
