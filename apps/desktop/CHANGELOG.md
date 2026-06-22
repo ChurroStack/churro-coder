@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.11](https://github.com/ChurroStack/churro-coder/compare/v0.1.10...v0.1.11) (2026-06-22)
+
+
+### Bug Fixes
+
+* **desktop:** harden terminal (xterm 5.5, Canvas default, no dual-mount) ([#221](https://github.com/ChurroStack/churro-coder/issues/221)) ([c8b7534](https://github.com/ChurroStack/churro-coder/commit/c8b7534117ddfa3970e8f429b319a5c5ddeb0e23))
+* **desktop:** suppress native title-bar double-click zoom in Workspace view (macOS) ([#223](https://github.com/ChurroStack/churro-coder/issues/223)) ([53e027f](https://github.com/ChurroStack/churro-coder/commit/53e027f73ab34e76a913ed7ebb0e07ad20cfe8ce))
+
 ## [0.1.10](https://github.com/ChurroStack/churro-coder/compare/v0.1.9...v0.1.10) (2026-06-17)
 
 
