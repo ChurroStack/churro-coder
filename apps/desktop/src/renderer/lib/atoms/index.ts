@@ -300,6 +300,18 @@ export const useNativeFrameAtom = atomWithStorage<boolean>(
   { getOnInit: true }
 );
 
+// Preferences - Terminal GPU (WebGL) acceleration
+// When true, terminals use the WebGL renderer (hardened with atlas-clear on
+// resize/DPR/context-loss). Default false → Canvas renderer, which repaints
+// per-cell and is immune to the WebGL texture-atlas phantom-glyph class. Toggle
+// remounts open terminals; scrollback is preserved via the serialize/detach path.
+export const terminalWebglEnabledAtom = atomWithStorage<boolean>(
+  'preferences:terminal-webgl-enabled',
+  false,
+  undefined,
+  { getOnInit: true }
+);
+
 // Preferences - Analytics Opt-out
 // When true, user has opted out of analytics tracking
 export const analyticsOptOutAtom = atomWithStorage<boolean>(

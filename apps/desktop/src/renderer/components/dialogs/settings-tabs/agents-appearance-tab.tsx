@@ -11,6 +11,7 @@ import {
   systemDarkThemeIdAtom,
   showWorkspaceIconAtom,
   chatMessageDensityAtom,
+  terminalWebglEnabledAtom,
   type ChatMessageDensity,
   importedThemesAtom,
   type VSCodeFullTheme
@@ -130,6 +131,9 @@ export function AgentsAppearanceTab() {
 
   // Chat message density preference
   const [chatMessageDensity, setChatMessageDensity] = useAtom(chatMessageDensityAtom);
+
+  // Terminal GPU (WebGL) acceleration preference
+  const [terminalWebglEnabled, setTerminalWebglEnabled] = useAtom(terminalWebglEnabledAtom);
 
   // VS Code themes state
   const [isScanning, setIsScanning] = useState(false);
@@ -522,6 +526,16 @@ export function AgentsAppearanceTab() {
               <SelectItem value="expanded">Expanded</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-center justify-between p-4 border-t border-border">
+          <div className="flex flex-col space-y-1">
+            <span className="text-sm font-medium text-foreground">Terminal GPU acceleration (WebGL)</span>
+            <span className="text-xs text-muted-foreground">
+              Faster on large scrollback. Turn off if you see flickering, blank panes, or phantom characters. Off uses
+              the Canvas renderer (default). Changing this reloads open terminals.
+            </span>
+          </div>
+          <Switch checked={terminalWebglEnabled} onCheckedChange={setTerminalWebglEnabled} />
         </div>
       </div>
     </div>

@@ -30,7 +30,7 @@ import {
 } from './atoms';
 import { trpc } from '@/lib/trpc';
 import type { TerminalInstance } from './types';
-import { isSharedTerminalScope } from './utils';
+import { isSharedTerminalScope, isSidebarTerminal, reconcileSessionsIntoTerminals } from './utils';
 
 // Animation constants - keep in sync with ResizableSidebar animationDuration
 const SIDEBAR_ANIMATION_DURATION_SECONDS = 0; // Disabled for performance
@@ -159,11 +159,19 @@ export function TerminalSidebar({
     return getDefaultTerminalBg(isDark);
   }, [isDark, fullThemeData]);
 
-  // Get terminals for this scope (shared by path for local mode, isolated for worktree)
-  const terminals = useMemo(() => allTerminals[scopeKey] || [], [allTerminals, scopeKey]);
+  // Get terminals for this scope (shared by path for local mode, isolated for
+  // worktree). Only sidebar-origin terminals — dockview-created ones live solely
+  // as dockview panels and must not also mount here (would double-mount the PTY).
+  const terminals = useMemo(() => (allTerminals[scopeKey] || []).filter(isSidebarTerminal), [allTerminals, scopeKey]);
 
-  // Get active terminal ID for this scope
-  const activeTerminalId = useMemo(() => allActiveIds[scopeKey] || null, [allActiveIds, scopeKey]);
+  // Active terminal ID for this scope. The shared atom may point at a dockview
+  // (panel-origin) terminal that we've filtered out; fall back to the first
+  // sidebar terminal so this surface always has a valid selection.
+  const activeTerminalId = useMemo(() => {
+    const raw = allActiveIds[scopeKey] || null;
+    if (raw && terminals.some((t) => t.id === raw)) return raw;
+    return terminals[0]?.id ?? null;
+  }, [allActiveIds, scopeKey, terminals]);
 
   // Get the active terminal instance
   const activeTerminal = useMemo(
@@ -196,7 +204,8 @@ export function TerminalSidebar({
       id,
       paneId,
       name,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      origin: 'sidebar'
     };
 
     setAllTerminals((prev) => ({
@@ -364,20 +373,23 @@ export function TerminalSidebar({
       trpcUtils.terminal.listSessionsByScopeKey
         .fetch({ scopeKey })
         .then((sessions) => {
-          if (sessions.length > 0) {
-            // Reconstruct TerminalInstance records from existing backend sessions
-            const instances = sessions.map((s, i) => ({
-              id: s.paneId.split(':term:')[1] || generateTerminalId(),
-              paneId: s.paneId,
-              name: `Terminal ${i + 1}`,
-              createdAt: s.lastActive
-            }));
-            setAllTerminals((prev) => ({ ...prev, [scopeKey]: instances }));
-            setAllActiveIds((prev) => ({
-              ...prev,
-              [scopeKey]: instances[0]?.id || null
-            }));
+          if (sessions.length === 0) {
+            createTerminal();
+            return;
+          }
+          // Merge live sessions into the persisted list, preserving the origin of
+          // paneIds we already know (so a panel/script terminal is not re-tagged
+          // 'sidebar' and double-mounted). See reconcileSessionsIntoTerminals.
+          let firstSidebarId: string | null = null;
+          setAllTerminals((prev) => {
+            const merged = reconcileSessionsIntoTerminals(prev[scopeKey] ?? [], sessions, generateTerminalId);
+            firstSidebarId = merged.find(isSidebarTerminal)?.id ?? null;
+            return { ...prev, [scopeKey]: merged };
+          });
+          if (firstSidebarId) {
+            setAllActiveIds((prev) => ({ ...prev, [scopeKey]: firstSidebarId }));
           } else {
+            // Only panel-origin sessions are live — give the sidebar its own terminal.
             createTerminal();
           }
         })
@@ -611,8 +623,13 @@ export function TerminalBottomPanelContent({
     return getDefaultTerminalBg(isDark);
   }, [isDark, fullThemeData]);
 
-  const terminals = useMemo(() => allTerminals[scopeKey] || [], [allTerminals, scopeKey]);
-  const activeTerminalId = useMemo(() => allActiveIds[scopeKey] || null, [allActiveIds, scopeKey]);
+  // Only sidebar-origin terminals (dockview-created ones must not double-mount).
+  const terminals = useMemo(() => (allTerminals[scopeKey] || []).filter(isSidebarTerminal), [allTerminals, scopeKey]);
+  const activeTerminalId = useMemo(() => {
+    const raw = allActiveIds[scopeKey] || null;
+    if (raw && terminals.some((t) => t.id === raw)) return raw;
+    return terminals[0]?.id ?? null;
+  }, [allActiveIds, scopeKey, terminals]);
   const activeTerminal = useMemo(
     () => terminals.find((t) => t.id === activeTerminalId) || null,
     [terminals, activeTerminalId]
@@ -633,7 +650,7 @@ export function TerminalBottomPanelContent({
     const id = generateTerminalId();
     const paneId = generatePaneId(currentScopeKey, id);
     const name = getNextTerminalName(currentTerminals);
-    const newTerminal: TerminalInstance = { id, paneId, name, createdAt: Date.now() };
+    const newTerminal: TerminalInstance = { id, paneId, name, createdAt: Date.now(), origin: 'sidebar' };
     setAllTerminals((prev) => ({
       ...prev,
       [currentScopeKey]: [...(prev[currentScopeKey] || []), newTerminal]
@@ -727,18 +744,18 @@ export function TerminalBottomPanelContent({
       trpcUtils.terminal.listSessionsByScopeKey
         .fetch({ scopeKey })
         .then((sessions) => {
-          if (sessions.length > 0) {
-            const instances = sessions.map((s, i) => ({
-              id: s.paneId.split(':term:')[1] || generateTerminalId(),
-              paneId: s.paneId,
-              name: `Terminal ${i + 1}`,
-              createdAt: s.lastActive
-            }));
-            setAllTerminals((prev) => ({ ...prev, [scopeKey]: instances }));
-            setAllActiveIds((prev) => ({
-              ...prev,
-              [scopeKey]: instances[0]?.id || null
-            }));
+          if (sessions.length === 0) {
+            createTerminal();
+            return;
+          }
+          let firstSidebarId: string | null = null;
+          setAllTerminals((prev) => {
+            const merged = reconcileSessionsIntoTerminals(prev[scopeKey] ?? [], sessions, generateTerminalId);
+            firstSidebarId = merged.find(isSidebarTerminal)?.id ?? null;
+            return { ...prev, [scopeKey]: merged };
+          });
+          if (firstSidebarId) {
+            setAllActiveIds((prev) => ({ ...prev, [scopeKey]: firstSidebarId }));
           } else {
             createTerminal();
           }
