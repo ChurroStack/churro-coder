@@ -5,7 +5,7 @@
 // xterm instances; reintroducing instance reuse would let subChat A's PTY
 // bytes write into subChat B's canvas.
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import type { Terminal as XTerm } from 'xterm';
+import type { Terminal as XTerm } from '@xterm/xterm';
 import type { SearchAddon } from '@xterm/addon-search';
 import type { SerializeAddon } from '@xterm/addon-serialize';
 import { useTheme } from 'next-themes';
@@ -13,15 +13,16 @@ import { useSetAtom, useAtomValue } from 'jotai';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { terminalCwdAtom } from './atoms';
-import { fullThemeDataAtom } from '@/lib/atoms';
+import { fullThemeDataAtom, terminalWebglEnabledAtom } from '@/lib/atoms';
 import {
   createTerminalInstance,
   getDefaultTerminalBg,
+  setupAutoFocus,
   setupClickToMoveCursor,
   setupContextMenuHandler,
-  setupFocusListener,
   setupKeyboardHandler,
-  setupPasteHandler
+  setupPasteHandler,
+  terminalDebug
 } from './helpers';
 import { createTerminalSizer, type TerminalSizer } from './terminal-sizing';
 import { getTerminalTheme, getTerminalThemeFromVSCode } from './config';
@@ -31,7 +32,7 @@ import { shellEscapePaths } from './utils';
 import { TerminalSearch } from './TerminalSearch';
 import { useFindScope } from '../find/use-find-scope';
 import type { TerminalProps, TerminalStreamEvent } from './types';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 
 export function Terminal({
   paneId,
@@ -51,6 +52,7 @@ export function Terminal({
   const sizerRef = useRef<TerminalSizer | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  const refreshRef = useRef<(() => void) | null>(null);
   const isExitedRef = useRef(false);
   const commandBufferRef = useRef('');
 
@@ -65,6 +67,11 @@ export function Terminal({
 
   // VS Code theme data (if a full theme is selected)
   const fullThemeData = useAtomValue(fullThemeDataAtom);
+
+  // Renderer choice (user setting). Default false → Canvas. Included in the
+  // mount effect deps so flipping it cleanly re-inits the terminal; scrollback
+  // survives via the serialize/detach path.
+  const webglEnabled = useAtomValue(terminalWebglEnabledAtom);
 
   // Ref for terminalCwd to avoid effect re-runs when cwd changes
   const terminalCwdRef = useRef(terminalCwd);
@@ -103,7 +110,7 @@ export function Terminal({
     (data: string) => {
       const parsedCwd = parseCwd(data);
       if (parsedCwd !== null) {
-        console.log('[Terminal] Parsed cwd from OSC-7:', parsedCwd);
+        terminalDebug('[Terminal] Parsed cwd from OSC-7:', parsedCwd);
         setTerminalCwd(parsedCwd);
         // Also update global atom for the tabs to show
         setGlobalCwds((prev) => ({
@@ -156,30 +163,26 @@ export function Terminal({
       return;
     }
 
-    console.log('[Terminal:useEffect] MOUNT - paneId:', paneId);
-    console.log('[Terminal:useEffect] Container rect:', container.getBoundingClientRect());
+    terminalDebug('[Terminal:mount] paneId:', paneId, 'webgl:', webglEnabled);
 
     let isUnmounted = false;
 
     // Create xterm instance
-    console.log('[Terminal:useEffect] Creating terminal instance...', {
-      isDark
-    });
-    const { xterm, serializeAddon, cleanup } = createTerminalInstance(container, {
+    const { xterm, serializeAddon, refresh, cleanup } = createTerminalInstance(container, {
       cwd: terminalCwdRef.current || cwd,
       isDark,
-      onFileLinkClick: (path, line, column) => {
-        console.log('[Terminal] File link clicked:', path, line, column);
+      webglEnabled,
+      onFileLinkClick: (_path, _line, _column) => {
         // TODO: Open file in editor
       },
       onUrlClick: (url) => {
-        console.log('[Terminal] URL clicked:', url);
         window.desktopApi.openExternal(url);
       }
     });
 
     xtermRef.current = xterm;
     serializeAddonRef.current = serializeAddon;
+    refreshRef.current = refresh;
     isExitedRef.current = false;
 
     // Own the measure -> fit -> resize lifecycle. The sizer attempts a
@@ -193,7 +196,12 @@ export function Terminal({
       ({ cols, rows }) => {
         resizeRef.current({ paneId, cols, rows });
       },
-      { clearScrollbackOnColChange }
+      {
+        clearScrollbackOnColChange,
+        // Full repaint (clears the WebGL atlas) after every committed resize so
+        // partial-redraw drift / phantom glyphs self-heal.
+        onAfterResize: () => refreshRef.current?.()
+      }
     );
     sizerRef.current = sizer;
 
@@ -245,6 +253,7 @@ export function Terminal({
           onExitedKeyPressRef.current();
           return;
         }
+        terminalDebug('[Terminal:input] swallowed — session exited, restarting paneId=', paneId);
         restartTerminal();
         return;
       }
@@ -317,9 +326,11 @@ export function Terminal({
       onWrite: handleWrite
     });
 
-    const cleanupFocus = setupFocusListener(xterm, () => {
-      // TODO: Set focused pane
-    });
+    // Keep the terminal keyboard-ready: focus on click, and re-focus when the
+    // pane becomes visible again after a dockview tab switch (the component
+    // stays mounted, so xterm otherwise silently keeps lost focus → "keyboard
+    // doesn't work"). Observes the outer scope wrapper.
+    const cleanupFocus = scopeRef.current ? setupAutoFocus(xterm, scopeRef.current) : undefined;
 
     const cleanupPaste = setupPasteHandler(xterm, {
       onPaste: (text) => {
@@ -344,7 +355,7 @@ export function Terminal({
 
     // Cleanup on unmount
     return () => {
-      console.log('[Terminal:useEffect] UNMOUNT - paneId:', paneId);
+      terminalDebug('[Terminal:unmount] paneId:', paneId);
       isUnmounted = true;
       inputDisposable.dispose();
       keyDisposable.dispose();
@@ -356,24 +367,24 @@ export function Terminal({
       cleanupContextMenu();
       cleanup();
 
-      // Serialize terminal state before detaching
-      console.log('[Terminal:useEffect] Serializing state before detach...');
+      // Serialize terminal state before detaching (keeps scrollback for reattach)
       const serializedState = serializeAddon.serialize();
 
       // Detach instead of kill - keeps session alive for reattach
       detachRef.current({ paneId, serializedState });
 
-      console.log('[Terminal:useEffect] Disposing xterm...');
       xterm.dispose();
       xtermRef.current = null;
       sizerRef.current = null;
       searchAddonRef.current = null;
       serializeAddonRef.current = null;
-      console.log('[Terminal:useEffect] UNMOUNT complete');
+      refreshRef.current = null;
     };
-    // Note: terminalCwd is accessed via ref to avoid remounting on cwd changes
+    // Note: terminalCwd is accessed via ref to avoid remounting on cwd changes.
+    // webglEnabled is included so toggling the renderer setting re-inits the
+    // terminal (scrollback is preserved via the serialize/detach path above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId, cwd, workspaceId, tabId, initialCwd, initialCommands, isDark]);
+  }, [paneId, cwd, workspaceId, tabId, initialCwd, initialCommands, isDark, webglEnabled]);
 
   // Update theme when isDark changes or VS Code theme changes (without recreating terminal)
   useEffect(() => {

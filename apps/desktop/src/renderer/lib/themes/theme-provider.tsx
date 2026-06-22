@@ -12,7 +12,7 @@
 import { createContext, useContext, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useTheme } from 'next-themes';
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 
 import {
   selectedFullThemeIdAtom,

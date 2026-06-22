@@ -1,7 +1,51 @@
 /**
  * Terminal utility functions.
  */
-import type { Terminal as XTerm } from 'xterm';
+import type { Terminal as XTerm } from '@xterm/xterm';
+import type { TerminalInstance } from './types';
+
+/**
+ * True when a terminal belongs to a sidebar surface (right sidebar / bottom
+ * panel / details-rail widget). Dockview-created terminals (`origin: 'panel'`)
+ * are excluded so they never render in a sidebar at the same time as their
+ * dockview panel. A missing `origin` (legacy persisted terminals) counts as
+ * sidebar — those predate dockview-created terminals.
+ */
+export function isSidebarTerminal(t: TerminalInstance): boolean {
+  return (t.origin ?? 'sidebar') === 'sidebar';
+}
+
+/**
+ * Rebuild the terminal list for a scope from the live PTY sessions the backend
+ * reports, used when the persisted list is empty but PTYs are still running
+ * (renderer reload / fresh window).
+ *
+ * Critically, this PRESERVES the `origin` (and id/name) of any paneId we already
+ * know about — a blind overwrite would wipe `origin: 'panel'` off a script /
+ * dockview terminal and make it render in the sidebar again (the dual-mount bug
+ * this guards against). For genuinely-unknown sessions we infer origin from the
+ * paneId: script terminals (`…:term:script-…`) live only in the dockview, so
+ * they are tagged `'panel'`; everything else defaults to `'sidebar'`.
+ */
+export function reconcileSessionsIntoTerminals(
+  existing: TerminalInstance[],
+  sessions: { paneId: string; lastActive: number }[],
+  genId: () => string
+): TerminalInstance[] {
+  const byPaneId = new Map(existing.map((t) => [t.paneId, t]));
+  return sessions.map((s, i) => {
+    const prior = byPaneId.get(s.paneId);
+    if (prior) return prior;
+    const isScript = s.paneId.includes(':term:script-');
+    return {
+      id: s.paneId.split(':term:')[1] || genId(),
+      paneId: s.paneId,
+      name: `Terminal ${i + 1}`,
+      createdAt: s.lastActive,
+      origin: isScript ? ('panel' as const) : ('sidebar' as const)
+    };
+  });
+}
 
 /**
  * Read xterm's measured character cell size in CSS px. xterm does not expose

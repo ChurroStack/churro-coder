@@ -1,4 +1,4 @@
-import type { ITerminalOptions, ITheme } from 'xterm';
+import type { ITerminalOptions, ITheme } from '@xterm/xterm';
 import { extractTerminalTheme } from '@/lib/themes/terminal-theme-mapper';
 
 // Nerd Fonts first for shell theme compatibility (Oh My Posh, Powerlevel10k, etc.)

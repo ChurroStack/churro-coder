@@ -25,6 +25,7 @@ import { Terminal } from '@/features/terminal/terminal';
 import { TerminalTabs } from '@/features/terminal/terminal-tabs';
 import { getDefaultTerminalBg } from '@/features/terminal/helpers';
 import { terminalsAtom, activeTerminalIdAtom, terminalCwdAtom } from '@/features/terminal/atoms';
+import { isSidebarTerminal } from '@/features/terminal/utils';
 import { trpc } from '@/lib/trpc';
 import type { TerminalInstance } from '@/features/terminal/types';
 import { cn } from '@/lib/utils';
@@ -78,8 +79,18 @@ export const TerminalWidget = memo(function TerminalWidget({
   // bind to its `paneId` (each terminal is now its own dockview panel — see
   // [terminal-panel.tsx]). When no terminal exists yet the mutex no-ops; the
   // useEffect below auto-creates one on mount.
-  const terminalsForChat = useMemo(() => allTerminals[chatId] || [], [allTerminals, chatId]);
-  const activeIdForChat = useMemo(() => allActiveIds[chatId] || null, [allActiveIds, chatId]);
+  // Only sidebar-origin terminals — a dockview-created (origin 'panel') terminal
+  // must not also render here, or the same paneId mounts twice (two xterm
+  // instances fighting over one PTY's resize → column desync / corrupted input).
+  const terminalsForChat = useMemo(
+    () => (allTerminals[chatId] || []).filter(isSidebarTerminal),
+    [allTerminals, chatId]
+  );
+  const activeIdForChat = useMemo(() => {
+    const raw = allActiveIds[chatId] || null;
+    if (raw && terminalsForChat.some((t) => t.id === raw)) return raw;
+    return terminalsForChat[0]?.id ?? null;
+  }, [allActiveIds, chatId, terminalsForChat]);
   const activeTerminalEntity = useMemo(() => {
     const t = terminalsForChat.find((x) => x.id === activeIdForChat);
     return t ? { paneId: t.paneId, name: t.name } : null;
@@ -158,7 +169,8 @@ export const TerminalWidget = memo(function TerminalWidget({
       id,
       paneId,
       name,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      origin: 'sidebar'
     };
 
     setAllTerminals((prev) => ({
