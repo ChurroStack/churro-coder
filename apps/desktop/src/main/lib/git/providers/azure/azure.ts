@@ -47,13 +47,22 @@ export async function fetchAzurePRStatus(worktreePath: string): Promise<GitHubSt
 
   try {
     const detection = await detectAzureCli();
-    if (detection.status !== 'ok') return null;
+    if (detection.status !== 'ok') {
+      console.warn('[Azure] fetchAzurePRStatus: CLI not ready:', detection.status);
+      return null;
+    }
 
     const remote = await resolveAzureRemote(worktreePath);
-    if (!remote) return null;
+    if (!remote) {
+      console.warn('[Azure] fetchAzurePRStatus: no Azure remote resolved for', worktreePath);
+      return null;
+    }
 
     const branch = await getCurrentBranch(worktreePath);
-    if (!branch) return null;
+    if (!branch) {
+      console.warn('[Azure] fetchAzurePRStatus: could not determine current branch for', worktreePath);
+      return null;
+    }
 
     const [branchCheck, prSummary] = await Promise.all([
       branchExistsOnRemote(worktreePath, branch),
@@ -329,7 +338,7 @@ function mapAzurePRToStatus(
   };
 }
 
-function mapState(status: AzurePR['status'], isDraft: boolean): NonNullable<GitHubStatus['pr']>['state'] {
+function mapState(status: string, isDraft: boolean): NonNullable<GitHubStatus['pr']>['state'] {
   if (status === 'completed') return 'merged';
   if (status === 'abandoned') return 'closed';
   if (isDraft) return 'draft';
@@ -350,7 +359,7 @@ function mapReviewDecision(
   return 'pending';
 }
 
-function mapMergeable(status: AzurePR['mergeStatus']): NonNullable<GitHubStatus['pr']>['mergeable'] {
+function mapMergeable(status: string | undefined): NonNullable<GitHubStatus['pr']>['mergeable'] {
   if (status === 'conflicts' || status === 'rejectedByPolicy' || status === 'failure') {
     return 'CONFLICTING';
   }
