@@ -16,9 +16,12 @@ export const AzureReviewerSchema = z.object({
 export const AzurePRSchema = z.object({
   pullRequestId: z.number(),
   title: z.string(),
-  status: z.enum(['active', 'completed', 'abandoned']),
+  // Use z.string() so unknown enum values (e.g. from newer CLI versions) don't
+  // silently drop the PR. Callers normalise via mapState().
+  status: z.string(),
   isDraft: z.boolean().optional(),
-  mergeStatus: z.enum(['succeeded', 'conflicts', 'queued', 'rejectedByPolicy', 'notSet', 'failure']).optional(),
+  // Same permissive approach — mapMergeable() handles unrecognised values as 'UNKNOWN'.
+  mergeStatus: z.string().optional(),
   closedDate: z.string().nullable().optional(),
   reviewers: z.array(AzureReviewerSchema).optional(),
   url: z.string().optional()

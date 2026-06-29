@@ -4,7 +4,6 @@ export type AzureDetection =
   | { status: 'ok' }
   | { status: 'missing_cli' }
   | { status: 'missing_extension' }
-  | { status: 'not_logged_in' }
   | { status: 'error'; message: string };
 
 // Cached for 60s to avoid repeated shell spawns on every PR poll.
@@ -57,15 +56,18 @@ async function runDetection(): Promise<AzureDetection> {
     };
   }
 
-  // 3. logged in? `az account show` errors when there's no subscription context.
+  // 3. Verify the azure-devops extension is usable (covers both Azure AD and PAT
+  //    auth flows). We intentionally avoid `az account show` here because that
+  //    requires an Azure subscription login (`az login`) and fails for users who
+  //    only authenticate via PAT (`az devops login`) or AZURE_DEVOPS_EXT_PAT.
+  //    `az devops configure --list` succeeds as long as the extension is wired up,
+  //    regardless of auth method. Real auth errors are surfaced downstream by
+  //    `az repos pr list` when it actually talks to the org.
   try {
-    await execWithShellEnv('az', ['account', 'show', '--output', 'json']);
+    await execWithShellEnv('az', ['devops', 'configure', '--list']);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (/az login/i.test(msg)) {
-      return { status: 'not_logged_in' };
-    }
-    return { status: 'not_logged_in' };
+    return { status: 'error', message: msg };
   }
 
   return { status: 'ok' };
@@ -80,8 +82,6 @@ export function detectionToToastMessage(d: AzureDetection): string {
       return 'Azure CLI not found. Install from https://aka.ms/install-az and retry.';
     case 'missing_extension':
       return 'Azure DevOps extension missing. Run: az extension add --name azure-devops';
-    case 'not_logged_in':
-      return 'Not logged in to Azure. Run az login and retry.';
     case 'error':
       return d.message;
   }
