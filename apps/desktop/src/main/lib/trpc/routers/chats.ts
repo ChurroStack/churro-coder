@@ -54,6 +54,7 @@ import {
 import { publicProcedure, router } from '../index';
 import { abortClaudeSessionsForSubChats } from './claude';
 import { cleanupCodexAppServerSubChat } from './codex';
+import { writeSessionPastedImage } from './files';
 import {
   onCliUserQuestion,
   onCliUserQuestionExpired,
@@ -68,6 +69,64 @@ import {
   parseOllamaCommitResponse,
   buildHeuristicCommitMessage
 } from './commit-message-helpers';
+
+/** Shape of a parsed part on the first stored user message (text + attachments). */
+type FirstMessagePart = {
+  type: string;
+  text?: string;
+  data?: { url?: string; mediaType?: string; filename?: string; base64Data?: string };
+  filePath?: string;
+  content?: string;
+};
+
+/**
+ * Collect absolute, CLI-readable file paths for the attachments on the first user
+ * message. `data-image` parts carry only base64, so they're written to the sub-chat's
+ * session `pasted/` dir (sandbox-whitelisted) to give them a path; `file-content`
+ * parts already carry a path (resolved against `cwd` when relative). Used by
+ * `buildCliBootstrap` so the bootstrap string can point the CLI at the attachments.
+ */
+async function collectAttachmentPaths(
+  parts: FirstMessagePart[],
+  subChatId: string,
+  cwd: string | undefined
+): Promise<string[]> {
+  const paths: string[] = [];
+  let imageIdx = 0;
+  for (const part of parts) {
+    if (part.type === 'data-image' && part.data?.base64Data) {
+      const mediaType = part.data.mediaType ?? 'image/png';
+      const ext = (mediaType.split('/')[1] ?? 'png').replace('jpeg', 'jpg');
+      const rawName = part.data.filename?.replace(/[/\\\0]/g, '_').trim();
+      // Deterministic filename so a restart re-derives the same path instead of
+      // piling up duplicate files on every relaunch.
+      const filename = `attachment-${imageIdx}-${rawName || `image.${ext}`}`;
+      const idxForLog = imageIdx;
+      imageIdx++;
+      try {
+        const { filePath } = await writeSessionPastedImage({
+          subChatId,
+          base64Data: part.data.base64Data,
+          mediaType,
+          filename
+        });
+        paths.push(filePath);
+      } catch (err) {
+        console.warn(
+          `[buildCliBootstrap] attachment-image-write-failed sub=${subChatId} idx=${idxForLog} err=${String(err)}`
+        );
+      }
+    } else if (part.type === 'file-content' && part.filePath) {
+      const abs = path.isAbsolute(part.filePath)
+        ? part.filePath
+        : cwd
+          ? path.resolve(cwd, part.filePath)
+          : part.filePath;
+      paths.push(abs);
+    }
+  }
+  return paths;
+}
 
 type WorktreeSetupFailurePayload = {
   kind: 'create-failed' | 'setup-failed';
@@ -3059,16 +3118,30 @@ export const chatsRouter = router({
               .limit(1)
               .get();
             if (firstMsg) {
-              let parts: Array<{ type: string; text?: string }> = [];
+              let parts: FirstMessagePart[] = [];
               try {
-                parts = JSON.parse(firstMsg.parts) as Array<{ type: string; text?: string }>;
+                parts = JSON.parse(firstMsg.parts) as FirstMessagePart[];
               } catch {
                 // ignore parse errors — no initialInputChunks injected
               }
               const text = parts.find((p) => p.type === 'text')?.text?.trim();
-              if (text) {
+              // Attachments (images written to the session pasted dir, dropped files
+              // by path) so the CLI can read them — see collectAttachmentPaths.
+              const attachmentPaths = await collectAttachmentPaths(parts, input.subChatId, resolvedCwd);
+              if (text || attachmentPaths.length > 0) {
                 const isPlanMode = subChatRow?.mode === 'plan';
-                const body = isPlanMode ? `${cliMcpReminder(input.subChatId)}\n${text}` : text;
+                // Assemble the single bootstrap string: optional plan-mode MCP
+                // reminder, the instruction text, then an attachments block listing
+                // absolute paths the CLI should read.
+                const segments: string[] = [];
+                if (isPlanMode) segments.push(cliMcpReminder(input.subChatId));
+                if (text) segments.push(text);
+                if (attachmentPaths.length > 0) {
+                  segments.push(
+                    `Attached files (read these as needed):\n${attachmentPaths.map((p) => `- ${p}`).join('\n')}`
+                  );
+                }
+                const body = segments.join('\n\n');
                 // Encode body: bracketed-paste when multi-line, plain text otherwise.
                 const normalized = body.replace(/\r\n/g, '\n');
                 const bodyChunk = normalized.includes('\n') ? `\x1b[200~${normalized}\x1b[201~` : normalized;
@@ -3083,11 +3156,11 @@ export const chatsRouter = router({
                   // The main-side write fires after the banner goes quiet (idleDetection
                   // silenceMs gate) and triggers onTurnStart, so it lands at the prompt.
                   console.log(
-                    `[buildCliBootstrap] force-inject reason=user-restart sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode}`
+                    `[buildCliBootstrap] force-inject reason=user-restart sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode} attachments=${attachmentPaths.length}`
                   );
                 } else {
                   console.log(
-                    `[buildCliBootstrap] initialInputChunks injected sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode}`
+                    `[buildCliBootstrap] initialInputChunks injected sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode} attachments=${attachmentPaths.length}`
                   );
                   // Stamp bootstrappedAt on first successful injection.
                   db.update(subChats).set({ bootstrappedAt: new Date() }).where(eq(subChats.id, input.subChatId)).run();
