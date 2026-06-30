@@ -117,6 +117,45 @@ function validateFileName(name: string): void {
 }
 
 /**
+ * Write a base64-encoded image into the sub-chat's session `pasted/` directory and
+ * return the absolute path. That directory lives under the per-subChat session root
+ * the sandbox policy whitelists (see sandbox/policy.ts), so CLI harnesses can read
+ * the file back. Shared by the `writePastedImage` procedure and the CLI bootstrap
+ * (chats.buildCliBootstrap) so both use identical dir + filename + validation logic.
+ */
+export async function writeSessionPastedImage(args: {
+  subChatId: string;
+  base64Data: string;
+  mediaType?: string;
+  filename?: string;
+}): Promise<{ filePath: string; filename: string; size: number }> {
+  const { subChatId, base64Data, mediaType = 'image/png', filename } = args;
+
+  // Reject path separators / traversal — subChatIds are UUIDs or hex/dash IDs.
+  // Validated here (not only in the procedure's input schema) so the guard travels
+  // with the path-building code for every caller, including chats.buildCliBootstrap.
+  if (!/^[a-zA-Z0-9_-]+$/.test(subChatId)) {
+    throw new Error('Invalid subChatId');
+  }
+
+  const ext = (mediaType.split('/')[1] ?? 'png').replace('jpeg', 'jpg');
+  const sessionDir = join(app.getPath('userData'), 'agent-sessions', subChatId);
+  const pastedDir = join(sessionDir, 'pasted');
+  await mkdir(pastedDir, { recursive: true });
+
+  const finalFilename = filename || `pasted_${Date.now()}.${ext}`;
+  validateFileName(finalFilename);
+  const filePath = join(pastedDir, finalFilename);
+  validatePathSafe(filePath, pastedDir);
+
+  const buffer = Buffer.from(base64Data, 'base64');
+  await writeFile(filePath, buffer);
+
+  console.log(`[files] Wrote pasted image to ${filePath} (${buffer.length} bytes)`);
+  return { filePath, filename: finalFilename, size: buffer.length };
+}
+
+/**
  * Recursively scan a directory and return all file and folder paths
  */
 async function scanDirectory(
@@ -646,23 +685,7 @@ export const filesRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const { subChatId, base64Data, mediaType, filename } = input;
-
-      const ext = (mediaType.split('/')[1] ?? 'png').replace('jpeg', 'jpg');
-      const sessionDir = join(app.getPath('userData'), 'agent-sessions', subChatId);
-      const pastedDir = join(sessionDir, 'pasted');
-      await mkdir(pastedDir, { recursive: true });
-
-      const finalFilename = filename || `pasted_${Date.now()}.${ext}`;
-      validateFileName(finalFilename);
-      const filePath = join(pastedDir, finalFilename);
-      validatePathSafe(filePath, pastedDir);
-
-      const buffer = Buffer.from(base64Data, 'base64');
-      await writeFile(filePath, buffer);
-
-      console.log(`[files] Wrote pasted image to ${filePath} (${buffer.length} bytes)`);
-      return { filePath, filename: finalFilename, size: buffer.length };
+      return writeSessionPastedImage(input);
     }),
 
   /**
