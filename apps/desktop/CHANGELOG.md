@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.12](https://github.com/ChurroStack/churro-coder/compare/v0.1.11...v0.1.12) (2026-06-30)
+
+
+### Features
+
+* **desktop:** Session sidebar widget + CLI pane original-prompt pin ([#227](https://github.com/ChurroStack/churro-coder/issues/227)) ([d18df2f](https://github.com/ChurroStack/churro-coder/commit/d18df2fc8254811dd346d33e4accec0d06e7a96c))
+* pass New-workspace attachment paths into CLI bootstrap ([#226](https://github.com/ChurroStack/churro-coder/issues/226)) ([9ed11f0](https://github.com/ChurroStack/churro-coder/commit/9ed11f0353683e203187d7753a690e339730cde5))
+* update 7 files ([#224](https://github.com/ChurroStack/churro-coder/issues/224)) ([6dd2537](https://github.com/ChurroStack/churro-coder/commit/6dd2537791c0cceab6999035e347b1ef448f1aeb))
+
 ## [0.1.11](https://github.com/ChurroStack/churro-coder/compare/v0.1.10...v0.1.11) (2026-06-22)
 
 
