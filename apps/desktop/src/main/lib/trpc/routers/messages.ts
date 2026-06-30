@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, like, lt, sql } from 'drizzle-orm';
 import { app } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -91,20 +91,25 @@ export const messagesRouter = router({
         parts: messages.parts,
         metadata: messages.metadata
       };
-      // Scan a small window from each end — the genuine prompt is within the
-      // first/last few user rows (the rest are envelopes / tool_result carriers).
-      const WINDOW = 12;
+      // Scan a window of *text-bearing* user rows from each end. The
+      // `LIKE '%"type":"text"%'` filter excludes tool_result / data-image-only
+      // user carriers in SQL (a long agentic tail can hold dozens of them), so
+      // the genuine prompt — even after a burst of tool activity — lands inside
+      // the window. Remaining envelope-only text rows (slash commands, MCP
+      // reminders) are dropped by `strippedUserText` below.
+      const TEXT_PART = like(messages.parts, '%"type":"text"%');
+      const WINDOW = 16;
       const earliest = db
         .select(cols)
         .from(messages)
-        .where(and(eq(messages.subChatId, input.subChatId), eq(messages.role, 'user')))
+        .where(and(eq(messages.subChatId, input.subChatId), eq(messages.role, 'user'), TEXT_PART))
         .orderBy(asc(messages.idx))
         .limit(WINDOW)
         .all();
       const latest = db
         .select(cols)
         .from(messages)
-        .where(and(eq(messages.subChatId, input.subChatId), eq(messages.role, 'user')))
+        .where(and(eq(messages.subChatId, input.subChatId), eq(messages.role, 'user'), TEXT_PART))
         .orderBy(desc(messages.idx))
         .limit(WINDOW)
         .all();

@@ -127,6 +127,17 @@ export const widgetOrderAtomFamily = atomFamily((workspaceId: string) =>
   )
 );
 
+// Records, per workspace, that the (later-added) Session widget has been
+// seeded into the persisted visibility/order once. Unlike 'status' (which is
+// force-present), this lets a one-time seed run for pre-existing workspaces
+// while still allowing the user to permanently hide the Session widget after.
+export const sessionWidgetSeededAtom = atomWithStorage<Record<string, boolean>>(
+  'overview:sessionWidgetSeeded',
+  {},
+  undefined,
+  { getOnInit: true }
+);
+
 // ============================================================================
 // Feature Flag & Sidebar State
 // ============================================================================

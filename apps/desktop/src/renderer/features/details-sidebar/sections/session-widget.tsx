@@ -1,17 +1,14 @@
 'use client';
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { useAtomValue } from 'jotai';
+import { memo, useCallback, useState } from 'react';
 import { RefreshCw, MessageSquareText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
-import { subChatBusyAtomFamily } from '../../agents/atoms';
 import { useSessionSummaryDispatcher } from '../../agents/hooks/use-session-summary-dispatcher';
 
 interface SessionWidgetProps {
-  chatId: string;
   activeSubChatId?: string | null;
 }
 
@@ -62,34 +59,17 @@ export const SessionWidget = memo(function SessionWidget({ activeSubChatId }: Se
   const promptsQuery = trpc.messages.getSessionPrompts.useQuery({ subChatId: subChatId ?? '' }, { enabled });
   const summaryQuery = trpc.chats.getSessionSummary.useQuery({ subChatId: subChatId ?? '' }, { enabled });
 
-  const { refresh, isGenerating } = useSessionSummaryDispatcher(subChatId);
-
-  // Keep "last input" fresh: when a turn finishes (busy → idle), refetch the
-  // first/last prompts and the stored summary for both harnesses.
-  const busy = useAtomValue(subChatBusyAtomFamily(subChatId ?? ''));
-  const prevBusyRef = useRef(busy);
-  useEffect(() => {
-    const wasBusy = prevBusyRef.current;
-    prevBusyRef.current = busy;
-    if (wasBusy && !busy && subChatId) {
+  // The dispatcher owns the busy→idle edge for both generation AND query
+  // refresh; `onTurnIdle` keeps "last input"/summary fresh the moment a turn
+  // ends, and `stale` drives the reopen-an-old-session auto-fire.
+  const { refresh, isGenerating } = useSessionSummaryDispatcher(subChatId, {
+    stale: summaryQuery.data?.stale ?? false,
+    onTurnIdle: useCallback(() => {
+      if (!subChatId) return;
       utils.messages.getSessionPrompts.invalidate({ subChatId });
       utils.chats.getSessionSummary.invalidate({ subChatId });
-    }
-  }, [busy, subChatId, utils]);
-
-  // Populate a stale/empty summary once when the widget opens on an idle chat
-  // that already has new messages (e.g. reopening an old session).
-  const autoFiredRef = useRef(false);
-  useEffect(() => {
-    autoFiredRef.current = false;
-  }, [subChatId]);
-  useEffect(() => {
-    if (!subChatId || busy || isGenerating || autoFiredRef.current) return;
-    if (summaryQuery.data?.stale) {
-      autoFiredRef.current = true;
-      refresh();
-    }
-  }, [subChatId, busy, isGenerating, summaryQuery.data?.stale, refresh]);
+    }, [subChatId, utils])
+  });
 
   const handleRefresh = useCallback(
     (e: React.MouseEvent) => {

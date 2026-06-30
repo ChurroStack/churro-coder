@@ -36,6 +36,7 @@ import {
   detailsSidebarTabAtom,
   widgetVisibilityAtomFamily,
   widgetOrderAtomFamily,
+  sessionWidgetSeededAtom,
   WIDGET_REGISTRY,
   type WidgetId
 } from './atoms';
@@ -334,6 +335,9 @@ export function DetailsSidebar({
   const widgetOrderAtom = useMemo(() => widgetOrderAtomFamily(chatId), [chatId]);
   const [widgetOrder, setWidgetOrder] = useAtom(widgetOrderAtom);
 
+  // One-time seed marker for the (later-added) Session widget
+  const [sessionSeeded, setSessionSeeded] = useAtom(sessionWidgetSeededAtom);
+
   // Toggle a widget's visibility on/off
   const toggleWidgetVisibility = useCallback(
     (widgetId: WidgetId) => {
@@ -344,31 +348,37 @@ export function DetailsSidebar({
     [visibleWidgets, setVisibleWidgets]
   );
 
-  // One-time migration per chat: inject "status" into pre-existing saved arrays
-  // that were persisted before this widget existed. New chats get the defaults
-  // (which already include "status") so this only fires for old workspaces.
+  // One-time-per-mount reconciliation of core widgets for pre-existing saved
+  // arrays. Two distinct policies:
+  //   • 'status' is always-present — force-add if a pre-existing workspace lacks
+  //     it (unchanged behavior).
+  //   • 'session' was added later — seed it ONCE per workspace (recorded in
+  //     sessionWidgetSeededAtom) so old workspaces surface it, but never re-add
+  //     after that, so the user can permanently hide it.
   const migratedChatsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (migratedChatsRef.current.has(chatId)) return;
     migratedChatsRef.current.add(chatId);
-    // Ensure always-present core widgets exist for workspaces whose prefs were
-    // persisted before they were added: 'status' anchors the top, 'session'
-    // sits right after it. Build each list once so a single setState carries
-    // both insertions (separate calls would clobber on a stale snapshot).
-    const ensureCore = (list: WidgetId[]): WidgetId[] => {
-      let next = list;
-      if (!next.includes('status')) next = ['status', ...next];
-      if (!next.includes('session')) {
-        const i = next.indexOf('status');
-        next = [...next.slice(0, i + 1), 'session', ...next.slice(i + 1)];
-      }
-      return next;
+
+    const ensureStatus = (list: WidgetId[]): WidgetId[] => (list.includes('status') ? list : ['status', ...list]);
+    const insertSession = (list: WidgetId[]): WidgetId[] => {
+      if (list.includes('session')) return list;
+      const i = list.indexOf('status');
+      return i >= 0 ? [...list.slice(0, i + 1), 'session', ...list.slice(i + 1)] : ['session', ...list];
     };
-    const nextVisible = ensureCore(visibleWidgets);
+
+    let nextVisible = ensureStatus(visibleWidgets);
+    let nextOrder = ensureStatus(widgetOrder);
+
+    if (!sessionSeeded[chatId]) {
+      nextVisible = insertSession(nextVisible);
+      nextOrder = insertSession(nextOrder);
+      setSessionSeeded({ ...sessionSeeded, [chatId]: true });
+    }
+
     if (nextVisible.length !== visibleWidgets.length) setVisibleWidgets(nextVisible);
-    const nextOrder = ensureCore(widgetOrder);
     if (nextOrder.length !== widgetOrder.length) setWidgetOrder(nextOrder);
-  }, [chatId, visibleWidgets, widgetOrder, setVisibleWidgets, setWidgetOrder]);
+  }, [chatId, visibleWidgets, widgetOrder, sessionSeeded, setSessionSeeded, setVisibleWidgets, setWidgetOrder]);
 
   // Close sidebar callback
   const closeSidebar = useCallback(() => {
@@ -556,7 +566,7 @@ export function DetailsSidebar({
                 );
 
               case 'session':
-                return <SessionWidget key="session" chatId={chatId} activeSubChatId={activeSubChatId} />;
+                return <SessionWidget key="session" activeSubChatId={activeSubChatId} />;
 
               case 'info':
                 return (

@@ -60,6 +60,10 @@ function parseJsonField<T>(v: string | T | undefined | null, fallback: T): T {
 // renders inside a dock panel, so the dock-API fallback is a no-op here.
 const NO_FALLBACK = () => {};
 
+/** Newest-messages window the pane hydrates. Kept as one constant so the two
+ *  getLatest calls and the "earlier history hidden" banner copy never drift. */
+const LATEST_WINDOW = 200;
+
 export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: CliConversationPaneProps) {
   const utils = trpc.useUtils();
   // Resolve relative paths against THIS pane's chat worktree (keyed by its own
@@ -69,11 +73,11 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
   const worktreePath = (cliChat?.worktreePath as string | null | undefined) ?? null;
   const openFileInDock = useOpenFileInDock(subChatId, worktreePath, NO_FALLBACK);
   const messagesQuery = trpc.messages.getLatest.useQuery(
-    { subChatId, limit: 200 },
+    { subChatId, limit: LATEST_WINDOW },
     { staleTime: 0, refetchOnWindowFocus: false }
   );
   // The session's original prompt — pinned at the top when it falls outside the
-  // last-200 window so a long session never hides "what was first asked".
+  // latest-window so a long session never hides "what was first asked".
   const promptsQuery = trpc.messages.getSessionPrompts.useQuery(
     { subChatId },
     { staleTime: 0, refetchOnWindowFocus: false }
@@ -84,7 +88,7 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
     { subChatId },
     {
       onData: () => {
-        utils.messages.getLatest.invalidate({ subChatId, limit: 200 });
+        utils.messages.getLatest.invalidate({ subChatId, limit: LATEST_WINDOW });
         utils.messages.getSessionPrompts.invalidate({ subChatId });
       }
     }
@@ -227,7 +231,9 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
                   />
                   <div className="my-4 flex items-center gap-2 text-[11px] text-muted-foreground/70">
                     <div className="h-px flex-1 bg-border" />
-                    <span className="shrink-0">Showing the latest 200 messages — earlier history hidden</span>
+                    <span className="shrink-0">
+                      Showing the latest {LATEST_WINDOW} messages — earlier history hidden
+                    </span>
                     <div className="h-px flex-1 bg-border" />
                   </div>
                 </div>

@@ -334,13 +334,19 @@ function compactPartsForSummary(partsJson: string, role: string, harness: string
 
 /**
  * Build the incremental summarization input from messages with idx > sinceIdx.
- * Returns null when there's nothing new (or nothing renderable) to summarize.
+ * Returns:
+ *   - null                       → no new rows at all (cursor already current)
+ *   - { text: null, maxIdx }     → new rows exist but none carry renderable text
+ *                                  (images / tool_result-only). The caller still
+ *                                  advances the cursor to maxIdx so `stale`
+ *                                  clears and the trigger stops re-firing.
+ *   - { text, maxIdx }           → summarizable content.
  */
 function buildSessionSummaryInput(
   db: ReturnType<typeof getDatabase>,
   subChatId: string,
   sinceIdx: number
-): { text: string; maxIdx: number } | null {
+): { text: string | null; maxIdx: number } | null {
   const sub = db.select({ harness: subChats.harness }).from(subChats).where(eq(subChats.id, subChatId)).get();
   const harness = sub?.harness ?? null;
   const rows = db
@@ -356,7 +362,7 @@ function buildSessionSummaryInput(
     const c = compactPartsForSummary(r.parts, r.role, harness);
     if (c) lines.push(c);
   }
-  if (lines.length === 0) return null;
+  if (lines.length === 0) return { text: null, maxIdx };
   let text = lines.join('\n');
   // Tail-bias: the latest activity matters most for "what is it doing now".
   if (text.length > SESSION_SUMMARY_INPUT_CHAR_CAP) {
@@ -364,6 +370,12 @@ function buildSessionSummaryInput(
   }
   return { text, maxIdx };
 }
+
+// Per-subChat in-flight guard for summary generation. Three independent
+// triggers (debounced turn-completion, mount auto-fire, manual refresh) can
+// race; this serializes them so we never pay for two concurrent LLM calls over
+// the same idx range. Cleaned up in the mutation's `finally`.
+const sessionSummaryInFlight = new Set<string>();
 
 async function generateSessionSummaryWithClaude(
   priorSummary: string | null,
@@ -390,6 +402,10 @@ async function generateSessionSummaryWithClaude(
       return null;
     }
     const data = await response.json();
+    if (!data || typeof data !== 'object') {
+      console.error('[session-summary] claude unexpected body shape');
+      return null;
+    }
     const text = data.content?.[0]?.text?.trim();
     return text || null;
   } catch (error) {
@@ -2150,6 +2166,20 @@ export const chatsRouter = router({
       const built = buildSessionSummaryInput(db, input.subChatId, sub.summaryLastIdx ?? -1);
       if (!built) return { summary: sub.summary ?? null, updated: false };
 
+      // New rows exist but none are summarizable (images / tool_result-only).
+      // Advance the cursor so getSessionSummary stops reporting `stale` and the
+      // turn-completion trigger stops re-firing on the same empty span.
+      if (built.text === null) {
+        db.update(subChats).set({ summaryLastIdx: built.maxIdx }).where(eq(subChats.id, input.subChatId)).run();
+        return { summary: sub.summary ?? null, updated: false };
+      }
+
+      // Serialize concurrent triggers for the same sub-chat — don't pay twice.
+      if (sessionSummaryInFlight.has(input.subChatId)) {
+        return { summary: sub.summary ?? null, updated: false };
+      }
+      sessionSummaryInFlight.add(input.subChatId);
+
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12000);
       try {
@@ -2185,6 +2215,7 @@ export const chatsRouter = router({
         return { summary: sub.summary ?? null, updated: false };
       } finally {
         clearTimeout(timer);
+        sessionSummaryInFlight.delete(input.subChatId);
       }
     }),
 
