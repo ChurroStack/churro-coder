@@ -13,7 +13,8 @@ import {
   Activity,
   PlayCircle,
   Workflow,
-  ClipboardList
+  ClipboardList,
+  MessageSquareText
 } from 'lucide-react';
 import { OriginalMCPIcon } from '../../../components/ui/icons';
 
@@ -23,6 +24,7 @@ import { OriginalMCPIcon } from '../../../components/ui/icons';
 
 export type WidgetId =
   | 'status'
+  | 'session'
   | 'info'
   | 'tasks'
   | 'todo'
@@ -44,6 +46,7 @@ export interface WidgetConfig {
 
 export const WIDGET_REGISTRY: WidgetConfig[] = [
   { id: 'status', label: 'Status', icon: Workflow, canExpand: false, defaultVisible: true },
+  { id: 'session', label: 'Session', icon: MessageSquareText, canExpand: false, defaultVisible: true },
   { id: 'info', label: 'Workspace', icon: Box, canExpand: false, defaultVisible: true },
   { id: 'pr', label: 'Pull Request', icon: GitPullRequest, canExpand: false, defaultVisible: false },
   { id: 'tasks', label: 'Tasks', icon: Activity, canExpand: false, defaultVisible: true },

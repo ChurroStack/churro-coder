@@ -41,6 +41,7 @@ import {
 } from './atoms';
 import { WidgetSettingsPopup } from './widget-settings-popup';
 import { InfoSection } from './sections/info-section';
+import { SessionWidget } from './sections/session-widget';
 import { TodoWidget } from './sections/todo-widget';
 import { TasksWidget } from './sections/tasks-widget';
 import { PlanWidget } from './sections/plan-widget';
@@ -350,12 +351,23 @@ export function DetailsSidebar({
   useEffect(() => {
     if (migratedChatsRef.current.has(chatId)) return;
     migratedChatsRef.current.add(chatId);
-    if (!visibleWidgets.includes('status')) {
-      setVisibleWidgets(['status', ...visibleWidgets]);
-    }
-    if (!widgetOrder.includes('status')) {
-      setWidgetOrder(['status', ...widgetOrder]);
-    }
+    // Ensure always-present core widgets exist for workspaces whose prefs were
+    // persisted before they were added: 'status' anchors the top, 'session'
+    // sits right after it. Build each list once so a single setState carries
+    // both insertions (separate calls would clobber on a stale snapshot).
+    const ensureCore = (list: WidgetId[]): WidgetId[] => {
+      let next = list;
+      if (!next.includes('status')) next = ['status', ...next];
+      if (!next.includes('session')) {
+        const i = next.indexOf('status');
+        next = [...next.slice(0, i + 1), 'session', ...next.slice(i + 1)];
+      }
+      return next;
+    };
+    const nextVisible = ensureCore(visibleWidgets);
+    if (nextVisible.length !== visibleWidgets.length) setVisibleWidgets(nextVisible);
+    const nextOrder = ensureCore(widgetOrder);
+    if (nextOrder.length !== widgetOrder.length) setWidgetOrder(nextOrder);
   }, [chatId, visibleWidgets, widgetOrder, setVisibleWidgets, setWidgetOrder]);
 
   // Close sidebar callback
@@ -542,6 +554,9 @@ export function DetailsSidebar({
                     <StatusWidget workflow={workflow} onAction={onWorkflowAction} />
                   </WidgetCard>
                 );
+
+              case 'session':
+                return <SessionWidget key="session" chatId={chatId} activeSubChatId={activeSubChatId} />;
 
               case 'info':
                 return (

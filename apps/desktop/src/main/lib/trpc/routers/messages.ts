@@ -5,7 +5,38 @@ import * as path from 'path';
 import { z } from 'zod';
 import { getDatabase, messages, subChats } from '../../db';
 import { spillPath, writePartIfLargeSync } from '../../db/part-spill';
+import { firstTextOfParts } from '../../../../shared/message-parts';
+import { stripClaudeCliEnvelopes, stripCodexUserEnvelopes } from '../../../../shared/cli-text-envelopes';
 import { publicProcedure, router } from '../index';
+
+type SessionPromptRow = {
+  id: string;
+  idx: number;
+  role: string;
+  parts: string;
+  metadata: string | null;
+  text: string;
+};
+
+/**
+ * Extract the human-readable, envelope-stripped first-text of a user row's
+ * parts. CLI transcripts wrap user text in slash-command / MCP-reminder
+ * envelopes (claude) or environment-context wrappers (codex); the builtin
+ * harness has none (the claude stripper is then a near no-op). Returns '' when
+ * the row carries no renderable text (e.g. a tool_result-only user record).
+ */
+function strippedUserText(partsJson: string, harness: string | null | undefined): string {
+  let parts: unknown;
+  try {
+    parts = JSON.parse(partsJson);
+  } catch {
+    return '';
+  }
+  const raw = firstTextOfParts(parts);
+  if (!raw) return '';
+  const stripped = harness === 'codex-cli' ? stripCodexUserEnvelopes(raw) : stripClaudeCliEnvelopes(raw);
+  return stripped.trim();
+}
 
 function safeSpillPath(subChatId: string, messageId: string, partIdx: number): string {
   const resolved = spillPath(subChatId, messageId, partIdx);
@@ -33,6 +64,60 @@ export const messagesRouter = router({
         .limit(input.limit)
         .all()
         .reverse();
+    }),
+
+  /**
+   * Return the session's first and last *user* inputs for the Session widget +
+   * the CLI pane's "always show the original prompt" pin. Works for every
+   * harness (the `messages` table is the shared store for builtin + CLI).
+   *
+   * "first"/"last" skip envelope-only user rows (slash-command tags, MCP
+   * reminders, tool_result carriers) by scanning a small window from each end
+   * and picking the first row whose stripped text is non-empty. The full row
+   * (id/idx/parts/metadata) is returned so the pane can render `first` through
+   * the same message pipeline; `text` is the pre-stripped display string.
+   */
+  getSessionPrompts: publicProcedure
+    .input(z.object({ subChatId: z.string() }))
+    .query(({ input }): { first: SessionPromptRow | null; last: SessionPromptRow | null } => {
+      const db = getDatabase();
+      const sub = db.select({ harness: subChats.harness }).from(subChats).where(eq(subChats.id, input.subChatId)).get();
+      const harness = sub?.harness ?? null;
+
+      const cols = {
+        id: messages.id,
+        idx: messages.idx,
+        role: messages.role,
+        parts: messages.parts,
+        metadata: messages.metadata
+      };
+      // Scan a small window from each end — the genuine prompt is within the
+      // first/last few user rows (the rest are envelopes / tool_result carriers).
+      const WINDOW = 12;
+      const earliest = db
+        .select(cols)
+        .from(messages)
+        .where(and(eq(messages.subChatId, input.subChatId), eq(messages.role, 'user')))
+        .orderBy(asc(messages.idx))
+        .limit(WINDOW)
+        .all();
+      const latest = db
+        .select(cols)
+        .from(messages)
+        .where(and(eq(messages.subChatId, input.subChatId), eq(messages.role, 'user')))
+        .orderBy(desc(messages.idx))
+        .limit(WINDOW)
+        .all();
+
+      const pick = (rows: typeof earliest): SessionPromptRow | null => {
+        for (const r of rows) {
+          const text = strippedUserText(r.parts, harness);
+          if (text) return { ...r, text };
+        }
+        return null;
+      };
+
+      return { first: pick(earliest), last: pick(latest) };
     }),
 
   /**

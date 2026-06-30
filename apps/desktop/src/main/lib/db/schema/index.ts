@@ -139,6 +139,14 @@ export const subChats = sqliteTable(
     cliSessionId: text('cli_session_id'),
     cliSessionFile: text('cli_session_file'),
     cliSessionDetectedAt: integer('cli_session_detected_at'),
+    // Rolling, LLM-generated session summary shown in the Session sidebar widget.
+    // `summary` is the latest few-sentence summary; `summaryLastIdx` is the
+    // highest message idx already folded into it (incremental updates feed only
+    // rows with idx > summaryLastIdx, never the whole session); `summaryUpdatedAt`
+    // is when it was last regenerated. NULL = never summarized.
+    summary: text('summary'),
+    summaryUpdatedAt: integer('summary_updated_at', { mode: 'timestamp' }),
+    summaryLastIdx: integer('summary_last_idx'),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
   },
