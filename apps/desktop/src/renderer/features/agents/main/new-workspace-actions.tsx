@@ -1,7 +1,7 @@
 'use client';
 
 import { useAtom, useSetAtom } from 'jotai';
-import { FolderTree, Search } from 'lucide-react';
+import { FolderTree, ListTodo, Search } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 import { newWorkspaceSidePanelModeAtom, newWorkspaceViewerFileAtom, type NewWorkspaceSidePanelMode } from '../atoms';
@@ -66,6 +66,21 @@ export function NewWorkspaceActions({ visible }: NewWorkspaceActionsProps) {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">Search files</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="My Work"
+            aria-pressed={mode === 'my-work'}
+            onClick={() => toggle('my-work')}
+            data-active={mode === 'my-work'}
+            className="h-6 w-6 p-0 hover:bg-foreground/10 transition-[background-color,transform] duration-150 ease-out active:scale-[0.97] flex-shrink-0 rounded-md text-muted-foreground hover:text-foreground data-[active=true]:bg-foreground/10 data-[active=true]:text-foreground">
+            <ListTodo className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">My Work</TooltipContent>
       </Tooltip>
     </div>
   );

@@ -737,6 +737,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const [showingSkillsList, setShowingSkillsList] = useState(false);
   const [showingAgentsList, setShowingAgentsList] = useState(false);
   const [showingToolsList, setShowingToolsList] = useState(false);
+  const [showingWorkItemsList, setShowingWorkItemsList] = useState(false);
 
   // Slash command dropdown state
   const [showSlashDropdown, setShowSlashDropdown] = useState(false);
@@ -1757,6 +1758,21 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         setShowingToolsList(true);
         return;
       }
+      if (mention.id === 'work-items') {
+        setShowingWorkItemsList(true);
+        return;
+      }
+    }
+
+    // Work item: insert as plain text short reference (not a chip token)
+    if (mention.id.startsWith('github:issue:')) {
+      const current = editorRef.current?.getValue() ?? '';
+      const separator = current && !/\s$/.test(current) ? ' ' : '';
+      const ref = mention.repository ? `${mention.label} (${mention.repository})` : mention.label;
+      editorRef.current?.setValue(current + separator + ref);
+      setShowMentionDropdown(false);
+      setShowingWorkItemsList(false);
+      return;
     }
 
     // Otherwise: insert mention as normal
@@ -1767,6 +1783,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     setShowingSkillsList(false);
     setShowingAgentsList(false);
     setShowingToolsList(false);
+    setShowingWorkItemsList(false);
   }, []);
 
   // Save draft to localStorage when content changes
@@ -1846,6 +1863,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         setShowingSkillsList(false);
         setShowingAgentsList(false);
         setShowingToolsList(false);
+        setShowingWorkItemsList(false);
         setShowMentionDropdown(true);
       }
     },
@@ -1859,6 +1877,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     setShowingSkillsList(false);
     setShowingAgentsList(false);
     setShowingToolsList(false);
+    setShowingWorkItemsList(false);
   }, []);
 
   // Slash command handlers
@@ -2636,6 +2655,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                         setShowingSkillsList(false);
                         setShowingAgentsList(false);
                         setShowingToolsList(false);
+                        setShowingWorkItemsList(false);
                       }}
                       onSelect={handleMentionSelect}
                       searchText={mentionSearchText}
@@ -2645,6 +2665,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       showingSkillsList={showingSkillsList}
                       showingAgentsList={showingAgentsList}
                       showingToolsList={showingToolsList}
+                      showingWorkItemsList={showingWorkItemsList}
                     />
 
                     {/* Slash command dropdown */}
@@ -2667,7 +2688,15 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
           </div>
         </div>
       </div>
-      <NewWorkspaceExplorer worktreePath={validatedProjectPath} />
+      <NewWorkspaceExplorer
+        worktreePath={validatedProjectPath}
+        onInsertWorkItem={(text) => {
+          const current = editorRef.current?.getValue() ?? '';
+          const separator = current && !/\s$/.test(current) ? ' ' : '';
+          editorRef.current?.setValue(current + separator + text);
+          editorRef.current?.focus();
+        }}
+      />
     </div>
   );
 }

@@ -29,6 +29,7 @@ import { openspecRouter } from './openspec';
 import { messagesRouter } from './messages';
 import { cliSessionRouter } from './cli-session';
 import { newProjectRouter } from './new-project';
+import { workItemsRouter } from './work-items';
 import { createGitRouter } from '../../git';
 import { BrowserWindow } from 'electron';
 
@@ -68,6 +69,7 @@ export function createAppRouter(getWindow: () => BrowserWindow | null) {
     messages: messagesRouter,
     cliSession: cliSessionRouter,
     newProject: newProjectRouter,
+    workItems: workItemsRouter,
     // Git operations - named "changes" to match Superset API
     changes: createGitRouter()
   });
