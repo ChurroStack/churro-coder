@@ -1,9 +1,12 @@
 {
   "name": "cscode-desktop",
   "productName": "Churro Coder",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "Churro Coder - UI for parallel work with AI agents",
+  "trustedDependencies": [
+    "electron"
+  ],
   "homepage": "https://www.churrostack.com",
   "author": {
     "name": "ChurroStack",

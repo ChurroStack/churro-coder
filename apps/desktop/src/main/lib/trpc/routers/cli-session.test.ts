@@ -154,6 +154,9 @@ beforeEach(async () => {
       cli_session_id TEXT,
       cli_session_file TEXT,
       cli_session_detected_at INTEGER,
+      summary TEXT,
+      summary_updated_at INTEGER,
+      summary_last_idx INTEGER,
       created_at INTEGER,
       updated_at INTEGER
     );

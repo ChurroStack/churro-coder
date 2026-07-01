@@ -30,7 +30,7 @@ import { AgentToolRegistry } from './agent-tool-registry';
 import { AgentUserMessageBubble } from './agent-user-message-bubble';
 import { syncMessagesWithStatusAtom } from '../stores/message-store';
 import { stripClaudeCliEnvelopes } from '../../../../shared/cli-text-envelopes';
-import { isAdjacentUserDup } from './cli-conversation-dedup';
+import { isAdjacentUserDup, firstTextOfParts } from './cli-conversation-dedup';
 
 interface CliConversationPaneProps {
   subChatId: string;
@@ -40,6 +40,7 @@ interface CliConversationPaneProps {
 
 type MessageRow = {
   id: string;
+  idx: number;
   role: 'user' | 'assistant';
   parts: string | unknown[];
   metadata?: string | unknown;
@@ -59,6 +60,10 @@ function parseJsonField<T>(v: string | T | undefined | null, fallback: T): T {
 // renders inside a dock panel, so the dock-API fallback is a no-op here.
 const NO_FALLBACK = () => {};
 
+/** Newest-messages window the pane hydrates. Kept as one constant so the two
+ *  getLatest calls and the "earlier history hidden" banner copy never drift. */
+const LATEST_WINDOW = 200;
+
 export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: CliConversationPaneProps) {
   const utils = trpc.useUtils();
   // Resolve relative paths against THIS pane's chat worktree (keyed by its own
@@ -68,7 +73,13 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
   const worktreePath = (cliChat?.worktreePath as string | null | undefined) ?? null;
   const openFileInDock = useOpenFileInDock(subChatId, worktreePath, NO_FALLBACK);
   const messagesQuery = trpc.messages.getLatest.useQuery(
-    { subChatId, limit: 200 },
+    { subChatId, limit: LATEST_WINDOW },
+    { staleTime: 0, refetchOnWindowFocus: false }
+  );
+  // The session's original prompt — pinned at the top when it falls outside the
+  // latest-window so a long session never hides "what was first asked".
+  const promptsQuery = trpc.messages.getSessionPrompts.useQuery(
+    { subChatId },
     { staleTime: 0, refetchOnWindowFocus: false }
   );
 
@@ -77,7 +88,8 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
     { subChatId },
     {
       onData: () => {
-        utils.messages.getLatest.invalidate({ subChatId, limit: 200 });
+        utils.messages.getLatest.invalidate({ subChatId, limit: LATEST_WINDOW });
+        utils.messages.getSessionPrompts.invalidate({ subChatId });
       }
     }
   );
@@ -85,12 +97,12 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
   const rows = (messagesQuery.data ?? []) as MessageRow[];
   const parsedMessages = useMemo(() => {
     const out = [];
-    // Tracks the trimmed text of the immediately preceding *rendered* user
-    // message; used to dedup the optimistic-row + JSONL-ingested duplicate
-    // that older CLI subchats already have persisted in the DB. New ingestions
-    // are dedup'd at the appendIngestedMessage layer (claim-merge), so this
-    // is only load-bearing for historical rows.
-    let lastUserText: string | null = null;
+    // Tracks the immediately preceding *rendered* row (role + first-text) so
+    // `isAdjacentUserDup` collapses only a literally-adjacent optimistic-row +
+    // JSONL-ingested duplicate — a repeated input separated by an assistant
+    // turn (e.g. "yes" … "yes") is kept. New ingestions are dedup'd at the
+    // appendIngestedMessage layer (claim-merge); this is for historical rows.
+    let prevRendered: { role: string; text: string | null } | null = null;
     for (const r of rows) {
       const parts = parseJsonField<unknown[]>(r.parts, []);
       const metadata = parseJsonField<Record<string, unknown> | null>(r.metadata as string | undefined, null);
@@ -116,15 +128,14 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
       // Drop the whole message if stripping emptied it (all-envelope user
       // record). Otherwise the user bubble would render as an empty box.
       if (cleanedParts.length === 0) continue;
-      const dup = isAdjacentUserDup({ role: r.role, parts: cleanedParts }, lastUserText);
-      if (dup.dropped) continue;
-      lastUserText = dup.userText;
+      if (isAdjacentUserDup({ role: r.role, parts: cleanedParts }, prevRendered).dropped) continue;
       out.push({
         id: r.id,
         role: r.role,
         parts: cleanedParts,
         ...(metadata ? { metadata } : {})
       });
+      prevRendered = { role: r.role, text: firstTextOfParts(cleanedParts) };
     }
     return out;
   }, [rows]);
@@ -170,6 +181,20 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
   }, [messagesQuery.dataUpdatedAt]);
   const syncedAgo = useSyncedAgo(syncedAt);
 
+  // Pin the original prompt at the top when it sits before the loaded window
+  // (long sessions exceed the 200-message cap). `rows` is ascending by idx, so
+  // rows[0] is the oldest loaded message.
+  const firstPrompt = promptsQuery.data?.first ?? null;
+  const minLoadedIdx = rows.length > 0 ? rows[0].idx : null;
+  const showPinnedOriginal = !!firstPrompt && minLoadedIdx !== null && firstPrompt.idx < minLoadedIdx;
+  const pinnedImageParts = useMemo(() => {
+    if (!showPinnedOriginal || !firstPrompt) return [] as Array<{ data?: { filename?: string; url?: string } }>;
+    const parts = parseJsonField<unknown[]>(firstPrompt.parts, []);
+    return (Array.isArray(parts) ? parts : []).filter(
+      (p) => p && typeof p === 'object' && (p as { type?: string }).type === 'data-image'
+    ) as Array<{ data?: { filename?: string; url?: string } }>;
+  }, [showPinnedOriginal, firstPrompt]);
+
   return (
     <div className="flex h-full w-full flex-col bg-background" data-testid="cli-conversation-pane">
       <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
@@ -194,6 +219,25 @@ export function CliConversationPane({ subChatId, chatId, sessionFileLabel }: Cli
         ) : (
           <div className="mx-auto w-full max-w-5xl px-2 py-4">
             <FileOpenProvider onOpenFile={openFileInDock}>
+              {showPinnedOriginal && firstPrompt && (
+                <div className="mb-2" data-testid="cli-pinned-original">
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                    Original prompt
+                  </div>
+                  <AgentUserMessageBubble
+                    messageId={`pinned-original-${firstPrompt.id}`}
+                    textContent={firstPrompt.text}
+                    imageParts={pinnedImageParts}
+                  />
+                  <div className="my-4 flex items-center gap-2 text-[11px] text-muted-foreground/70">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="shrink-0">
+                      Showing the latest {LATEST_WINDOW} messages — earlier history hidden
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                </div>
+              )}
               <IsolatedMessagesSection
                 subChatId={subChatId}
                 chatId={chatId}

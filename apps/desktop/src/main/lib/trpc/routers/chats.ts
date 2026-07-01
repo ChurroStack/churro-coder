@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { observable } from '@trpc/server/observable';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
 import { cliMcpReminder } from '../../../../shared/cli-mcp-reminder';
+import { stripClaudeCliEnvelopes, stripCodexUserEnvelopes } from '../../../../shared/cli-text-envelopes';
 import {
   ensurePlanWritten,
   extractPlanTitleFromContent,
@@ -54,6 +55,7 @@ import {
 import { publicProcedure, router } from '../index';
 import { abortClaudeSessionsForSubChats } from './claude';
 import { cleanupCodexAppServerSubChat } from './codex';
+import { writeSessionPastedImage } from './files';
 import {
   onCliUserQuestion,
   onCliUserQuestionExpired,
@@ -68,6 +70,64 @@ import {
   parseOllamaCommitResponse,
   buildHeuristicCommitMessage
 } from './commit-message-helpers';
+
+/** Shape of a parsed part on the first stored user message (text + attachments). */
+type FirstMessagePart = {
+  type: string;
+  text?: string;
+  data?: { url?: string; mediaType?: string; filename?: string; base64Data?: string };
+  filePath?: string;
+  content?: string;
+};
+
+/**
+ * Collect absolute, CLI-readable file paths for the attachments on the first user
+ * message. `data-image` parts carry only base64, so they're written to the sub-chat's
+ * session `pasted/` dir (sandbox-whitelisted) to give them a path; `file-content`
+ * parts already carry a path (resolved against `cwd` when relative). Used by
+ * `buildCliBootstrap` so the bootstrap string can point the CLI at the attachments.
+ */
+async function collectAttachmentPaths(
+  parts: FirstMessagePart[],
+  subChatId: string,
+  cwd: string | undefined
+): Promise<string[]> {
+  const paths: string[] = [];
+  let imageIdx = 0;
+  for (const part of parts) {
+    if (part.type === 'data-image' && part.data?.base64Data) {
+      const mediaType = part.data.mediaType ?? 'image/png';
+      const ext = (mediaType.split('/')[1] ?? 'png').replace('jpeg', 'jpg');
+      const rawName = part.data.filename?.replace(/[/\\\0]/g, '_').trim();
+      // Deterministic filename so a restart re-derives the same path instead of
+      // piling up duplicate files on every relaunch.
+      const filename = `attachment-${imageIdx}-${rawName || `image.${ext}`}`;
+      const idxForLog = imageIdx;
+      imageIdx++;
+      try {
+        const { filePath } = await writeSessionPastedImage({
+          subChatId,
+          base64Data: part.data.base64Data,
+          mediaType,
+          filename
+        });
+        paths.push(filePath);
+      } catch (err) {
+        console.warn(
+          `[buildCliBootstrap] attachment-image-write-failed sub=${subChatId} idx=${idxForLog} err=${String(err)}`
+        );
+      }
+    } else if (part.type === 'file-content' && part.filePath) {
+      const abs = path.isAbsolute(part.filePath)
+        ? part.filePath
+        : cwd
+          ? path.resolve(cwd, part.filePath)
+          : part.filePath;
+      paths.push(abs);
+    }
+  }
+  return paths;
+}
 
 type WorktreeSetupFailurePayload = {
   kind: 'create-failed' | 'setup-failed';
@@ -223,6 +283,171 @@ Title:`;
     return null;
   } catch (error) {
     console.error('[Ollama] Generate chat name error:', error);
+    return null;
+  }
+}
+
+// ============ Session summary (rolling, incremental) ============
+// Powers the Session sidebar widget. Same auth rules as title/commit gen:
+// explicit API key only (resolveClaudeRestAuth), Ollama local fallback, NEVER
+// the subscription OAuth token. Only NEW messages (idx > summaryLastIdx) are
+// summarized so token usage stays small even for long sessions.
+
+/** Max chars of compact transcript fed to the model (tail-biased). */
+const SESSION_SUMMARY_INPUT_CHAR_CAP = 4000;
+/** Max chars of summary we persist/display. */
+const SESSION_SUMMARY_MAX_CHARS = 600;
+
+/**
+ * Reduce a stored `parts` JSON to a compact one-line transcript entry for
+ * summarization: text parts verbatim (capped), tool-use parts as `[toolName]`.
+ * Drops images, reasoning, and tool outputs (noise / large). Returns '' when
+ * the row contributes nothing.
+ */
+function compactPartsForSummary(partsJson: string, role: string, harness: string | null): string {
+  let parts: unknown;
+  try {
+    parts = JSON.parse(partsJson);
+  } catch {
+    return '';
+  }
+  if (!Array.isArray(parts)) return '';
+  const chunks: string[] = [];
+  for (const p of parts) {
+    if (!p || typeof p !== 'object') continue;
+    const type = (p as { type?: unknown }).type;
+    if (type === 'text') {
+      const t = (p as { text?: unknown }).text;
+      if (typeof t === 'string' && t.trim()) chunks.push(t.trim());
+    } else if (typeof type === 'string' && type.startsWith('tool-')) {
+      chunks.push(`[${type.slice(5)}]`);
+    }
+  }
+  let text = chunks.join(' ').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (role === 'user') {
+    text = (harness === 'codex-cli' ? stripCodexUserEnvelopes : stripClaudeCliEnvelopes)(text).trim();
+    if (!text) return '';
+  }
+  return `${role === 'user' ? 'User' : 'Assistant'}: ${text.slice(0, 400)}`;
+}
+
+/**
+ * Build the incremental summarization input from messages with idx > sinceIdx.
+ * Returns:
+ *   - null                       → no new rows at all (cursor already current)
+ *   - { text: null, maxIdx }     → new rows exist but none carry renderable text
+ *                                  (images / tool_result-only). The caller still
+ *                                  advances the cursor to maxIdx so `stale`
+ *                                  clears and the trigger stops re-firing.
+ *   - { text, maxIdx }           → summarizable content.
+ */
+function buildSessionSummaryInput(
+  db: ReturnType<typeof getDatabase>,
+  subChatId: string,
+  sinceIdx: number
+): { text: string | null; maxIdx: number } | null {
+  const sub = db.select({ harness: subChats.harness }).from(subChats).where(eq(subChats.id, subChatId)).get();
+  const harness = sub?.harness ?? null;
+  const rows = db
+    .select({ idx: messages.idx, role: messages.role, parts: messages.parts })
+    .from(messages)
+    .where(and(eq(messages.subChatId, subChatId), gt(messages.idx, sinceIdx)))
+    .orderBy(asc(messages.idx))
+    .all();
+  if (rows.length === 0) return null;
+  const maxIdx = rows[rows.length - 1].idx;
+  const lines: string[] = [];
+  for (const r of rows) {
+    const c = compactPartsForSummary(r.parts, r.role, harness);
+    if (c) lines.push(c);
+  }
+  if (lines.length === 0) return { text: null, maxIdx };
+  let text = lines.join('\n');
+  // Tail-bias: the latest activity matters most for "what is it doing now".
+  if (text.length > SESSION_SUMMARY_INPUT_CHAR_CAP) {
+    text = `…\n${text.slice(text.length - SESSION_SUMMARY_INPUT_CHAR_CAP)}`;
+  }
+  return { text, maxIdx };
+}
+
+// Per-subChat in-flight guard for summary generation. Three independent
+// triggers (debounced turn-completion, mount auto-fire, manual refresh) can
+// race; this serializes them so we never pay for two concurrent LLM calls over
+// the same idx range. Cleaned up in the mutation's `finally`.
+const sessionSummaryInFlight = new Set<string>();
+
+async function generateSessionSummaryWithClaude(
+  priorSummary: string | null,
+  newMessages: string,
+  signal: AbortSignal,
+  customConfig?: CustomClaudeAuthConfig
+): Promise<string | null> {
+  if (signal.aborted) return null;
+  try {
+    const auth = resolveClaudeRestAuth(customConfig);
+    if (!auth) return null;
+    const prompt = await getPrompt({
+      key: 'session-summary/prompt',
+      vars: { priorSummary: priorSummary ?? '', newMessages }
+    });
+    const response = await fetch(auth.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', ...auth.headers },
+      body: JSON.stringify({ model: auth.model, max_tokens: 200, messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10000)])
+    });
+    if (!response.ok) {
+      console.error('[session-summary] claude failed:', response.status);
+      return null;
+    }
+    const data = await response.json();
+    if (!data || typeof data !== 'object') {
+      console.error('[session-summary] claude unexpected body shape');
+      return null;
+    }
+    const text = data.content?.[0]?.text?.trim();
+    return text || null;
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return null;
+    console.error('[session-summary] claude error:', error);
+    return null;
+  }
+}
+
+async function generateSessionSummaryWithOllama(
+  priorSummary: string | null,
+  newMessages: string,
+  model: string | null | undefined,
+  signal: AbortSignal
+): Promise<string | null> {
+  try {
+    const status = await checkOllamaStatus();
+    if (!status.available) return null;
+    const modelToUse = model || status.recommendedModel || status.models[0];
+    if (!modelToUse) return null;
+    const prompt = await getPrompt({
+      key: 'session-summary/prompt',
+      vars: { priorSummary: priorSummary ?? '', newMessages }
+    });
+    const response = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modelToUse,
+        prompt,
+        stream: false,
+        options: { temperature: 0.3, num_predict: 220 }
+      }),
+      signal
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const result = data.response?.trim();
+    return result || null;
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return null;
+    console.error('[session-summary] ollama error:', error);
     return null;
   }
 }
@@ -1890,6 +2115,110 @@ export const chatsRouter = router({
       }
     }),
 
+  /**
+   * Read the persisted rolling session summary for the Session sidebar widget.
+   * `stale` is true when new messages have arrived since the summary was last
+   * generated (drives the widget's auto-refresh + "updating" affordance).
+   */
+  getSessionSummary: publicProcedure.input(z.object({ subChatId: z.string() })).query(({ input }) => {
+    const db = getDatabase();
+    const row = db
+      .select({
+        summary: subChats.summary,
+        summaryUpdatedAt: subChats.summaryUpdatedAt,
+        summaryLastIdx: subChats.summaryLastIdx,
+        lastMessageIdx: subChats.lastMessageIdx
+      })
+      .from(subChats)
+      .where(eq(subChats.id, input.subChatId))
+      .get();
+    if (!row) return { summary: null as string | null, updatedAt: null as Date | null, stale: false };
+    const stale = row.lastMessageIdx != null && (row.summaryLastIdx == null || row.lastMessageIdx > row.summaryLastIdx);
+    return { summary: row.summary ?? null, updatedAt: row.summaryUpdatedAt ?? null, stale };
+  }),
+
+  /**
+   * (Re)generate the rolling session summary from only the NEW messages since
+   * the last summary. Claude (explicit API key) → Ollama fallback; on neither
+   * available, leaves the prior summary untouched. Persists summary +
+   * summaryLastIdx + summaryUpdatedAt so it survives restarts without re-work.
+   */
+  generateSessionSummary: publicProcedure
+    .input(
+      z.object({
+        subChatId: z.string(),
+        ollamaModel: z.string().nullish(),
+        // In-app Anthropic API key (customClaudeConfig). Never the subscription OAuth token.
+        customConfig: z
+          .object({ model: z.string().min(1), token: z.string().min(1), baseUrl: z.string().min(1) })
+          .optional()
+      })
+    )
+    .mutation(async ({ input }) => {
+      const db = getDatabase();
+      const sub = db
+        .select({ summary: subChats.summary, summaryLastIdx: subChats.summaryLastIdx })
+        .from(subChats)
+        .where(eq(subChats.id, input.subChatId))
+        .get();
+      if (!sub) return { summary: null as string | null, updated: false };
+
+      const built = buildSessionSummaryInput(db, input.subChatId, sub.summaryLastIdx ?? -1);
+      if (!built) return { summary: sub.summary ?? null, updated: false };
+
+      // New rows exist but none are summarizable (images / tool_result-only).
+      // Advance the cursor so getSessionSummary stops reporting `stale` and the
+      // turn-completion trigger stops re-firing on the same empty span.
+      if (built.text === null) {
+        db.update(subChats).set({ summaryLastIdx: built.maxIdx }).where(eq(subChats.id, input.subChatId)).run();
+        return { summary: sub.summary ?? null, updated: false };
+      }
+
+      // Serialize concurrent triggers for the same sub-chat — don't pay twice.
+      if (sessionSummaryInFlight.has(input.subChatId)) {
+        return { summary: sub.summary ?? null, updated: false };
+      }
+      sessionSummaryInFlight.add(input.subChatId);
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      try {
+        let summary = await generateSessionSummaryWithClaude(
+          sub.summary ?? null,
+          built.text,
+          controller.signal,
+          input.customConfig
+        );
+        if (!summary && !controller.signal.aborted) {
+          summary = await generateSessionSummaryWithOllama(
+            sub.summary ?? null,
+            built.text,
+            input.ollamaModel,
+            controller.signal
+          );
+        }
+        if (!summary) {
+          console.log(`[session-summary] sub=${input.subChatId} outcome=skip reason=no-provider`);
+          return { summary: sub.summary ?? null, updated: false };
+        }
+        const trimmed = summary.slice(0, SESSION_SUMMARY_MAX_CHARS);
+        db.update(subChats)
+          .set({ summary: trimmed, summaryUpdatedAt: new Date(), summaryLastIdx: built.maxIdx })
+          .where(eq(subChats.id, input.subChatId))
+          .run();
+        console.log(
+          `[session-summary] sub=${input.subChatId} outcome=ok lastIdx=${built.maxIdx} len=${trimmed.length}`
+        );
+        return { summary: trimmed, updated: true };
+      } catch (error) {
+        console.error(`[session-summary] sub=${input.subChatId} error:`, error);
+        return { summary: sub.summary ?? null, updated: false };
+      } finally {
+        clearTimeout(timer);
+        sessionSummaryInFlight.delete(input.subChatId);
+      }
+    }),
+
   // ============ PR-related procedures ============
 
   /**
@@ -3059,16 +3388,30 @@ export const chatsRouter = router({
               .limit(1)
               .get();
             if (firstMsg) {
-              let parts: Array<{ type: string; text?: string }> = [];
+              let parts: FirstMessagePart[] = [];
               try {
-                parts = JSON.parse(firstMsg.parts) as Array<{ type: string; text?: string }>;
+                parts = JSON.parse(firstMsg.parts) as FirstMessagePart[];
               } catch {
                 // ignore parse errors — no initialInputChunks injected
               }
               const text = parts.find((p) => p.type === 'text')?.text?.trim();
-              if (text) {
+              // Attachments (images written to the session pasted dir, dropped files
+              // by path) so the CLI can read them — see collectAttachmentPaths.
+              const attachmentPaths = await collectAttachmentPaths(parts, input.subChatId, resolvedCwd);
+              if (text || attachmentPaths.length > 0) {
                 const isPlanMode = subChatRow?.mode === 'plan';
-                const body = isPlanMode ? `${cliMcpReminder(input.subChatId)}\n${text}` : text;
+                // Assemble the single bootstrap string: optional plan-mode MCP
+                // reminder, the instruction text, then an attachments block listing
+                // absolute paths the CLI should read.
+                const segments: string[] = [];
+                if (isPlanMode) segments.push(cliMcpReminder(input.subChatId));
+                if (text) segments.push(text);
+                if (attachmentPaths.length > 0) {
+                  segments.push(
+                    `Attached files (read these as needed):\n${attachmentPaths.map((p) => `- ${p}`).join('\n')}`
+                  );
+                }
+                const body = segments.join('\n\n');
                 // Encode body: bracketed-paste when multi-line, plain text otherwise.
                 const normalized = body.replace(/\r\n/g, '\n');
                 const bodyChunk = normalized.includes('\n') ? `\x1b[200~${normalized}\x1b[201~` : normalized;
@@ -3083,11 +3426,11 @@ export const chatsRouter = router({
                   // The main-side write fires after the banner goes quiet (idleDetection
                   // silenceMs gate) and triggers onTurnStart, so it lands at the prompt.
                   console.log(
-                    `[buildCliBootstrap] force-inject reason=user-restart sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode}`
+                    `[buildCliBootstrap] force-inject reason=user-restart sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode} attachments=${attachmentPaths.length}`
                   );
                 } else {
                   console.log(
-                    `[buildCliBootstrap] initialInputChunks injected sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode}`
+                    `[buildCliBootstrap] initialInputChunks injected sub=${input.subChatId} mode=${subChatRow?.mode ?? 'unknown'} chunks=${chunks.length} harness=${input.harness} reminder=${isPlanMode} attachments=${attachmentPaths.length}`
                   );
                   // Stamp bootstrappedAt on first successful injection.
                   db.update(subChats).set({ bootstrappedAt: new Date() }).where(eq(subChats.id, input.subChatId)).run();
