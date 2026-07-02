@@ -39,7 +39,7 @@ import {
 } from '../../lib/hooks/use-remote-chats';
 import { usePrefetchLocalChat } from '../../lib/hooks/use-prefetch-local-chat';
 import { AgentsArchivePopover } from '../agents/components/agents-archive-popover';
-import { BarChart3, Columns3, Plus, FolderPlus } from 'lucide-react';
+import { BarChart3, Columns3, Plus, FolderPlus, ListTodo } from 'lucide-react';
 import { newProjectDialogOpenAtom } from '../new-project/atoms';
 import { useQuery } from '@tanstack/react-query';
 // Desktop: archive is handled inline, not via hook
@@ -1116,6 +1116,36 @@ const UsageButton = memo(function UsageButton() {
         </button>
       </TooltipTrigger>
       <TooltipContent>Usage</TooltipContent>
+    </Tooltip>
+  );
+});
+
+// Isolated MyWork Button - navigates to the My Work view
+const MyWorkButton = memo(function MyWorkButton() {
+  const setSelectedChatId = useSetAtom(selectedAgentChatIdAtom);
+  const setSelectedDraftId = useSetAtom(selectedDraftIdAtom);
+  const setShowNewChatForm = useSetAtom(showNewChatFormAtom);
+  const setDesktopView = useSetAtom(desktopViewAtom);
+
+  const handleClick = useCallback(() => {
+    setSelectedChatId(null);
+    setSelectedDraftId(null);
+    setShowNewChatForm(false);
+    setDesktopView('my-work');
+  }, [setSelectedChatId, setSelectedDraftId, setShowNewChatForm, setDesktopView]);
+
+  return (
+    <Tooltip delayDuration={500}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={handleClick}
+          aria-label="My Work"
+          className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70">
+          <ListTodo className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>My Work</TooltipContent>
     </Tooltip>
   );
 });
@@ -3096,6 +3126,9 @@ export function AgentsSidebar({ onToggleSidebar, isMobileFullscreen = false, onC
 
                 {/* Archive Section - browse and restore archived workspaces */}
                 <ArchiveSection />
+
+                {/* My Work Button - opens the My Work view (issues / work items) */}
+                <MyWorkButton />
 
                 {/* Usage Button - opens the Usage + Time statistics page (tabs) */}
                 <UsageButton />

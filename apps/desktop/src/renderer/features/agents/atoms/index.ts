@@ -1413,6 +1413,7 @@ export type DesktopView =
   | 'automations'
   | 'automations-detail'
   | 'inbox'
+  | 'my-work'
   | 'settings'
   | 'usage'
   | 'project-stats'
@@ -1562,7 +1563,7 @@ export const fileViewerScrollTargetAtom = atom<FileViewerScrollTarget | null>(nu
 
 // New-workspace surface: file Explore / Search side panel + file viewer state.
 // Non-persistent (per-window, in-memory) — resets on window close.
-export type NewWorkspaceSidePanelMode = 'explore' | 'search' | null;
+export type NewWorkspaceSidePanelMode = 'explore' | 'search' | 'my-work' | null;
 export const newWorkspaceSidePanelModeAtom = atom<NewWorkspaceSidePanelMode>(null);
 export const newWorkspaceViewerFileAtom = atom<string | null>(null);
 export const newWorkspaceSidePanelWidthAtom = atom(280);

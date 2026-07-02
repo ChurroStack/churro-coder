@@ -91,6 +91,7 @@ import {
   type AgentsMentionsEditorHandle,
   type FileMentionOption
 } from '../mentions';
+import { resolveWorkItemInsertText } from '../../mentions/providers/work-items-provider';
 import { AgentFileItem } from '../ui/agent-file-item';
 import { AgentImageItem } from '../ui/agent-image-item';
 import { AgentPastedTextItem } from '../ui/agent-pasted-text-item';
@@ -350,6 +351,12 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
 
   // Fetch projects to validate selectedProject exists
   const { data: projectsList, isLoading: isLoadingProjects } = trpc.projects.list.useQuery();
+
+  // Work items — shared React Query cache with agents-file-mention, no extra network call
+  const { data: workItemsListData } = trpc.workItems.list.useQuery(undefined, {
+    staleTime: 60_000,
+    gcTime: 120_000
+  });
 
   // Validate selected project exists in DB
   // While loading, trust the stored value to prevent flicker
@@ -737,6 +744,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const [showingSkillsList, setShowingSkillsList] = useState(false);
   const [showingAgentsList, setShowingAgentsList] = useState(false);
   const [showingToolsList, setShowingToolsList] = useState(false);
+  const [showingWorkItemsList, setShowingWorkItemsList] = useState(false);
 
   // Slash command dropdown state
   const [showSlashDropdown, setShowSlashDropdown] = useState(false);
@@ -1738,36 +1746,59 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     [handleSend]
   );
 
-  const handleMentionSelect = useCallback((mention: FileMentionOption) => {
-    // Category navigation - enter subpage instead of inserting mention
-    if (mention.type === 'category') {
-      if (mention.id === 'files') {
-        setShowingFilesList(true);
-        return;
+  const handleMentionSelect = useCallback(
+    async (mention: FileMentionOption) => {
+      // Category navigation - enter subpage instead of inserting mention
+      if (mention.type === 'category') {
+        if (mention.id === 'files') {
+          setShowingFilesList(true);
+          return;
+        }
+        if (mention.id === 'skills') {
+          setShowingSkillsList(true);
+          return;
+        }
+        if (mention.id === 'agents') {
+          setShowingAgentsList(true);
+          return;
+        }
+        if (mention.id === 'tools') {
+          setShowingToolsList(true);
+          return;
+        }
+        if (mention.id === 'work-items') {
+          setShowingWorkItemsList(true);
+          return;
+        }
       }
-      if (mention.id === 'skills') {
-        setShowingSkillsList(true);
-        return;
-      }
-      if (mention.id === 'agents') {
-        setShowingAgentsList(true);
-        return;
-      }
-      if (mention.id === 'tools') {
-        setShowingToolsList(true);
-        return;
-      }
-    }
 
-    // Otherwise: insert mention as normal
-    editorRef.current?.insertMention(mention);
-    setShowMentionDropdown(false);
-    // Reset subpage state
-    setShowingFilesList(false);
-    setShowingSkillsList(false);
-    setShowingAgentsList(false);
-    setShowingToolsList(false);
-  }, []);
+      // Work item: insert as plain text with full body so the agent has complete context
+      if (mention.id.startsWith('github:issue:')) {
+        const current = editorRef.current?.getValue() ?? '';
+        const separator = current && !/\s$/.test(current) ? ' ' : '';
+        const fullItem = workItemsListData?.items?.find(
+          (item) => `github:issue:${item.repoOwner}/${item.repoName}#${item.number}` === mention.id
+        );
+        const fallbackRef = mention.repository ? `${mention.label} (${mention.repository})` : mention.label;
+        const text = fullItem ? await resolveWorkItemInsertText(fullItem) : fallbackRef;
+        editorRef.current?.setValue(current + separator + text);
+        setShowMentionDropdown(false);
+        setShowingWorkItemsList(false);
+        return;
+      }
+
+      // Otherwise: insert mention as normal
+      editorRef.current?.insertMention(mention);
+      setShowMentionDropdown(false);
+      // Reset subpage state
+      setShowingFilesList(false);
+      setShowingSkillsList(false);
+      setShowingAgentsList(false);
+      setShowingToolsList(false);
+      setShowingWorkItemsList(false);
+    },
+    [workItemsListData]
+  );
 
   // Save draft to localStorage when content changes
   const handleContentChange = useCallback(
@@ -1846,6 +1877,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
         setShowingSkillsList(false);
         setShowingAgentsList(false);
         setShowingToolsList(false);
+        setShowingWorkItemsList(false);
         setShowMentionDropdown(true);
       }
     },
@@ -1859,6 +1891,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     setShowingSkillsList(false);
     setShowingAgentsList(false);
     setShowingToolsList(false);
+    setShowingWorkItemsList(false);
   }, []);
 
   // Slash command handlers
@@ -2636,6 +2669,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                         setShowingSkillsList(false);
                         setShowingAgentsList(false);
                         setShowingToolsList(false);
+                        setShowingWorkItemsList(false);
                       }}
                       onSelect={handleMentionSelect}
                       searchText={mentionSearchText}
@@ -2645,6 +2679,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       showingSkillsList={showingSkillsList}
                       showingAgentsList={showingAgentsList}
                       showingToolsList={showingToolsList}
+                      showingWorkItemsList={showingWorkItemsList}
                     />
 
                     {/* Slash command dropdown */}
@@ -2667,7 +2702,15 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
           </div>
         </div>
       </div>
-      <NewWorkspaceExplorer worktreePath={validatedProjectPath} />
+      <NewWorkspaceExplorer
+        worktreePath={validatedProjectPath}
+        onInsertWorkItem={(text) => {
+          const current = editorRef.current?.getValue() ?? '';
+          const separator = current && !/\s$/.test(current) ? ' ' : '';
+          editorRef.current?.setValue(current + separator + text);
+          editorRef.current?.focus();
+        }}
+      />
     </div>
   );
 }
