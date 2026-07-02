@@ -28,3 +28,24 @@ export function firstTextOfParts(parts: unknown): string | null {
   }
   return null;
 }
+
+/**
+ * True when a user row's first text is a harness-injected notice, not
+ * something the user actually typed: a background sub-agent's
+ * `<task-notification>` (Claude Code writes Task-tool completion pings into
+ * the JSONL as plain `role='user'` records), a `<system-reminder>`, or an
+ * interrupt marker. These are real transcript content and are rendered
+ * unchanged in the CLI conversation pane — this predicate exists only for
+ * consumers that need the user's *actual last input* (the Session widget's
+ * "Last input" via `getSessionPrompts`), where a machine notice must never be
+ * picked over a genuine prompt.
+ */
+export function isMachineInjectedUserText(firstText: string): boolean {
+  const t = firstText.trimStart();
+  return (
+    t.startsWith('<task-notification') ||
+    t.startsWith('<task-id>') || // defensive: some rows lead with the inner tag
+    t.startsWith('<system-reminder') ||
+    /^\[Request interrupted by user/.test(t)
+  );
+}

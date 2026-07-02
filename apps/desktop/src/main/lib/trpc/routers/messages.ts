@@ -5,7 +5,7 @@ import * as path from 'path';
 import { z } from 'zod';
 import { getDatabase, messages, subChats } from '../../db';
 import { spillPath, writePartIfLargeSync } from '../../db/part-spill';
-import { firstTextOfParts } from '../../../../shared/message-parts';
+import { firstTextOfParts, isMachineInjectedUserText } from '../../../../shared/message-parts';
 import { stripClaudeCliEnvelopes, stripCodexUserEnvelopes } from '../../../../shared/cli-text-envelopes';
 import { publicProcedure, router } from '../index';
 
@@ -72,10 +72,14 @@ export const messagesRouter = router({
    * harness (the `messages` table is the shared store for builtin + CLI).
    *
    * "first"/"last" skip envelope-only user rows (slash-command tags, MCP
-   * reminders, tool_result carriers) by scanning a small window from each end
-   * and picking the first row whose stripped text is non-empty. The full row
-   * (id/idx/parts/metadata) is returned so the pane can render `first` through
-   * the same message pipeline; `text` is the pre-stripped display string.
+   * reminders, tool_result carriers) and machine-injected notices
+   * (`<task-notification>` sub-agent pings, `<system-reminder>`, interrupt
+   * markers — see `isMachineInjectedUserText`) by scanning a small window from
+   * each end and picking the first row whose stripped text is non-empty. The
+   * full row (id/idx/parts/metadata) is returned so the pane can render `first`
+   * through the same message pipeline; `text` is the pre-stripped display
+   * string. This filtering is query-time only — the CLI conversation
+   * transcript (`getLatest`) renders these rows unchanged.
    */
   getSessionPrompts: publicProcedure
     .input(z.object({ subChatId: z.string() }))
@@ -116,6 +120,16 @@ export const messagesRouter = router({
 
       const pick = (rows: typeof earliest): SessionPromptRow | null => {
         for (const r of rows) {
+          const raw = firstTextOfParts(
+            (() => {
+              try {
+                return JSON.parse(r.parts);
+              } catch {
+                return null;
+              }
+            })()
+          );
+          if (raw && isMachineInjectedUserText(raw)) continue;
           const text = strippedUserText(r.parts, harness);
           if (text) return { ...r, text };
         }
