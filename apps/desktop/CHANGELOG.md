@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.13](https://github.com/ChurroStack/churro-coder/compare/v0.1.12...v0.1.13) (2026-07-02)
+
+
+### Features
+
+* **cli:** ask questions in TUI instead of MCP widget for CLI harnesses ([#228](https://github.com/ChurroStack/churro-coder/issues/228)) ([42cc36f](https://github.com/ChurroStack/churro-coder/commit/42cc36fb917ed77995e30a9d551fe257b67efcd9))
+* **desktop:** add My Work workspace for GitHub-assigned work ([#230](https://github.com/ChurroStack/churro-coder/issues/230)) ([5bb091f](https://github.com/ChurroStack/churro-coder/commit/5bb091f7423e7464d39a5b525ef0d53dfdd412a2))
+* **desktop:** opusplan CLI bootstrap, Advisor mode, model refresh ([#229](https://github.com/ChurroStack/churro-coder/issues/229)) ([4d41dc2](https://github.com/ChurroStack/churro-coder/commit/4d41dc2dfa591ebcfad8cc73a14e04ca26b9e8a3))
+
+
+### Bug Fixes
+
+* **desktop:** Session widget summary + last-input fixes ([#232](https://github.com/ChurroStack/churro-coder/issues/232)) ([e90a517](https://github.com/ChurroStack/churro-coder/commit/e90a51705b50d7c1d9d54269d027940a047ce0aa))
+
 ## [0.1.12](https://github.com/ChurroStack/churro-coder/compare/v0.1.11...v0.1.12) (2026-06-30)
 
 
