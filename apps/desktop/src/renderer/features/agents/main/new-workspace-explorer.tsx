@@ -18,6 +18,7 @@ import {
 interface NewWorkspaceExplorerProps {
   worktreePath: string | null;
   onInsertWorkItem?: (text: string) => void;
+  projectId?: string;
 }
 
 /**
@@ -29,7 +30,7 @@ interface NewWorkspaceExplorerProps {
  * panel also closes the file viewer; closing only the file viewer leaves the
  * side panel open.
  */
-export function NewWorkspaceExplorer({ worktreePath, onInsertWorkItem }: NewWorkspaceExplorerProps) {
+export function NewWorkspaceExplorer({ worktreePath, onInsertWorkItem, projectId }: NewWorkspaceExplorerProps) {
   const [mode, setMode] = useAtom(newWorkspaceSidePanelModeAtom);
   const [viewerFile, setViewerFile] = useAtom(newWorkspaceViewerFileAtom);
 
@@ -109,7 +110,7 @@ export function NewWorkspaceExplorer({ worktreePath, onInsertWorkItem }: NewWork
                 <p className="text-[10px] text-muted-foreground/70 mt-0.5">Click an issue to insert it in the prompt</p>
               </div>
               <div className="flex-1 overflow-y-auto">
-                <WorkItemsPanel onInsert={onInsertWorkItem ?? (() => {})} />
+                <WorkItemsPanel onInsert={onInsertWorkItem ?? (() => {})} projectId={projectId} />
               </div>
             </div>
           )}

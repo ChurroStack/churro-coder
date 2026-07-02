@@ -2675,6 +2675,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
                       searchText={mentionSearchText}
                       position={mentionPosition}
                       projectPath={validatedProject?.path}
+                      projectId={validatedProject?.id}
                       showingFilesList={showingFilesList}
                       showingSkillsList={showingSkillsList}
                       showingAgentsList={showingAgentsList}
@@ -2704,6 +2705,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       </div>
       <NewWorkspaceExplorer
         worktreePath={validatedProjectPath}
+        projectId={validatedProject?.id}
         onInsertWorkItem={(text) => {
           const current = editorRef.current?.getValue() ?? '';
           const separator = current && !/\s$/.test(current) ? ' ' : '';
