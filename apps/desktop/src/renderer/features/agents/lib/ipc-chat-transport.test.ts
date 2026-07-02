@@ -74,7 +74,9 @@ vi.mock('../atoms', () => ({
   pendingAuthRetryMessageAtom: {},
   pendingUserQuestionsAtom: {},
   subChatClaudeThinkingAtomFamily: () => ({}),
-  subChatModelIdAtomFamily: () => ({})
+  subChatModelIdAtomFamily: () => ({}),
+  advisorEnabledAtom: {},
+  advisorModeModelAtom: {}
 }));
 
 vi.mock('./model-switching', () => ({

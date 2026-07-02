@@ -25,7 +25,9 @@ import {
   pendingUserQuestionsAtom,
   subChatClaudeSessionEpochAtomFamily,
   subChatClaudeThinkingAtomFamily,
-  subChatModelIdAtomFamily
+  subChatModelIdAtomFamily,
+  advisorEnabledAtom,
+  advisorModeModelAtom
 } from '../atoms';
 import {
   openSpecCurrentStepAtomFamily,
@@ -190,6 +192,12 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const autoOfflineMode = appStore.get(autoOfflineModeAtom);
     const offlineModeEnabled = showOfflineFeatures && autoOfflineMode;
 
+    // Advisor default mode (Claude only): when enabled, pass the selected
+    // advisor model so the builtin session runs `--advisor <model>`. Skip for
+    // offline/Ollama sessions — the advisor is an Anthropic server-side tool.
+    const advisorModel =
+      appStore.get(advisorEnabledAtom) && !offlineModeEnabled ? appStore.get(advisorModeModelAtom) : undefined;
+
     const currentMode = getCurrentSubChatMode(this.config.subChatId);
 
     // Drop Codex thread UUIDs before they reach the Claude router — main handles
@@ -273,6 +281,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
             sessionId: claudeSessionId,
             ...(effort && { effort }),
             ...(modelString && { model: modelString }),
+            ...(advisorModel && { advisorModel }),
             ...(customConfig && { customConfig }),
             ...(selectedOllamaModel && { selectedOllamaModel }),
             historyEnabled,
@@ -454,7 +463,10 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 }
 
                 if (autoImported) {
-                  toast.info('Reconnecting Claude…', { duration: 4000 });
+                  toast.info('Reconnecting Claude…', {
+                    id: `auth-reconnect-${this.config.subChatId}`,
+                    duration: 4000
+                  });
                   const pending = appStore.get(pendingAuthRetryMessageAtom);
                   if (pending && pending.subChatId === this.config.subChatId) {
                     appStore.set(pendingAuthRetryMessageAtom, { ...pending, readyToRetry: true });
@@ -484,6 +496,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               // Handle retry notification - show friendly toast instead of scary error
               if (chunk.type === 'retry-notification') {
                 toast.info('Retrying request', {
+                  id: `retry-notification-${this.config.subChatId}`,
                   description: chunk.message || 'Request was unsuccessful, trying again...',
                   duration: 4000
                 });

@@ -6,7 +6,7 @@ import { HARNESS_LABELS } from '../lib/harness-icons';
 import { AgentSendButton } from '../components/agent-send-button';
 import { VoiceWaveIndicator } from './voice-wave-indicator';
 import { trpc } from '../../../lib/trpc';
-import { CLAUDE_MODELS, formatClaudeThinkingLabel, type ClaudeThinkingLevel } from '../lib/models';
+import { CLAUDE_MODELS, CLI_MODEL_ALIASES, formatClaudeThinkingLabel, type ClaudeThinkingLevel } from '../lib/models';
 import {
   subChatModelIdAtomFamily,
   subChatClaudeThinkingAtomFamily,
@@ -113,9 +113,12 @@ export function CliPromptBar({ subChatId, isOwner = true, harness }: CliPromptBa
     setPendingOpenSpecMessage
   ]);
 
+  // Opus Plan (and any other CLI-only alias) is pinned to the top of the
+  // switcher; it dispatches `/model opusplan` like any other model pick.
+  const cliModels = useMemo(() => [...CLI_MODEL_ALIASES, ...CLAUDE_MODELS], []);
   const selectedModel = useMemo(
-    () => CLAUDE_MODELS.find((m) => m.id === selectedModelId) ?? CLAUDE_MODELS[0]!,
-    [selectedModelId]
+    () => cliModels.find((m) => m.id === selectedModelId) ?? cliModels[0]!,
+    [cliModels, selectedModelId]
   );
 
   // Submit a finished voice utterance (or any caller-supplied text) to the CLI.
@@ -213,7 +216,7 @@ export function CliPromptBar({ subChatId, isOwner = true, harness }: CliPromptBa
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[140px]">
-                {CLAUDE_MODELS.map((model) => (
+                {cliModels.map((model) => (
                   <DropdownMenuItem
                     key={model.id}
                     onSelect={() => handleModelChange(model.id)}

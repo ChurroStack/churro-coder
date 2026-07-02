@@ -181,7 +181,15 @@ async function startMcpHttpServer(
       );
     }
 
-    const mcpServer = createMcpServer();
+    // Disable request_user_input on this HTTP endpoint so CLI harnesses ask
+    // clarifying questions directly in their own TUI instead of the flaky in-app
+    // widget. Consumers of this transport: claude-cli, codex-cli, AND the builtin
+    // Codex app-server (codex.ts injects churro-coder via ensureMcpHttpServerAlive
+    // + `-c mcp_servers.*`). Only builtin *Claude* skips this transport — it uses
+    // an in-process SDK instance (trpc/routers/claude.ts). Dropping the tool is
+    // safe for builtin Codex too: it asks questions via its native app-server
+    // handler (codex.ts handleAskUserQuestionRequest), never this MCP tool.
+    const mcpServer = createMcpServer({ includeRequestUserInput: false });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
     res.on('close', () => {

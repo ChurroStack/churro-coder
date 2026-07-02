@@ -4,7 +4,6 @@ import { ensureMcpHttpServerAlive } from '../mcp/http-transport';
 import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
 import { detectCliTool, evictCliDetect } from './detect';
 import { getCliInstallCommands } from '../../../shared/cli-install-commands';
-import { ASK_USER_QUESTION_TIMEOUT_MS } from '../../../shared/ask-user-question';
 import type { TerminalBootstrap } from '../terminal/types';
 
 export type CliHarness = 'claude-cli' | 'codex-cli';
@@ -84,12 +83,10 @@ async function writeClaudeMcpConfigFile(mcpUrl: string, bearer: string): Promise
       [MCP_SERVER_NAME]: {
         type: 'http',
         url: mcpUrl,
-        headers: { Authorization: `Bearer ${bearer}` },
-        // request_user_input blocks on a human; give claude-code's logical tool
-        // timeout the same generous window the host backstop uses, so it doesn't
-        // hard-abort the call while the user is thinking (e.g. in another
-        // workspace). See src/shared/ask-user-question.ts.
-        timeout: ASK_USER_QUESTION_TIMEOUT_MS
+        headers: { Authorization: `Bearer ${bearer}` }
+        // No custom timeout: the CLI-facing server no longer exposes the
+        // long-blocking request_user_input tool (CLIs ask questions in their own
+        // TUI), so the remaining fast write tools use claude-code's default.
       }
     }
   };
@@ -110,7 +107,7 @@ function buildClaudeSystemPrompt(subChatId: string): string {
     '- When producing a code review, you MUST call the write_review tool with the full review markdown before sending your final assistant message.',
     '- When implementing a plan, you MUST call write_tasks once at the start with all plan steps (each task needs a stable short id, a title, and status: "pending"). Before starting each task call update_task_status with status: "in_progress"; after finishing call it with status: "completed". If the task structure changes, call write_tasks again with the full updated list.',
     '- After every successful file create, edit, or delete (or a batch of them in one turn), you MUST call notify_files_changed with the affected paths and actions. Batch all files from a single turn into one call. This is how the host app tracks changes in the Changes widget.',
-    '- When you need to ask the user a clarifying question or get a decision, you MUST call the request_user_input MCP tool with 1-4 structured questions. The host renders the questions as a UI widget above the CLI prompt; do NOT type a question into the terminal and wait for stdin — the user will not see it.',
+    '- When you need to ask the user a clarifying question or get a decision, ask it directly in the conversation and wait for their reply — do NOT use any MCP question tool.',
     '- These tools are pre-authorized; calling them does not require user approval. Skipping them leaves the user UI blank, which is a failure.'
   ].join('\n');
 }
@@ -140,7 +137,13 @@ export async function buildBootstrap(
    * inherit each other's session. Ignored for codex-cli (Codex 0.130.0 has
    * no equivalent flag).
    */
-  claimedSessionId?: string
+  claimedSessionId?: string,
+  /**
+   * Claude only. When true, the Advisor default mode is enabled, so we set
+   * CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 on the child env — the
+   * `/advisor` slash command (sent as a bootstrap chunk) is a no-op without it.
+   */
+  advisorEnabled?: boolean
 ): Promise<TerminalBootstrap | BootstrapError> {
   const binaryName = harness === 'claude-cli' ? 'claude' : 'codex';
   console.log(
@@ -210,7 +213,7 @@ export async function buildBootstrap(
     // (single registration, shared across all subChats).
     args.push(
       '--allowedTools',
-      `mcp__${MCP_SERVER_NAME}__write_plan,mcp__${MCP_SERVER_NAME}__write_review,mcp__${MCP_SERVER_NAME}__write_tasks,mcp__${MCP_SERVER_NAME}__update_task_status,mcp__${MCP_SERVER_NAME}__notify_files_changed,mcp__${MCP_SERVER_NAME}__request_user_input`
+      `mcp__${MCP_SERVER_NAME}__write_plan,mcp__${MCP_SERVER_NAME}__write_review,mcp__${MCP_SERVER_NAME}__write_tasks,mcp__${MCP_SERVER_NAME}__update_task_status,mcp__${MCP_SERVER_NAME}__notify_files_changed`
     );
     // System prompt: declares the subChatId and instructs the model to pass
     // it on every MCP call. This is the primary subChatId carrier for Claude.
@@ -251,9 +254,11 @@ export async function buildBootstrap(
     );
   }
 
+  const advisorOn = harness === 'claude-cli' && advisorEnabled === true;
   const env: Record<string, string> = {
     CHURRO_SUBCHAT_ID: subChatId,
-    ...(harness === 'codex-cli' ? { CHURRO_MCP_BEARER: endpoint.bearer } : {})
+    ...(harness === 'codex-cli' ? { CHURRO_MCP_BEARER: endpoint.bearer } : {}),
+    ...(advisorOn ? { CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL: '1' } : {})
   };
 
   const bootstrap: TerminalBootstrap = {
@@ -267,7 +272,7 @@ export async function buildBootstrap(
   };
 
   console.log(
-    `[harness-bootstrap] ok harness=${harness} sub=${subChatId} binary=${binaryPath} args=${JSON.stringify(args)}`
+    `[harness-bootstrap] ok harness=${harness} sub=${subChatId} binary=${binaryPath} advisor=${advisorOn ? 'on' : 'off'} args=${JSON.stringify(args)}`
   );
   return bootstrap;
 }

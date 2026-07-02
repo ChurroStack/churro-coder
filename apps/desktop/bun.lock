@@ -128,7 +128,13 @@
     },
   },
   "trustedDependencies": [
+    "sharp",
+    "node-pty",
+    "esbuild",
+    "electron-winstaller",
     "electron",
+    "better-sqlite3",
+    "@sentry/cli",
   ],
   "patchedDependencies": {
     "@radix-ui/react-select@2.2.6": "patches/@radix-ui%2Freact-select@2.2.6.patch",

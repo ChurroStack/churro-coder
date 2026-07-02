@@ -27,8 +27,13 @@ import {
   subChatFilesAtom,
   cliBusyAtomFamily,
   cliSplitLayoutAtomFamily,
-  cliSplitSizeAtomFamily
+  cliSplitSizeAtomFamily,
+  defaultPlanModeModelAtom,
+  defaultExecuteModeModelAtom,
+  advisorEnabledAtom,
+  advisorModeModelAtom
 } from '../atoms';
+import { computeOpusplanCommand } from '../lib/models';
 import { CliConversationPane } from './cli-conversation-pane';
 import type { PendingUserQuestion } from '../atoms';
 import { AgentUserQuestion } from './agent-user-question';
@@ -324,12 +329,28 @@ export function ChatCliSurface({
     }
   });
 
+  // Default-mode + advisor settings drive the Claude CLI bootstrap sequence
+  // (see chats.buildCliBootstrap). Read here (renderer localStorage atoms) and
+  // pass the derived commands to the main process, which can't see these.
+  const defaultPlanModel = useAtomValue(defaultPlanModeModelAtom);
+  const defaultExecuteModel = useAtomValue(defaultExecuteModeModelAtom);
+  const advisorEnabled = useAtomValue(advisorEnabledAtom);
+  const advisorModeModel = useAtomValue(advisorModeModelAtom);
+
   const doBootstrap = useCallback(
     (trigger: 'initial' | 'reattach' | 'hard-reset' | 'restart' = 'initial') => {
       setBootstrapState({ status: 'loading' });
       const cwdArg = cwd !== '~' ? cwd : undefined;
+      // Claude CLI only: `/model opusplan` when Plan=Opus & Execute=Sonnet, and
+      // `/advisor <model>` when the Advisor mode is enabled. Both are ignored
+      // by the main process for codex-cli.
+      const isClaudeCli = harness === 'claude-cli';
+      const claudeModelCommand = isClaudeCli
+        ? computeOpusplanCommand(defaultPlanModel, defaultExecuteModel)
+        : undefined;
+      const advisorModel = isClaudeCli && advisorEnabled ? advisorModeModel : undefined;
       console.log(
-        `[chat-cli-surface] bootstrap subChat=${subChatId} trigger=${trigger} cwd_prop=${cwd} cwd_arg=${cwdArg ?? '(omitted)'}`
+        `[chat-cli-surface] bootstrap subChat=${subChatId} trigger=${trigger} cwd_prop=${cwd} cwd_arg=${cwdArg ?? '(omitted)'} modelCmd=${claudeModelCommand ?? '(none)'} advisor=${advisorModel ?? '(off)'}`
       );
       if (trigger === 'reattach') {
         console.log(`[resilience] subChat=${subChatId} event=reattach`);
@@ -339,10 +360,22 @@ export function ChatCliSurface({
         harness: harness as 'claude-cli' | 'codex-cli',
         cwd: cwdArg,
         chatId,
-        trigger
+        trigger,
+        ...(claudeModelCommand ? { claudeModelCommand } : {}),
+        ...(advisorModel ? { advisorModel } : {})
       });
     },
-    [subChatId, harness, cwd, buildBootstrapMutation]
+    [
+      subChatId,
+      harness,
+      cwd,
+      chatId,
+      buildBootstrapMutation,
+      defaultPlanModel,
+      defaultExecuteModel,
+      advisorEnabled,
+      advisorModeModel
+    ]
   );
 
   const doHardReset = async () => {
