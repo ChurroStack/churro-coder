@@ -31,7 +31,10 @@ import {
   defaultPlanModeModelAtom,
   defaultPlanModeThinkingAtom,
   defaultReviewModeModelAtom,
-  defaultReviewModeThinkingAtom
+  defaultReviewModeThinkingAtom,
+  advisorEnabledAtom,
+  advisorModeModelAtom,
+  type AdvisorModel
 } from '../../../features/agents/atoms';
 import {
   CLAUDE_MODELS,
@@ -209,6 +212,8 @@ export function AgentsPreferencesTab() {
   const [defaultExecuteThinking, setDefaultExecuteThinking] = useAtom(defaultExecuteModeThinkingAtom);
   const [defaultExploreThinking, setDefaultExploreThinking] = useAtom(defaultExploreModeThinkingAtom);
   const [defaultReviewThinking, setDefaultReviewThinking] = useAtom(defaultReviewModeThinkingAtom);
+  const [advisorEnabled, setAdvisorEnabled] = useAtom(advisorEnabledAtom);
+  const [advisorModel, setAdvisorModel] = useAtom(advisorModeModelAtom);
   const hiddenModels = useAtomValue(hiddenModelsAtom);
   const modelOptions = useMemo(() => buildModelOptions(hiddenModels), [hiddenModels]);
   const [preferredEditor, setPreferredEditor] = useAtom(preferredEditorAtom);
@@ -416,6 +421,36 @@ export function AgentsPreferencesTab() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </div>
+        <div className="flex items-center justify-between p-4 border-t border-border gap-4">
+          <div className="flex flex-col space-y-1 min-w-0">
+            <span className="text-sm font-medium text-foreground">Default Advisor</span>
+            <span className="text-xs text-muted-foreground">
+              Enable Claude Code's advisor tool — a stronger secondary model (Opus, Sonnet, or Fable) the primary model
+              can consult on hard decisions. Applied to new Claude chats (builtin and CLI); Claude attaches it only when
+              the advisor is at least as capable as the chat's model.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Select
+              value={advisorModel}
+              onValueChange={(value: AdvisorModel) => setAdvisorModel(value)}
+              disabled={!advisorEnabled}>
+              <SelectTrigger className="w-auto px-2" aria-label="Advisor model">
+                <span className="text-xs capitalize">{advisorModel}</span>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="opus">Opus</SelectItem>
+                <SelectItem value="sonnet">Sonnet</SelectItem>
+                <SelectItem value="fable">Fable</SelectItem>
+              </SelectContent>
+            </Select>
+            <Switch
+              checked={advisorEnabled}
+              onCheckedChange={setAdvisorEnabled}
+              aria-label="Enable Default Advisor mode"
+            />
           </div>
         </div>
         <div className="flex items-center justify-between p-4 border-t border-border">

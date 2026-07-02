@@ -137,7 +137,13 @@ export async function buildBootstrap(
    * inherit each other's session. Ignored for codex-cli (Codex 0.130.0 has
    * no equivalent flag).
    */
-  claimedSessionId?: string
+  claimedSessionId?: string,
+  /**
+   * Claude only. When true, the Advisor default mode is enabled, so we set
+   * CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1 on the child env — the
+   * `/advisor` slash command (sent as a bootstrap chunk) is a no-op without it.
+   */
+  advisorEnabled?: boolean
 ): Promise<TerminalBootstrap | BootstrapError> {
   const binaryName = harness === 'claude-cli' ? 'claude' : 'codex';
   console.log(
@@ -248,9 +254,11 @@ export async function buildBootstrap(
     );
   }
 
+  const advisorOn = harness === 'claude-cli' && advisorEnabled === true;
   const env: Record<string, string> = {
     CHURRO_SUBCHAT_ID: subChatId,
-    ...(harness === 'codex-cli' ? { CHURRO_MCP_BEARER: endpoint.bearer } : {})
+    ...(harness === 'codex-cli' ? { CHURRO_MCP_BEARER: endpoint.bearer } : {}),
+    ...(advisorOn ? { CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL: '1' } : {})
   };
 
   const bootstrap: TerminalBootstrap = {
@@ -264,7 +272,7 @@ export async function buildBootstrap(
   };
 
   console.log(
-    `[harness-bootstrap] ok harness=${harness} sub=${subChatId} binary=${binaryPath} args=${JSON.stringify(args)}`
+    `[harness-bootstrap] ok harness=${harness} sub=${subChatId} binary=${binaryPath} advisor=${advisorOn ? 'on' : 'off'} args=${JSON.stringify(args)}`
   );
   return bootstrap;
 }

@@ -379,7 +379,8 @@ const AVAILABLE_CLAUDE_MODEL_IDS = [
   'claude-opus-4-6',
   'sonnet',
   'sonnet[1m]',
-  'haiku'
+  'haiku',
+  'fable'
 ] as const;
 
 function sanitizeModelId(candidate: string, fallback: string): string {
@@ -410,6 +411,26 @@ export const defaultExploreModeModelAtom = atomWithStorage<string>(
 export const defaultReviewModeModelAtom = atomWithStorage<string>(
   'preferences:default-review-mode-model',
   sanitizeModelId('opus', 'opus'),
+  undefined,
+  { getOnInit: true }
+);
+
+// Advisor default mode (opt-in): when enabled, new Claude chats run the
+// server-side advisor tool. The CLI bootstrap sends `/advisor <model>` (and
+// sets CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1); the builtin SDK path
+// passes `--advisor <model>` + the same env var. Accepts the `opus`, `sonnet`,
+// or `fable` aliases (Haiku can call an advisor but cannot be one). Claude Code
+// validates the main↔advisor capability pairing at runtime and no-ops the
+// advisor if the pairing is invalid.
+export type AdvisorModel = 'opus' | 'sonnet' | 'fable';
+
+export const advisorEnabledAtom = atomWithStorage<boolean>('preferences:advisor-enabled', false, undefined, {
+  getOnInit: true
+});
+
+export const advisorModeModelAtom = atomWithStorage<AdvisorModel>(
+  'preferences:advisor-mode-model',
+  'fable',
   undefined,
   { getOnInit: true }
 );
@@ -1392,6 +1413,7 @@ export type DesktopView =
   | 'automations'
   | 'automations-detail'
   | 'inbox'
+  | 'my-work'
   | 'settings'
   | 'usage'
   | 'project-stats'
@@ -1541,7 +1563,7 @@ export const fileViewerScrollTargetAtom = atom<FileViewerScrollTarget | null>(nu
 
 // New-workspace surface: file Explore / Search side panel + file viewer state.
 // Non-persistent (per-window, in-memory) — resets on window close.
-export type NewWorkspaceSidePanelMode = 'explore' | 'search' | null;
+export type NewWorkspaceSidePanelMode = 'explore' | 'search' | 'my-work' | null;
 export const newWorkspaceSidePanelModeAtom = atom<NewWorkspaceSidePanelMode>(null);
 export const newWorkspaceViewerFileAtom = atom<string | null>(null);
 export const newWorkspaceSidePanelWidthAtom = atom(280);

@@ -90,6 +90,7 @@ vi.mock('../../../lib/trpc', () => {
       files: { writePastedText: { useMutation: m() }, search: { useQuery: q([]) } },
       skills: { listEnabled: { useQuery: q([]) } },
       agents: { listEnabled: { useQuery: q([]) } },
+      workItems: { list: { useQuery: q({ items: [], pageInfo: { hasNextPage: false, endCursor: null } }) } },
       commands: { list: { useQuery: q([]) } },
       useUtils: vi.fn(() => utils)
     },
@@ -201,6 +202,11 @@ describe('NewChatForm — simplified workspace UI', () => {
     expect(queryByText('Agent mode')).toBeNull();
     expect(queryByText('Harness')).toBeNull();
     expect(queryByText('Type of work')).toBeNull();
+  });
+
+  it('does not render the old inline My Work toggle next to the attachment button', () => {
+    const { queryByRole } = renderWithProject();
+    expect(queryByRole('button', { name: /toggle my work panel/i })).toBeNull();
   });
 
   it('mode dropdown trigger reflects workflow mode: defaults to Plan, shows Spec-driven when active', () => {

@@ -147,6 +147,7 @@ vi.mock('jotai', async () => {
 
 vi.mock('../lib/models', () => ({
   CLAUDE_MODELS: [{ id: 'claude-sonnet-4-6', name: 'Sonnet', version: '4.6', thinkings: ['off', 'high'] }],
+  CLI_MODEL_ALIASES: [{ id: 'opusplan', name: 'Opus Plan', version: 'auto', thinkings: ['off', 'high'] }],
   formatClaudeThinkingLabel: (level: string) => level,
   CODEX_MODELS: []
 }));
