@@ -463,7 +463,10 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
                 }
 
                 if (autoImported) {
-                  toast.info('Reconnecting Claude…', { duration: 4000 });
+                  toast.info('Reconnecting Claude…', {
+                    id: `auth-reconnect-${this.config.subChatId}`,
+                    duration: 4000
+                  });
                   const pending = appStore.get(pendingAuthRetryMessageAtom);
                   if (pending && pending.subChatId === this.config.subChatId) {
                     appStore.set(pendingAuthRetryMessageAtom, { ...pending, readyToRetry: true });
@@ -493,6 +496,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
               // Handle retry notification - show friendly toast instead of scary error
               if (chunk.type === 'retry-notification') {
                 toast.info('Retrying request', {
+                  id: `retry-notification-${this.config.subChatId}`,
                   description: chunk.message || 'Request was unsuccessful, trying again...',
                   duration: 4000
                 });
