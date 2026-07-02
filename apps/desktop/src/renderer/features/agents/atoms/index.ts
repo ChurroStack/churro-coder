@@ -418,22 +418,20 @@ export const defaultReviewModeModelAtom = atomWithStorage<string>(
 // Advisor default mode (opt-in): when enabled, new Claude chats run the
 // server-side advisor tool. The CLI bootstrap sends `/advisor <model>` (and
 // sets CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1); the builtin SDK path
-// passes `--advisor <model>` + the same env var. Accepts the `opus`, `sonnet`,
-// or `fable` aliases (Haiku can call an advisor but cannot be one). Claude Code
-// validates the main↔advisor capability pairing at runtime and no-ops the
-// advisor if the pairing is invalid.
+// passes `--advisor <model>` + the same env var. The type lists all three
+// aliases the UI offers, but Claude Code rejects `fable` outright in the
+// advisor role ("The model \"fable\" cannot be used as an advisor.") — it does
+// NOT silently no-op, it errors the session. Default to `opus`, which Claude
+// Code does accept as an advisor.
 export type AdvisorModel = 'opus' | 'sonnet' | 'fable';
 
 export const advisorEnabledAtom = atomWithStorage<boolean>('preferences:advisor-enabled', false, undefined, {
   getOnInit: true
 });
 
-export const advisorModeModelAtom = atomWithStorage<AdvisorModel>(
-  'preferences:advisor-mode-model',
-  'fable',
-  undefined,
-  { getOnInit: true }
-);
+export const advisorModeModelAtom = atomWithStorage<AdvisorModel>('preferences:advisor-mode-model', 'opus', undefined, {
+  getOnInit: true
+});
 
 export const lastSelectedCodexModelIdAtom = atomWithStorage<string>(
   'agents:lastSelectedCodexModelId',

@@ -5,7 +5,13 @@
   "private": true,
   "description": "Churro Coder - UI for parallel work with AI agents",
   "trustedDependencies": [
-    "electron"
+    "@sentry/cli",
+    "better-sqlite3",
+    "electron",
+    "electron-winstaller",
+    "esbuild",
+    "node-pty",
+    "sharp"
   ],
   "homepage": "https://www.churrostack.com",
   "author": {

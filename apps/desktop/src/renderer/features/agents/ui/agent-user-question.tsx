@@ -22,6 +22,38 @@ export interface AgentUserQuestionHandle {
   getAnswers: () => Record<string, string>;
 }
 
+// A synthetic selection value for the always-present free-text row. It never
+// collides with a real option label (which come from the assistant) and lets
+// the free-text row reuse the existing `answers: Record<string, string[]>`
+// selection machinery (single vs multi-select, keyboard nav, the answered gate).
+const FREE_TEXT_SENTINEL = '__CHURRO_FREE_TEXT__';
+
+// Assistants sometimes already include their own "Other"/"type anything"-style
+// option. Matching it here lets us reuse its label/description instead of
+// rendering a second, redundant free-text row.
+const FREE_TEXT_OPTION_PATTERN = /^(type anything|other|something else|custom|none of the above)$/i;
+
+function looksLikeFreeTextOption(label: string): boolean {
+  return FREE_TEXT_OPTION_PATTERN.test(label.trim());
+}
+
+// Pure helpers (no hooks) so they can be called both from `useImperativeHandle`
+// (declared before the component's early return) and from callbacks declared
+// after it, without hook-ordering concerns.
+function isQuestionAnsweredPure(selected: string[], customValue: string | undefined): boolean {
+  if (selected.length === 0) return false;
+  if (selected.some((label) => label !== FREE_TEXT_SENTINEL)) return true;
+  // Only the free-text row is selected — it counts once there's typed text.
+  return Boolean(customValue?.trim());
+}
+
+function formatQuestionAnswer(selected: string[], customValue: string | undefined): string | undefined {
+  const parts = selected
+    .map((label) => (label === FREE_TEXT_SENTINEL ? customValue?.trim() : label))
+    .filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(', ') : undefined;
+}
+
 export const AgentUserQuestion = memo(
   forwardRef<AgentUserQuestionHandle, AgentUserQuestionProps>(function AgentUserQuestion(
     { pendingQuestions, onAnswer, onSkip, hasCustomText = false, expired = false }: AgentUserQuestionProps,
@@ -30,11 +62,14 @@ export const AgentUserQuestion = memo(
     const { questions, toolUseId } = pendingQuestions;
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [answers, setAnswers] = useState<Record<string, string[]>>({});
+    // Typed value for the free-text row, keyed by question text (mirrors `answers`).
+    const [customText, setCustomText] = useState<Record<string, string>>({});
     const [focusedOptionIndex, setFocusedOptionIndex] = useState(0);
     const [isVisible, setIsVisible] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const prevIndexRef = useRef(currentQuestionIndex);
     const prevToolUseIdRef = useRef(toolUseId);
+    const freeTextInputRef = useRef<HTMLInputElement>(null);
     // No answering once expired (or mid-submit). onSkip still works (dismiss).
     const interactionDisabled = isSubmitting || expired;
 
@@ -47,14 +82,15 @@ export const AgentUserQuestion = memo(
           if (!questions) return formattedAnswers;
           for (const question of questions) {
             const selected = answers[question.question] || [];
-            if (selected.length > 0) {
-              formattedAnswers[question.question] = selected.join(', ');
+            const formatted = formatQuestionAnswer(selected, customText[question.question]);
+            if (formatted) {
+              formattedAnswers[question.question] = formatted;
             }
           }
           return formattedAnswers;
         }
       }),
-      [answers, questions]
+      [answers, customText, questions]
     );
 
     // Reset when toolUseId changes (new question set)
@@ -63,6 +99,7 @@ export const AgentUserQuestion = memo(
         setIsSubmitting(false);
         setCurrentQuestionIndex(0);
         setAnswers({});
+        setCustomText({});
         setFocusedOptionIndex(0);
         prevToolUseIdRef.current = toolUseId;
       }
@@ -95,10 +132,31 @@ export const AgentUserQuestion = memo(
     }
 
     const currentQuestion = questions[currentQuestionIndex];
-    const currentOptions = currentQuestion?.options || [];
+    const suppliedOptions = currentQuestion?.options || [];
+    // The free-text row is always last. If the assistant already supplied an
+    // "Other"-style option, reuse its label/description and move it to the end
+    // instead of also appending a synthetic one (avoids a duplicate row).
+    const freeTextSourceIndex = suppliedOptions.findIndex((o) => looksLikeFreeTextOption(o.label));
+    const freeTextOption =
+      freeTextSourceIndex === -1
+        ? { label: 'Type anything', description: 'Type your own answer' }
+        : suppliedOptions[freeTextSourceIndex];
+    const currentOptions =
+      freeTextSourceIndex === -1
+        ? [...suppliedOptions, freeTextOption]
+        : [
+            ...suppliedOptions.slice(0, freeTextSourceIndex),
+            ...suppliedOptions.slice(freeTextSourceIndex + 1),
+            freeTextOption
+          ];
+    const freeTextIndex = currentOptions.length - 1;
 
     const isOptionSelected = (questionText: string, optionLabel: string) => {
       return answers[questionText]?.includes(optionLabel) || false;
+    };
+
+    const isFreeTextSelected = (questionText: string) => {
+      return answers[questionText]?.includes(FREE_TEXT_SENTINEL) || false;
     };
 
     // Handle option click - auto-advance for single-select questions
@@ -142,6 +200,20 @@ export const AgentUserQuestion = memo(
       [questions]
     );
 
+    // Marks the free-text row selected (idempotent — does not toggle it off).
+    // Used on focus/change of the free-text input and on click of its row, so
+    // focusing the field never surprises the user by deselecting it.
+    const selectFreeText = useCallback((questionText: string, allowMultiple: boolean) => {
+      setAnswers((prev) => {
+        const current = prev[questionText] || [];
+        if (current.includes(FREE_TEXT_SENTINEL)) return prev;
+        return {
+          ...prev,
+          [questionText]: allowMultiple ? [...current, FREE_TEXT_SENTINEL] : [FREE_TEXT_SENTINEL]
+        };
+      });
+    }, []);
+
     const handlePrevious = () => {
       if (currentQuestionIndex > 0) {
         setCurrentQuestionIndex(currentQuestionIndex - 1);
@@ -157,38 +229,35 @@ export const AgentUserQuestion = memo(
     };
 
     const handleContinue = useCallback(() => {
-      if (isSubmitting || expired) return;
+      if (isSubmitting || expired || !currentQuestion) return;
 
-      const currentAnswer = answers[currentQuestion?.question] || [];
-      if (currentAnswer.length === 0) return;
+      const currentAnswer = answers[currentQuestion.question] || [];
+      if (!isQuestionAnsweredPure(currentAnswer, customText[currentQuestion.question])) return;
 
       if (currentQuestionIndex < questions.length - 1) {
         setCurrentQuestionIndex(currentQuestionIndex + 1);
         setFocusedOptionIndex(0);
       } else {
         // On the last question, validate ALL questions are answered before submit
-        const allAnswered = questions.every((q) => (answers[q.question] || []).length > 0);
+        const allAnswered = questions.every((q) =>
+          isQuestionAnsweredPure(answers[q.question] || [], customText[q.question])
+        );
         if (allAnswered) {
           setIsSubmitting(true);
-          // Convert answers to SDK format: { questionText: label } or { questionText: "label1, label2" } for multiSelect
+          // Convert answers to SDK format: { questionText: label } or { questionText: "label1, label2" }
+          // for multiSelect. A selected free-text row contributes its typed value instead of the sentinel.
           const formattedAnswers: Record<string, string> = {};
           for (const question of questions) {
             const selected = answers[question.question] || [];
-            formattedAnswers[question.question] = selected.join(', ');
+            const formatted = formatQuestionAnswer(selected, customText[question.question]);
+            if (formatted) {
+              formattedAnswers[question.question] = formatted;
+            }
           }
           onAnswer(formattedAnswers);
         }
       }
-    }, [
-      onAnswer,
-      answers,
-      currentQuestionIndex,
-      questions,
-      currentQuestion?.question,
-      isSubmitting,
-      expired,
-      pendingQuestions.toolUseId
-    ]);
+    }, [onAnswer, answers, customText, currentQuestionIndex, questions, currentQuestion, isSubmitting, expired]);
 
     const handleSkipWithGuard = useCallback(() => {
       if (isSubmitting) return;
@@ -202,8 +271,12 @@ export const AgentUserQuestion = memo(
       return String(index + 1);
     };
 
-    const currentQuestionHasAnswer = (answers[currentQuestion?.question] || []).length > 0;
-    const allQuestionsAnswered = questions.every((q) => (answers[q.question] || []).length > 0);
+    const currentQuestionHasAnswer = currentQuestion
+      ? isQuestionAnsweredPure(answers[currentQuestion.question] || [], customText[currentQuestion.question])
+      : false;
+    const allQuestionsAnswered = questions.every((q) =>
+      isQuestionAnsweredPure(answers[q.question] || [], customText[q.question])
+    );
     const isLastQuestion = currentQuestionIndex === questions.length - 1;
 
     // Keyboard navigation
@@ -241,6 +314,11 @@ export const AgentUserQuestion = memo(
           e.preventDefault();
           if (currentQuestionHasAnswer) {
             handleContinue();
+          } else if (focusedOptionIndex === freeTextIndex) {
+            // Focus the actual input rather than blindly toggling — the user
+            // still needs to type before this row counts as answered.
+            selectFreeText(currentQuestion.question, currentQuestion.multiSelect || false);
+            freeTextInputRef.current?.focus();
           } else if (currentOptions[focusedOptionIndex]) {
             handleOptionClick(currentQuestion.question, currentOptions[focusedOptionIndex].label, currentQuestionIndex);
           }
@@ -248,7 +326,12 @@ export const AgentUserQuestion = memo(
           const numberIndex = parseInt(e.key, 10) - 1;
           if (numberIndex >= 0 && numberIndex < currentOptions.length) {
             e.preventDefault();
-            handleOptionClick(currentQuestion.question, currentOptions[numberIndex].label, currentQuestionIndex);
+            if (numberIndex === freeTextIndex) {
+              selectFreeText(currentQuestion.question, currentQuestion.multiSelect || false);
+              freeTextInputRef.current?.focus();
+            } else {
+              handleOptionClick(currentQuestion.question, currentOptions[numberIndex].label, currentQuestionIndex);
+            }
             setFocusedOptionIndex(numberIndex);
           }
         }
@@ -265,7 +348,9 @@ export const AgentUserQuestion = memo(
       currentQuestionHasAnswer,
       handleContinue,
       questions,
-      interactionDisabled
+      interactionDisabled,
+      freeTextIndex,
+      selectFreeText
     ]);
 
     return (
@@ -323,9 +408,65 @@ export const AgentUserQuestion = memo(
           {/* Options */}
           <div className="space-y-1">
             {currentOptions.map((option, optIndex) => {
-              const isSelected = isOptionSelected(currentQuestion.question, option.label);
               const isFocused = focusedOptionIndex === optIndex;
               const number = getOptionNumber(optIndex);
+
+              if (optIndex === freeTextIndex) {
+                const isSelected = isFreeTextSelected(currentQuestion.question);
+                return (
+                  <div
+                    key="free-text"
+                    onClick={() => {
+                      if (interactionDisabled) return;
+                      selectFreeText(currentQuestion.question, currentQuestion.multiSelect || false);
+                      setFocusedOptionIndex(optIndex);
+                      freeTextInputRef.current?.focus();
+                    }}
+                    className={cn(
+                      'w-full flex items-start gap-3 p-2 text-[13px] text-foreground rounded-md text-left transition-colors',
+                      isFocused ? 'bg-muted/70' : 'hover:bg-muted/50',
+                      interactionDisabled && 'opacity-50 cursor-not-allowed'
+                    )}>
+                    <div
+                      className={cn(
+                        'flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-medium transition-colors mt-0.5',
+                        isSelected ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground'
+                      )}>
+                      {number}
+                    </div>
+                    <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                      <span className="text-[13px] transition-colors font-medium text-foreground">{option.label}</span>
+                      {option.description && (
+                        <span className="text-[12px] text-muted-foreground">{option.description}</span>
+                      )}
+                      <input
+                        ref={freeTextInputRef}
+                        type="text"
+                        aria-label="Type your answer"
+                        placeholder="Type your answer…"
+                        value={customText[currentQuestion.question] || ''}
+                        disabled={interactionDisabled}
+                        onClick={(e) => e.stopPropagation()}
+                        onFocus={() => selectFreeText(currentQuestion.question, currentQuestion.multiSelect || false)}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setCustomText((prev) => ({ ...prev, [currentQuestion.question]: value }));
+                          selectFreeText(currentQuestion.question, currentQuestion.multiSelect || false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleContinue();
+                          }
+                        }}
+                        className="mt-1 w-full bg-background border border-border rounded px-2 py-1 text-[13px] text-foreground outline-none focus:border-foreground/50 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+                );
+              }
+
+              const isSelected = isOptionSelected(currentQuestion.question, option.label);
 
               return (
                 <button

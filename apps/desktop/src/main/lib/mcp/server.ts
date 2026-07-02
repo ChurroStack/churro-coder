@@ -19,7 +19,22 @@ import { registerUpdateTaskStatusTool } from './handlers/update-task-status';
 import { registerNotifyFilesChangedTool } from './handlers/notify-files-changed';
 import { registerRequestUserInputTool } from './handlers/request-user-input';
 
-export function createMcpServer(): McpServer {
+export interface CreateMcpServerOptions {
+  /**
+   * Whether to register the `request_user_input` tool. Defaults to `true`.
+   *
+   * The builtin harness (in-process SDK instance, see trpc/routers/claude.ts)
+   * keeps the default and does NOT actually use this tool — builtin asks
+   * questions via the native SDK `AskUserQuestion` tool. The CLI harnesses
+   * (claude-cli, codex-cli) reach the server over the HTTP transport, which
+   * passes `false` so the CLIs fall back to asking questions directly in their
+   * own TUI instead of the flaky in-app widget.
+   */
+  includeRequestUserInput?: boolean;
+}
+
+export function createMcpServer(options?: CreateMcpServerOptions): McpServer {
+  const includeRequestUserInput = options?.includeRequestUserInput ?? true;
   // `logging` capability is declared so request_user_input's keepalive can emit
   // `notifications/message` on the held SSE stream (the SDK rejects logging
   // notifications unless the capability is advertised). Keepalive bytes prevent
@@ -32,6 +47,8 @@ export function createMcpServer(): McpServer {
   registerWriteTasksTool(server);
   registerUpdateTaskStatusTool(server);
   registerNotifyFilesChangedTool(server);
-  registerRequestUserInputTool(server);
+  if (includeRequestUserInput) {
+    registerRequestUserInputTool(server);
+  }
   return server;
 }
