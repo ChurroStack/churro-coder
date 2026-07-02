@@ -32,8 +32,8 @@ describe('Default Advisor mode [agents-preferences/advisor]', () => {
     renderWithProviders(<AgentsPreferencesTab />);
     const modelSelect = screen.getByRole('combobox', { name: 'Advisor model' });
     expect((modelSelect as HTMLButtonElement).disabled).toBe(true);
-    // Default advisor model is Fable (the highest-tier advisor).
-    expect(within(modelSelect).getByText('fable')).toBeTruthy();
+    // Default advisor model is Opus (Fable is rejected by Claude Code in the advisor role).
+    expect(within(modelSelect).getByText('opus')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('switch', { name: 'Enable Default Advisor mode' }));
 
