@@ -23,6 +23,23 @@ vi.mock('../../lib/trpc', () => ({
 }));
 
 describe('WorkItemsPanel', () => {
+  test('passes projectId to the work items query when filtering by repo', () => {
+    mockListQuery.mockReturnValue({
+      data: { items: [] },
+      isLoading: false
+    });
+
+    render(<WorkItemsPanel onInsert={vi.fn()} projectId="proj-123" />);
+
+    expect(mockListQuery).toHaveBeenCalledWith(
+      { projectId: 'proj-123' },
+      expect.objectContaining({
+        staleTime: 60_000,
+        gcTime: 120_000
+      })
+    );
+  });
+
   test('loads issue detail on click and inserts the resolved text', async () => {
     const onInsert = vi.fn();
     mockListQuery.mockReturnValue({
