@@ -93,6 +93,7 @@ interface AgentsFileMentionProps {
   showingAgentsList?: boolean;
   showingToolsList?: boolean;
   showingWorkItemsList?: boolean;
+  projectId?: string;
 }
 
 // Category navigation options (shown on root view)
@@ -665,7 +666,8 @@ export const AgentsFileMention = memo(function AgentsFileMention({
   showingSkillsList = false,
   showingAgentsList = false,
   showingToolsList = false,
-  showingWorkItemsList = false
+  showingWorkItemsList = false,
+  projectId
 }: AgentsFileMentionProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -876,7 +878,7 @@ export const AgentsFileMention = memo(function AgentsFileMention({
   }, [allToolOptions, debouncedSearchText]);
 
   // Fetch work items (GitHub issues assigned to the user)
-  const { data: workItemsData } = trpc.workItems.list.useQuery(undefined, {
+  const { data: workItemsData } = trpc.workItems.list.useQuery(projectId ? { projectId } : undefined, {
     enabled: isOpen,
     staleTime: 60_000,
     gcTime: 120_000

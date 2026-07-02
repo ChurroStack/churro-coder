@@ -55,6 +55,48 @@ function renderMention(props: Partial<ComponentProps<typeof AgentsFileMention>> 
 }
 
 describe('AgentsFileMention', () => {
+  test('passes projectId to the work items query and updates it when the selected repo changes', () => {
+    mockWorkItemsQuery.mockReturnValue({
+      data: { items: [] },
+      isLoading: false,
+      isError: false
+    });
+
+    const { rerender } = renderMention({ showingWorkItemsList: true, projectId: 'proj-1' });
+
+    expect(mockWorkItemsQuery).toHaveBeenLastCalledWith(
+      { projectId: 'proj-1' },
+      expect.objectContaining({
+        enabled: true,
+        staleTime: 60_000,
+        gcTime: 120_000
+      })
+    );
+
+    rerender(
+      <Provider store={createTestStore()}>
+        <AgentsFileMention
+          isOpen
+          onClose={() => {}}
+          onSelect={() => {}}
+          searchText=""
+          position={{ top: 0, left: 0 }}
+          showingWorkItemsList
+          projectId="proj-2"
+        />
+      </Provider>
+    );
+
+    expect(mockWorkItemsQuery).toHaveBeenLastCalledWith(
+      { projectId: 'proj-2' },
+      expect.objectContaining({
+        enabled: true,
+        staleTime: 60_000,
+        gcTime: 120_000
+      })
+    );
+  });
+
   test('shows My Work as a category when GitHub work items exist', () => {
     mockWorkItemsQuery.mockReturnValue({
       data: {

@@ -7,10 +7,11 @@ import type { WorkItem } from '../../../main/lib/work-items/types';
 
 interface WorkItemsPanelProps {
   onInsert: (text: string) => void;
+  projectId?: string;
 }
 
-export function WorkItemsPanel({ onInsert }: WorkItemsPanelProps) {
-  const { data, isLoading } = trpc.workItems.list.useQuery(undefined, {
+export function WorkItemsPanel({ onInsert, projectId }: WorkItemsPanelProps) {
+  const { data, isLoading } = trpc.workItems.list.useQuery(projectId ? { projectId } : undefined, {
     staleTime: 60_000,
     gcTime: 120_000
   });
