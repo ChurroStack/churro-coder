@@ -25,7 +25,9 @@ import {
   pendingUserQuestionsAtom,
   subChatClaudeSessionEpochAtomFamily,
   subChatClaudeThinkingAtomFamily,
-  subChatModelIdAtomFamily
+  subChatModelIdAtomFamily,
+  advisorEnabledAtom,
+  advisorModeModelAtom
 } from '../atoms';
 import {
   openSpecCurrentStepAtomFamily,
@@ -190,6 +192,12 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
     const autoOfflineMode = appStore.get(autoOfflineModeAtom);
     const offlineModeEnabled = showOfflineFeatures && autoOfflineMode;
 
+    // Advisor default mode (Claude only): when enabled, pass the selected
+    // advisor model so the builtin session runs `--advisor <model>`. Skip for
+    // offline/Ollama sessions — the advisor is an Anthropic server-side tool.
+    const advisorModel =
+      appStore.get(advisorEnabledAtom) && !offlineModeEnabled ? appStore.get(advisorModeModelAtom) : undefined;
+
     const currentMode = getCurrentSubChatMode(this.config.subChatId);
 
     // Drop Codex thread UUIDs before they reach the Claude router — main handles
@@ -273,6 +281,7 @@ export class IPCChatTransport implements ChatTransport<UIMessage> {
             sessionId: claudeSessionId,
             ...(effort && { effort }),
             ...(modelString && { model: modelString }),
+            ...(advisorModel && { advisorModel }),
             ...(customConfig && { customConfig }),
             ...(selectedOllamaModel && { selectedOllamaModel }),
             historyEnabled,

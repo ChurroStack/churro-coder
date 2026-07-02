@@ -1,6 +1,6 @@
 export type Provider = 'claude-code' | 'codex';
 
-const CLAUDE_MODEL_IDS = new Set(['opus', 'opus[1m]', 'sonnet', 'sonnet[1m]', 'haiku']);
+const CLAUDE_MODEL_IDS = new Set(['opus', 'opus[1m]', 'sonnet', 'sonnet[1m]', 'haiku', 'fable', 'opusplan']);
 
 const CODEX_MODEL_IDS = new Set([
   'gpt-5.5',

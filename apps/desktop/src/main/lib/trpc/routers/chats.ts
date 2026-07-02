@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'dri
 import { observable } from '@trpc/server/observable';
 import { getProviderForModelId } from '../../../../shared/provider-from-model';
 import { cliMcpReminder } from '../../../../shared/cli-mcp-reminder';
+import { buildCliInitialInputChunks } from '../../cli-harness/bootstrap-chunks';
 import { stripClaudeCliEnvelopes, stripCodexUserEnvelopes } from '../../../../shared/cli-text-envelopes';
 import {
   ensurePlanWritten,
@@ -3180,7 +3181,11 @@ export const chatsRouter = router({
         /** Direct workspace/chat ID — used as a fallback when the subChat row is missing (e.g. ghost panels after a DB wipe). */
         chatId: z.string().optional(),
         /** 'initial': first spawn — inject bootstrap prompt (skipped if already bootstrapped). 'reattach'/'hard-reset': skip injection. 'restart': force-inject even if previously bootstrapped. */
-        trigger: z.enum(['initial', 'reattach', 'hard-reset', 'restart']).optional().default('initial')
+        trigger: z.enum(['initial', 'reattach', 'hard-reset', 'restart']).optional().default('initial'),
+        /** Claude CLI only. When set (e.g. 'opusplan'), bootstrap runs `/model <cmd>` before `/plan`. Derived from the default Plan/Execute models by the renderer. */
+        claudeModelCommand: z.string().optional(),
+        /** Claude CLI only. When set (e.g. 'opus'/'sonnet'), the Advisor mode is enabled: bootstrap runs `/advisor <model>` and the spawn sets CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1. */
+        advisorModel: z.string().optional()
       })
     )
     .mutation(async ({ input }) => {
@@ -3311,12 +3316,18 @@ export const chatsRouter = router({
         }
       }
       const { buildBootstrap } = await import('../../cli-harness');
+      // Advisor mode (claude-cli only): setting the env var on every spawn —
+      // not just when chunks are injected — means the advisor tool stays active
+      // across reattach/restart even though `/advisor` is only re-sent with the
+      // initial prompt.
+      const advisorEnabled = input.harness === 'claude-cli' && input.advisorModel != null;
       const result = await buildBootstrap(
         input.harness,
         input.subChatId,
         resolvedCwd,
         resumeSessionId,
-        claimedSessionId
+        claimedSessionId,
+        advisorEnabled
       );
 
       // Inject the initial user message as initialInputChunks so each write
@@ -3415,9 +3426,15 @@ export const chatsRouter = router({
                 // Encode body: bracketed-paste when multi-line, plain text otherwise.
                 const normalized = body.replace(/\r\n/g, '\n');
                 const bodyChunk = normalized.includes('\n') ? `\x1b[200~${normalized}\x1b[201~` : normalized;
-                // Plan mode re-enters /plan first so a restarted plan-mode subChat
-                // resumes in plan mode (a fresh CLI spawn starts in execute mode).
-                const chunks: string[] = isPlanMode ? ['/plan\r', bodyChunk, '\r'] : [bodyChunk, '\r'];
+                // Assemble the ordered PTY writes (space+CR, /model, /plan,
+                // /advisor, body) — see buildCliInitialInputChunks.
+                const chunks = buildCliInitialInputChunks({
+                  harness: input.harness,
+                  isPlanMode,
+                  bodyChunk,
+                  claudeModelCommand: input.claudeModelCommand,
+                  advisorModel: input.advisorModel
+                });
                 result.initialInputChunks = chunks;
                 result.mcpReminderInjected = isPlanMode;
                 if (isRestart) {
