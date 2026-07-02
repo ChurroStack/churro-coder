@@ -16,7 +16,7 @@ vi.mock('../../lib/trpc', () => ({
 }));
 
 describe('WorkItemsPanel', () => {
-  test('inserts the short issue reference when clicked', () => {
+  test('inserts the full issue reference with body when clicked', () => {
     const onInsert = vi.fn();
     mockListQuery.mockReturnValue({
       data: {
@@ -45,7 +45,7 @@ describe('WorkItemsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /insert reference to issue #12/i }));
 
-    expect(onInsert).toHaveBeenCalledWith('#12: Fix login timeout (owner/repo)');
+    expect(onInsert).toHaveBeenCalledWith('#12: Fix login timeout (owner/repo)\n\nInvestigate the auth flow');
     expect(screen.getByRole('link', { name: /open issue #12 on github/i })).toBeDefined();
   });
 });

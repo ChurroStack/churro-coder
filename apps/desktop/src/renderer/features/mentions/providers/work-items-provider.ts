@@ -19,6 +19,9 @@ import type { WorkItem } from '../../../main/lib/work-items/types';
 
 export type { WorkItem as WorkItemData };
 
+// Coalesces rapid consecutive @-mention searches into one IPC call.
+let searchInFlight: Promise<WorkItemFetchResult> | null = null;
+
 function makeItemId(item: WorkItem): string {
   return `${MENTION_PREFIXES.GITHUB_ISSUE}${item.repoOwner}/${item.repoName}#${item.number}`;
 }
@@ -50,7 +53,12 @@ export const workItemsProvider = createMentionProvider<WorkItem>({
     }
 
     try {
-      const result = await trpcClient.workItems.list.query();
+      if (!searchInFlight) {
+        searchInFlight = trpcClient.workItems.list.query().finally(() => {
+          searchInFlight = null;
+        });
+      }
+      const result = await searchInFlight;
       const allItems = result.items ?? [];
 
       let items: MentionItem<WorkItem>[] = allItems.map((item) => ({
@@ -84,7 +92,10 @@ export const workItemsProvider = createMentionProvider<WorkItem>({
    * the AI agent sees useful context even if the token isn't expanded.
    */
   serialize(item: MentionItem<WorkItem>): string {
-    return makeShortRef(item.data);
+    const ref = makeShortRef(item.data);
+    if (!item.data.body) return ref;
+    const body = item.data.body.length > 2000 ? item.data.body.slice(0, 2000) + '…' : item.data.body;
+    return `${ref}\n\n${body}`;
   },
 
   deserialize(): MentionItem<WorkItem> | null {

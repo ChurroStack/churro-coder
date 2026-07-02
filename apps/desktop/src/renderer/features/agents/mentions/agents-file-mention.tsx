@@ -878,7 +878,8 @@ export const AgentsFileMention = memo(function AgentsFileMention({
   // Fetch work items (GitHub issues assigned to the user)
   const { data: workItemsData } = trpc.workItems.list.useQuery(undefined, {
     enabled: isOpen,
-    staleTime: 60_000
+    staleTime: 60_000,
+    gcTime: 120_000
   });
 
   const allWorkItemOptions: FileMentionOption[] = useMemo(() => {
@@ -1136,15 +1137,21 @@ export const AgentsFileMention = memo(function AgentsFileMention({
   // Narrower dropdown when showing only categories (no changed files)
   const hasChangedFiles = changedFileOptions.length > 0;
   const isRootView =
-    !showingFilesList && !showingSkillsList && !showingAgentsList && !showingToolsList && !hasOnlyFiles;
+    !showingFilesList &&
+    !showingSkillsList &&
+    !showingAgentsList &&
+    !showingToolsList &&
+    !showingWorkItemsList &&
+    !hasOnlyFiles;
   // Narrow dropdown for root view (categories only) and skills/agents/tools subpages
   // Wide dropdown for files (showingFilesList or hasOnlyFiles)
+  // Extra-wide for work items — issue titles tend to be longer
   const useNarrowWidth =
     (isRootView && !hasChangedFiles && !debouncedSearchText) ||
     showingSkillsList ||
     showingAgentsList ||
     showingToolsList;
-  const dropdownWidth = useNarrowWidth ? 200 : 320;
+  const dropdownWidth = showingWorkItemsList ? 380 : useNarrowWidth ? 200 : 320;
   const itemHeight = 28;
   const headerHeight = 28; // header with py-1.5 and text-xs
   // Only add header height when header is actually shown (in subpages or when searching)

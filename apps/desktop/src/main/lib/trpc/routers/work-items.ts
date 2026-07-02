@@ -3,10 +3,13 @@ import { router, publicProcedure } from '../index';
 import { getDatabase, projects, chats } from '../../db';
 import { desc, inArray } from 'drizzle-orm';
 import { fetchGitHubWorkItems } from '../../work-items/github';
-import { getCachedWorkItems, setCachedWorkItems, appendCachedWorkItems, evictAll } from '../../work-items/cache';
+import { getCachedWorkItems, setCachedWorkItems, appendCachedWorkItems, evictWorkItems } from '../../work-items/cache';
 import type { WorkItem, WorkItemFetchResult } from '../../work-items/types';
 
 const GITHUB_CACHE_KEY = 'github:viewer';
+
+// Coalesces concurrent cache-miss fetches so only one GitHub API call fires at a time.
+let listInFlight: Promise<WorkItemFetchResult> | null = null;
 
 function log(op: string, ok: boolean, reason?: string): void {
   const suffix = ok ? '' : ` reason="${reason?.slice(0, 200)}"`;
@@ -27,13 +30,15 @@ export const workItemsRouter = router({
   list: publicProcedure
     .input(z.object({ projectId: z.string().optional() }).optional())
     .query(async ({ input }): Promise<WorkItemFetchResult> => {
-      const db = getDatabase();
-
-      const allProjects = await db.select().from(projects);
-      const selectedProject = input?.projectId ? allProjects.find((p) => p.id === input.projectId) : undefined;
-
-      if (input?.projectId && !selectedProject) {
-        return { items: [], error: { code: 'unknown', message: 'Project not found.' } };
+      // Only hit the DB when a project filter is actually requested (common case: no filter).
+      let selectedProject: typeof projects.$inferSelect | undefined;
+      if (input?.projectId) {
+        const db = getDatabase();
+        const allProjects = await db.select().from(projects);
+        selectedProject = allProjects.find((p) => p.id === input.projectId);
+        if (!selectedProject) {
+          return { items: [], error: { code: 'unknown', message: 'Project not found.' } };
+        }
       }
 
       const cached = getCachedWorkItems(GITHUB_CACHE_KEY);
@@ -46,11 +51,20 @@ export const workItemsRouter = router({
         };
       }
 
-      const result = await fetchGitHubWorkItems();
-
-      if (!result.error) {
-        setCachedWorkItems(GITHUB_CACHE_KEY, result.items, result.pageInfo ?? { hasNextPage: false, endCursor: null });
+      // Coalesce concurrent cache-miss fetches into one GitHub API call.
+      if (!listInFlight) {
+        listInFlight = fetchGitHubWorkItems()
+          .then((r) => {
+            if (!r.error) {
+              setCachedWorkItems(GITHUB_CACHE_KEY, r.items, r.pageInfo ?? { hasNextPage: false, endCursor: null });
+            }
+            return r;
+          })
+          .finally(() => {
+            listInFlight = null;
+          });
       }
+      const result = await listInFlight;
 
       const items = [...result.items].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
@@ -68,7 +82,8 @@ export const workItemsRouter = router({
     }),
 
   refresh: publicProcedure.input(z.void().optional()).mutation(async (): Promise<WorkItemFetchResult> => {
-    evictAll();
+    evictWorkItems(GITHUB_CACHE_KEY);
+    listInFlight = null; // cancel any in-flight list fetch so the next list gets fresh data
 
     const result = await fetchGitHubWorkItems();
 
@@ -118,23 +133,25 @@ export const workItemsRouter = router({
    *  Used by MyWork to detect issues that already have an associated session. */
   linkedChats: publicProcedure
     .input(z.object({ projectIds: z.array(z.string()) }))
-    .query(async ({ input }): Promise<Array<{ id: string; name: string; projectId: string; updatedAt: Date | null }>> => {
-      if (!input.projectIds.length) return [];
-      const db = getDatabase();
-      const rows = db
-        .select({ id: chats.id, name: chats.name, projectId: chats.projectId, updatedAt: chats.updatedAt })
-        .from(chats)
-        .where(inArray(chats.projectId, input.projectIds))
-        .orderBy(desc(chats.updatedAt), desc(chats.createdAt))
-        .all();
-      // Only chats named like "#<number>: <title>" — i.e. created from MyWork
-      return rows.filter((r) => r.name != null && /^#\d+:/.test(r.name)) as Array<{
-        id: string;
-        name: string;
-        projectId: string;
-        updatedAt: Date | null;
-      }>;
-    }),
+    .query(
+      async ({ input }): Promise<Array<{ id: string; name: string; projectId: string; updatedAt: Date | null }>> => {
+        if (!input.projectIds.length) return [];
+        const db = getDatabase();
+        const rows = db
+          .select({ id: chats.id, name: chats.name, projectId: chats.projectId, updatedAt: chats.updatedAt })
+          .from(chats)
+          .where(inArray(chats.projectId, input.projectIds))
+          .orderBy(desc(chats.updatedAt), desc(chats.createdAt))
+          .all();
+        // Only chats named like "#<number>: <title>" — i.e. created from MyWork
+        return rows.filter((r) => r.name != null && /^#\d+:/.test(r.name)) as Array<{
+          id: string;
+          name: string;
+          projectId: string;
+          updatedAt: Date | null;
+        }>;
+      }
+    ),
 
   permissionHint: publicProcedure.input(z.object({ provider: z.literal('github') })).query(() => ({
     install: 'brew install gh',

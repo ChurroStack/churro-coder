@@ -47,7 +47,10 @@ function WorkItemPanelRow({ item, onInsert }: { item: WorkItem; onInsert: (text:
       <button
         type="button"
         aria-label={`Insert reference to issue #${item.number}: ${item.title}`}
-        onClick={() => onInsert(workItemShortRef(item))}
+        onClick={() => {
+          const ref = workItemShortRef(item);
+          onInsert(item.body ? `${ref}\n\n${item.body}` : ref);
+        }}
         className="flex-1 min-w-0 text-left">
         <p className="text-xs font-medium text-foreground truncate leading-snug">{item.title}</p>
         <p className="text-[10px] text-muted-foreground mt-0.5">

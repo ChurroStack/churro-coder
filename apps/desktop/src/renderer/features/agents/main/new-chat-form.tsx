@@ -351,6 +351,12 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   // Fetch projects to validate selectedProject exists
   const { data: projectsList, isLoading: isLoadingProjects } = trpc.projects.list.useQuery();
 
+  // Work items — shared React Query cache with agents-file-mention, no extra network call
+  const { data: workItemsListData } = trpc.workItems.list.useQuery(undefined, {
+    staleTime: 60_000,
+    gcTime: 120_000
+  });
+
   // Validate selected project exists in DB
   // While loading, trust the stored value to prevent flicker
   const validatedProject = useMemo(() => {
@@ -1739,52 +1745,59 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
     [handleSend]
   );
 
-  const handleMentionSelect = useCallback((mention: FileMentionOption) => {
-    // Category navigation - enter subpage instead of inserting mention
-    if (mention.type === 'category') {
-      if (mention.id === 'files') {
-        setShowingFilesList(true);
-        return;
+  const handleMentionSelect = useCallback(
+    (mention: FileMentionOption) => {
+      // Category navigation - enter subpage instead of inserting mention
+      if (mention.type === 'category') {
+        if (mention.id === 'files') {
+          setShowingFilesList(true);
+          return;
+        }
+        if (mention.id === 'skills') {
+          setShowingSkillsList(true);
+          return;
+        }
+        if (mention.id === 'agents') {
+          setShowingAgentsList(true);
+          return;
+        }
+        if (mention.id === 'tools') {
+          setShowingToolsList(true);
+          return;
+        }
+        if (mention.id === 'work-items') {
+          setShowingWorkItemsList(true);
+          return;
+        }
       }
-      if (mention.id === 'skills') {
-        setShowingSkillsList(true);
-        return;
-      }
-      if (mention.id === 'agents') {
-        setShowingAgentsList(true);
-        return;
-      }
-      if (mention.id === 'tools') {
-        setShowingToolsList(true);
-        return;
-      }
-      if (mention.id === 'work-items') {
-        setShowingWorkItemsList(true);
-        return;
-      }
-    }
 
-    // Work item: insert as plain text short reference (not a chip token)
-    if (mention.id.startsWith('github:issue:')) {
-      const current = editorRef.current?.getValue() ?? '';
-      const separator = current && !/\s$/.test(current) ? ' ' : '';
-      const ref = mention.repository ? `${mention.label} (${mention.repository})` : mention.label;
-      editorRef.current?.setValue(current + separator + ref);
+      // Work item: insert as plain text with full body so the agent has complete context
+      if (mention.id.startsWith('github:issue:')) {
+        const current = editorRef.current?.getValue() ?? '';
+        const separator = current && !/\s$/.test(current) ? ' ' : '';
+        const ref = mention.repository ? `${mention.label} (${mention.repository})` : mention.label;
+        const fullItem = workItemsListData?.items?.find(
+          (item) => `github:issue:${item.repoOwner}/${item.repoName}#${item.number}` === mention.id
+        );
+        const text = fullItem?.body ? `${ref}\n\n${fullItem.body}` : ref;
+        editorRef.current?.setValue(current + separator + text);
+        setShowMentionDropdown(false);
+        setShowingWorkItemsList(false);
+        return;
+      }
+
+      // Otherwise: insert mention as normal
+      editorRef.current?.insertMention(mention);
       setShowMentionDropdown(false);
+      // Reset subpage state
+      setShowingFilesList(false);
+      setShowingSkillsList(false);
+      setShowingAgentsList(false);
+      setShowingToolsList(false);
       setShowingWorkItemsList(false);
-      return;
-    }
-
-    // Otherwise: insert mention as normal
-    editorRef.current?.insertMention(mention);
-    setShowMentionDropdown(false);
-    // Reset subpage state
-    setShowingFilesList(false);
-    setShowingSkillsList(false);
-    setShowingAgentsList(false);
-    setShowingToolsList(false);
-    setShowingWorkItemsList(false);
-  }, []);
+    },
+    [workItemsListData]
+  );
 
   // Save draft to localStorage when content changes
   const handleContentChange = useCallback(
