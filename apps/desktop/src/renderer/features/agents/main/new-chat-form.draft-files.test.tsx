@@ -132,6 +132,7 @@ vi.mock('../../../lib/trpc', () => {
       files: { writePastedText: { useMutation: m() }, search: { useQuery: q([]) } },
       skills: { listEnabled: { useQuery: q([]) } },
       agents: { listEnabled: { useQuery: q([]) } },
+      workItems: { list: { useQuery: q({ items: [], pageInfo: { hasNextPage: false, endCursor: null } }) } },
       commands: { list: { useQuery: q([]) } },
       useUtils: vi.fn(() => utils)
     },

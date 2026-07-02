@@ -35,7 +35,8 @@ export const MENTION_PREFIXES = {
   QUOTE: 'quote:', // Selected text from assistant messages
   DIFF: 'diff:', // Selected text from diff sidebar
   PASTED: 'pasted:', // Large pasted text saved as files
-  CHAT_HISTORY: 'chatHistory:' // Chat history from another sub-chat/provider
+  CHAT_HISTORY: 'chatHistory:', // Chat history from another sub-chat/provider
+  GITHUB_ISSUE: 'github:issue:' // GitHub issue from MyWork
 } as const;
 
 type TriggerPayload = {
@@ -237,6 +238,14 @@ function buildContentFromSerialized(
         // MCP server: tool:servername
         option = { id, label: toolPath, path: toolPath, repository: '', type: 'tool' };
       }
+    }
+    if (!option && id.startsWith(MENTION_PREFIXES.GITHUB_ISSUE)) {
+      // github:issue:owner/repo#number
+      const ref = id.slice(MENTION_PREFIXES.GITHUB_ISSUE.length);
+      const hashIdx = ref.lastIndexOf('#');
+      const repo = hashIdx !== -1 ? ref.slice(0, hashIdx) : ref;
+      const num = hashIdx !== -1 ? ref.slice(hashIdx) : '';
+      option = { id, label: `${num} (${repo})`, path: '', repository: repo, type: 'tool' };
     }
     if (option) {
       root.appendChild(createMentionNode(option));
@@ -698,6 +707,13 @@ export const AgentsMentionsEditor = memo(
           return { id, label: displayName, path: toolPath, repository: '', type: 'tool' };
         }
         return { id, label: toolPath, path: toolPath, repository: '', type: 'tool' };
+      }
+      if (id.startsWith(MENTION_PREFIXES.GITHUB_ISSUE)) {
+        const ref = id.slice(MENTION_PREFIXES.GITHUB_ISSUE.length);
+        const hashIdx = ref.lastIndexOf('#');
+        const repo = hashIdx !== -1 ? ref.slice(0, hashIdx) : ref;
+        const num = hashIdx !== -1 ? ref.slice(hashIdx) : '';
+        return { id, label: `${num} (${repo})`, path: '', repository: repo, type: 'tool' };
       }
       return null;
     }, []);

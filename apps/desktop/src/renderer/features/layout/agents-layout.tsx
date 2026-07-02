@@ -51,6 +51,7 @@ import { TimeContent } from '../time/time-content';
 import { ProjectStatsContent } from '../project-stats/project-stats-content';
 import { KanbanView } from '../kanban';
 import { AutomationsView, AutomationsDetailView, InboxView } from '../automations';
+import { MyWorkView } from '../my-work';
 import { NewChatForm } from '../agents/main/new-chat-form';
 import { useOpenLocalWorkspace } from '../agents/hooks/use-open-local-workspace';
 import { detailsSidebarOpenAtom, detailsSidebarWidthAtom } from '../details-sidebar/atoms';
@@ -168,6 +169,7 @@ function useEffectiveSystemView():
   | 'automations'
   | 'automations-detail'
   | 'inbox'
+  | 'my-work'
   | 'kanban'
   | 'new-workspace'
   | 'project-stats'
@@ -246,6 +248,7 @@ function CenterRailPanel(_props: IGridviewPanelProps) {
                 <NewChatForm key={newWorkspaceFormKey} />
               </div>
             )}
+            {systemView === 'my-work' && <MyWorkView />}
             {betaAutomationsEnabled && systemView === 'automations' && <AutomationsView />}
             {betaAutomationsEnabled && systemView === 'automations-detail' && <AutomationsDetailView />}
             {betaAutomationsEnabled && systemView === 'inbox' && <InboxView />}

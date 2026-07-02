@@ -92,6 +92,7 @@ interface AgentsFileMentionProps {
   showingSkillsList?: boolean;
   showingAgentsList?: boolean;
   showingToolsList?: boolean;
+  showingWorkItemsList?: boolean;
 }
 
 // Category navigation options (shown on root view)
@@ -99,7 +100,8 @@ const CATEGORY_OPTIONS: FileMentionOption[] = [
   { id: 'files', label: 'Files & Folders', type: 'category', path: '', repository: '' },
   { id: 'skills', label: 'Skills', type: 'category', path: '', repository: '' },
   { id: 'agents', label: 'Agents', type: 'category', path: '', repository: '' },
-  { id: 'tools', label: 'MCP', type: 'category', path: '', repository: '' }
+  { id: 'tools', label: 'MCP', type: 'category', path: '', repository: '' },
+  { id: 'work-items', label: 'My Work', type: 'category', path: '', repository: '' }
 ];
 
 // Known file extensions with icons
@@ -662,7 +664,8 @@ export const AgentsFileMention = memo(function AgentsFileMention({
   showingFilesList = false,
   showingSkillsList = false,
   showingAgentsList = false,
-  showingToolsList = false
+  showingToolsList = false,
+  showingWorkItemsList = false
 }: AgentsFileMentionProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -872,15 +875,51 @@ export const AgentsFileMention = memo(function AgentsFileMention({
     });
   }, [allToolOptions, debouncedSearchText]);
 
+  // Fetch work items (GitHub issues assigned to the user)
+  const { data: workItemsData } = trpc.workItems.list.useQuery(undefined, {
+    enabled: isOpen,
+    staleTime: 60_000,
+    gcTime: 120_000
+  });
+
+  const allWorkItemOptions: FileMentionOption[] = useMemo(() => {
+    return (workItemsData?.items ?? [])
+      .filter((item) => item.provider === 'github')
+      .map((item) => ({
+        id: `${MENTION_PREFIXES.GITHUB_ISSUE}${item.repoOwner}/${item.repoName}#${item.number}`,
+        label: `#${item.number}: ${item.title}`,
+        path: item.url,
+        repository: `${item.repoOwner}/${item.repoName}`,
+        type: 'tool' as const,
+        truncatedPath: `${item.repoOwner}/${item.repoName}`,
+        description: item.body?.slice(0, 80)
+      }));
+  }, [workItemsData?.items]);
+
+  const workItemOptions: FileMentionOption[] = useMemo(() => {
+    if (!debouncedSearchText) return allWorkItemOptions;
+    const q = debouncedSearchText.toLowerCase();
+    return allWorkItemOptions.filter(
+      (item) => item.label.toLowerCase().includes(q) || item.repository.toLowerCase().includes(q)
+    );
+  }, [allWorkItemOptions, debouncedSearchText]);
+
   // Check if we have skills, agents, or tools
   // Use base data (not search-filtered) for stable category display
   const hasSkills = skills.length > 0;
   const hasAgents = customAgents.length > 0;
   const hasTools = allToolOptions.length > 0;
-  const hasOnlyFiles = !hasSkills && !hasAgents && !hasTools;
+  const hasWorkItems = allWorkItemOptions.length > 0;
+  const hasOnlyFiles = !hasSkills && !hasAgents && !hasTools && !hasWorkItems;
 
   // Determine if we're in a subpage view (or showing files directly when no skills/agents/tools)
-  const isInSubpage = showingFilesList || showingSkillsList || showingAgentsList || showingToolsList || hasOnlyFiles;
+  const isInSubpage =
+    showingFilesList ||
+    showingSkillsList ||
+    showingAgentsList ||
+    showingToolsList ||
+    showingWorkItemsList ||
+    hasOnlyFiles;
 
   // Filter category options based on available data
   const availableCategoryOptions = useMemo(() => {
@@ -889,9 +928,10 @@ export const AgentsFileMention = memo(function AgentsFileMention({
       if (category.id === 'skills') return hasSkills;
       if (category.id === 'agents') return hasAgents;
       if (category.id === 'tools') return hasTools;
+      if (category.id === 'work-items') return hasWorkItems;
       return true;
     });
-  }, [hasSkills, hasAgents, hasTools]);
+  }, [hasSkills, hasAgents, hasTools, hasWorkItems]);
 
   // Combined options for keyboard navigation
   // Subpage views show only that category's items
@@ -923,9 +963,14 @@ export const AgentsFileMention = memo(function AgentsFileMention({
       return toolOptions; // already filtered by search in toolOptions memo
     }
 
+    // SUBPAGE: My Work (GitHub issues)
+    if (showingWorkItemsList) {
+      return workItemOptions; // already filtered by search in workItemOptions memo
+    }
+
     // ROOT VIEW
     if (debouncedSearchText) {
-      // Global search: search across changed files + categories + skills + agents + tools + repo files
+      // Global search: search across changed files + categories + skills + agents + tools + work items + repo files
       const searchLower = debouncedSearchText.toLowerCase();
       const filteredCategories = availableCategoryOptions.filter((c) => c.label.toLowerCase().includes(searchLower));
       const allItems = [
@@ -934,6 +979,7 @@ export const AgentsFileMention = memo(function AgentsFileMention({
         ...skillOptions,
         ...agentOptions,
         ...toolOptions,
+        ...workItemOptions,
         ...repoFileOptions
       ];
       return sortFilesByRelevance(allItems, debouncedSearchText);
@@ -946,12 +992,14 @@ export const AgentsFileMention = memo(function AgentsFileMention({
     showingSkillsList,
     showingAgentsList,
     showingToolsList,
+    showingWorkItemsList,
     debouncedSearchText,
     changedFileOptions,
     repoFileOptions,
     skillOptions,
     agentOptions,
     toolOptions,
+    workItemOptions,
     hasOnlyFiles,
     availableCategoryOptions
   ]);
@@ -963,6 +1011,7 @@ export const AgentsFileMention = memo(function AgentsFileMention({
   const prevShowingSkillsListRef = useRef(showingSkillsList);
   const prevShowingAgentsListRef = useRef(showingAgentsList);
   const prevShowingToolsListRef = useRef(showingToolsList);
+  const prevShowingWorkItemsListRef = useRef(showingWorkItemsList);
 
   // CONSOLIDATED: Single useLayoutEffect for selection management (was 3 separate)
   useLayoutEffect(() => {
@@ -972,7 +1021,8 @@ export const AgentsFileMention = memo(function AgentsFileMention({
       showingFilesList !== prevShowingFilesListRef.current ||
       showingSkillsList !== prevShowingSkillsListRef.current ||
       showingAgentsList !== prevShowingAgentsListRef.current ||
-      showingToolsList !== prevShowingToolsListRef.current;
+      showingToolsList !== prevShowingToolsListRef.current ||
+      showingWorkItemsList !== prevShowingWorkItemsListRef.current;
 
     // Reset to 0 when opening, search changes, or subpage changes
     if (didJustOpen || didSearchChange || didSubpageChange) {
@@ -990,6 +1040,7 @@ export const AgentsFileMention = memo(function AgentsFileMention({
     prevShowingSkillsListRef.current = showingSkillsList;
     prevShowingAgentsListRef.current = showingAgentsList;
     prevShowingToolsListRef.current = showingToolsList;
+    prevShowingWorkItemsListRef.current = showingWorkItemsList;
   }, [
     isOpen,
     debouncedSearchText,
@@ -1086,15 +1137,21 @@ export const AgentsFileMention = memo(function AgentsFileMention({
   // Narrower dropdown when showing only categories (no changed files)
   const hasChangedFiles = changedFileOptions.length > 0;
   const isRootView =
-    !showingFilesList && !showingSkillsList && !showingAgentsList && !showingToolsList && !hasOnlyFiles;
+    !showingFilesList &&
+    !showingSkillsList &&
+    !showingAgentsList &&
+    !showingToolsList &&
+    !showingWorkItemsList &&
+    !hasOnlyFiles;
   // Narrow dropdown for root view (categories only) and skills/agents/tools subpages
   // Wide dropdown for files (showingFilesList or hasOnlyFiles)
+  // Extra-wide for work items — issue titles tend to be longer
   const useNarrowWidth =
     (isRootView && !hasChangedFiles && !debouncedSearchText) ||
     showingSkillsList ||
     showingAgentsList ||
     showingToolsList;
-  const dropdownWidth = useNarrowWidth ? 200 : 320;
+  const dropdownWidth = showingWorkItemsList ? 380 : useNarrowWidth ? 200 : 320;
   const itemHeight = 28;
   const headerHeight = 28; // header with py-1.5 and text-xs
   // Only add header height when header is actually shown (in subpages or when searching)
