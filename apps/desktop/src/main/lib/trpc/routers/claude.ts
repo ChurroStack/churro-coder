@@ -782,7 +782,9 @@ export const claudeRouter = router({
         images: z.array(imageAttachmentSchema).optional(), // Image attachments
         historyEnabled: z.boolean().optional(),
         offlineModeEnabled: z.boolean().optional(), // Whether offline mode (Ollama) is enabled in settings
-        enableTasks: z.boolean().optional() // Enable task management tools (TodoWrite, Task agents)
+        enableTasks: z.boolean().optional(), // Enable task management tools (TodoWrite, Task agents)
+        /** Advisor default mode (Claude only): 'opus' | 'sonnet' | 'fable'. Enables the server-side advisor tool via `--advisor <model>`. */
+        advisorModel: z.string().optional()
       })
     )
     .subscription(({ input }) => {
@@ -1452,6 +1454,12 @@ export const claudeRouter = router({
                     !hasExistingApiConfig && {
                       CLAUDE_CODE_OAUTH_TOKEN: claudeCodeToken
                     }),
+                  // Advisor default mode: enable the experimental server-side
+                  // advisor tool so `--advisor <model>` (extraArgs below) takes
+                  // effect. Claude only — never for Ollama/offline sessions.
+                  ...(input.advisorModel && !isUsingOllama
+                    ? { CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL: '1' }
+                    : {}),
                   // Re-enable CLAUDE_CONFIG_DIR now that we properly map MCP configs
                   CLAUDE_CONFIG_DIR: isolatedConfigDir
                 };
@@ -1882,6 +1890,14 @@ ${prompt}
                         mcpServers: mcpServersFiltered
                       }),
                     env: finalEnv,
+                    // Advisor default mode → `--advisor <model>` (Claude only).
+                    // Claude Code attaches the advisor only when it is at least
+                    // as capable as the main model; an under-capable pairing
+                    // simply no-ops (no error), so this is safe to pass always.
+                    ...(input.advisorModel &&
+                      !isUsingOllama && {
+                        extraArgs: { advisor: input.advisorModel }
+                      }),
                     permissionMode,
                     ...(allowDangerouslySkipPermissions && { allowDangerouslySkipPermissions: true }),
                     includePartialMessages: true,

@@ -127,6 +127,9 @@
       },
     },
   },
+  "trustedDependencies": [
+    "electron",
+  ],
   "patchedDependencies": {
     "@radix-ui/react-select@2.2.6": "patches/@radix-ui%2Freact-select@2.2.6.patch",
     "ai@6.0.177": "patches/ai@6.0.177.patch",

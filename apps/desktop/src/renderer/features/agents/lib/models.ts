@@ -32,14 +32,14 @@ export const CLAUDE_MODELS = [
   {
     id: 'sonnet',
     name: 'Sonnet',
-    version: '4.6',
+    version: '5',
     contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high'] as ClaudeThinkingLevel[]
   },
   {
     id: 'sonnet[1m]',
     name: 'Sonnet',
-    version: '4.6 1M',
+    version: '5 1M',
     contextWindow: 1_000_000,
     thinkings: ['off', 'low', 'medium', 'high'] as ClaudeThinkingLevel[]
   },
@@ -49,8 +49,43 @@ export const CLAUDE_MODELS = [
     version: '4.5',
     contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high'] as ClaudeThinkingLevel[]
+  },
+  {
+    id: 'fable',
+    name: 'Fable',
+    version: '5',
+    contextWindow: 1_000_000,
+    thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
   }
 ];
+
+// CLI-only model aliases surfaced in the Claude CLI window's model switcher
+// (cli-prompt-bar). Kept OUT of CLAUDE_MODELS so they never leak into the
+// builtin/settings model pickers — the builtin Agent SDK path can't honor
+// `opusplan` (it's a Claude Code `/model` alias that switches opus↔sonnet by
+// mode). Selecting one dispatches `/model <id>` into the CLI PTY.
+export const CLI_MODEL_ALIASES = [
+  {
+    id: 'opusplan',
+    name: 'Opus Plan',
+    version: 'auto',
+    contextWindow: 200_000,
+    thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
+  }
+];
+
+/**
+ * Decide whether the Claude CLI should bootstrap on the `opusplan` alias.
+ * Returns `'opusplan'` when the default Plan model is Opus AND the default
+ * Execute model is Sonnet (either the plain or the 1M alias form) — there is
+ * no `opusplan[1m]` alias, so the 1M Plan variant still maps to `opusplan`.
+ * Returns `undefined` otherwise (bootstrap sends no `/model`).
+ */
+export function computeOpusplanCommand(planModel: string, executeModel: string): string | undefined {
+  const isOpus = planModel === 'opus' || planModel === 'opus[1m]';
+  const isSonnet = executeModel === 'sonnet' || executeModel === 'sonnet[1m]';
+  return isOpus && isSonnet ? 'opusplan' : undefined;
+}
 
 export function formatClaudeThinkingLabel(thinking: ClaudeThinkingLevel): string {
   if (thinking === 'off') return 'Off';
@@ -93,6 +128,8 @@ export const CODEX_MODELS = [
     thinkings: ['low', 'medium', 'high'] as CodexThinkingLevel[]
   },
   {
+    // Deprecated upstream (Codex remaps gpt-5.2-codex to a current model when
+    // signed in with ChatGPT). Kept so existing stored prefs still resolve.
     id: 'gpt-5.2-codex',
     name: 'Codex 5.2',
     contextWindow: 400_000,
@@ -117,7 +154,9 @@ export const DEFAULT_CONTEXT_WINDOW = 200_000;
 export function getModelContextWindow(modelId: string | undefined): number | undefined {
   if (!modelId) return undefined;
   const normalizedId = modelId.trim().toLowerCase();
-  const model = [...CLAUDE_MODELS, ...CODEX_MODELS].find((entry) => entry.id.toLowerCase() === normalizedId);
+  const model = [...CLAUDE_MODELS, ...CLI_MODEL_ALIASES, ...CODEX_MODELS].find(
+    (entry) => entry.id.toLowerCase() === normalizedId
+  );
   return model?.contextWindow;
 }
 
@@ -169,6 +208,10 @@ export function formatModelLabel(rawId: string | undefined): string {
 
   const exact = CLAUDE_MODELS.find((m) => m.id.toLowerCase() === lower);
   if (exact) return `Claude ${exact.name} ${exact.version}`;
+
+  // CLI-only aliases (e.g. `opusplan`) may be stored as a CLI sub-chat's model.
+  const alias = CLI_MODEL_ALIASES.find((m) => m.id.toLowerCase() === lower);
+  if (alias) return `${alias.name} ${alias.version}`;
 
   const is1m = lower.includes('-1m') || lower.endsWith('1m');
   const families = [

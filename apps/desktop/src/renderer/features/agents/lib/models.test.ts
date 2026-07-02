@@ -1,5 +1,11 @@
 import { describe, test, expect } from 'vitest';
-import { coerceCodexThinking, formatClaudeThinkingLabel, formatModelLabel, formatThinkingLabel } from './models';
+import {
+  coerceCodexThinking,
+  computeOpusplanCommand,
+  formatClaudeThinkingLabel,
+  formatModelLabel,
+  formatThinkingLabel
+} from './models';
 
 describe('coerceCodexThinking', () => {
   test('max → xhigh when xhigh is supported', () => {
@@ -58,12 +64,20 @@ describe('formatModelLabel', () => {
     expect(formatModelLabel('claude-opus-4-6')).toBe('Claude Opus 4.6');
   });
 
-  test('sonnet → Claude Sonnet 4.6', () => {
-    expect(formatModelLabel('sonnet')).toBe('Claude Sonnet 4.6');
+  test('sonnet → Claude Sonnet 5', () => {
+    expect(formatModelLabel('sonnet')).toBe('Claude Sonnet 5');
   });
 
   test('haiku → Claude Haiku 4.5', () => {
     expect(formatModelLabel('haiku')).toBe('Claude Haiku 4.5');
+  });
+
+  test('fable → Claude Fable 5', () => {
+    expect(formatModelLabel('fable')).toBe('Claude Fable 5');
+  });
+
+  test('opusplan → Opus Plan auto (CLI-only alias)', () => {
+    expect(formatModelLabel('opusplan')).toBe('Opus Plan auto');
   });
 
   test('gpt-5.4 → GPT-5.4', () => {
@@ -80,6 +94,32 @@ describe('formatModelLabel', () => {
 
   test('unknown id → returned as-is', () => {
     expect(formatModelLabel('unknown-model-xyz')).toBe('unknown-model-xyz');
+  });
+});
+
+describe('computeOpusplanCommand', () => {
+  test('opus + sonnet → opusplan', () => {
+    expect(computeOpusplanCommand('opus', 'sonnet')).toBe('opusplan');
+  });
+
+  test('opus[1m] + sonnet → opusplan (no opusplan[1m] alias)', () => {
+    expect(computeOpusplanCommand('opus[1m]', 'sonnet')).toBe('opusplan');
+  });
+
+  test('opus + sonnet[1m] → opusplan', () => {
+    expect(computeOpusplanCommand('opus', 'sonnet[1m]')).toBe('opusplan');
+  });
+
+  test('opus + haiku → undefined', () => {
+    expect(computeOpusplanCommand('opus', 'haiku')).toBeUndefined();
+  });
+
+  test('sonnet plan + sonnet execute → undefined', () => {
+    expect(computeOpusplanCommand('sonnet', 'sonnet')).toBeUndefined();
+  });
+
+  test('pinned opus version (claude-opus-4-7) is not the opus alias → undefined', () => {
+    expect(computeOpusplanCommand('claude-opus-4-7', 'sonnet')).toBeUndefined();
   });
 });
 

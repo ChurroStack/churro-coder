@@ -34,6 +34,12 @@ type PricingEntry = {
 const PRICING_TABLE: ReadonlyArray<readonly [string, PricingEntry]> = [
   // Claude — most specific first
   [
+    // Fable 5 final API rates: $10/$50 per MTok in/out; 5-min cache write
+    // $12.50/MTok, cache read $1/MTok (1M context window, no long-context surcharge).
+    'claude-fable-5',
+    { displayName: 'Fable 5', provider: 'claude', rates: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } }
+  ],
+  [
     'claude-opus-4-8',
     { displayName: 'Opus 4.8', provider: 'claude', rates: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } }
   ],
@@ -56,6 +62,14 @@ const PRICING_TABLE: ReadonlyArray<readonly [string, PricingEntry]> = [
   [
     'claude-opus-4',
     { displayName: 'Opus 4', provider: 'claude', rates: { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 } }
+  ],
+  [
+    // Sonnet 5 FINAL/standard rates ($3/$15), effective Sept 1, 2026. Intro
+    // pricing of $2/$10 (5m cache write $2.50, cache read $0.20) runs only
+    // through Aug 31, 2026 — intentionally NOT used here so cost estimates
+    // don't undercount post-September usage.
+    'claude-sonnet-5',
+    { displayName: 'Sonnet 5', provider: 'claude', rates: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 } }
   ],
   [
     'claude-sonnet-4-6',
