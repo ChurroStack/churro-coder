@@ -118,7 +118,7 @@ export function MyWorkView() {
         if (visibilityFilter === 'opened-locally' && !hasLocalProject) return false;
         if (visibilityFilter === 'needs-clone' && hasLocalProject) return false;
         if (!normalizedQuery) return true;
-        const haystack = [item.title, item.body, item.repoOwner, item.repoName].join(' ').toLowerCase();
+        const haystack = [item.title, item.repoOwner, item.repoName].join(' ').toLowerCase();
         return haystack.includes(normalizedQuery);
       })
       .sort((a, b) => {
@@ -270,7 +270,7 @@ export function MyWorkView() {
                   id="my-work-search"
                   type="search"
                   aria-label="Search issues"
-                  placeholder="Search by title, description, or repo"
+                  placeholder="Search by title or repo"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                 />

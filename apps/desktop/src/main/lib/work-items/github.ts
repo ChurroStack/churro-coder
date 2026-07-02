@@ -46,7 +46,6 @@ export function buildGraphQLQuery(after?: string): string {
         number
         title
         state
-        body
         url
         repository {
           owner { login }
@@ -65,7 +64,6 @@ interface GhIssueNode {
   number: number;
   title: string;
   state: string;
-  body: string;
   url: string;
   repository: { owner: { login: string }; name: string };
   labels: { nodes: Array<{ name: string; color: string }> };
@@ -174,7 +172,6 @@ export async function fetchGitHubWorkItems(after?: string): Promise<WorkItemFetc
       id: `github:${node.repository.owner.login}/${node.repository.name}#${node.number}`,
       number: node.number,
       title: node.title,
-      body: node.body ?? '',
       state: node.state,
       type: 'issue' as const,
       url: node.url,
@@ -198,4 +195,31 @@ export async function fetchGitHubWorkItems(after?: string): Promise<WorkItemFetc
     log('fetchWorkItems', false, 'json parse error');
     return { items: [], error: { provider: 'github', code: 'unknown', message: 'Failed to parse GitHub response.' } };
   }
+}
+
+export async function fetchIssueBody(owner: string, repo: string, number: number): Promise<string> {
+  const available = await detectCli();
+  if (!available) {
+    log('fetchIssueBody', false, 'cli-missing');
+    throw new Error('GitHub CLI (gh) is not installed.');
+  }
+
+  const authed = await checkAuth();
+  if (!authed) {
+    log('fetchIssueBody', false, 'not-authenticated');
+    throw new Error('Not authenticated with GitHub.');
+  }
+
+  const result = await runCli('gh', ['api', `repos/${owner}/${repo}/issues/${number}`, '--jq', '.body // ""'], {
+    timeoutMs: 15_000
+  });
+
+  if (result.code !== 0) {
+    const reason = result.stderr.split('\n')[0] ?? 'Unknown error';
+    log('fetchIssueBody', false, reason);
+    throw new Error(`Failed to fetch issue body for ${owner}/${repo}#${number}: ${reason}`);
+  }
+
+  log('fetchIssueBody', true);
+  return result.stdout.trimEnd();
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, test, expect, afterEach, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { Provider } from 'jotai';
 import { createTestStore } from '../../../../test-utils/create-test-store';
 import { StartSessionDialog } from './start-session-dialog';
@@ -11,6 +11,7 @@ afterEach(cleanup);
 const mockMutate = vi.fn();
 const mockIsPending = { isPending: false };
 const mockProjectsQuery = vi.fn(() => ({ data: [] as unknown[] }));
+const mockGetDetailQuery = vi.fn();
 
 vi.mock('../../lib/trpc', () => ({
   trpc: {
@@ -28,6 +29,13 @@ vi.mock('../../lib/trpc', () => ({
     projects: {
       list: { useQuery: (...args: unknown[]) => (mockProjectsQuery as (...a: unknown[]) => unknown)(...args) }
     }
+  },
+  trpcClient: {
+    workItems: {
+      getDetail: {
+        query: (...args: unknown[]) => (mockGetDetailQuery as (...a: unknown[]) => unknown)(...args)
+      }
+    }
   }
 }));
 
@@ -39,7 +47,6 @@ const baseItem: WorkItem = {
   id: 'github:owner/repo#7',
   number: 7,
   title: 'Implement dark mode',
-  body: 'Add dark mode support.',
   state: 'OPEN',
   type: 'issue',
   url: 'https://github.com/owner/repo/issues/7',
@@ -66,6 +73,8 @@ describe('StartSessionDialog [my-work/start-session-dialog]', () => {
     mockMutate.mockClear();
     mockIsPending.isPending = false;
     mockProjectsQuery.mockReturnValue({ data: [] });
+    mockGetDetailQuery.mockReset();
+    mockGetDetailQuery.mockResolvedValue({ body: 'Add dark mode support.' });
   });
 
   test('does not render when item is null', () => {
@@ -90,18 +99,22 @@ describe('StartSessionDialog [my-work/start-session-dialog]', () => {
     expect(screen.getByLabelText('Agent harness')).toBeDefined();
   });
 
-  test('calls chats.create with correct payload on confirm', () => {
+  test('loads issue detail before creating the chat payload', async () => {
     setup(baseItem, 'proj-1');
     const btn = screen.getByRole('button', { name: /confirm start session/i });
     fireEvent.click(btn);
-    expect(mockMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectId: 'proj-1',
-        name: '#7: Implement dark mode',
-        initialMessage: expect.stringContaining('#7: Implement dark mode'),
-        useWorktree: true
-      })
+    await waitFor(() =>
+      expect(mockMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: 'proj-1',
+          name: '#7: Implement dark mode',
+          initialMessage:
+            "I'm working on #7: Implement dark mode\n\nAdd dark mode support.\n\nhttps://github.com/owner/repo/issues/7",
+          useWorktree: true
+        })
+      )
     );
+    expect(mockGetDetailQuery).toHaveBeenCalledWith({ owner: 'owner', repo: 'repo', number: 7 });
   });
 
   test('calls onClose when Cancel is clicked', () => {
@@ -123,6 +136,6 @@ describe('StartSessionDialog [my-work/start-session-dialog]', () => {
     fireEvent.click(screen.getByRole('option', { name: /shared backend/i }));
     fireEvent.click(screen.getByRole('button', { name: /confirm start session/i }));
 
-    expect(mockMutate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'proj-b' }));
+    return waitFor(() => expect(mockMutate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'proj-b' })));
   });
 });

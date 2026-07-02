@@ -16,6 +16,7 @@ import { trpc } from '../../lib/trpc';
 import { desktopViewAtom, showNewChatFormAtom, selectedDraftIdAtom } from '../agents/atoms';
 import { selectWorkspace } from '../agents/stores/sub-chat-store';
 import type { WorkItem } from '../../../main/lib/work-items/types';
+import { resolveIssueSessionMessage } from './session-message';
 
 type Mode = 'plan' | 'execute' | 'explore';
 type Harness = 'builtin' | 'claude-cli' | 'codex-cli';
@@ -30,6 +31,7 @@ export function StartSessionDialog({ item, projectId, onClose }: StartSessionDia
   const [mode, setMode] = useState<Mode>('plan');
   const [harness, setHarness] = useState<Harness>('builtin');
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? '');
+  const [isResolvingDetail, setIsResolvingDetail] = useState(false);
 
   const setDesktopView = useSetAtom(desktopViewAtom);
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom);
@@ -59,11 +61,13 @@ export function StartSessionDialog({ item, projectId, onClose }: StartSessionDia
     }
   });
 
-  const handleStart = useCallback(() => {
+  const handleStart = useCallback(async () => {
     if (!item || !selectedProjectId) return;
 
     const name = `#${item.number}: ${item.title}`.slice(0, 100);
-    const initialMessage = `I'm working on #${item.number}: ${item.title}\n\n${item.body ? item.body + '\n\n' : ''}${item.url}`;
+    setIsResolvingDetail(true);
+    const initialMessage = await resolveIssueSessionMessage(item);
+    setIsResolvingDetail(false);
 
     createChat.mutate({
       projectId: selectedProjectId,
@@ -162,10 +166,10 @@ export function StartSessionDialog({ item, projectId, onClose }: StartSessionDia
             Cancel
           </Button>
           <Button
-            onClick={handleStart}
-            disabled={createChat.isPending || !item || !selectedProjectId}
+            onClick={() => void handleStart()}
+            disabled={createChat.isPending || isResolvingDetail || !item || !selectedProjectId}
             aria-label="Confirm start session">
-            {createChat.isPending ? 'Creating…' : 'Start session'}
+            {createChat.isPending || isResolvingDetail ? 'Creating…' : 'Start session'}
           </Button>
         </DialogFooter>
       </DialogContent>

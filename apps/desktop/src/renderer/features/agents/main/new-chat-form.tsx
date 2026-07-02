@@ -91,6 +91,7 @@ import {
   type AgentsMentionsEditorHandle,
   type FileMentionOption
 } from '../mentions';
+import { resolveWorkItemInsertText } from '../../mentions/providers/work-items-provider';
 import { AgentFileItem } from '../ui/agent-file-item';
 import { AgentImageItem } from '../ui/agent-image-item';
 import { AgentPastedTextItem } from '../ui/agent-pasted-text-item';
@@ -1746,7 +1747,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   );
 
   const handleMentionSelect = useCallback(
-    (mention: FileMentionOption) => {
+    async (mention: FileMentionOption) => {
       // Category navigation - enter subpage instead of inserting mention
       if (mention.type === 'category') {
         if (mention.id === 'files') {
@@ -1775,11 +1776,11 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       if (mention.id.startsWith('github:issue:')) {
         const current = editorRef.current?.getValue() ?? '';
         const separator = current && !/\s$/.test(current) ? ' ' : '';
-        const ref = mention.repository ? `${mention.label} (${mention.repository})` : mention.label;
         const fullItem = workItemsListData?.items?.find(
           (item) => `github:issue:${item.repoOwner}/${item.repoName}#${item.number}` === mention.id
         );
-        const text = fullItem?.body ? `${ref}\n\n${fullItem.body}` : ref;
+        const fallbackRef = mention.repository ? `${mention.label} (${mention.repository})` : mention.label;
+        const text = fullItem ? await resolveWorkItemInsertText(fullItem) : fallbackRef;
         editorRef.current?.setValue(current + separator + text);
         setShowMentionDropdown(false);
         setShowingWorkItemsList(false);

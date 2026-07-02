@@ -1,9 +1,22 @@
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../index';
 import { getDatabase, projects, chats } from '../../db';
 import { desc, inArray } from 'drizzle-orm';
-import { fetchGitHubWorkItems } from '../../work-items/github';
-import { getCachedWorkItems, setCachedWorkItems, appendCachedWorkItems, evictWorkItems } from '../../work-items/cache';
+import { fetchGitHubWorkItems, fetchIssueBody } from '../../work-items/github';
+import {
+  getCachedWorkItems,
+  setCachedWorkItems,
+  appendCachedWorkItems,
+  evictWorkItems,
+  getBodyCacheKey,
+  getCachedBody,
+  setCachedBody,
+  getBodyInFlight,
+  setBodyInFlight,
+  clearBodyInFlight,
+  evictAllBodyCache
+} from '../../work-items/cache';
 import type { WorkItem, WorkItemFetchResult } from '../../work-items/types';
 
 const GITHUB_CACHE_KEY = 'github:viewer';
@@ -83,6 +96,7 @@ export const workItemsRouter = router({
 
   refresh: publicProcedure.input(z.void().optional()).mutation(async (): Promise<WorkItemFetchResult> => {
     evictWorkItems(GITHUB_CACHE_KEY);
+    evictAllBodyCache();
     listInFlight = null; // cancel any in-flight list fetch so the next list gets fresh data
 
     const result = await fetchGitHubWorkItems();
@@ -127,6 +141,50 @@ export const workItemsRouter = router({
         pageInfo: result.pageInfo,
         error: result.error
       };
+    }),
+
+  getDetail: publicProcedure
+    .input(z.object({ owner: z.string().min(1), repo: z.string().min(1), number: z.number().int().positive() }))
+    .query(async ({ input }): Promise<{ body: string }> => {
+      const cacheKey = getBodyCacheKey(input.owner, input.repo, input.number);
+      const cachedBody = getCachedBody(cacheKey);
+      if (cachedBody !== undefined) {
+        log('getDetail', true);
+        return { body: cachedBody };
+      }
+
+      const existingInFlight = getBodyInFlight(cacheKey);
+      if (existingInFlight) {
+        try {
+          return { body: await existingInFlight };
+        } catch (error) {
+          log('getDetail', false, error instanceof Error ? error.message : String(error));
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: error instanceof Error ? error.message : 'Failed to fetch issue detail'
+          });
+        }
+      }
+
+      const inFlight = fetchIssueBody(input.owner, input.repo, input.number)
+        .then((body) => {
+          setCachedBody(cacheKey, body);
+          return body;
+        })
+        .finally(() => {
+          clearBodyInFlight(cacheKey);
+        });
+      setBodyInFlight(cacheKey, inFlight);
+
+      try {
+        return { body: await inFlight };
+      } catch (error) {
+        log('getDetail', false, error instanceof Error ? error.message : String(error));
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to fetch issue detail'
+        });
+      }
     }),
 
   /** Returns chats whose names match the `#<number>:` pattern for the given projects.

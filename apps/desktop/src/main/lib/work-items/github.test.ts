@@ -7,6 +7,7 @@ describe('buildGraphQLQuery', () => {
     expect(query).toContain('viewer');
     expect(query).toContain('issues(first: 50');
     expect(query).toContain('filterBy: { states: OPEN }');
+    expect(query).not.toContain('\n        body\n');
   });
 
   test('includes the cursor when loading more results', () => {

@@ -9,7 +9,7 @@ export interface WorkItem {
   id: string;
   number: number;
   title: string;
-  body: string;
+  body?: string;
   state: string;
   type: 'issue';
   url: string;

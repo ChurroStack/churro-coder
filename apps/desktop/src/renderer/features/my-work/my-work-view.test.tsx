@@ -76,7 +76,6 @@ const makeItem = (overrides: Partial<WorkItem> = {}): WorkItem => ({
   id: 'github:owner/repo#1',
   number: 1,
   title: 'Sample issue',
-  body: 'Body text',
   state: 'OPEN',
   type: 'issue',
   url: 'https://github.com/owner/repo/issues/1',
@@ -166,11 +165,10 @@ describe('MyWorkView [my-work/my-work-view]', () => {
     mockListQuery.mockReturnValue({
       data: {
         items: [
-          makeItem({ number: 1, title: 'Fix crash on startup', body: 'renderer panic' }),
+          makeItem({ number: 1, title: 'Fix crash on startup' }),
           makeItem({
             number: 2,
             title: 'Add keyboard shortcuts',
-            body: 'search shortcuts',
             repoName: 'repo-two',
             id: 'github:owner/repo-two#2'
           })

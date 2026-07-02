@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { CircleDot, ExternalLink } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
 import { formatDistanceToNow } from 'date-fns';
-import { workItemShortRef } from '../mentions/providers/work-items-provider';
+import { resolveWorkItemInsertText } from '../mentions/providers/work-items-provider';
 import type { WorkItem } from '../../../main/lib/work-items/types';
 
 interface WorkItemsPanelProps {
@@ -40,6 +40,7 @@ export function WorkItemsPanel({ onInsert }: WorkItemsPanelProps) {
 
 function WorkItemPanelRow({ item, onInsert }: { item: WorkItem; onInsert: (text: string) => void }) {
   const updatedAgo = formatDistanceToNow(new Date(item.updatedAt), { addSuffix: true });
+  const [isLoading, setIsLoading] = useState(false);
 
   return (
     <div className="group flex items-start gap-2 px-3 py-2 hover:bg-muted/50 transition-colors duration-100">
@@ -47,14 +48,19 @@ function WorkItemPanelRow({ item, onInsert }: { item: WorkItem; onInsert: (text:
       <button
         type="button"
         aria-label={`Insert reference to issue #${item.number}: ${item.title}`}
-        onClick={() => {
-          const ref = workItemShortRef(item);
-          onInsert(item.body ? `${ref}\n\n${item.body}` : ref);
+        disabled={isLoading}
+        onClick={async () => {
+          setIsLoading(true);
+          try {
+            onInsert(await resolveWorkItemInsertText(item));
+          } finally {
+            setIsLoading(false);
+          }
         }}
         className="flex-1 min-w-0 text-left">
         <p className="text-xs font-medium text-foreground truncate leading-snug">{item.title}</p>
         <p className="text-[10px] text-muted-foreground mt-0.5">
-          {item.repoOwner}/{item.repoName} #{item.number} · {updatedAgo}
+          {item.repoOwner}/{item.repoName} #{item.number} · {isLoading ? 'Loading details…' : updatedAgo}
         </p>
       </button>
       <a

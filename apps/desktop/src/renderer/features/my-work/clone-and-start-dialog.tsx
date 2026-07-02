@@ -16,6 +16,7 @@ import { trpc } from '../../lib/trpc';
 import { desktopViewAtom, selectedDraftIdAtom, showNewChatFormAtom } from '../agents/atoms';
 import { selectWorkspace } from '../agents/stores/sub-chat-store';
 import type { WorkItem } from '../../../main/lib/work-items/types';
+import { resolveIssueSessionMessage } from './session-message';
 
 type Mode = 'plan' | 'execute' | 'explore';
 type Harness = 'builtin' | 'claude-cli' | 'codex-cli';
@@ -28,6 +29,7 @@ interface CloneAndStartDialogProps {
 export function CloneAndStartDialog({ item, onClose }: CloneAndStartDialogProps) {
   const [mode, setMode] = useState<Mode>('plan');
   const [harness, setHarness] = useState<Harness>('builtin');
+  const [isResolvingDetail, setIsResolvingDetail] = useState(false);
 
   const setDesktopView = useSetAtom(desktopViewAtom);
   const setShowNewChatForm = useSetAtom(showNewChatFormAtom);
@@ -62,7 +64,9 @@ export function CloneAndStartDialog({ item, onClose }: CloneAndStartDialogProps)
     });
 
     const name = `#${item.number}: ${item.title}`.slice(0, 100);
-    const initialMessage = `I'm working on #${item.number}: ${item.title}\n\n${item.body ? item.body + '\n\n' : ''}${item.url}`;
+    setIsResolvingDetail(true);
+    const initialMessage = await resolveIssueSessionMessage(item);
+    setIsResolvingDetail(false);
 
     createChat.mutate({
       projectId: project.id,
@@ -75,7 +79,7 @@ export function CloneAndStartDialog({ item, onClose }: CloneAndStartDialogProps)
   }, [cloneProject, createChat, item, mode, harness]);
 
   const isOpen = item !== null;
-  const isPending = cloneProject.isPending || createChat.isPending;
+  const isPending = cloneProject.isPending || createChat.isPending || isResolvingDetail;
   const locationLabel = item ? `${item.repoOwner}/${item.repoName} #${item.number}` : '';
 
   return (

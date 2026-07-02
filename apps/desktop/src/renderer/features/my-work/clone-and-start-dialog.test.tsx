@@ -10,6 +10,7 @@ afterEach(cleanup);
 
 const mockCloneMutateAsync = vi.fn();
 const mockCreateMutate = vi.fn();
+const mockGetDetailQuery = vi.fn();
 
 vi.mock('../../lib/trpc', () => ({
   trpc: {
@@ -32,6 +33,13 @@ vi.mock('../../lib/trpc', () => ({
         })
       }
     }
+  },
+  trpcClient: {
+    workItems: {
+      getDetail: {
+        query: (...args: unknown[]) => (mockGetDetailQuery as (...a: unknown[]) => unknown)(...args)
+      }
+    }
   }
 }));
 
@@ -43,7 +51,6 @@ const item: WorkItem = {
   id: 'github:owner/repo#7',
   number: 7,
   title: 'Implement dark mode',
-  body: 'Add dark mode support.',
   state: 'OPEN',
   type: 'issue',
   url: 'https://github.com/owner/repo/issues/7',
@@ -69,6 +76,8 @@ describe('CloneAndStartDialog [my-work/clone-and-start-dialog]', () => {
   beforeEach(() => {
     mockCloneMutateAsync.mockReset();
     mockCreateMutate.mockReset();
+    mockGetDetailQuery.mockReset();
+    mockGetDetailQuery.mockResolvedValue({ body: 'Add dark mode support.' });
   });
 
   test('renders issue summary and clone target', () => {
@@ -93,9 +102,12 @@ describe('CloneAndStartDialog [my-work/clone-and-start-dialog]', () => {
       expect.objectContaining({
         projectId: 'proj-1',
         name: '#7: Implement dark mode',
+        initialMessage:
+          "I'm working on #7: Implement dark mode\n\nAdd dark mode support.\n\nhttps://github.com/owner/repo/issues/7",
         useWorktree: true
       })
     );
+    expect(mockGetDetailQuery).toHaveBeenCalledWith({ owner: 'owner', repo: 'repo', number: 7 });
   });
 
   test('closes the dialog when cancel is clicked', () => {

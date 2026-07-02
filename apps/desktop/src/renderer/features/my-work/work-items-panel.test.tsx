@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, test, expect, vi, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { WorkItemsPanel } from './work-items-panel';
 
 afterEach(cleanup);
@@ -12,11 +12,18 @@ vi.mock('../../lib/trpc', () => ({
     workItems: {
       list: { useQuery: (...args: unknown[]) => (mockListQuery as (...a: unknown[]) => unknown)(...args) }
     }
+  },
+  trpcClient: {
+    workItems: {
+      getDetail: {
+        query: vi.fn(async () => ({ body: 'Investigate the auth flow' }))
+      }
+    }
   }
 }));
 
 describe('WorkItemsPanel', () => {
-  test('inserts the full issue reference with body when clicked', () => {
+  test('loads issue detail on click and inserts the resolved text', async () => {
     const onInsert = vi.fn();
     mockListQuery.mockReturnValue({
       data: {
@@ -25,7 +32,6 @@ describe('WorkItemsPanel', () => {
             id: 'github:owner/repo#12',
             number: 12,
             title: 'Fix login timeout',
-            body: 'Investigate the auth flow',
             state: 'OPEN',
             type: 'issue',
             url: 'https://github.com/owner/repo/issues/12',
@@ -45,7 +51,9 @@ describe('WorkItemsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /insert reference to issue #12/i }));
 
-    expect(onInsert).toHaveBeenCalledWith('#12: Fix login timeout (owner/repo)\n\nInvestigate the auth flow');
+    await waitFor(() =>
+      expect(onInsert).toHaveBeenCalledWith('#12: Fix login timeout (owner/repo)\n\nInvestigate the auth flow')
+    );
     expect(screen.getByRole('link', { name: /open issue #12 on github/i })).toBeDefined();
   });
 });

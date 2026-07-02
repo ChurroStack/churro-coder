@@ -9,6 +9,8 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
+const bodyCache = new Map<string, string>();
+const bodyInFlight = new Map<string, Promise<string>>();
 
 function isStale(entry: CacheEntry): boolean {
   return Date.now() - entry.at >= CACHE_TTL_MS;
@@ -34,6 +36,36 @@ export function evictWorkItems(key: string): void {
   cache.delete(key);
 }
 
+export function evictAllBodyCache(): void {
+  bodyCache.clear();
+  bodyInFlight.clear();
+}
+
 export function evictAll(): void {
   cache.clear();
+  evictAllBodyCache();
+}
+
+export function getBodyCacheKey(owner: string, repo: string, number: number): string {
+  return `github:${owner}/${repo}#${number}`;
+}
+
+export function getCachedBody(key: string): string | undefined {
+  return bodyCache.get(key);
+}
+
+export function setCachedBody(key: string, body: string): void {
+  bodyCache.set(key, body);
+}
+
+export function getBodyInFlight(key: string): Promise<string> | undefined {
+  return bodyInFlight.get(key);
+}
+
+export function setBodyInFlight(key: string, promise: Promise<string>): void {
+  bodyInFlight.set(key, promise);
+}
+
+export function clearBodyInFlight(key: string): void {
+  bodyInFlight.delete(key);
 }

@@ -28,7 +28,8 @@ export const WorkItemRow = memo(function WorkItemRow({
 }: WorkItemRowProps) {
   const [expanded, setExpanded] = useState(false);
   const updatedAgo = formatDistanceToNow(new Date(item.updatedAt), { addSuffix: true });
-  const hasBody = item.body.trim().length > 0;
+  const bodyText = item.body ?? '';
+  const hasBody = bodyText.trim().length > 0;
 
   const handleToggle = useCallback(() => {
     if (hasBody) setExpanded((v) => !v);
@@ -159,7 +160,7 @@ export const WorkItemRow = memo(function WorkItemRow({
       {expanded && hasBody && (
         <div className="px-4 pb-4 pl-11">
           <div className="rounded-md border border-border/40 bg-muted/20 px-4 py-3 text-sm overflow-auto max-h-96">
-            <ChatMarkdownRenderer content={item.body} size="sm" />
+            <ChatMarkdownRenderer content={bodyText} size="sm" />
           </div>
         </div>
       )}

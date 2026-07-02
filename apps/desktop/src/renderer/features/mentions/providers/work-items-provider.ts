@@ -30,6 +30,16 @@ function makeShortRef(item: WorkItem): string {
   return `#${item.number}: ${item.title} (${item.repoOwner}/${item.repoName})`;
 }
 
+export async function resolveWorkItemInsertText(item: WorkItem): Promise<string> {
+  const ref = makeShortRef(item);
+  const { body } = await trpcClient.workItems.getDetail.query({
+    owner: item.repoOwner,
+    repo: item.repoName,
+    number: item.number
+  });
+  return body ? `${ref}\n\n${body}` : ref;
+}
+
 export const workItemsProvider = createMentionProvider<WorkItem>({
   id: 'work-items',
   name: 'My Work',
@@ -92,10 +102,7 @@ export const workItemsProvider = createMentionProvider<WorkItem>({
    * the AI agent sees useful context even if the token isn't expanded.
    */
   serialize(item: MentionItem<WorkItem>): string {
-    const ref = makeShortRef(item.data);
-    if (!item.data.body) return ref;
-    const body = item.data.body.length > 2000 ? item.data.body.slice(0, 2000) + '…' : item.data.body;
-    return `${ref}\n\n${body}`;
+    return makeShortRef(item.data);
   },
 
   deserialize(): MentionItem<WorkItem> | null {
