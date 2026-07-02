@@ -16,7 +16,7 @@ import {
 import { hasReview, readCurrentReview, onReviewWritten, markAccepted } from '../../reviews/review-store';
 import { onTasksWritten, readTasks } from '../../tasks/task-store';
 import { onFileChangesNotified, readFileChanges } from '../../file-changes/file-changes-store';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, safeStorage } from 'electron';
 import * as fs from 'fs/promises';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -24,7 +24,7 @@ import * as path from 'path';
 import simpleGit from 'simple-git';
 import { z } from 'zod';
 import { trackPRCreated, trackWorkspaceArchived, trackWorkspaceCreated, trackWorkspaceDeleted } from '../../analytics';
-import { chats, getDatabase, messages, projects, subChats } from '../../db';
+import { anthropicAccounts, anthropicSettings, chats, getDatabase, messages, projects, subChats } from '../../db';
 import { readMessagesFromTable, readMessagesForSubChats, replaceMessagesInTable } from '../../db/messages-table';
 import { computeFileStatsFromMessages } from '../../file-stats';
 import {
@@ -289,10 +289,12 @@ Title:`;
 }
 
 // ============ Session summary (rolling, incremental) ============
-// Powers the Session sidebar widget. Same auth rules as title/commit gen:
-// explicit API key only (resolveClaudeRestAuth), Ollama local fallback, NEVER
-// the subscription OAuth token. Only NEW messages (idx > summaryLastIdx) are
-// summarized so token usage stays small even for long sessions.
+// Powers the Session sidebar widget. Provider order: explicit API key
+// (resolveClaudeRestAuth, same as title/commit gen) -> Claude subscription
+// (OAuth, see the "Subscription-OAuth fallback" section below — summary-only,
+// title/commit gen stays API-key-only) -> Ollama local fallback. Only NEW
+// messages (idx > summaryLastIdx) are summarized so token usage stays small
+// even for long sessions.
 
 /** Max chars of compact transcript fed to the model (tail-biased). */
 const SESSION_SUMMARY_INPUT_CHAR_CAP = 4000;
@@ -438,6 +440,13 @@ async function generateSessionSummaryWithOllama(
         model: modelToUse,
         prompt,
         stream: false,
+        // Disable reasoning for models with a hybrid thinking mode (Qwen3,
+        // DeepSeek-R1, gpt-oss, ...). Ollama translates this into whatever the
+        // underlying model's real reasoning-control mechanism is; it's a no-op
+        // for models with no thinking mode. Without it, a thinking model can
+        // burn the whole num_predict budget on hidden reasoning and return an
+        // empty `response` for this short summary prompt.
+        think: false,
         options: { temperature: 0.3, num_predict: 220 }
       }),
       signal
@@ -449,6 +458,94 @@ async function generateSessionSummaryWithOllama(
   } catch (error) {
     if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return null;
     console.error('[session-summary] ollama error:', error);
+    return null;
+  }
+}
+
+// ---- Subscription-OAuth fallback (session summary ONLY) --------------------
+//
+// title/commit generation and `resolveClaudeRestAuth` remain API-key-only —
+// that invariant ("NEVER the subscription OAuth token") stays intact. This is
+// a deliberate, separate, explicitly-labeled branch for the summary alone,
+// added because most users authenticate with a Claude *subscription* and have
+// no API key, so `resolveClaudeRestAuth` returning `null` left them with no
+// working provider but Ollama.
+//
+// The prior removal of subscription-token usage here (see claude-title-auth.ts)
+// was not because OAuth can't work — it was because the old code sent a
+// half-formed request: `Authorization: Bearer <token>` with NEITHER the
+// `anthropic-beta: oauth-2025-04-20` header NOR the Claude-Code identity system
+// prompt the API requires for OAuth-token auth. That produced 401s / erroring
+// background requests during live CLI sessions. This path sends the complete
+// shape.
+const SUBSCRIPTION_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
+const SUBSCRIPTION_SUMMARY_MODEL = 'claude-haiku-4-5-20251001';
+const SUBSCRIPTION_SYSTEM_PROMPT = "You are Claude Code, Anthropic's official CLI for Claude.";
+
+/**
+ * Decrypt the active Claude subscription's OAuth token, quietly — unlike
+ * `getClaudeCodeToken` in routers/claude.ts (which logs a token preview for
+ * connection debugging), this never logs token material. Used ONLY by
+ * `generateSessionSummaryWithSubscription` below.
+ */
+function getActiveSubscriptionOAuthToken(): string | null {
+  try {
+    const db = getDatabase();
+    const settings = db.select().from(anthropicSettings).where(eq(anthropicSettings.id, 'singleton')).get();
+    if (!settings?.activeAccountId) return null;
+    const account = db.select().from(anthropicAccounts).where(eq(anthropicAccounts.id, settings.activeAccountId)).get();
+    if (!account?.oauthToken) return null;
+    if (!safeStorage.isEncryptionAvailable()) return Buffer.from(account.oauthToken, 'base64').toString('utf-8');
+    return safeStorage.decryptString(Buffer.from(account.oauthToken, 'base64'));
+  } catch (error) {
+    console.error('[session-summary] subscription token read failed:', error);
+    return null;
+  }
+}
+
+async function generateSessionSummaryWithSubscription(
+  priorSummary: string | null,
+  newMessages: string,
+  signal: AbortSignal
+): Promise<string | null> {
+  if (signal.aborted) return null;
+  try {
+    const token = getActiveSubscriptionOAuthToken();
+    if (!token) return null;
+    const prompt = await getPrompt({
+      key: 'session-summary/prompt',
+      vars: { priorSummary: priorSummary ?? '', newMessages }
+    });
+    const response = await fetch(SUBSCRIPTION_MESSAGES_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'oauth-2025-04-20',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        model: SUBSCRIPTION_SUMMARY_MODEL,
+        max_tokens: 200,
+        system: SUBSCRIPTION_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: prompt }]
+      }),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10000)])
+    });
+    if (!response.ok) {
+      console.error('[session-summary] subscription failed:', response.status);
+      return null;
+    }
+    const data = await response.json();
+    if (!data || typeof data !== 'object') {
+      console.error('[session-summary] subscription unexpected body shape');
+      return null;
+    }
+    const text = data.content?.[0]?.text?.trim();
+    return text || null;
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) return null;
+    console.error('[session-summary] subscription error:', error);
     return null;
   }
 }
@@ -2140,9 +2237,10 @@ export const chatsRouter = router({
 
   /**
    * (Re)generate the rolling session summary from only the NEW messages since
-   * the last summary. Claude (explicit API key) → Ollama fallback; on neither
-   * available, leaves the prior summary untouched. Persists summary +
-   * summaryLastIdx + summaryUpdatedAt so it survives restarts without re-work.
+   * the last summary. Provider order: explicit API key -> Claude subscription
+   * (OAuth) -> Ollama; on none available, leaves the prior summary untouched.
+   * Persists summary + summaryLastIdx + summaryUpdatedAt so it survives
+   * restarts without re-work.
    */
   generateSessionSummary: publicProcedure
     .input(
@@ -2184,12 +2282,20 @@ export const chatsRouter = router({
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12000);
       try {
+        // Order: explicit API key -> Claude subscription -> Ollama. Track which
+        // path produced the summary for tracing (never log the token itself).
+        let authUsed: 'api-key' | 'subscription' | 'ollama' | null = null;
         let summary = await generateSessionSummaryWithClaude(
           sub.summary ?? null,
           built.text,
           controller.signal,
           input.customConfig
         );
+        if (summary) authUsed = 'api-key';
+        if (!summary && !controller.signal.aborted) {
+          summary = await generateSessionSummaryWithSubscription(sub.summary ?? null, built.text, controller.signal);
+          if (summary) authUsed = 'subscription';
+        }
         if (!summary && !controller.signal.aborted) {
           summary = await generateSessionSummaryWithOllama(
             sub.summary ?? null,
@@ -2197,6 +2303,7 @@ export const chatsRouter = router({
             input.ollamaModel,
             controller.signal
           );
+          if (summary) authUsed = 'ollama';
         }
         if (!summary) {
           console.log(`[session-summary] sub=${input.subChatId} outcome=skip reason=no-provider`);
@@ -2208,7 +2315,7 @@ export const chatsRouter = router({
           .where(eq(subChats.id, input.subChatId))
           .run();
         console.log(
-          `[session-summary] sub=${input.subChatId} outcome=ok lastIdx=${built.maxIdx} len=${trimmed.length}`
+          `[session-summary] sub=${input.subChatId} auth=${authUsed} outcome=ok lastIdx=${built.maxIdx} len=${trimmed.length}`
         );
         return { summary: trimmed, updated: true };
       } catch (error) {
