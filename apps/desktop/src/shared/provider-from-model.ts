@@ -3,9 +3,13 @@ export type Provider = 'claude-code' | 'codex';
 const CLAUDE_MODEL_IDS = new Set(['opus', 'opus[1m]', 'sonnet', 'sonnet[1m]', 'haiku', 'fable', 'opusplan']);
 
 const CODEX_MODEL_IDS = new Set([
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
   'gpt-5.5',
   'gpt-5.4',
   'gpt-5.4-mini',
+  // Legacy — retired upstream but kept so stored prefs resolve to the codex provider
   'gpt-5.3-codex',
   'gpt-5.3-codex-spark',
   'gpt-5.2-codex',

@@ -37,7 +37,9 @@ vi.mock('../../../lib/trpc', () => ({
 }));
 
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
+import { appStore } from '../../../lib/jotai-store';
 import { trpcClient } from '../../../lib/trpc';
+import { subChatCodexModelIdAtomFamily } from '../atoms';
 import { IPCChatTransport } from './ipc-chat-transport';
 import { CodexChatTransport } from './codex-chat-transport';
 import { RemoteChatTransport } from './remote-chat-transport';
@@ -168,6 +170,30 @@ describe('Transport mode propagation — regression guards', () => {
 
     const [input] = codexSubscribe.mock.calls[0] as [{ mode: string }, unknown];
     expect(input.mode).toBe('plan');
+  });
+
+  test('CodexChatTransport falls back to the shared default model for stale stored ids', async () => {
+    const id = nextSubChatId();
+    appStore.set(subChatCodexModelIdAtomFamily(id), 'gpt-5.3-codex');
+    useAgentSubChatStore.setState((s) => ({
+      allSubChats: [
+        ...s.allSubChats.filter((c) => c.id !== id),
+        { id, name: 'test', created_at: new Date().toISOString(), mode: 'plan' as const }
+      ]
+    }));
+    const transport = new CodexChatTransport({
+      chatId: 'chat-1',
+      subChatId: id,
+      cwd: '/tmp',
+      provider: 'codex'
+    });
+
+    await transport.sendMessages({
+      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] } as any]
+    });
+
+    const [input] = codexSubscribe.mock.calls[0] as [{ mode: string; model: string }, unknown];
+    expect(input.model).toBe('gpt-5.6-terra/high');
   });
 });
 

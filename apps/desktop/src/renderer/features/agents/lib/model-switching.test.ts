@@ -176,14 +176,14 @@ describe('applyModeDefaultModel — Claude path', () => {
 describe('applyModeDefaultModel — Codex path (#32 regression)', () => {
   test('review with Codex model → sets Codex atoms, provider = codex', () => {
     const id = nextSubChatId();
-    appStore.set(defaultReviewModeModelAtom, 'gpt-5.3-codex');
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.4');
     appStore.set(defaultReviewModeThinkingAtom, 'high');
 
     const result = applyModeDefaultModel(id, 'review');
 
-    expect(result.modelId).toBe('gpt-5.3-codex');
+    expect(result.modelId).toBe('gpt-5.4');
     expect(result.provider).toBe('codex');
-    expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe('gpt-5.3-codex');
+    expect(appStore.get(subChatCodexModelIdAtomFamily(id))).toBe('gpt-5.4');
     expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe('high');
     expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe('codex');
     expect(appStore.get(lastSelectedCodexThinkingAtom)).toBe('high');
@@ -191,30 +191,30 @@ describe('applyModeDefaultModel — Codex path (#32 regression)', () => {
 
   test('review with Codex model → Claude model atom NOT set to the Codex model ID', () => {
     const id = nextSubChatId();
-    appStore.set(defaultReviewModeModelAtom, 'gpt-5.3-codex');
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.4');
 
     applyModeDefaultModel(id, 'review');
 
     // The Claude model atom should NOT have been set to the Codex model ID
-    expect(appStore.get(subChatModelIdAtomFamily(id))).not.toBe('gpt-5.3-codex');
+    expect(appStore.get(subChatModelIdAtomFamily(id))).not.toBe('gpt-5.4');
   });
 
   test("Codex thinking coerced when model doesn't support the requested level", () => {
     const id = nextSubChatId();
-    // gpt-5.3-codex-spark only supports ["low","medium","high"] (no xhigh)
-    appStore.set(defaultReviewModeModelAtom, 'gpt-5.3-codex-spark');
-    appStore.set(defaultReviewModeThinkingAtom, 'xhigh');
+    // gpt-5.6-luna supports ["low","medium","high","xhigh","max"] but not "ultra"
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.6-luna');
+    appStore.set(defaultReviewModeThinkingAtom, 'ultra');
 
     applyModeDefaultModel(id, 'review');
 
-    // "xhigh" not in ["low","medium","high"] → coerced to "high"
-    expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe('high');
+    // "ultra" not in gpt-5.6-luna's list → degrades to "max"
+    expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe('max');
   });
 
-  test("Codex thinking 'max' treated as 'xhigh' → stays xhigh when supported", () => {
+  test("Codex thinking 'max' degrades to 'xhigh' when model doesn't support max", () => {
     const id = nextSubChatId();
-    // gpt-5.3-codex supports ["low","medium","high","xhigh"]
-    appStore.set(defaultReviewModeModelAtom, 'gpt-5.3-codex');
+    // gpt-5.5 supports ["low","medium","high","xhigh"] but not "max"/"ultra"
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.5');
     appStore.set(defaultReviewModeThinkingAtom, 'max');
 
     applyModeDefaultModel(id, 'review');
@@ -222,21 +222,21 @@ describe('applyModeDefaultModel — Codex path (#32 regression)', () => {
     expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe('xhigh');
   });
 
-  test("Codex thinking 'max' coerced when model doesn't support xhigh", () => {
+  test("Codex thinking 'ultra' degrades to 'xhigh' when model only supports up to xhigh", () => {
     const id = nextSubChatId();
-    // gpt-5.4-mini only supports ["low","medium","high"]
-    appStore.set(defaultReviewModeModelAtom, 'gpt-5.4-mini');
-    appStore.set(defaultReviewModeThinkingAtom, 'max');
+    // gpt-5.5 supports ["low","medium","high","xhigh"] but not "max"/"ultra"
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.5');
+    appStore.set(defaultReviewModeThinkingAtom, 'ultra');
 
     applyModeDefaultModel(id, 'review');
 
-    // max → xhigh → not in ["low","medium","high"] → falls back to "high"
-    expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe('high');
+    // ultra → max not in list → xhigh
+    expect(appStore.get(subChatCodexThinkingAtomFamily(id))).toBe('xhigh');
   });
 
   test('lastSelectedCodexThinkingAtom updated, lastSelectedClaudeThinkingAtom unchanged', () => {
     const id = nextSubChatId();
-    appStore.set(defaultReviewModeModelAtom, 'gpt-5.3-codex');
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.4');
     appStore.set(defaultReviewModeThinkingAtom, 'high');
     appStore.set(lastSelectedClaudeThinkingAtom, 'off');
 

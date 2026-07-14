@@ -22,13 +22,13 @@ export const CLI_LABELS: Record<CliTool, string> = {
 };
 
 /**
- * Minimum versions the app is tested against. Seeded from the versions we used
- * to bundle (claude 2.1.156 / codex 0.135.0 / openspec 1.3.1). The gate is
- * advisory — an older CLI still runs, the UI just nudges an upgrade.
+ * Minimum versions the app is tested against. Bumped when new models require a
+ * newer binary (e.g. codex 0.144.0 for GPT-5.6 family). The gate is advisory —
+ * an older CLI still runs, the UI just nudges an upgrade.
  */
 export const CLI_MIN_VERSIONS: Record<CliTool, string> = {
   claude: '2.1.156',
-  codex: '0.135.0',
+  codex: '0.144.0',
   openspec: '1.3.1'
 };
 
