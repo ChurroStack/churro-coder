@@ -127,6 +127,7 @@ import {
   CLAUDE_MODELS,
   CODEX_MODELS,
   coerceCodexThinking,
+  resolveCodexModel,
   type ClaudeThinkingLevel,
   type CodexThinkingLevel
 } from '../lib/models';
@@ -526,7 +527,7 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
       setSelectedAgent((current) => (current.id === nextAgent.id ? current : nextAgent));
 
       if (provider === 'codex') {
-        const codexModel = CODEX_MODELS.find((model) => model.id === modelId) || CODEX_MODELS[0]!;
+        const codexModel = resolveCodexModel(modelId)!;
         setLastSelectedCodexModelId(modelId);
         setLastSelectedCodexThinking(coerceCodexThinking(thinking, codexModel.thinkings));
         return;
@@ -561,11 +562,10 @@ export function NewChatForm({ isMobileFullscreen = false, onBackToChats }: NewCh
   const hasAppCodexApiKey = Boolean(normalizeCodexApiKey(storedCodexApiKey));
   const hiddenModels = useAtomValue(hiddenModelsAtom);
   const codexUiModels = useMemo(() => {
-    let models = hasAppCodexApiKey ? CODEX_MODELS.filter((model) => model.id !== 'gpt-5.3-codex') : CODEX_MODELS;
-    return models.filter((model) => !hiddenModels.includes(model.id));
+    return CODEX_MODELS.filter((model) => !hiddenModels.includes(model.id));
   }, [hasAppCodexApiKey, hiddenModels]);
   const selectedCodexModel = useMemo(
-    () => codexUiModels.find((model) => model.id === lastSelectedCodexModelId) || codexUiModels[0] || CODEX_MODELS[0]!,
+    () => codexUiModels.find((model) => model.id === lastSelectedCodexModelId) || resolveCodexModel(undefined)!,
     [codexUiModels, lastSelectedCodexModelId]
   );
 

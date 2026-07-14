@@ -2,9 +2,13 @@ import { describe, test, expect } from 'vitest';
 import {
   coerceCodexThinking,
   computeOpusplanCommand,
+  DEFAULT_CODEX_MODEL_ID,
   formatClaudeThinkingLabel,
+  formatCodexThinkingLabel,
   formatModelLabel,
-  formatThinkingLabel
+  formatThinkingLabel,
+  getDefaultCodexModel,
+  resolveCodexModel
 } from './models';
 
 describe('coerceCodexThinking', () => {
@@ -38,8 +42,24 @@ describe('coerceCodexThinking', () => {
   });
 
   test("max with only low/medium → returns supported[0] = 'low'", () => {
-    // max → xhigh → not in ["low","medium"], "high" not in list → supported[0] = "low"
+    // max → xhigh not in ["low","medium"], "high" not in list → supported[0] = "low"
     expect(coerceCodexThinking('max', ['low', 'medium'])).toBe('low');
+  });
+
+  test("max stays 'max' when model supports max", () => {
+    expect(coerceCodexThinking('max', ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'])).toBe('max');
+  });
+
+  test("ultra stays 'ultra' when model supports ultra", () => {
+    expect(coerceCodexThinking('ultra', ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'])).toBe('ultra');
+  });
+
+  test("ultra degrades to 'max' when model supports max but not ultra", () => {
+    expect(coerceCodexThinking('ultra', ['low', 'medium', 'high', 'xhigh', 'max'])).toBe('max');
+  });
+
+  test("ultra degrades to 'xhigh' when model supports xhigh but not max/ultra", () => {
+    expect(coerceCodexThinking('ultra', ['low', 'medium', 'high', 'xhigh'])).toBe('xhigh');
   });
 });
 
@@ -84,6 +104,14 @@ describe('formatModelLabel', () => {
     expect(formatModelLabel('gpt-5.4')).toBe('GPT-5.4');
   });
 
+  test('gpt-5.6-terra → GPT-5.6-Terra', () => {
+    expect(formatModelLabel('gpt-5.6-terra')).toBe('GPT-5.6-Terra');
+  });
+
+  test('gpt-5.6-sol → GPT-5.6-Sol', () => {
+    expect(formatModelLabel('gpt-5.6-sol')).toBe('GPT-5.6-Sol');
+  });
+
   test('gpt-5.3-codex-spark → Codex 5.3 (prefix-matches gpt-5.3-codex first)', () => {
     expect(formatModelLabel('gpt-5.3-codex-spark')).toBe('Codex 5.3');
   });
@@ -94,6 +122,17 @@ describe('formatModelLabel', () => {
 
   test('unknown id → returned as-is', () => {
     expect(formatModelLabel('unknown-model-xyz')).toBe('unknown-model-xyz');
+  });
+});
+
+describe('resolveCodexModel', () => {
+  test('returns the configured default model when the id is missing', () => {
+    expect(resolveCodexModel(undefined)?.id).toBe(DEFAULT_CODEX_MODEL_ID);
+    expect(getDefaultCodexModel()?.id).toBe(DEFAULT_CODEX_MODEL_ID);
+  });
+
+  test('returns the configured default model when the id is retired', () => {
+    expect(resolveCodexModel('gpt-5.3-codex')?.id).toBe(DEFAULT_CODEX_MODEL_ID);
   });
 });
 
@@ -120,6 +159,24 @@ describe('computeOpusplanCommand', () => {
 
   test('pinned opus version (claude-opus-4-7) is not the opus alias → undefined', () => {
     expect(computeOpusplanCommand('claude-opus-4-7', 'sonnet')).toBeUndefined();
+  });
+});
+
+describe('formatCodexThinkingLabel', () => {
+  test('xhigh → Extra High', () => {
+    expect(formatCodexThinkingLabel('xhigh')).toBe('Extra High');
+  });
+
+  test('max → Max', () => {
+    expect(formatCodexThinkingLabel('max')).toBe('Max');
+  });
+
+  test('ultra → Ultra', () => {
+    expect(formatCodexThinkingLabel('ultra')).toBe('Ultra');
+  });
+
+  test('high → High', () => {
+    expect(formatCodexThinkingLabel('high')).toBe('High');
   });
 });
 

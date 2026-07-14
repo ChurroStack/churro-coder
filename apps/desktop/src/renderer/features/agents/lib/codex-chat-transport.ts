@@ -28,7 +28,8 @@ import {
   openSpecSkipNextStepPrefixAtomFamily
 } from '../../openspec/atoms';
 import { buildOpenSpecStepPrefixedPrompt } from '../../openspec/step-prefix';
-import { CODEX_MODELS, type CodexThinkingLevel } from './models';
+import { stringifyForError } from '../../../../shared/safe-json';
+import { DEFAULT_CODEX_MODEL_ID, resolveCodexModel, type CodexThinkingLevel } from './models';
 import { getCurrentSubChatMode } from './get-current-sub-chat-mode';
 import { useStreamingStatusStore } from '../stores/streaming-status-store';
 import { agentChatStore } from '../stores/agent-chat-store';
@@ -56,7 +57,7 @@ const forceFreshSessionSubChats = new Set<string>();
 export function markCodexFreshNextTurn(subChatId: string): void {
   forceFreshSessionSubChats.add(subChatId);
 }
-const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex/high';
+const DEFAULT_CODEX_MODEL = `${DEFAULT_CODEX_MODEL_ID}/high`;
 function getStoredCodexCredentials(): {
   hasApiKey: boolean;
   hasSubscription: boolean;
@@ -98,10 +99,7 @@ async function resolveCodexCredentialsForAuthError(): Promise<{
 function getSelectedCodexModel(subChatId: string): string {
   const selectedModelId = appStore.get(subChatCodexModelIdAtomFamily(subChatId));
   const selectedThinking = appStore.get(subChatCodexThinkingAtomFamily(subChatId));
-  const selectedModel =
-    CODEX_MODELS.find((model) => model.id === selectedModelId) ||
-    CODEX_MODELS.find((model) => model.id === 'gpt-5.3-codex') ||
-    CODEX_MODELS[0];
+  const selectedModel = resolveCodexModel(selectedModelId);
 
   if (!selectedModel) {
     return DEFAULT_CODEX_MODEL;
@@ -382,6 +380,12 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
               }
 
               if (chunk.type === 'error') {
+                const errorText =
+                  typeof chunk.errorText === 'string'
+                    ? chunk.errorText
+                    : chunk.errorText
+                      ? stringifyForError(chunk.errorText)
+                      : 'An unexpected Codex error occurred.';
                 recordChatEvent({
                   ts: Date.now(),
                   phase: 'error',
@@ -389,10 +393,10 @@ export class CodexChatTransport implements ChatTransport<UIMessage> {
                   workspace_id: this.config.chatId,
                   mode: currentMode,
                   stream_id: runId.slice(-8),
-                  note: chunk.errorText
+                  note: errorText
                 });
                 toast.error('Codex error', {
-                  description: chunk.errorText || 'An unexpected Codex error occurred.'
+                  description: errorText
                 });
               }
 

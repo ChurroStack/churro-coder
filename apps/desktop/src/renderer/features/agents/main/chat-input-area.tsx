@@ -65,7 +65,13 @@ import { OpenSpecSendButton } from '../components/openspec-send-button';
 import type { UploadedFile, UploadedImage } from '../hooks/use-agents-file-upload';
 import { useSubChatMode } from '../hooks/use-sub-chat-mode';
 import { clearSubChatDraft, saveSubChatDraftWithAttachments } from '../lib/drafts';
-import { CLAUDE_MODELS, CODEX_MODELS, type ClaudeThinkingLevel, type CodexThinkingLevel } from '../lib/models';
+import {
+  CLAUDE_MODELS,
+  CODEX_MODELS,
+  resolveCodexModel,
+  type ClaudeThinkingLevel,
+  type CodexThinkingLevel
+} from '../lib/models';
 import { applyModeDefaultModel } from '../lib/model-switching';
 import type { DiffTextContext, SelectedTextContext } from '../lib/queue-utils';
 import {
@@ -512,12 +518,10 @@ export const ChatInputArea = memo(function ChatInputArea({
   const { data: claudeCodeIntegration } = trpc.claudeCode.getIntegration.useQuery();
   const trpcUtils = trpc.useUtils();
   const codexUiModels = useMemo(() => {
-    let models = hasAppCodexApiKey ? CODEX_MODELS.filter((model) => model.id !== 'gpt-5.3-codex') : CODEX_MODELS;
-    return models.filter((model) => !hiddenModels.includes(model.id));
+    return CODEX_MODELS.filter((model) => !hiddenModels.includes(model.id));
   }, [hasAppCodexApiKey, hiddenModels]);
   const selectedCodexModel = useMemo(
-    () =>
-      codexUiModels.find((model) => model.id === selectedSubChatCodexModelId) || codexUiModels[0] || CODEX_MODELS[0]!,
+    () => codexUiModels.find((model) => model.id === selectedSubChatCodexModelId) || resolveCodexModel(undefined)!,
     [codexUiModels, selectedSubChatCodexModelId]
   );
 

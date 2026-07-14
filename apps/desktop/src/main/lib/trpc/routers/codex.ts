@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { z } from 'zod';
 import { normalizeCodexAssistantMessage } from '../../../../shared/codex-tool-normalizer';
+import { stringifyForError } from '../../../../shared/safe-json';
 import type { ServerRequest } from '../../../../shared/codex-app-server-schema';
 import type { ThreadUnsubscribeParams } from '../../../../shared/codex-app-server-schema/v2';
 import { computeCatchupBlock } from '../../multi-provider/catchup';
@@ -369,12 +370,11 @@ function getActiveLoginSession(): CodexLoginSession | null {
 
 function extractCodexError(error: unknown): { message: string; code?: string } {
   const anyError = error as any;
-  const message =
-    anyError?.data?.message || anyError?.errorText || anyError?.message || anyError?.error || String(error);
+  const message = anyError?.data?.message || anyError?.errorText || anyError?.message || anyError?.error;
   const code = anyError?.data?.code || anyError?.code;
 
   return {
-    message: typeof message === 'string' ? message : String(message),
+    message: message != null ? stringifyForError(message) : stringifyForError(error),
     code: typeof code === 'string' ? code : undefined
   };
 }

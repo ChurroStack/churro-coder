@@ -145,7 +145,7 @@ describe('L4 integration — plan → agent same-provider Claude→Claude (PR #3
     appStore.set(defaultExecuteModeModelAtom, 'gpt-5.4');
     appStore.set(defaultExecuteModeThinkingAtom, 'medium');
     modeMap.set(subChatId, 'plan');
-    appStore.set(subChatCodexModelIdAtomFamily(subChatId), 'gpt-5.3-codex');
+    appStore.set(subChatCodexModelIdAtomFamily(subChatId), 'gpt-5.4');
 
     const { deps, orchestration } = makeRealisticDeps({
       subChatId,

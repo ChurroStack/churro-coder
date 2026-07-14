@@ -94,67 +94,71 @@ export function formatClaudeThinkingLabel(thinking: ClaudeThinkingLevel): string
   return thinking.charAt(0).toUpperCase() + thinking.slice(1);
 }
 
-export type CodexThinkingLevel = 'low' | 'medium' | 'high' | 'xhigh';
+export type CodexThinkingLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
 
 export const CODEX_MODELS = [
   {
+    id: 'gpt-5.6-sol',
+    name: 'GPT-5.6-Sol',
+    contextWindow: 372_000,
+    thinkings: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as CodexThinkingLevel[]
+  },
+  {
+    id: 'gpt-5.6-terra',
+    name: 'GPT-5.6-Terra',
+    contextWindow: 372_000,
+    thinkings: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as CodexThinkingLevel[]
+  },
+  {
+    id: 'gpt-5.6-luna',
+    name: 'GPT-5.6-Luna',
+    contextWindow: 372_000,
+    thinkings: ['low', 'medium', 'high', 'xhigh', 'max'] as CodexThinkingLevel[]
+  },
+  {
     id: 'gpt-5.5',
     name: 'GPT-5.5',
-    contextWindow: 1_050_000,
+    contextWindow: 272_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.4',
     name: 'GPT-5.4',
-    contextWindow: 1_050_000,
+    contextWindow: 272_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
   },
   {
     id: 'gpt-5.4-mini',
-    name: 'GPT-5.4 mini',
-    contextWindow: 400_000,
-    thinkings: ['low', 'medium', 'high'] as CodexThinkingLevel[]
-  },
-  {
-    id: 'gpt-5.3-codex',
-    name: 'Codex 5.3',
-    contextWindow: 400_000,
+    name: 'GPT-5.4-Mini',
+    contextWindow: 272_000,
     thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
-  },
-  {
-    id: 'gpt-5.3-codex-spark',
-    name: 'Codex 5.3 Spark',
-    contextWindow: 128_000,
-    thinkings: ['low', 'medium', 'high'] as CodexThinkingLevel[]
-  },
-  {
-    // Deprecated upstream (Codex remaps gpt-5.2-codex to a current model when
-    // signed in with ChatGPT). Kept so existing stored prefs still resolve.
-    id: 'gpt-5.2-codex',
-    name: 'Codex 5.2',
-    contextWindow: 400_000,
-    thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
-  },
-  {
-    id: 'gpt-5.1-codex-max',
-    name: 'Codex 5.1 Max',
-    contextWindow: 400_000,
-    thinkings: ['low', 'medium', 'high', 'xhigh'] as CodexThinkingLevel[]
-  },
-  {
-    id: 'gpt-5.1-codex-mini',
-    name: 'Codex 5.1 Mini',
-    contextWindow: 400_000,
-    thinkings: ['medium', 'high'] as CodexThinkingLevel[]
   }
 ];
 
+// Retired models — not shown in pickers but kept so stored prefs still resolve label/context.
+export const CODEX_LEGACY_MODELS = [
+  { id: 'gpt-5.3-codex', name: 'Codex 5.3', contextWindow: 400_000 },
+  { id: 'gpt-5.3-codex-spark', name: 'Codex 5.3 Spark', contextWindow: 128_000 },
+  { id: 'gpt-5.2-codex', name: 'Codex 5.2', contextWindow: 400_000 },
+  { id: 'gpt-5.1-codex-max', name: 'Codex 5.1 Max', contextWindow: 400_000 },
+  { id: 'gpt-5.1-codex-mini', name: 'Codex 5.1 Mini', contextWindow: 400_000 }
+];
+
+export const DEFAULT_CODEX_MODEL_ID = 'gpt-5.6-terra';
 export const DEFAULT_CONTEXT_WINDOW = 200_000;
+
+export function getDefaultCodexModel() {
+  return CODEX_MODELS.find((model) => model.id === DEFAULT_CODEX_MODEL_ID) ?? CODEX_MODELS[0];
+}
+
+export function resolveCodexModel(modelId: string | undefined) {
+  return CODEX_MODELS.find((model) => model.id === modelId) ?? getDefaultCodexModel();
+}
 
 export function getModelContextWindow(modelId: string | undefined): number | undefined {
   if (!modelId) return undefined;
   const normalizedId = modelId.trim().toLowerCase();
-  const model = [...CLAUDE_MODELS, ...CLI_MODEL_ALIASES, ...CODEX_MODELS].find(
+  const model = [...CLAUDE_MODELS, ...CLI_MODEL_ALIASES, ...CODEX_MODELS, ...CODEX_LEGACY_MODELS].find(
     (entry) => entry.id.toLowerCase() === normalizedId
   );
   return model?.contextWindow;
@@ -167,6 +171,8 @@ export function isCodexModelId(modelId: string | undefined): boolean {
 
 export function formatCodexThinkingLabel(thinking: CodexThinkingLevel): string {
   if (thinking === 'xhigh') return 'Extra High';
+  if (thinking === 'max') return 'Max';
+  if (thinking === 'ultra') return 'Ultra';
   return thinking.charAt(0).toUpperCase() + thinking.slice(1);
 }
 
@@ -176,7 +182,7 @@ export function formatThinkingLabel(params: { model?: string; thinking?: string 
 
   const rawModel = params.model?.trim().toLowerCase() || '';
   if (rawModel.startsWith('gpt-') || rawModel.includes('codex')) {
-    if (['low', 'medium', 'high', 'xhigh'].includes(rawThinking)) {
+    if (['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(rawThinking)) {
       return formatCodexThinkingLabel(rawThinking as CodexThinkingLevel);
     }
   } else if (['off', 'low', 'medium', 'high', 'xhigh', 'max'].includes(rawThinking)) {
@@ -187,11 +193,19 @@ export function formatThinkingLabel(params: { model?: string; thinking?: string 
 }
 
 export function coerceCodexThinking(
-  thinking: ClaudeThinkingLevel | 'off' | 'max',
+  thinking: ClaudeThinkingLevel | CodexThinkingLevel | 'off',
   supported: readonly CodexThinkingLevel[]
 ): CodexThinkingLevel {
-  const preferred = thinking === 'max' ? 'xhigh' : thinking === 'off' ? 'low' : thinking;
-  if (supported.includes(preferred as CodexThinkingLevel)) return preferred as CodexThinkingLevel;
+  // Normalize 'off' → 'low', then fall through to the same coercion path
+  const normalized: CodexThinkingLevel | ClaudeThinkingLevel = thinking === 'off' ? 'low' : thinking;
+  // Prefer exact match when the model supports it
+  if (supported.includes(normalized as CodexThinkingLevel)) return normalized as CodexThinkingLevel;
+  // Graceful degradation for high-effort levels not supported by the model
+  if (normalized === 'ultra') {
+    if (supported.includes('max')) return 'max';
+    if (supported.includes('xhigh')) return 'xhigh';
+  }
+  if (normalized === 'max' && supported.includes('xhigh')) return 'xhigh';
   if (supported.includes('high')) return 'high';
   return supported[0] ?? 'high';
 }
@@ -201,7 +215,9 @@ export function formatModelLabel(rawId: string | undefined): string {
   const lower = rawId.toLowerCase();
 
   if (lower.startsWith('gpt-') || lower.includes('codex')) {
-    const match = CODEX_MODELS.find((m) => lower === m.id.toLowerCase() || lower.startsWith(m.id.toLowerCase()));
+    const match = [...CODEX_MODELS, ...CODEX_LEGACY_MODELS].find(
+      (m) => lower === m.id.toLowerCase() || lower.startsWith(m.id.toLowerCase())
+    );
     if (match) return match.name;
     return rawId;
   }

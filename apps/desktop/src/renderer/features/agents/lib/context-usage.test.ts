@@ -45,7 +45,7 @@ describe('classifyProviderFromModel', () => {
 describe('resolveContextWindow', () => {
   it('uses catalog windows for both providers', () => {
     expect(resolveContextWindow({ modelId: 'opus[1m]', metadataWindow: 400_000 })).toBe(1_000_000);
-    expect(resolveContextWindow({ modelId: 'gpt-5.5', metadataWindow: 123_000 })).toBe(1_050_000);
+    expect(resolveContextWindow({ modelId: 'gpt-5.5', metadataWindow: 123_000 })).toBe(272_000);
   });
 
   it('falls back to metadata when the catalog has no entry', () => {
@@ -106,7 +106,7 @@ describe('resolveContextUsage', () => {
     expect(claudeResult.totalInputTokens).toBe(30_000);
     expect(codexResult.totalInputTokens).toBe(90_000);
     expect(claudeResult.contextWindow).toBe(200_000);
-    expect(codexResult.contextWindow).toBe(1_050_000);
+    expect(codexResult.contextWindow).toBe(272_000);
   });
 
   it('uses the last matched message model for the denominator, not the currently selected model', () => {
@@ -235,7 +235,7 @@ describe('resolveContextUsage', () => {
     });
 
     expect(result.totalInputTokens).toBe(60_000);
-    expect(result.contextWindow).toBe(1_050_000);
+    expect(result.contextWindow).toBe(272_000);
     expect(result.isStale).toBe(true);
     expect(result.staleReason).toBe('cross-provider-fallback');
   });
