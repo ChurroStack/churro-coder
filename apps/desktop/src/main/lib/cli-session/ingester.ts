@@ -46,6 +46,7 @@ import {
 } from '../db/messages-table';
 import { notifyFilesChanged } from '../file-changes/file-changes-store';
 import { ensurePlanWritten, hasPlan } from '../plans/plan-store';
+import { ensureReviewWritten } from '../reviews/review-store';
 import { writeTasks } from '../tasks/task-store';
 import {
   createMapperState,
@@ -458,11 +459,19 @@ async function applySideEffect(subChatId: string, se: IngestedSideEffect): Promi
         await writeTasks({ subChatId, tasks: normalized, source: 'cli-ingest' });
         return true;
       }
-      case 'review':
-        // Reviews follow a similar file-backed pattern but we don't have a
-        // small ensureReview helper yet; fall back to no-op for v1 and
-        // surface this in a follow-up.
-        return false;
+      case 'review': {
+        // ensureReviewWritten = fill-gaps: writes only if no current.md yet,
+        // same contract as ensurePlanWritten above. Populated from either
+        // Claude's /code-review local-command stdout or Codex's native
+        // /review exited_review_mode output (see jsonl-mapper.ts).
+        const res = await ensureReviewWritten({
+          subChatId,
+          content: se.markdown,
+          source: 'cli-ingest',
+          title: se.title ?? 'Code Review'
+        });
+        return res.written;
+      }
     }
   } catch (err) {
     console.warn(`${TRACE} side-effect failed sub=${subChatId} kind=${se.kind} err=${err}`);

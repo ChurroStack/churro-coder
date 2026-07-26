@@ -20,7 +20,7 @@ interface FileAgent {
   prompt: string;
   tools?: string[];
   disallowedTools?: string[];
-  model?: 'sonnet' | 'opus' | 'haiku' | 'inherit';
+  model?: 'sonnet' | 'opus' | 'haiku' | 'fable' | 'inherit';
   // Tolerate the "plugin" source even though only "user"/"project" agents
   // are editable from this tab — narrowing in the AgentDetail panel below
   // filters them.
@@ -35,7 +35,11 @@ function AgentDetail({
   isSaving
 }: {
   agent: FileAgent;
-  onSave: (data: { description: string; prompt: string; model?: 'sonnet' | 'opus' | 'haiku' | 'inherit' }) => void;
+  onSave: (data: {
+    description: string;
+    prompt: string;
+    model?: 'sonnet' | 'opus' | 'haiku' | 'fable' | 'inherit';
+  }) => void;
   isSaving: boolean;
 }) {
   const [description, setDescription] = useState(agent.description);

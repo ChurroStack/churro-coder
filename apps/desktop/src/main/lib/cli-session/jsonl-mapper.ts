@@ -23,6 +23,13 @@ import {
   type SideEffectKind
 } from './mapping-table';
 import { stripClaudeCliEnvelopes, stripCodexUserEnvelopes } from '../../../shared/cli-text-envelopes';
+import {
+  renderReportFindingsMarkdown,
+  renderCodexReviewOutputMarkdown,
+  isForkedSkillLaunch,
+  type CodexReviewOutput,
+  type ReportFinding
+} from '../../../shared/review-findings-markdown';
 
 export interface MessagePart {
   type: string;
@@ -88,6 +95,12 @@ export interface MapperState {
    *  function_call_output, carrying enough context to re-persist the owner row
    *  when the result lands on a later record. */
   pendingTools: Map<string, PendingTool>;
+  /** Claude only: uuid of an in-flight `/code-review` local-command user turn,
+   *  awaiting the `system`/`local_command` record (child via `parentUuid`)
+   *  that carries its stdout. Only review-triggering commands are tracked —
+   *  ordinary chat turns never enter this map, so it stays effectively empty
+   *  between reviews. */
+  pendingLocalReviewCommand?: string;
 }
 
 export function createMapperState(): MapperState {
@@ -104,6 +117,17 @@ export function mapClaudeLine(line: string, state: MapperState): MapperResult {
     return EMPTY;
   }
   if (!obj || typeof obj !== 'object' || typeof obj.type !== 'string') return EMPTY;
+
+  // `/code-review` runs as a local command, not a normal agentic turn — no
+  // assistant message, no tool_use (verified against real transcripts on both
+  // trivial and multi-file diffs). Its findings land in this `system` record.
+  // Must be checked BEFORE the skip-list below: `system` is blanket-skipped
+  // there (session-init logging etc.), and this is the one `system` subtype
+  // that carries content worth persisting.
+  if (obj.type === 'system' && obj.subtype === 'local_command') {
+    return mapClaudeLocalCommand(obj, state);
+  }
+
   if (CLAUDE_SKIP_EVENT_TYPES.has(obj.type)) return EMPTY;
 
   if (obj.type === 'assistant' || obj.type === 'user' || obj.type === 'message') {
@@ -111,6 +135,36 @@ export function mapClaudeLine(line: string, state: MapperState): MapperResult {
   }
 
   return EMPTY;
+}
+
+const LOCAL_COMMAND_STDOUT_RE = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/;
+
+function mapClaudeLocalCommand(obj: ClaudeRecord, state: MapperState): MapperResult {
+  const pendingUuid = state.pendingLocalReviewCommand;
+  if (!pendingUuid || obj.parentUuid !== pendingUuid) return EMPTY;
+  // Consume regardless of outcome — this local command has been resolved one
+  // way or another, there's nothing left to correlate against.
+  state.pendingLocalReviewCommand = undefined;
+
+  const raw = typeof obj.content === 'string' ? obj.content : '';
+  const match = raw.match(LOCAL_COMMAND_STDOUT_RE);
+  const markdown = (match ? match[1] : raw).trim();
+  if (!markdown) return EMPTY;
+
+  const uuid = obj.uuid ?? `local-command-${pendingUuid}`;
+  const createdAt = parseTimestamp(obj.timestamp) ?? Date.now();
+  const messages: MapperResult['messages'] = [
+    // Rendered assistant-style, matching the SDK's own doc comment for the
+    // equivalent builtin message type: "Output from a local slash command …
+    // Displayed as assistant-style text in the transcript."
+    { uuid, role: 'assistant', parts: [{ type: 'text', text: markdown }], createdAt }
+  ];
+
+  // Forked to a background skill agent — this stdout is a launch ack, not a
+  // review. Nothing to persist (see isForkedSkillLaunch doc comment).
+  if (isForkedSkillLaunch(raw)) return { messages, sideEffects: [] };
+
+  return { messages, sideEffects: [{ kind: 'review', markdown, title: 'Code Review' }] };
 }
 
 export function mapCodexLine(line: string, state: MapperState): MapperResult {
@@ -129,6 +183,13 @@ export function mapCodexLine(line: string, state: MapperState): MapperResult {
   if (obj.type === 'event_msg') {
     if (payloadType === 'patch_apply_end')
       return mapCodexPatchApplyEnd(payload as unknown as CodexPatchApplyEndPayload);
+    // Native `/review` result — verified against a real rollout transcript:
+    // `exited_review_mode.review_output` carries structured findings. The
+    // human-readable text is ALSO emitted as a normal assistant `message`
+    // response_item (handled by mapCodexResponseItem below), so this branch
+    // only contributes the review side-effect, no message part.
+    if (payloadType === 'exited_review_mode')
+      return mapCodexExitedReviewMode(payload as unknown as CodexExitedReviewModePayload);
     if (CODEX_SKIP_PAYLOAD_TYPES.has(payloadType)) return EMPTY;
     return EMPTY;
   }
@@ -160,7 +221,17 @@ interface ClaudeRecord {
    *  path keeps the equivalent `msg.tool_use_result`; we mirror that here so the
    *  shared renderers receive the same rich object on the CLI path. */
   toolUseResult?: unknown;
+  /** `type: 'system'` records only (e.g. `subtype: 'local_command'` — the
+   *  output of a built-in slash command like `/code-review`, wrapped in
+   *  `<local-command-stdout>`/`<local-command-stderr>` tags). */
+  subtype?: string;
+  content?: string;
 }
+
+/** Commands whose local-command stdout should be captured as a review side
+ *  effect. Matched case-insensitively against the leading token of the user's
+ *  raw slash-command text (e.g. "/code-review high" → "/code-review"). */
+const REVIEW_LOCAL_COMMANDS = new Set(['/code-review']);
 
 interface ClaudeContentBlock {
   type: string;
@@ -191,6 +262,12 @@ function mapClaudeMessageRecord(obj: ClaudeRecord, state: MapperState): MapperRe
     [];
 
   const content = msg.content;
+  if (role === 'user' && typeof content === 'string') {
+    const firstToken = content.trim().split(/\s/, 1)[0]?.toLowerCase();
+    if (firstToken && REVIEW_LOCAL_COMMANDS.has(firstToken)) {
+      state.pendingLocalReviewCommand = uuid;
+    }
+  }
   if (typeof content === 'string') {
     const stripped = role === 'user' ? stripClaudeCliEnvelopes(content) : content;
     if (stripped.trim()) parts.push({ type: 'text', text: stripped });
@@ -378,6 +455,17 @@ interface CodexPatchApplyEndPayload {
   changes?: Record<string, { kind?: 'add' | 'delete' | 'update' | string }>;
 }
 
+/** Verified against a real rollout transcript produced by `codex exec review`
+ *  (which shares the review engine with the interactive `/review` command):
+ *  `{ type: 'exited_review_mode', turn_id, item_id, review_output: {
+ *    findings: [{ title, body, confidence_score, priority,
+ *    code_location: { absolute_file_path, line_range: { start, end } } }],
+ *    overall_correctness, overall_explanation, overall_confidence_score } }`. */
+interface CodexExitedReviewModePayload {
+  type: 'exited_review_mode';
+  review_output?: CodexReviewOutput;
+}
+
 function mapCodexResponseItem(envelope: CodexRecord, payload: CodexResponsePayload, state: MapperState): MapperResult {
   const createdAt = parseTimestamp(envelope.timestamp) ?? Date.now();
   // Pass the RAW timestamp string (not the Date.now()-fallback `createdAt`) to
@@ -528,6 +616,13 @@ function mapCodexPatchApplyEnd(payload: CodexPatchApplyEndPayload): MapperResult
   return { messages: [], sideEffects };
 }
 
+function mapCodexExitedReviewMode(payload: CodexExitedReviewModePayload): MapperResult {
+  const reviewOutput = payload.review_output;
+  if (!reviewOutput) return EMPTY;
+  const markdown = renderCodexReviewOutputMarkdown(reviewOutput);
+  return { messages: [], sideEffects: [{ kind: 'review', markdown, title: 'Code Review' }] };
+}
+
 function codexBuiltinAlias(name: string): string {
   // Map Codex's native tool names to the same renderer part types Claude
   // emits so the existing renderers pick them up.
@@ -579,10 +674,18 @@ function materializeSideEffect(kind: SideEffectKind, toolName: string, input: un
       return [{ kind: 'tasks', tasks }];
     }
     case 'review': {
-      const markdown = typeof inp.markdown === 'string' ? inp.markdown : '';
-      if (!markdown) return [];
-      const title = typeof inp.title === 'string' ? inp.title : undefined;
-      return [{ kind: 'review', markdown, ...(title ? { title } : {}) }];
+      // MCP write_review uses `markdown` directly; ReportFindings (Claude's
+      // /code-review skill, in the rare case it surfaces as a top-level
+      // tool_use rather than local-command stdout) carries a `findings` array.
+      if (typeof inp.markdown === 'string' && inp.markdown) {
+        const title = typeof inp.title === 'string' ? inp.title : undefined;
+        return [{ kind: 'review', markdown: inp.markdown, ...(title ? { title } : {}) }];
+      }
+      if (Array.isArray(inp.findings)) {
+        const markdown = renderReportFindingsMarkdown(inp.findings as ReportFinding[]);
+        return [{ kind: 'review', markdown, title: 'Code Review' }];
+      }
+      return [];
     }
   }
 }

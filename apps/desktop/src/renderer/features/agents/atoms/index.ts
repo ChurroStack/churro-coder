@@ -4,6 +4,7 @@ import { atomWithWindowStorage } from '../../../lib/window-storage';
 import { makeScopeKey } from '../../../lib/scope-key';
 import type { FileMentionOption } from '../mentions/agents-mentions-editor';
 import type { WizardTemplate, WorkType } from '../lib/wizard-state';
+import { DEFAULT_CODEX_MODEL_ID } from '../lib/models';
 /** @deprecated Use WizardTemplate; kept for backwards compatibility */
 type Harness = WizardTemplate;
 
@@ -375,6 +376,7 @@ export const lastSelectedModelIdAtom = atomWithStorage<string>('agents:lastSelec
 const AVAILABLE_CLAUDE_MODEL_IDS = [
   'opus',
   'opus[1m]',
+  'claude-opus-4-8',
   'claude-opus-4-7',
   'claude-opus-4-6',
   'sonnet',
@@ -435,12 +437,12 @@ export const advisorModeModelAtom = atomWithStorage<AdvisorModel>('preferences:a
 
 export const lastSelectedCodexModelIdAtom = atomWithStorage<string>(
   'agents:lastSelectedCodexModelId',
-  'gpt-5.4',
+  DEFAULT_CODEX_MODEL_ID,
   undefined,
   { getOnInit: true }
 );
 
-export type CodexThinkingPreference = 'low' | 'medium' | 'high' | 'xhigh';
+export type CodexThinkingPreference = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
 
 export const lastSelectedCodexThinkingAtom = atomWithStorage<CodexThinkingPreference>(
   'agents:lastSelectedCodexThinking',
@@ -648,11 +650,13 @@ export const subChatClaudeThinkingAtomFamily = atomFamily((subChatId: string) =>
 export const MODEL_ID_MAP: Record<string, string> = {
   opus: 'opus',
   'opus[1m]': 'opus[1m]',
+  'claude-opus-4-8': 'claude-opus-4-8',
   'claude-opus-4-7': 'claude-opus-4-7',
   'claude-opus-4-6': 'claude-opus-4-6',
   sonnet: 'sonnet',
   'sonnet[1m]': 'sonnet[1m]',
-  haiku: 'haiku'
+  haiku: 'haiku',
+  fable: 'fable'
 };
 
 // Per-subChat provider override (Claude vs Codex). Runtime-only (not

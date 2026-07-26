@@ -246,7 +246,7 @@ const AUTH_HINTS = [
   '401',
   '403'
 ];
-const DEFAULT_CODEX_MODEL = 'gpt-5.4/high';
+const DEFAULT_CODEX_MODEL = 'gpt-5.6-terra/high';
 const CODEX_MCP_TOOLS_FETCH_TIMEOUT_MS = 40_000;
 
 type CodexChangedFileMetadata = {

@@ -8,7 +8,7 @@ import { getEnabledPlugins } from './claude-settings';
 import { BUILTIN_SUBAGENTS } from './builtin-agents';
 
 // Valid model values for agents
-export const VALID_AGENT_MODELS = ['sonnet', 'opus', 'haiku', 'inherit'] as const;
+export const VALID_AGENT_MODELS = ['sonnet', 'opus', 'haiku', 'fable', 'inherit'] as const;
 export type AgentModel = (typeof VALID_AGENT_MODELS)[number];
 
 // Agent definition parsed from markdown file

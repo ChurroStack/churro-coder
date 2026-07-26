@@ -31,7 +31,7 @@
     "dist": "electron-builder",
     "dist:manifest": "node scripts/generate-update-manifest.mjs",
     "dist:upload": "node scripts/upload-release.mjs",
-    "codex:gen-types": "node scripts/download-codex-binary.mjs --version=0.135.0",
+    "codex:gen-types": "node scripts/download-codex-binary.mjs --version=0.144.0",
     "release": "rm -rf release && bun i && bun run build && bun run package:mac && bun run dist:manifest && ./scripts/upload-release-wrangler.sh",
     "release:dev": "rm -rf release && bun run build && bun run package:mac && rm -rf node_modules && bun i",
     "icon:generate": "node scripts/generate-icon.mjs",
@@ -49,7 +49,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.179",
-    "@anthropic-ai/claude-agent-sdk": "0.3.156",
+    "@anthropic-ai/claude-agent-sdk": "0.3.215",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",

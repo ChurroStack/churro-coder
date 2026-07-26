@@ -70,6 +70,8 @@ import {
 import { getApprovedPluginMcpServers, getEnabledPlugins } from './claude-settings';
 import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { writeCurrentPlan, hasPlan, extractPlanTitleFromContent } from '../../plans/plan-store';
+import { ensureReviewWritten } from '../../reviews/review-store';
+import { isForkedSkillLaunch } from '../../../../shared/review-findings-markdown';
 import { getPrompt } from '../../prompts/prompt-service';
 import { renderBuiltinPrompt } from '../../../../prompts/render';
 import { expandOpsxCommand } from '../../openspec/prompt-expansion';
@@ -2526,6 +2528,33 @@ ${prompt}
                           console.log(
                             `[claude-model] sdk-init sub=${subId} requested=${requested} initModel=${initModel} permissionMode=${msgAny.permissionMode || 'unknown'} mismatch=${mismatch}`
                           );
+                        }
+                        // `/code-review` runs as a local command, not a normal
+                        // agentic turn — no assistant message, no ReportFindings
+                        // tool_use (verified against real transcripts). Its
+                        // output arrives as this SDKLocalCommandOutputMessage.
+                        // Only persist when THIS subscription's own prompt was a
+                        // review command — the SDK message carries no back-link
+                        // to the command that produced it.
+                        if (
+                          msgAny.subtype === 'local_command_output' &&
+                          typeof msgAny.content === 'string' &&
+                          input.prompt.trim().toLowerCase().startsWith('/code-review')
+                        ) {
+                          const stripped = (
+                            msgAny.content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/)?.[1] ??
+                            msgAny.content
+                          ).trim();
+                          // Forked to a background skill agent — this content is a
+                          // launch ack, not a review (see isForkedSkillLaunch doc).
+                          if (stripped && !isForkedSkillLaunch(msgAny.content)) {
+                            ensureReviewWritten({
+                              subChatId: input.subChatId,
+                              content: stripped,
+                              source: 'builtin-stream',
+                              title: 'Code Review'
+                            }).catch((err) => console.warn(`[CLAUDE] review persist failed sub=${subId} err=${err}`));
+                          }
                         }
                       }
 

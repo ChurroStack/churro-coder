@@ -202,6 +202,46 @@ describe('useHarnessSendDispatcher — codex-cli', () => {
   });
 });
 
+describe('useHarnessSendDispatcher — dispatchReview()', () => {
+  test('claude-cli: writes the bare native /code-review command, nothing else', () => {
+    seedStore('claude-cli');
+    const { result } = renderDispatcher();
+    act(() => result.current.dispatchReview());
+    expect(mockWriteMutate).toHaveBeenCalledTimes(2);
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(1, {
+      paneId: `cli:${SUB_CHAT_ID}`,
+      data: '/code-review high'
+    });
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(2, { paneId: `cli:${SUB_CHAT_ID}`, data: '\r' });
+  });
+
+  test('codex-cli: writes the bare native /review command, nothing else', () => {
+    seedStore('codex-cli');
+    const { result } = renderDispatcher();
+    act(() => result.current.dispatchReview());
+    expect(mockWriteMutate).toHaveBeenCalledTimes(2);
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(1, { paneId: `cli:${SUB_CHAT_ID}`, data: '/review' });
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(2, { paneId: `cli:${SUB_CHAT_ID}`, data: '\r' });
+  });
+
+  test('never emits a write_review or Sub-chat id instruction (persistence moved to CLI-ingest)', () => {
+    seedStore('claude-cli');
+    const { result } = renderDispatcher();
+    act(() => result.current.dispatchReview());
+    const payload = (mockWriteMutate.mock.calls as Array<[{ data: string }]>).map((c) => c[0].data).join('');
+    expect(payload).not.toContain('write_review');
+    expect(payload).not.toContain('Sub-chat id');
+    expect(payload).not.toContain('Skill');
+  });
+
+  test('builtin: dispatchReview() is a no-op (no terminal write)', () => {
+    seedStore('builtin');
+    const { result } = renderDispatcher();
+    act(() => result.current.dispatchReview());
+    expect(mockWriteMutate).not.toHaveBeenCalled();
+  });
+});
+
 describe('useHarnessSendDispatcher — unknown subChatId defaults to builtin', () => {
   test('dispatch() is a no-op when subChatId not in store', () => {
     // store has no subchats

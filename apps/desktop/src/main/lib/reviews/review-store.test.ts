@@ -12,6 +12,7 @@ vi.mock('electron', () => ({
 }));
 
 import {
+  ensureReviewWritten,
   extractReviewTitleFromContent,
   hasReview,
   markAccepted,
@@ -103,6 +104,35 @@ describe('review-store', () => {
     expect(files.sort()).toEqual(['current.md', 'current.meta.json']);
     const meta = JSON.parse(await readFile(join(reviewDir, 'current.meta.json'), 'utf8'));
     expect(meta.title).toBe('t');
+  });
+});
+
+describe('ensureReviewWritten (fill-gaps, CLI-ingest recovery)', () => {
+  test('writes when no review exists yet', async () => {
+    const res = await ensureReviewWritten({
+      subChatId: 'fg-1',
+      content: '# Code Review\n\nfindings here',
+      source: 'cli-ingest',
+      title: 'Code Review'
+    });
+    expect(res.written).toBe(true);
+    const result = await readCurrentReview('fg-1');
+    expect(result!.content).toBe('# Code Review\n\nfindings here');
+    expect(result!.meta.source).toBe('cli-ingest');
+  });
+
+  test('no-ops when a review already exists (explicit write_review always wins)', async () => {
+    await writeCurrentReview({ subChatId: 'fg-2', content: 'explicit review', source: 'mcp', title: 'Review' });
+    const res = await ensureReviewWritten({
+      subChatId: 'fg-2',
+      content: 'auto-captured from CLI-ingest',
+      source: 'cli-ingest',
+      title: 'Code Review'
+    });
+    expect(res.written).toBe(false);
+    const result = await readCurrentReview('fg-2');
+    expect(result!.content).toBe('explicit review');
+    expect(result!.meta.source).toBe('mcp');
   });
 });
 

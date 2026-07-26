@@ -18,7 +18,7 @@ import {
 /**
  * Valid model values for agents
  */
-export type AgentModel = 'sonnet' | 'opus' | 'haiku' | 'inherit';
+export type AgentModel = 'sonnet' | 'opus' | 'haiku' | 'fable' | 'inherit';
 
 /**
  * Data payload for agent mentions
