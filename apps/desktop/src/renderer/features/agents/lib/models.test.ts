@@ -68,12 +68,16 @@ describe('formatModelLabel', () => {
     expect(formatModelLabel(undefined)).toBe('');
   });
 
-  test('opus → Claude Opus 4.8', () => {
-    expect(formatModelLabel('opus')).toBe('Claude Opus 4.8');
+  test('opus → Claude Opus 5', () => {
+    expect(formatModelLabel('opus')).toBe('Claude Opus 5');
   });
 
-  test('opus[1m] → Claude Opus 4.8 1M (exact-id match wins)', () => {
-    expect(formatModelLabel('opus[1m]')).toBe('Claude Opus 4.8 1M');
+  test('opus[1m] → Claude Opus 5 1M (exact-id match wins)', () => {
+    expect(formatModelLabel('opus[1m]')).toBe('Claude Opus 5 1M');
+  });
+
+  test('claude-opus-5 → Claude Opus 5 (exact-id match for pinned version)', () => {
+    expect(formatModelLabel('claude-opus-5')).toBe('Claude Opus 5');
   });
 
   test('claude-opus-4-7 → Claude Opus 4.7 (exact-id match for legacy version pin)', () => {

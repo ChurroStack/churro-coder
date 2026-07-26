@@ -376,6 +376,7 @@ export const lastSelectedModelIdAtom = atomWithStorage<string>('agents:lastSelec
 const AVAILABLE_CLAUDE_MODEL_IDS = [
   'opus',
   'opus[1m]',
+  'claude-opus-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
   'claude-opus-4-6',
@@ -650,6 +651,7 @@ export const subChatClaudeThinkingAtomFamily = atomFamily((subChatId: string) =>
 export const MODEL_ID_MAP: Record<string, string> = {
   opus: 'opus',
   'opus[1m]': 'opus[1m]',
+  'claude-opus-5': 'claude-opus-5',
   'claude-opus-4-8': 'claude-opus-4-8',
   'claude-opus-4-7': 'claude-opus-4-7',
   'claude-opus-4-6': 'claude-opus-4-6',

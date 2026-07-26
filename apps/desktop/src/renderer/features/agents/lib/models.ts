@@ -4,15 +4,22 @@ export const CLAUDE_MODELS = [
   {
     id: 'opus',
     name: 'Opus',
-    version: '4.8',
+    version: '5',
     contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
   },
   {
     id: 'opus[1m]',
     name: 'Opus',
-    version: '4.8 1M',
+    version: '5 1M',
     contextWindow: 1_000_000,
+    thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
+  },
+  {
+    id: 'claude-opus-5',
+    name: 'Opus',
+    version: '5',
+    contextWindow: 200_000,
     thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
   },
   {

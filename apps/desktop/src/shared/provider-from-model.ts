@@ -3,6 +3,7 @@ export type Provider = 'claude-code' | 'codex';
 const CLAUDE_MODEL_IDS = new Set([
   'opus',
   'opus[1m]',
+  'claude-opus-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
   'claude-opus-4-6',

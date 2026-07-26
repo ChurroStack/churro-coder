@@ -128,7 +128,7 @@ function AgentDetail({
             <SelectContent>
               <SelectItem value="inherit">Inherit from parent</SelectItem>
               <SelectItem value="sonnet">Sonnet 5</SelectItem>
-              <SelectItem value="opus">Opus 4.8</SelectItem>
+              <SelectItem value="opus">Opus 5</SelectItem>
               <SelectItem value="haiku">Haiku 4.5</SelectItem>
               <SelectItem value="fable">Fable 5</SelectItem>
             </SelectContent>
@@ -258,7 +258,7 @@ function CreateAgentForm({
             <SelectContent>
               <SelectItem value="inherit">Inherit from parent</SelectItem>
               <SelectItem value="sonnet">Sonnet 5</SelectItem>
-              <SelectItem value="opus">Opus 4.8</SelectItem>
+              <SelectItem value="opus">Opus 5</SelectItem>
               <SelectItem value="haiku">Haiku 4.5</SelectItem>
               <SelectItem value="fable">Fable 5</SelectItem>
             </SelectContent>
