@@ -110,3 +110,23 @@ export function extractReviewTitleFromContent(content: string): string {
   const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
   return heading || 'Review';
 }
+
+/**
+ * Fill-gaps write: persists a review only if one doesn't already exist for
+ * this sub-chat. Used by CLI-ingest recovery (native `/code-review` /
+ * `/review` output) and the builtin stream path so an explicit MCP
+ * `write_review` call always wins over anything auto-captured.
+ */
+export async function ensureReviewWritten(opts: {
+  subChatId: string;
+  content: string;
+  source: string;
+  title: string;
+}): Promise<{ written: boolean }> {
+  if (await hasReview(opts.subChatId)) {
+    return { written: false };
+  }
+
+  await writeCurrentReview(opts);
+  return { written: true };
+}

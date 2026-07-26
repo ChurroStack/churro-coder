@@ -66,6 +66,7 @@ vi.mock('../db/messages-table', () => ({
 
 import { CliSessionIngester } from './ingester';
 import { hasPlan, readCurrentPlan, writeCurrentPlan } from '../plans/plan-store';
+import { hasReview, readCurrentReview, writeCurrentReview } from '../reviews/review-store';
 
 beforeEach(async () => {
   tmpRoot = await mkdtemp(join(tmpdir(), 'cli-ingester-test-'));
@@ -138,6 +139,63 @@ describe('CliSessionIngester.reingestFull — plan recovery (fill-gaps)', () => 
     await ing.reingestFull();
 
     expect((await readCurrentPlan(subChatId))?.content).toBe('# Authoritative\nMCP wrote this');
+  });
+});
+
+/** A 2-line Claude JSONL transcript matching a real `/code-review` invocation:
+ *  the user turn is the bare command text, its child is the `system`/
+ *  `local_command` record carrying the review findings as stdout. */
+function claudeCodeReviewLines(stdout: string): string {
+  return (
+    [
+      JSON.stringify({
+        type: 'user',
+        uuid: 'cmd-1',
+        message: { role: 'user', content: '/code-review high' }
+      }),
+      JSON.stringify({
+        type: 'system',
+        subtype: 'local_command',
+        parentUuid: 'cmd-1',
+        uuid: 'result-1',
+        content: `<local-command-stdout>${stdout}</local-command-stdout>`
+      })
+    ].join('\n') + '\n'
+  );
+}
+
+describe('CliSessionIngester.reingestFull — review recovery (fill-gaps)', () => {
+  it('recovers the review from /code-review local-command stdout', async () => {
+    const subChatId = 'sub-ingest-review-1';
+    const sessionFile = join(tmpRoot, 'review-session.jsonl');
+    await writeFile(sessionFile, claudeCodeReviewLines('math.js:3 — returns a - b instead of a + b'), 'utf8');
+
+    expect(await hasReview(subChatId)).toBe(false);
+
+    const ing = new CliSessionIngester(subChatId, 'claude-cli', sessionFile);
+    const result = await ing.reingestFull();
+
+    expect(result.sideEffectsApplied).toBeGreaterThanOrEqual(1);
+    expect(await hasReview(subChatId)).toBe(true);
+    expect((await readCurrentReview(subChatId))?.content).toBe('math.js:3 — returns a - b instead of a + b');
+  });
+
+  it('does not overwrite an existing review (explicit write_review wins on conflict)', async () => {
+    const subChatId = 'sub-ingest-review-2';
+    const sessionFile = join(tmpRoot, 'review-session2.jsonl');
+    await writeFile(sessionFile, claudeCodeReviewLines('auto-captured findings'), 'utf8');
+
+    await writeCurrentReview({
+      subChatId,
+      content: '# Authoritative\nMCP wrote this review',
+      source: 'mcp',
+      title: 'Authoritative'
+    });
+
+    const ing = new CliSessionIngester(subChatId, 'claude-cli', sessionFile);
+    await ing.reingestFull();
+
+    expect((await readCurrentReview(subChatId))?.content).toBe('# Authoritative\nMCP wrote this review');
   });
 });
 

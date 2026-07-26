@@ -5,6 +5,12 @@
  *
  * Matching is prefix-based so that dated variants like "claude-opus-4-6-20250929"
  * resolve to the base model entry.
+ *
+ * Refreshed 2026-07-26: added `claude-opus-5` / `claude-mythos-5` (Anthropic's
+ * current pricing table) and `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna`
+ * (OpenAI's July 2026 pricing, cross-checked against OpenRouter's model page and
+ * an independent per-tier pricing summary — openai.com/api/pricing itself 403s
+ * automated fetches). All prior rows are unchanged; nothing was removed.
  */
 
 export type ModelRates = {
@@ -38,6 +44,15 @@ const PRICING_TABLE: ReadonlyArray<readonly [string, PricingEntry]> = [
     // $12.50/MTok, cache read $1/MTok (1M context window, no long-context surcharge).
     'claude-fable-5',
     { displayName: 'Fable 5', provider: 'claude', rates: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } }
+  ],
+  [
+    // Mythos 5 (limited access) — same rate card as Fable 5.
+    'claude-mythos-5',
+    { displayName: 'Mythos 5', provider: 'claude', rates: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } }
+  ],
+  [
+    'claude-opus-5',
+    { displayName: 'Opus 5', provider: 'claude', rates: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } }
   ],
   [
     'claude-opus-4-8',
@@ -117,6 +132,12 @@ const PRICING_TABLE: ReadonlyArray<readonly [string, PricingEntry]> = [
   ],
 
   // Codex / OpenAI — Codex CLI reports `cached_input_tokens` (no cache-write distinction)
+  ['gpt-5.6-sol', { displayName: 'GPT-5.6 Sol', provider: 'codex', rates: { input: 5, output: 30, cacheRead: 0.5 } }],
+  [
+    'gpt-5.6-terra',
+    { displayName: 'GPT-5.6 Terra', provider: 'codex', rates: { input: 2.5, output: 15, cacheRead: 0.25 } }
+  ],
+  ['gpt-5.6-luna', { displayName: 'GPT-5.6 Luna', provider: 'codex', rates: { input: 1, output: 6, cacheRead: 0.1 } }],
   ['gpt-5.5', { displayName: 'GPT-5.5', provider: 'codex', rates: { input: 5, output: 30, cacheRead: 0.5 } }],
   [
     'gpt-5.4-mini',

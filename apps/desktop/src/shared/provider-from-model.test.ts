@@ -18,6 +18,13 @@ describe('getProviderForModelId', () => {
     expect(getProviderForModelId(id)).toBe('claude-code');
   });
 
+  test.each(['claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6'])(
+    "Pinned Claude model '%s' → claude-code (explicit, not just the heuristic fallback)",
+    (id) => {
+      expect(getProviderForModelId(id)).toBe('claude-code');
+    }
+  );
+
   test.each([
     'gpt-5.6-sol',
     'gpt-5.6-terra',

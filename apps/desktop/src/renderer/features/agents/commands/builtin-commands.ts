@@ -80,10 +80,24 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandOption[] = [
   },
   // Prompt-based commands
   {
+    id: 'builtin:code-review',
+    name: 'code-review',
+    command: '/code-review',
+    description: 'Review your local working diff for bugs and quality issues',
+    category: 'builtin'
+  },
+  {
     id: 'builtin:review',
     name: 'review',
     command: '/review',
-    description: 'Ask agent to review your code',
+    description: 'Review a GitHub pull request — for your working diff use /code-review',
+    category: 'builtin'
+  },
+  {
+    id: 'builtin:verify',
+    name: 'verify',
+    command: '/verify',
+    description: 'Verify the last change actually solves the reported problem',
     category: 'builtin'
   },
   {

@@ -16,6 +16,13 @@ export const CLAUDE_MODELS = [
     thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
   },
   {
+    id: 'claude-opus-4-8',
+    name: 'Opus',
+    version: '4.8',
+    contextWindow: 200_000,
+    thinkings: ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as ClaudeThinkingLevel[]
+  },
+  {
     id: 'claude-opus-4-7',
     name: 'Opus',
     version: '4.7',

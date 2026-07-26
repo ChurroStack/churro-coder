@@ -301,8 +301,7 @@ export function DiffPanel({ params }: IDockviewPanelProps<DiffPanelEntity>) {
   // dispatcher. Builtin uses useReviewAction (model-switch + pending atom).
   const activeSubChatIdForReview = useAgentSubChatStore((s) => s.activeSubChatId);
   const { runReview, isReviewing: isReviewActionRunning } = useReviewAction({
-    activeSubChatId: activeSubChatIdForReview,
-    chatId
+    activeSubChatId: activeSubChatIdForReview
   });
   const { isCliHarness: isCliHarnessForReview, dispatchReview } = useHarnessSendDispatcher(
     activeSubChatIdForReview ?? ''

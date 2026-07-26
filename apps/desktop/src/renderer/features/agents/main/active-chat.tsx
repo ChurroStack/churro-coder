@@ -4004,9 +4004,9 @@ export function ChatView({
   // PR creation loading state - using atom to allow ChatViewInner to reset it
   const [isCreatingPr, setIsCreatingPr] = useAtom(isCreatingPrAtom);
   // Review action — single canonical implementation lives in useReviewAction.
-  // The hook handles model-switch + PR-context + scoped-files + atom-set so
-  // this surface and the diff-panel surface can't drift.
-  const { runReview, isReviewing } = useReviewAction({ activeSubChatId, chatId });
+  // The hook handles model-switch + pending-atom-set so this surface and the
+  // diff-panel surface can't drift.
+  const { runReview, isReviewing } = useReviewAction({ activeSubChatId });
   const setSessionInfo = useSetAtom(sessionInfoAtom);
 
   // Determine if we're in sandbox mode

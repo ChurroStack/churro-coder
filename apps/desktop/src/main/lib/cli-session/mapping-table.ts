@@ -201,6 +201,15 @@ export const MAPPING_TABLE: MappingRow[] = [
     sideEffect: 'review'
   },
   {
+    partType: 'tool-ReportFindings',
+    rendererComponent: 'AgentReviewTool',
+    description:
+      'Native review findings reported by the /code-review skill. Verified against real transcripts to run as a local command with no tool_use in the top-level record stream — this row exists for the sidechain/sub-agent case, should ReportFindings ever surface there directly.',
+    claude: { toolNames: ['ReportFindings'] },
+    codex: {},
+    sideEffect: 'review'
+  },
+  {
     partType: 'tool-mcp__churro-coder__write_tasks',
     rendererComponent: 'AgentMcpToolCall',
     description: 'Task list write via our MCP server.',

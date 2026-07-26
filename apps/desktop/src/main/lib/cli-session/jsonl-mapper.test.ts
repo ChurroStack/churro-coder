@@ -158,6 +158,118 @@ describe('jsonl-mapper / Claude', () => {
     expect(r.messages[0].parts[0]).toMatchObject({ type: 'tool-ExitPlanMode' });
     expect(r.sideEffects).toEqual([]);
   });
+
+  describe('native /code-review (local command — verified against real transcripts)', () => {
+    it('emits a review side-effect + assistant text part from local_command stdout', () => {
+      const state = createMapperState();
+      // The real command turn: role user, plain-string content "/code-review high".
+      mapClaudeLine(
+        JSON.stringify({
+          type: 'user',
+          uuid: 'cmd-uuid-1',
+          parentUuid: 'caveat-uuid-1',
+          message: { role: 'user', content: '/code-review high' }
+        }),
+        state
+      );
+      // Its child: the local_command system record carrying the stdout.
+      const r = mapClaudeLine(
+        JSON.stringify({
+          type: 'system',
+          subtype: 'local_command',
+          parentUuid: 'cmd-uuid-1',
+          uuid: 'result-uuid-1',
+          content: '<local-command-stdout>math.js:3 — bug found here</local-command-stdout>'
+        }),
+        state
+      );
+      expect(r.sideEffects).toEqual([{ kind: 'review', markdown: 'math.js:3 — bug found here', title: 'Code Review' }]);
+      expect(r.messages).toEqual([
+        {
+          uuid: 'result-uuid-1',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'math.js:3 — bug found here' }],
+          createdAt: expect.any(Number)
+        }
+      ]);
+    });
+
+    it('ignores local_command output from unrelated commands (e.g. /usage)', () => {
+      const state = createMapperState();
+      mapClaudeLine(
+        JSON.stringify({
+          type: 'user',
+          uuid: 'cmd-uuid-2',
+          message: { role: 'user', content: '/usage' }
+        }),
+        state
+      );
+      const r = mapClaudeLine(
+        JSON.stringify({
+          type: 'system',
+          subtype: 'local_command',
+          parentUuid: 'cmd-uuid-2',
+          uuid: 'result-uuid-2',
+          content: '<local-command-stdout>some usage stats</local-command-stdout>'
+        }),
+        state
+      );
+      expect(r).toEqual({ messages: [], sideEffects: [] });
+    });
+
+    it('emits no review side-effect when /code-review forks to a background skill agent', () => {
+      const state = createMapperState();
+      mapClaudeLine(
+        JSON.stringify({
+          type: 'user',
+          uuid: 'cmd-uuid-fork',
+          message: { role: 'user', content: '/code-review' }
+        }),
+        state
+      );
+      // Real shape captured from a live transcript: the skill forked to a
+      // background agent instead of resolving inline, so stdout is a launch
+      // ack (no findings), plus a <forked-skill-launch> tag carrying the
+      // detached agent's id.
+      const r = mapClaudeLine(
+        JSON.stringify({
+          type: 'system',
+          subtype: 'local_command',
+          parentUuid: 'cmd-uuid-fork',
+          uuid: 'result-uuid-fork',
+          content:
+            '<local-command-stdout>Running in the background as @code-review</local-command-stdout>\n' +
+            '<forked-skill-launch>{"agentId":"abc123","skillName":"code-review","description":"/code-review"}</forked-skill-launch>'
+        }),
+        state
+      );
+      expect(r.sideEffects).toEqual([]);
+      // Still surface the launch ack as an assistant message so the user sees
+      // the review started, even though there's nothing to persist yet.
+      expect(r.messages).toEqual([
+        {
+          uuid: 'result-uuid-fork',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Running in the background as @code-review' }],
+          createdAt: expect.any(Number)
+        }
+      ]);
+    });
+
+    it('ignores a local_command record with no matching pending command', () => {
+      const r = mapClaudeLine(
+        JSON.stringify({
+          type: 'system',
+          subtype: 'local_command',
+          parentUuid: 'no-such-uuid',
+          uuid: 'orphan-uuid',
+          content: '<local-command-stdout>orphaned output</local-command-stdout>'
+        }),
+        createMapperState()
+      );
+      expect(r).toEqual({ messages: [], sideEffects: [] });
+    });
+  });
 });
 
 describe('jsonl-mapper / Codex', () => {
@@ -269,6 +381,54 @@ describe('jsonl-mapper / Codex', () => {
     );
     expect(r.messages[0].parts[0].type).toBe('tool-TodoWrite');
     expect(r.sideEffects).toEqual([{ kind: 'tasks', tasks: [{ step: 'do thing', status: 'pending' }] }]);
+  });
+
+  describe('native /review (exited_review_mode — verified against a real rollout transcript)', () => {
+    it('emits a review side-effect built from review_output.findings', () => {
+      const r = mapCodexLine(
+        JSON.stringify({
+          type: 'event_msg',
+          payload: {
+            type: 'exited_review_mode',
+            turn_id: 't-1',
+            item_id: 'item-1',
+            review_output: {
+              findings: [
+                {
+                  title: '[P1] Keep review persistence working',
+                  body: 'The dispatch change drops write_review calls.',
+                  confidence_score: 0.98,
+                  priority: 1,
+                  code_location: {
+                    absolute_file_path: '/repo/use-harness-send-dispatcher.ts',
+                    line_range: { start: 181, end: 195 }
+                  }
+                }
+              ],
+              overall_correctness: 'patch is incorrect',
+              overall_explanation: 'Review persistence regresses for CLI chats.',
+              overall_confidence_score: 0.95
+            }
+          }
+        }),
+        createMapperState()
+      );
+      expect(r.messages).toEqual([]);
+      expect(r.sideEffects).toHaveLength(1);
+      const [se] = r.sideEffects;
+      expect(se.kind).toBe('review');
+      expect((se as { markdown: string }).markdown).toContain('Review persistence regresses for CLI chats.');
+      expect((se as { markdown: string }).markdown).toContain('🔴 high');
+      expect((se as { markdown: string }).markdown).toContain('use-harness-send-dispatcher.ts:181');
+    });
+
+    it('returns EMPTY when review_output is missing', () => {
+      const r = mapCodexLine(
+        JSON.stringify({ type: 'event_msg', payload: { type: 'exited_review_mode', turn_id: 't-2' } }),
+        createMapperState()
+      );
+      expect(r).toEqual({ messages: [], sideEffects: [] });
+    });
   });
 
   it('skips informational payload types', () => {
