@@ -12,6 +12,7 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    types: [opened, edited, synchronize, reopened]
   push:
     branches: [main]
 
@@ -28,6 +29,11 @@ permissions:
 jobs:
   desktop:
     name: Desktop (bun + Electron)
+    # `pull_request.types` now includes `edited` so the pr-title job can
+    # re-lint a fixed title, but that also re-triggers this entire workflow
+    # on pure title/body edits with no code change. Skip the actual build —
+    # only pr-title needs to run for an edited-only event.
+    if: github.event_name != 'pull_request' || github.event.action != 'edited'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -83,6 +89,8 @@ jobs:
 
   gateway:
     name: Gateway (.NET 10)
+    # Skip on title/body-only edits — see desktop job's comment above.
+    if: github.event_name != 'pull_request' || github.event.action != 'edited'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -124,6 +132,8 @@ jobs:
 
   daemon:
     name: Daemon (Go)
+    # Skip on title/body-only edits — see desktop job's comment above.
+    if: github.event_name != 'pull_request' || github.event.action != 'edited'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -164,6 +174,8 @@ jobs:
 
   landing:
     name: Landing (Next.js + Pillow)
+    # Skip on title/body-only edits — see desktop job's comment above.
+    if: github.event_name != 'pull_request' || github.event.action != 'edited'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -215,15 +227,49 @@ jobs:
       - name: Lint landing
         run: pnpm exec nx run landing:lint
 
+  # release-please parses commit subjects for Conventional Commits types
+  # (feat:, fix:, chore:, ...); with squash_merge_commit_title:
+  # COMMIT_OR_PR_TITLE, the PR title *is* that subject. A non-conventional
+  # title is silently unparseable — release-please just finds 0 releasable
+  # commits and skips cutting a release, with no error anywhere. Lint the
+  # title so that failure mode becomes a blocking CI check instead.
+  pr-title:
+    name: PR title (Conventional Commits)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            perf
+            test
+            build
+            ci
+            revert
+
   # Single required check for branch-protection. The name "Build & check"
   # matches the existing ruleset context exactly, so the merge gate keeps
   # working without a GitHub UI change.
   #
-  # NOTE: today every dep must be 'success'. If any per-app job ever gains a
-  # `paths-ignore:` filter, update the script below to also accept 'skipped'.
+  # NOTE: every dep can legitimately be 'skipped', not just 'success':
+  # desktop/gateway/daemon/landing skip themselves on title/body-only PR
+  # edits (see their `if:` conditions above), and pr-title skips itself on
+  # push-to-main (no PR title to lint there). 'failure'/'cancelled' still
+  # fail this check either way.
   ci-success:
     name: Build & check
-    needs: [desktop, gateway, daemon, landing]
+    needs: [desktop, gateway, daemon, landing, pr-title]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -234,8 +280,9 @@ jobs:
           for r in "${{ needs.desktop.result }}" \
                    "${{ needs.gateway.result }}" \
                    "${{ needs.daemon.result }}" \
-                   "${{ needs.landing.result }}"; do
-            if [ "$r" != "success" ]; then
+                   "${{ needs.landing.result }}" \
+                   "${{ needs.pr-title.result }}"; do
+            if [ "$r" != "success" ] && [ "$r" != "skipped" ]; then
               echo "::error::Required CI job did not succeed (result=$r)"
               exit 1
             fi
