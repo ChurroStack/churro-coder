@@ -83,6 +83,12 @@ When you fix a new bug:
 3. Add a row to this matrix in the same PR.
 4. If the bug is in a service that already has integration coverage, also add an L4 case so the multi-step flow stays guarded.
 
+### Built-in queued-message auto-drain
+
+`QueueProcessor` owns queued-message dispatch only for built-in `Chat` instances. It must start `Chat.sendMessage()` before publishing its synthetic `submitted` busy marker: the built-in Claude IPC and built-in Codex transports synchronously consult that marker for duplicate-start protection. Publishing it first makes a queued send collide with its own guard and produce an empty stream; this was observed with Codex/GPT but applies to both built-in transports.
+
+The regression coverage in `components/queue-processor.test.tsx` verifies consecutive built-in items—including image and file parts—start while externally idle, become submitted immediately after initiation, return to ready on finish, and drain the remaining queue. It also explicitly preserves the harness boundary: `claude-cli` and `codex-cli` sub-chats have no built-in `Chat` instance and dispatch exclusively through the PTY `terminal.write` lifecycle, so QueueProcessor must neither pop nor send their queued entries.
+
 ### Maintenance plan
 
 The recurring-bug pattern in this repo had two root causes: (a) a single 8.7k-LOC file with 18+ concerns intertwined, and (b) zero tests for the bug-prone paths until PR #33. The plan below codifies the seams that prevent both.
