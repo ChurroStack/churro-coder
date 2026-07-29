@@ -75,7 +75,7 @@ export const ReviewWidget = memo(function ReviewWidget({ activeSubChatId }: Revi
   }
 
   return (
-    <div className="mx-2 mb-2">
+    <section className="mx-2 mb-2" aria-label="Review">
       <div className="rounded-lg border border-border/50 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-2 px-2 h-8 select-none group bg-muted/30">
@@ -142,6 +142,6 @@ export const ReviewWidget = memo(function ReviewWidget({ activeSubChatId }: Revi
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 });

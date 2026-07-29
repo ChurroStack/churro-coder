@@ -215,12 +215,16 @@ describe('useHarnessSendDispatcher — dispatchReview()', () => {
     expect(mockWriteMutate).toHaveBeenNthCalledWith(2, { paneId: `cli:${SUB_CHAT_ID}`, data: '\r' });
   });
 
-  test('codex-cli: writes the bare native /review command, nothing else', () => {
+  test('codex-cli: writes native /review with the supported scope and structured-findings suffix', () => {
     seedStore('codex-cli');
     const { result } = renderDispatcher();
     act(() => result.current.dispatchReview());
     expect(mockWriteMutate).toHaveBeenCalledTimes(2);
-    expect(mockWriteMutate).toHaveBeenNthCalledWith(1, { paneId: `cli:${SUB_CHAT_ID}`, data: '/review' });
+    expect(mockWriteMutate).toHaveBeenNthCalledWith(1, {
+      paneId: `cli:${SUB_CHAT_ID}`,
+      data:
+        '/review Review the current working changes. Return concise structured findings with priority, file and line, issue, and suggested fix.'
+    });
     expect(mockWriteMutate).toHaveBeenNthCalledWith(2, { paneId: `cli:${SUB_CHAT_ID}`, data: '\r' });
   });
 

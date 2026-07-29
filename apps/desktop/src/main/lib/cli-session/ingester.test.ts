@@ -177,7 +177,9 @@ describe('CliSessionIngester.reingestFull — review recovery (fill-gaps)', () =
 
     expect(result.sideEffectsApplied).toBeGreaterThanOrEqual(1);
     expect(await hasReview(subChatId)).toBe(true);
-    expect((await readCurrentReview(subChatId))?.content).toBe('math.js:3 — returns a - b instead of a + b');
+    expect((await readCurrentReview(subChatId))?.content).toBe(
+      '# Code Review\n\n## Summary\n\nmath.js:3 — returns a - b instead of a + b'
+    );
   });
 
   it('does not overwrite an existing review (explicit write_review wins on conflict)', async () => {

@@ -11,6 +11,7 @@ import { readFile, access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import EventEmitter from 'node:events';
+import { Mutex } from 'async-mutex';
 import { atomicWriteArtifact } from '../sub-chat-artifacts/atomic-write';
 
 const reviewEmitter = new EventEmitter();
@@ -30,6 +31,11 @@ export interface ReviewMeta {
   title: string;
   createdAt: string;
   acceptedAt?: string;
+  nativeReview?: {
+    eventId: string;
+    completedAt: string;
+    usedFallback: boolean;
+  };
 }
 
 export interface ReviewData {
@@ -41,18 +47,40 @@ function getReviewDir(subChatId: string): string {
   return join(app.getPath('userData'), 'sub-chats', subChatId, 'reviews');
 }
 
+const reviewWriteLocks = new Map<string, Mutex>();
+
+function writeLockFor(subChatId: string): Mutex {
+  let lock = reviewWriteLocks.get(subChatId);
+  if (!lock) {
+    lock = new Mutex();
+    reviewWriteLocks.set(subChatId, lock);
+  }
+  return lock;
+}
+
 export async function writeCurrentReview(opts: {
   subChatId: string;
   content: string;
   source: string;
   title: string;
 }): Promise<void> {
+  await writeLockFor(opts.subChatId).runExclusive(() => writeCurrentReviewUnlocked(opts));
+}
+
+async function writeCurrentReviewUnlocked(opts: {
+  subChatId: string;
+  content: string;
+  source: string;
+  title: string;
+  nativeReview?: ReviewMeta['nativeReview'];
+}): Promise<void> {
   const dir = getReviewDir(opts.subChatId);
 
   const meta: ReviewMeta = {
     source: opts.source,
     title: opts.title,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...(opts.nativeReview ? { nativeReview: opts.nativeReview } : {})
   };
 
   await atomicWriteArtifact(join(dir, 'current.md'), opts.content);
@@ -61,6 +89,64 @@ export async function writeCurrentReview(opts: {
     `[churro-coder] review persisted sub=${opts.subChatId} source=${opts.source} bytes=${Buffer.byteLength(opts.content, 'utf8')}`
   );
   reviewEmitter.emit('written', { subChatId: opts.subChatId });
+}
+
+export type NativeReviewWriteReason = 'written' | 'replay' | 'stale' | 'newer-explicit';
+
+/**
+ * Persist a completed native review only when it is newer than the current
+ * artifact. The per-sub-chat lock makes the check-and-write atomic relative to
+ * explicit MCP writes, so replay cannot clobber a review saved in the race.
+ */
+export async function writeNativeReviewIfCurrent(opts: {
+  subChatId: string;
+  content: string;
+  source: 'cli-ingest' | 'builtin-stream';
+  title: string;
+  eventId: string;
+  completedAt: string;
+  usedFallback: boolean;
+}): Promise<{ written: boolean; reason: NativeReviewWriteReason }> {
+  return writeLockFor(opts.subChatId).runExclusive(async () => {
+    const current = await readCurrentReview(opts.subChatId);
+    if (current?.meta.nativeReview?.eventId === opts.eventId) {
+      return traceNativeReviewResult(opts, { written: false, reason: 'replay' });
+    }
+
+    const incomingAt = Date.parse(opts.completedAt);
+    const currentAt = Date.parse(current?.meta.nativeReview?.completedAt ?? current?.meta.createdAt ?? '');
+    const isNewer = Number.isFinite(incomingAt) && (!Number.isFinite(currentAt) || incomingAt > currentAt);
+
+    if (current?.meta.source === 'mcp' && !isNewer) {
+      return traceNativeReviewResult(opts, { written: false, reason: 'newer-explicit' });
+    }
+    if (current && !isNewer) {
+      return traceNativeReviewResult(opts, { written: false, reason: 'stale' });
+    }
+
+    await writeCurrentReviewUnlocked({
+      subChatId: opts.subChatId,
+      content: opts.content,
+      source: opts.source,
+      title: opts.title,
+      nativeReview: {
+        eventId: opts.eventId,
+        completedAt: opts.completedAt,
+        usedFallback: opts.usedFallback
+      }
+    });
+    return traceNativeReviewResult(opts, { written: true, reason: 'written' });
+  });
+}
+
+function traceNativeReviewResult(
+  opts: Pick<Parameters<typeof writeNativeReviewIfCurrent>[0], 'subChatId' | 'eventId' | 'usedFallback'>,
+  result: { written: boolean; reason: NativeReviewWriteReason }
+): { written: boolean; reason: NativeReviewWriteReason } {
+  console.log(
+    `[review-native] sub=${opts.subChatId} outcome=${result.reason} fallback=${opts.usedFallback} event=${opts.eventId}`
+  );
+  return result;
 }
 
 export async function readCurrentReview(subChatId: string): Promise<ReviewData | null> {

@@ -4,15 +4,10 @@
  *
  *   1. Switch the sub-chat to the Review-mode default model + thinking
  *      synchronously (cross-provider safe via applyModeDefaultModelAndSwitchProvider)
- *   2. Seed `pendingReviewMessageAtomFamily(subChatId)` with the native
- *      `/code-review` command, same as the CLI harnesses' dispatchReview()
- *      (see use-harness-send-dispatcher.ts) — the SDK expands slash commands,
- *      so this runs the same built-in skill instead of a bespoke prompt.
- *
- * Pinned to `high` effort: the default/low tier can finish a review without
- * ever producing the richer structured findings a larger diff needs
- * (confirmed empirically against real transcripts — see dispatchReview's
- * comment for detail).
+ *   2. Seed `pendingReviewMessageAtomFamily(subChatId)` with the controlled
+ *      `workflow/review.j2` prompt. It carries the current git branch and an
+ *      optional scoped-file list, requires canonical `write_review`
+ *      persistence, and works for either selected provider.
  *
  * The shared `reviewInFlight` Set in `lib/model-switching.ts` already prevents
  * cross-surface double-triggers; this hook just wraps the same flow so the
@@ -21,23 +16,55 @@
  * Navigation (e.g. `activateChatPanelWhenReady` in the diff panel) stays at
  * the call site — those are surface-specific concerns.
  *
- * Note: `/code-review` reviews the working diff directly and its only
- * argument is an effort level, so the Changes panel's Scoped/All file filter
- * (previously honored via `generateReviewMessage`) can no longer be passed
- * through. Surfaced to the user via a toast (see `filteredSubChatIdAtom`
- * check below) rather than silently dropped.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { filteredSubChatIdAtom, pendingReviewMessageAtomFamily } from '@/features/agents/atoms';
+import { useAtomValue } from 'jotai';
+import { filteredSubChatIdAtom, pendingReviewMessageAtomFamily, subChatFilesAtom } from '@/features/agents/atoms';
 import { appStore } from '@/lib/jotai-store';
 import { applyModeDefaultModelAndSwitchProvider, reviewInFlight } from '@/features/agents/lib/model-switching';
 import { forceFreshSubChatSessionIfOpenSpec } from '@/features/agents/lib/session-reset';
+import { generateReviewMessage, type PrContext } from '@/features/agents/utils/pr-message';
+import { trpc } from '@/lib/trpc';
+import { useAgentSubChatStore } from '@/features/agents/stores/sub-chat-store';
 
 export interface UseReviewActionOptions {
   /** Sub-chat to run the review against. Hook is a no-op when null. */
   activeSubChatId: string | null | undefined;
+}
+
+export function buildControlledReviewPrompt(context: PrContext, scopedFiles?: string[]): string {
+  return generateReviewMessage(context, scopedFiles);
+}
+
+interface ReviewChatContext {
+  worktreePath?: string | null;
+  branch?: string | null;
+  baseBranch?: string | null;
+}
+
+interface ReviewBranchContext {
+  current: string;
+  defaultBranch: string;
+}
+
+export function resolveReviewContext(
+  chat: ReviewChatContext | null | undefined,
+  branches: ReviewBranchContext | null | undefined
+): PrContext | null {
+  if (!chat?.worktreePath || !branches) return null;
+
+  const branch = branches.current.trim() || chat.branch?.trim();
+  const baseBranch = chat.baseBranch?.trim() || branches.defaultBranch.trim();
+  if (!branch || !baseBranch) return null;
+
+  return {
+    branch,
+    baseBranch,
+    uncommittedCount: 0,
+    hasUpstream: false
+  };
 }
 
 export function useReviewAction({ activeSubChatId }: UseReviewActionOptions): {
@@ -45,10 +72,32 @@ export function useReviewAction({ activeSubChatId }: UseReviewActionOptions): {
   isReviewing: boolean;
 } {
   const [isReviewing, setIsReviewing] = useState(false);
+  const chatId = useAgentSubChatStore((state) => state.chatId);
+  const filteredSubChatId = useAtomValue(filteredSubChatIdAtom);
+  const subChatFiles = useAtomValue(subChatFilesAtom);
+  const { data: chat } = trpc.chats.get.useQuery({ id: chatId ?? '' }, { enabled: !!chatId });
+  const { data: branches } = trpc.changes.getBranches.useQuery(
+    { worktreePath: chat?.worktreePath ?? '' },
+    { enabled: !!chat?.worktreePath }
+  );
+  const scopedFiles = useMemo(() => {
+    if (!activeSubChatId || filteredSubChatId !== activeSubChatId) return undefined;
+    return subChatFiles.get(activeSubChatId)?.map((file) => file.filePath);
+  }, [activeSubChatId, filteredSubChatId, subChatFiles]);
+  const reviewContext = useMemo(() => resolveReviewContext(chat, branches), [chat, branches]);
+  const reviewPrompt = useMemo(
+    () => (reviewContext ? buildControlledReviewPrompt(reviewContext, scopedFiles) : null),
+    [reviewContext, scopedFiles]
+  );
 
   const runReview = useCallback(async (): Promise<{ ok: boolean }> => {
     if (!activeSubChatId) {
       toast.error('No active chat available', { position: 'top-center' });
+      return { ok: false };
+    }
+    if (!reviewPrompt) {
+      console.warn('[review-action] Review context unavailable; dispatch skipped', { subChatId: activeSubChatId });
+      toast.info('Review context is still loading. Try again in a moment.', { position: 'top-center' });
       return { ok: false };
     }
     if (reviewInFlight.has(activeSubChatId)) return { ok: false };
@@ -63,12 +112,7 @@ export function useReviewAction({ activeSubChatId }: UseReviewActionOptions): {
       applyModeDefaultModelAndSwitchProvider(activeSubChatId, 'review');
 
       forceFreshSubChatSessionIfOpenSpec(activeSubChatId);
-      appStore.set(pendingReviewMessageAtomFamily(activeSubChatId), '/code-review high');
-      if (appStore.get(filteredSubChatIdAtom)) {
-        toast.info('Reviewing the full working diff — the Scoped filter is not applied to /code-review', {
-          position: 'top-center'
-        });
-      }
+      appStore.set(pendingReviewMessageAtomFamily(activeSubChatId), reviewPrompt);
       return { ok: true };
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to start review', { position: 'top-center' });
@@ -77,7 +121,7 @@ export function useReviewAction({ activeSubChatId }: UseReviewActionOptions): {
       setIsReviewing(false);
       reviewInFlight.delete(activeSubChatId);
     }
-  }, [activeSubChatId]);
+  }, [activeSubChatId, reviewPrompt]);
 
   return { runReview, isReviewing };
 }

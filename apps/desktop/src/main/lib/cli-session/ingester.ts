@@ -46,7 +46,8 @@ import {
 } from '../db/messages-table';
 import { notifyFilesChanged } from '../file-changes/file-changes-store';
 import { ensurePlanWritten, hasPlan } from '../plans/plan-store';
-import { ensureReviewWritten } from '../reviews/review-store';
+import { writeNativeReviewIfCurrent } from '../reviews/review-store';
+import { normalizeNativeReview } from '../../../shared/review-findings-markdown';
 import { writeTasks } from '../tasks/task-store';
 import {
   createMapperState,
@@ -460,16 +461,24 @@ async function applySideEffect(subChatId: string, se: IngestedSideEffect): Promi
         return true;
       }
       case 'review': {
-        // ensureReviewWritten = fill-gaps: writes only if no current.md yet,
-        // same contract as ensurePlanWritten above. Populated from either
-        // Claude's /code-review local-command stdout or Codex's native
-        // /review exited_review_mode output (see jsonl-mapper.ts).
-        const res = await ensureReviewWritten({
+        const normalized = normalizeNativeReview(se.markdown);
+        // A timestamp-less legacy record is safe to fill only into an empty
+        // artifact. Epoch ordering prevents it from clobbering a later MCP or
+        // native review during a replay.
+        const completedAt = se.completedAt ?? new Date(0).toISOString();
+        const eventId = se.eventId ?? `ingested-review-${completedAt}`;
+        const res = await writeNativeReviewIfCurrent({
           subChatId,
-          content: se.markdown,
+          content: normalized.markdown,
           source: 'cli-ingest',
-          title: se.title ?? 'Code Review'
+          title: se.title ?? 'Code Review',
+          eventId,
+          completedAt,
+          usedFallback: se.usedFallback ?? normalized.usedFallback
         });
+        console.log(
+          `${TRACE} review-persist sub=${subChatId} outcome=${res.reason} fallback=${se.usedFallback ?? normalized.usedFallback} event=${eventId}`
+        );
         return res.written;
       }
     }

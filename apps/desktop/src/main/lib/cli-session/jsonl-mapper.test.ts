@@ -183,7 +183,15 @@ describe('jsonl-mapper / Claude', () => {
         }),
         state
       );
-      expect(r.sideEffects).toEqual([{ kind: 'review', markdown: 'math.js:3 — bug found here', title: 'Code Review' }]);
+      expect(r.sideEffects).toEqual([
+        {
+          kind: 'review',
+          markdown: '# Code Review\n\n## Summary\n\nmath.js:3 — bug found here',
+          title: 'Code Review',
+          eventId: 'result-uuid-1',
+          usedFallback: true
+        }
+      ]);
       expect(r.messages).toEqual([
         {
           uuid: 'result-uuid-1',

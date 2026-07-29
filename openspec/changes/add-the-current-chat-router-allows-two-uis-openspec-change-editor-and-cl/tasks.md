@@ -160,3 +160,11 @@ Bug observed during manual verification: dragging a `claude-cli` or `codex-cli` 
 - [x] 15.1 Add `/command` autocomplete dropdown to `CliPromptBar` using `AgentsSlashCommand`. Detect when the input matches `^/\w*$` and show the dropdown. Mode-change commands (`/plan`, `/execute`, `/explore`, `/compact`) dispatch immediately via the harness dispatcher and clear the input; other commands insert as text for the user to complete and send.
 - [x] 15.2 Add pasted image thumbnail chips to `CliPromptBar`. Replace the current `setText(@path)` insertion with visual chips (small `<img>` + X dismiss button) above the textarea. On send, prepend all `@path` refs (space-joined, newline before user text) before dispatching. Keep `@path` text insertion for large-text pastes unchanged.
 - [x] 15.3 Write Vitest tests for the updated `CliPromptBar` (colocated as `cli-prompt-bar.test.tsx`): (a) typing `/p` opens the slash dropdown, (b) selecting `/plan` calls the dispatch mock and clears input, (c) pasting an image renders a thumbnail chip, (d) removing the chip removes the image from state.
+
+## 16. Native review artifacts and controlled built-in reviews
+
+- [x] 16.1 Normalize completed native Claude and Codex reviews into the canonical Code Review markdown shape, including structured severity-table findings and an unstructured fallback that retains raw details.
+- [x] 16.2 Keep Claude native dispatch as `/code-review high`; add only a supported scoped-formatting suffix to Codex `/review`, with exact PTY-chunk coverage.
+- [x] 16.3 Persist completed native review events as the current artifact when newer, while preserving a newer explicit MCP result during replay/races; trace written/skipped/fallback outcomes.
+- [x] 16.4 Restore the built-in Claude/Codex controlled review prompt, including scoped-file context, canonical `write_review` persistence, and a concise saved-review completion acknowledgement.
+- [ ] 16.5 Add Review-widget accessibility coverage for canonical review tables and run the targeted, desktop, build, and strict OpenSpec validation commands.

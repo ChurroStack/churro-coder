@@ -70,8 +70,8 @@ import {
 import { getApprovedPluginMcpServers, getEnabledPlugins } from './claude-settings';
 import { clearPendingApprovals, pendingToolApprovals } from './tool-approvals';
 import { writeCurrentPlan, hasPlan, extractPlanTitleFromContent } from '../../plans/plan-store';
-import { ensureReviewWritten } from '../../reviews/review-store';
-import { isForkedSkillLaunch } from '../../../../shared/review-findings-markdown';
+import { writeNativeReviewIfCurrent } from '../../reviews/review-store';
+import { isForkedSkillLaunch, normalizeNativeReview } from '../../../../shared/review-findings-markdown';
 import { getPrompt } from '../../prompts/prompt-service';
 import { renderBuiltinPrompt } from '../../../../prompts/render';
 import { expandOpsxCommand } from '../../openspec/prompt-expansion';
@@ -2548,11 +2548,23 @@ ${prompt}
                           // Forked to a background skill agent — this content is a
                           // launch ack, not a review (see isForkedSkillLaunch doc).
                           if (stripped && !isForkedSkillLaunch(msgAny.content)) {
-                            ensureReviewWritten({
+                            const normalized = normalizeNativeReview(stripped);
+                            const completedAt =
+                              typeof msgAny.timestamp === 'string' && Number.isFinite(Date.parse(msgAny.timestamp))
+                                ? new Date(msgAny.timestamp).toISOString()
+                                : new Date().toISOString();
+                            const eventId =
+                              typeof msgAny.uuid === 'string' && msgAny.uuid
+                                ? msgAny.uuid
+                                : `builtin-local-review-${completedAt}`;
+                            writeNativeReviewIfCurrent({
                               subChatId: input.subChatId,
-                              content: stripped,
+                              content: normalized.markdown,
                               source: 'builtin-stream',
-                              title: 'Code Review'
+                              title: 'Code Review',
+                              eventId,
+                              completedAt,
+                              usedFallback: normalized.usedFallback
                             }).catch((err) => console.warn(`[CLAUDE] review persist failed sub=${subId} err=${err}`));
                           }
                         }

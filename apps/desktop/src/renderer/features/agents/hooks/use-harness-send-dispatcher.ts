@@ -4,6 +4,7 @@ import { trpc } from '../../../lib/trpc';
 import { useAgentSubChatStore } from '../stores/sub-chat-store';
 import { pendingBuildPlanAtomFamily, pendingFixReviewIssuesAtomFamily } from '../atoms';
 import { cliMcpReminder } from '../../../../shared/cli-mcp-reminder';
+import { renderBuiltinPrompt } from '../../../../prompts/render';
 
 // Tracks which CLI subChat sessions have had the MCP instruction injected into
 // their first user message. Module-level so it resets on app restart (matching
@@ -192,7 +193,11 @@ export function useHarnessSendDispatcher(subChatId: string, harnessOverride?: 'b
     //     skipped straight to a one-line answer on a trivial diff); `ultra` is
     //     a long-running multi-agent cloud review, too slow for a button
     //     click. Codex's `/review` takes no effort argument.
-    writeChunks(`cli:${subChatId}`, harness === 'claude-cli' ? '/code-review high' : '/review');
+    const codexReviewSuffix = renderBuiltinPrompt('workflow/native-codex-review', {}).trim();
+    writeChunks(
+      `cli:${subChatId}`,
+      harness === 'claude-cli' ? '/code-review high' : `/review ${codexReviewSuffix}`
+    );
   }, [isCliHarness, harness, subChatId, writeChunks]);
 
   return { dispatch, dispatchBuildPlan, dispatchFixReviewIssues, dispatchReview, isCliHarness, harness };
