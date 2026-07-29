@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.14](https://github.com/ChurroStack/churro-coder/compare/v0.1.13...v0.1.14) (2026-07-29)
+
+
+### Features
+
+* **desktop:** add Claude Opus 5 across model selectors ([#236](https://github.com/ChurroStack/churro-coder/issues/236)) ([80e762e](https://github.com/ChurroStack/churro-coder/commit/80e762e5c8f8211e931814a45887e8ed950efbb2))
+
+
+### Bug Fixes
+
+* **desktop:** restore native review artifacts ([#239](https://github.com/ChurroStack/churro-coder/issues/239)) ([0d13069](https://github.com/ChurroStack/churro-coder/commit/0d13069ecc02fe29b29e1ec8d2330417533edc7d))
+* restore built-in queue auto-drain ([#238](https://github.com/ChurroStack/churro-coder/issues/238)) ([74d2e96](https://github.com/ChurroStack/churro-coder/commit/74d2e96971e6b54073777a7bfb34dce38560d17f))
+
 ## [0.1.13](https://github.com/ChurroStack/churro-coder/compare/v0.1.12...v0.1.13) (2026-07-02)
 
 
