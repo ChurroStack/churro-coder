@@ -139,9 +139,21 @@ export function QueueProcessor() {
         // Update timestamps
         useAgentSubChatStore.getState().updateSubChatTimestamp(subChatId);
 
-        // Mark the sub-chat as submitted in the unified busy atom. The active
-        // chat's `setStreamingStatus` mirror will then upgrade us to
-        // 'streaming' once the SDK starts emitting, and clear on finish.
+        // Signal active-chat to scroll to bottom BEFORE sending so that
+        // shouldAutoScrollRef is true for the entire streaming duration.
+        // (sendMessage awaits the full stream, so placing this after would
+        // only scroll after the response is complete.)
+        useMessageQueueStore.getState().triggerQueueSent(subChatId);
+
+        // Start the built-in transport before publishing the synthetic busy
+        // marker. Its duplicate-start guard reads the busy state synchronously
+        // during sendMessage(), so marking submitted first makes it reject its
+        // own queued dispatch as already in flight.
+        const sendPromise = chat.sendMessage({ role: 'user', parts });
+
+        // Mark the sub-chat as submitted after initiation. The active chat's
+        // `setStreamingStatus` mirror upgrades this to 'streaming' once the
+        // SDK emits and clears it on finish.
         const parentChatId = agentChatStore.getParentChatId(subChatId) ?? null;
         setSubChatBusy((fn) => appStore.set(subChatBusyAtom, fn), subChatId, {
           state: 'submitted',
@@ -149,14 +161,9 @@ export function QueueProcessor() {
           source: 'builtin'
         });
 
-        // Signal active-chat to scroll to bottom BEFORE sending so that
-        // shouldAutoScrollRef is true for the entire streaming duration.
-        // (sendMessage awaits the full stream, so placing this after would
-        // only scroll after the response is complete.)
-        useMessageQueueStore.getState().triggerQueueSent(subChatId);
-
-        // Send message using Chat's sendMessage method
-        await chat.sendMessage({ role: 'user', parts });
+        // Await the same in-flight send so the per-sub-chat lock, requeue-on-
+        // error behavior, and finish-driven queue draining stay unchanged.
+        await sendPromise;
       } catch (error) {
         console.error(`[QueueProcessor] Error processing queue:`, error);
 
