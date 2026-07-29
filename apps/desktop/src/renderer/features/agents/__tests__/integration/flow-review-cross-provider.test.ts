@@ -90,6 +90,18 @@ describe('L4 integration — Review cross-provider switching', () => {
     expect(result).toEqual({ modelId: 'sonnet', provider: 'claude-code', providerSwitched: false });
   });
 
+  test('Claude chat -> Codex review selects the configured Codex provider', () => {
+    const id = nextSubChatId();
+    appStore.set(defaultReviewModeModelAtom, 'gpt-5.4');
+    appStore.set(subChatProviderOverrideAtomFamily(id), 'claude-code');
+    agentChatStore.set(id, { transport: {} } as any, 'parent-chat');
+
+    const result = applyModeDefaultModelAndSwitchProvider(id, 'review');
+
+    expect(appStore.get(subChatProviderOverrideAtomFamily(id))).toBe('codex');
+    expect(result).toEqual({ modelId: 'gpt-5.4', provider: 'codex', providerSwitched: true });
+  });
+
   test('single-flight dual-mount gate blocks the second entry and releases cleanly', () => {
     const id = nextSubChatId();
 

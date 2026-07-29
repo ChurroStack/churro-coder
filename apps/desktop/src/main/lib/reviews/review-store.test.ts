@@ -17,6 +17,7 @@ import {
   hasReview,
   markAccepted,
   readCurrentReview,
+  writeNativeReviewIfCurrent,
   writeCurrentReview
 } from './review-store';
 
@@ -133,6 +134,60 @@ describe('ensureReviewWritten (fill-gaps, CLI-ingest recovery)', () => {
     const result = await readCurrentReview('fg-2');
     expect(result!.content).toBe('explicit review');
     expect(result!.meta.source).toBe('mcp');
+  });
+});
+
+describe('writeNativeReviewIfCurrent', () => {
+  test('replaces an older completed native review and ignores a replay', async () => {
+    await writeNativeReviewIfCurrent({
+      subChatId: 'native-1',
+      content: '# Code Review\n\nfirst',
+      source: 'cli-ingest',
+      title: 'Code Review',
+      eventId: 'review-1',
+      completedAt: '2026-01-01T00:00:00.000Z',
+      usedFallback: false
+    });
+
+    const newer = await writeNativeReviewIfCurrent({
+      subChatId: 'native-1',
+      content: '# Code Review\n\nsecond',
+      source: 'cli-ingest',
+      title: 'Code Review',
+      eventId: 'review-2',
+      completedAt: '2026-01-02T00:00:00.000Z',
+      usedFallback: false
+    });
+    const replay = await writeNativeReviewIfCurrent({
+      subChatId: 'native-1',
+      content: '# Code Review\n\nsecond',
+      source: 'cli-ingest',
+      title: 'Code Review',
+      eventId: 'review-2',
+      completedAt: '2026-01-02T00:00:00.000Z',
+      usedFallback: false
+    });
+
+    expect(newer).toEqual({ written: true, reason: 'written' });
+    expect(replay).toEqual({ written: false, reason: 'replay' });
+    expect((await readCurrentReview('native-1'))?.content).toContain('second');
+  });
+
+  test('does not replace a newer explicit MCP review during replay', async () => {
+    await writeCurrentReview({ subChatId: 'native-2', content: '# Explicit', source: 'mcp', title: 'Explicit' });
+
+    const result = await writeNativeReviewIfCurrent({
+      subChatId: 'native-2',
+      content: '# Code Review\n\nold native result',
+      source: 'cli-ingest',
+      title: 'Code Review',
+      eventId: 'review-old',
+      completedAt: '2020-01-01T00:00:00.000Z',
+      usedFallback: true
+    });
+
+    expect(result).toEqual({ written: false, reason: 'newer-explicit' });
+    expect((await readCurrentReview('native-2'))?.content).toBe('# Explicit');
   });
 });
 

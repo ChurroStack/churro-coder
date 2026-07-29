@@ -51,6 +51,40 @@ When a CLI MCP tool writes a plan or review file for a subChat, the existing per
 - **THEN** any open plan sidebar bound to subChat `A` re-fetches `getCurrentPlan` within the existing watch debounce window
 - **AND** the new plan content is rendered
 
+### Requirement: Completed native reviews refresh the current Review artifact
+
+When a native review completes, the CLI harness SHALL make it the current
+per-subChat Review artifact and the Review widget SHALL refresh through the
+existing artifact notification path. Codex structured review findings and
+Claude `ReportFindings` output SHALL be rendered as the canonical Code Review
+markdown: a concise summary followed by a severity table with `🔴 high`,
+`🟡 medium`, or `🟢 low` rows. Already-canonical review markdown SHALL be
+preserved. When only unstructured native output is available, the harness SHALL
+persist a headed markdown review without inventing severity or dropping the raw
+details.
+
+The completed native review event identity and completion time SHALL be carried
+to persistence. A newer completed native review replaces an older artifact, but
+replay and race handling SHALL not replace a newer explicit MCP `write_review`
+artifact. Persistence SHALL trace whether the native result was written,
+skipped, or required the unstructured fallback without logging review content.
+
+#### Scenario: Codex native review refreshes the Review widget
+- **WHEN** Codex emits `exited_review_mode` with structured findings for subChat `A`
+- **THEN** the findings are written as `A`'s current Review artifact using the
+  canonical severity table
+- **AND** the Review widget for `A` refreshes without a manual reload
+
+#### Scenario: Native review result is newer than the prior native artifact
+- **WHEN** a completed native review for subChat `A` has a completion time later
+  than the stored native review
+- **THEN** it replaces the stored Review artifact
+
+#### Scenario: Replay does not overwrite a newer explicit review
+- **WHEN** an ingester replays an older native review event after an explicit
+  MCP `write_review` result has been persisted
+- **THEN** the explicit Review artifact remains current
+
 ### Requirement: Per-CLI input adapter translates UI controls to slash commands
 
 Each CLI harness SHALL ship a small input adapter that maps recognized UI control changes (mode, model, etc.) to the CLI's slash-command syntax. Adapters MUST be detected and version-checked at bootstrap time. Unsupported translations MUST be silently skipped with a trace log; they MUST NOT block the user's prompt body from being sent.

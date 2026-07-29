@@ -107,4 +107,12 @@ describe('generateReviewMessage', () => {
     expect(msg).toContain('feature/my-branch');
     expect(msg).toContain('origin/main');
   });
+
+  test('requires canonical artifact persistence and a short saved acknowledgement', () => {
+    const msg = generateReviewMessage(baseCtx);
+    expect(msg).toContain('| Severity | File:Line | Issue | Suggestion |');
+    expect(msg).toContain('MUST** call the `write_review` tool');
+    expect(msg).toContain('short acknowledgement that the review was saved');
+    expect(msg).toContain('Do not duplicate the full');
+  });
 });

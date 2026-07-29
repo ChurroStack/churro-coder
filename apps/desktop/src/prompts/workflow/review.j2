@@ -18,7 +18,12 @@ Run `{{ diffCommand }}` to get the changes.
 
 Build the review as a single markdown document with:
 1. A brief summary of what the changes do
-2. A table of issues found with columns: severity (🔴 high, 🟡 medium, 🟢 low), file:line, issue, suggestion
+2. A table of issues found in this exact shape:
+
+| Severity | File:Line | Issue | Suggestion |
+|----------|-----------|-------|------------|
+
+Use only `🔴 high`, `🟡 medium`, or `🟢 low` in the Severity column.
 3. If no issues found, state that the code looks good
 
 Keep the review concise and actionable.
@@ -31,5 +36,7 @@ markdown body (summary + issues table) as the `markdown` argument. This is what
 flips the Review milestone in the UI from "needs review" to "done" — without
 this call the user never sees their review artifact.
 
-Render the markdown in the chat *and* call `write_review` with the same content.
-Do not skip the tool call even if the review is short or finds no issues.
+Call `write_review` with the completed markdown, then end the chat with only a
+short acknowledgement that the review was saved. Do not duplicate the full
+review artifact in the chat response. Do not skip the tool call even if the
+review is short or finds no issues.

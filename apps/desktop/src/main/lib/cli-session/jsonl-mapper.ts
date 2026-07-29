@@ -26,6 +26,7 @@ import { stripClaudeCliEnvelopes, stripCodexUserEnvelopes } from '../../../share
 import {
   renderReportFindingsMarkdown,
   renderCodexReviewOutputMarkdown,
+  normalizeNativeReview,
   isForkedSkillLaunch,
   type CodexReviewOutput,
   type ReportFinding
@@ -59,7 +60,7 @@ export type IngestedSideEffect =
   | { kind: 'file-change'; path: string; action: 'create' | 'update' | 'delete' }
   | { kind: 'plan'; markdown: string; title?: string }
   | { kind: 'tasks'; tasks: unknown }
-  | { kind: 'review'; markdown: string; title?: string };
+  | { kind: 'review'; markdown: string; title?: string; eventId?: string; completedAt?: string; usedFallback?: boolean };
 
 export interface MapperResult {
   messages: IngestedMessage[];
@@ -152,7 +153,8 @@ function mapClaudeLocalCommand(obj: ClaudeRecord, state: MapperState): MapperRes
   if (!markdown) return EMPTY;
 
   const uuid = obj.uuid ?? `local-command-${pendingUuid}`;
-  const createdAt = parseTimestamp(obj.timestamp) ?? Date.now();
+  const timestamp = parseTimestamp(obj.timestamp);
+  const createdAt = timestamp ?? Date.now();
   const messages: MapperResult['messages'] = [
     // Rendered assistant-style, matching the SDK's own doc comment for the
     // equivalent builtin message type: "Output from a local slash command …
@@ -164,7 +166,20 @@ function mapClaudeLocalCommand(obj: ClaudeRecord, state: MapperState): MapperRes
   // review. Nothing to persist (see isForkedSkillLaunch doc comment).
   if (isForkedSkillLaunch(raw)) return { messages, sideEffects: [] };
 
-  return { messages, sideEffects: [{ kind: 'review', markdown, title: 'Code Review' }] };
+  const normalized = normalizeNativeReview(markdown);
+  return {
+    messages,
+    sideEffects: [
+      {
+        kind: 'review',
+        markdown: normalized.markdown,
+        title: 'Code Review',
+        eventId: uuid,
+        ...(timestamp !== null ? { completedAt: new Date(timestamp).toISOString() } : {}),
+        usedFallback: normalized.usedFallback
+      }
+    ]
+  };
 }
 
 export function mapCodexLine(line: string, state: MapperState): MapperResult {
@@ -189,7 +204,7 @@ export function mapCodexLine(line: string, state: MapperState): MapperResult {
     // response_item (handled by mapCodexResponseItem below), so this branch
     // only contributes the review side-effect, no message part.
     if (payloadType === 'exited_review_mode')
-      return mapCodexExitedReviewMode(payload as unknown as CodexExitedReviewModePayload);
+      return mapCodexExitedReviewMode(payload as unknown as CodexExitedReviewModePayload, obj);
     if (CODEX_SKIP_PAYLOAD_TYPES.has(payloadType)) return EMPTY;
     return EMPTY;
   }
@@ -463,6 +478,8 @@ interface CodexPatchApplyEndPayload {
  *    overall_correctness, overall_explanation, overall_confidence_score } }`. */
 interface CodexExitedReviewModePayload {
   type: 'exited_review_mode';
+  turn_id?: string;
+  item_id?: string;
   review_output?: CodexReviewOutput;
 }
 
@@ -616,11 +633,25 @@ function mapCodexPatchApplyEnd(payload: CodexPatchApplyEndPayload): MapperResult
   return { messages: [], sideEffects };
 }
 
-function mapCodexExitedReviewMode(payload: CodexExitedReviewModePayload): MapperResult {
+function mapCodexExitedReviewMode(payload: CodexExitedReviewModePayload, envelope: CodexRecord): MapperResult {
   const reviewOutput = payload.review_output;
   if (!reviewOutput) return EMPTY;
-  const markdown = renderCodexReviewOutputMarkdown(reviewOutput);
-  return { messages: [], sideEffects: [{ kind: 'review', markdown, title: 'Code Review' }] };
+  const normalized = normalizeNativeReview(renderCodexReviewOutputMarkdown(reviewOutput));
+  const timestamp = parseTimestamp(envelope.timestamp);
+  const completedAt = timestamp ?? Date.now();
+  return {
+    messages: [],
+    sideEffects: [
+      {
+        kind: 'review',
+        markdown: normalized.markdown,
+        title: 'Code Review',
+        eventId: payload.item_id ?? payload.turn_id ?? `codex-review-${completedAt}`,
+        ...(timestamp !== null ? { completedAt: new Date(timestamp).toISOString() } : {}),
+        usedFallback: normalized.usedFallback
+      }
+    ]
+  };
 }
 
 function codexBuiltinAlias(name: string): string {
